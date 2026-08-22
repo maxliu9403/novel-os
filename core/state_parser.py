@@ -43,8 +43,28 @@ _KNOWN_TAGS = {
 }
 
 
+_ZERO_WIDTH_RE = re.compile(r"[\u200B\u200C\u200D\uFEFF]")
+_PROTOCOL_TAG_RE = re.compile(
+    r"\[(?P<closing>/?)\s*(?P<tag>[A-Za-z][A-Za-z0-9 _-]*)\s*\]"
+)
+
+
+def normalize_agent_output(text: str) -> str:
+    """Normalize known protocol tags without rewriting ordinary Markdown links."""
+    cleaned = _ZERO_WIDTH_RE.sub("", text or "")
+
+    def canonicalize(match: re.Match[str]) -> str:
+        tag = re.sub(r"[\s_-]+", "_", match.group("tag")).upper()
+        if tag not in _KNOWN_TAGS:
+            return match.group(0)
+        return f"[{match.group('closing')}{tag}]"
+
+    return _PROTOCOL_TAG_RE.sub(canonicalize, cleaned)
+
+
 def extract_block(text: str, tag: str) -> Optional[str]:
     """Return the inner text of [TAG]...[/TAG], or [TAG]... up to next known tag."""
+    text = normalize_agent_output(text)
     open_pat = re.compile(rf"\[{re.escape(tag)}\]", re.IGNORECASE)
     close_pat = re.compile(rf"\[/{re.escape(tag)}\]", re.IGNORECASE)
 
@@ -198,6 +218,184 @@ def _as_list(value: Any) -> List[str]:
     return [s]
 
 
+def _parse_pipe_update(raw: str) -> Tuple[str, Dict[str, str]]:
+    """Parse the compact, human-readable update contract used by agents.
+
+    Example::
+
+        plot_001 | status=resolved | milestone=Acquisition closed | chapter=8
+
+    Values are split only at the first equals sign, so notes and milestones may
+    contain punctuation freely. The first segment is the entity id unless it
+    is itself a ``key=value`` pair.
+    """
+    parts = [part.strip() for part in str(raw).split("|") if part.strip()]
+    if not parts:
+        return "", {}
+    fields: Dict[str, str] = {}
+    entity = ""
+    for index, part in enumerate(parts):
+        if "=" in part:
+            key, value = part.split("=", 1)
+            fields[_normalize_key(key)] = value.strip()
+        elif index == 0:
+            entity = part.strip()
+    entity = fields.pop("thread_id", fields.pop("id", entity)).strip()
+    return entity, fields
+
+
+def _parse_optional_chapter(value: Any, fallback: int) -> int:
+    text = str(value or "").strip().lower()
+    if text in ("", "none", "null", "n/a", "-", "0"):
+        return fallback
+    try:
+        return max(0, int(text))
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _apply_plot_thread_updates(
+    state: "StoryState",
+    chapter_number: int,
+    chapter: Any,
+    raw_updates: Any,
+    source: str,
+    log: List[str],
+) -> None:
+    """Apply explicit plot-thread updates without inferring from prose.
+
+    Unknown ids are logged rather than silently creating canon. This keeps an
+    agent typo from adding a second thread that the continuity engine cannot
+    relate to the outline.
+    """
+    for raw in _as_list(raw_updates):
+        thread_id, fields = _parse_pipe_update(raw)
+        thread = state.get_plot_thread(thread_id)
+        if not thread:
+            log.append(f"[{source}] unknown plot thread referenced: {thread_id!r}")
+            continue
+
+        status = fields.get("status")
+        status_ignored = False
+        if status:
+            normalized_status = status.strip().lower()
+            if normalized_status in {"active", "resolved", "abandoned", "foreshadowed"}:
+                reopen = fields.get("reopen", "").strip().lower() in {
+                    "1", "true", "yes", "y", "reopen",
+                }
+                # Resolution/abandonment are terminal facts by default. A
+                # language model often restates an old thread as active while
+                # validating a later chapter; accepting that transition makes
+                # a stale paraphrase reopen an overdue plot. Reopening is an
+                # author-level decision and must be explicit in the protocol.
+                if (
+                    thread.status in {"resolved", "abandoned"}
+                    and normalized_status not in {"resolved", "abandoned"}
+                    and not reopen
+                ):
+                    status_ignored = True
+                    log.append(
+                        f"[{source}] ignored {thread_id} status={normalized_status!r}; "
+                        f"thread is terminal ({thread.status}), use reopen=true"
+                    )
+                else:
+                    thread.status = normalized_status
+            else:
+                log.append(f"[{source}] ignored invalid status for {thread_id}: {status!r}")
+
+        if status_ignored:
+            chapter.plot_thread_updates.append({
+                "thread_id": thread_id,
+                "status": thread.status,
+                "chapter": chapter_number,
+                "target_resolution_chapter": thread.target_resolution_chapter,
+                "milestone": "",
+                "ignored": True,
+            })
+            continue
+
+        if "target_resolution_chapter" in fields or "resolution_chapter" in fields:
+            raw_target = fields.get("target_resolution_chapter", fields.get("resolution_chapter"))
+            target_text = str(raw_target or "").strip().lower()
+            if target_text in ("", "none", "null", "n/a", "-", "0"):
+                thread.target_resolution_chapter = None
+            else:
+                try:
+                    thread.target_resolution_chapter = max(0, int(target_text))
+                except ValueError:
+                    log.append(
+                        f"[{source}] ignored invalid target chapter for {thread_id}: {raw_target!r}"
+                    )
+
+        update_chapter = _parse_optional_chapter(
+            fields.get("chapter", fields.get("last_updated_chapter")),
+            chapter_number,
+        )
+        if update_chapter:
+            thread.last_updated_chapter = max(thread.last_updated_chapter, update_chapter)
+
+        milestone = fields.get("milestone") or fields.get("milestones")
+        if milestone:
+            already_recorded = any(
+                str(item.get("description", "")).strip() == milestone.strip()
+                and int(item.get("chapter", 0) or 0) == update_chapter
+                for item in thread.milestones
+            )
+            if not already_recorded:
+                state.add_milestone_to_thread(thread_id, milestone.strip(), update_chapter)
+            else:
+                thread.last_updated_chapter = max(thread.last_updated_chapter, update_chapter)
+
+        chapter.plot_thread_updates.append({
+            "thread_id": thread_id,
+            "status": thread.status,
+            "chapter": update_chapter,
+            "target_resolution_chapter": thread.target_resolution_chapter,
+            "milestone": milestone.strip() if milestone else "",
+        })
+
+        log.append(
+            f"[{source}] {thread_id} ({thread.name}): status={thread.status!r}, "
+            f"last_updated_chapter={thread.last_updated_chapter}"
+        )
+
+
+def _apply_character_references(
+    state: "StoryState",
+    chapter_number: int,
+    chapter: Any,
+    raw_references: Any,
+    source: str,
+    log: List[str],
+) -> None:
+    """Record an on-page reference or documented off-page absence.
+
+    This intentionally does not add the character to ``characters_present`` or
+    bump ``last_appearance_chapter``. A reference is evidence of continuity,
+    not evidence that the character physically appeared in the scene.
+    """
+    for raw in _as_list(raw_references):
+        character_id, fields = _parse_pipe_update(raw)
+        cid = _resolve_character_id(state, character_id)
+        if not cid:
+            log.append(f"[{source}] unknown character reference: {character_id!r}")
+            continue
+        character = state.characters[cid]
+        reference_chapter = _parse_optional_chapter(fields.get("chapter"), chapter_number)
+        character.last_reference_chapter = max(character.last_reference_chapter, reference_chapter)
+        note = fields.get("note") or fields.get("absence") or fields.get("reason")
+        if note:
+            character.absence_note = note.strip()
+        chapter.character_references.append({
+            "character_id": cid,
+            "chapter": reference_chapter,
+            "note": note.strip() if note else "",
+        })
+        log.append(
+            f"[{source}] {character.full_name}: referenced in ch{reference_chapter}"
+        )
+
+
 def apply_to_state(
     state: "StoryState",
     chapter_number: int,
@@ -248,8 +446,34 @@ def apply_to_state(
         chapter.foreshadowing_planted.append(fs)
         log.append(f"[{source}] foreshadowing planted: {fs[:60]}")
     for fs in _as_list(parsed.get("foreshadowing_resolved")):
-        chapter.foreshadowing_resolved.append(fs)
-        log.append(f"[{source}] foreshadowing resolved: {fs[:60]}")
+        resolved_id, fields = _parse_pipe_update(fs)
+        if resolved_id.startswith("ch") and ":fs" in resolved_id:
+            if resolved_id not in chapter.foreshadowing_resolved_ids:
+                chapter.foreshadowing_resolved_ids.append(resolved_id)
+            note = fields.get("note") or fields.get("description") or resolved_id
+            chapter.foreshadowing_resolved.append(note)
+            log.append(f"[{source}] foreshadowing resolved: {resolved_id}")
+        else:
+            chapter.foreshadowing_resolved.append(fs)
+            log.append(f"[{source}] foreshadowing resolved: {fs[:60]}")
+
+    # ----- explicit continuity metadata
+    _apply_plot_thread_updates(
+        state,
+        chapter_number,
+        chapter,
+        parsed.get("plot_thread_updates"),
+        source,
+        log,
+    )
+    _apply_character_references(
+        state,
+        chapter_number,
+        chapter,
+        parsed.get("character_references"),
+        source,
+        log,
+    )
 
     # ----- new information / facts
     new_facts = _as_list(parsed.get("new_information_revealed")) + _as_list(parsed.get("new_facts_established"))

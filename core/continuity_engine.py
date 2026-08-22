@@ -23,6 +23,7 @@ Categories of checks:
 from __future__ import annotations
 
 import inspect
+import re
 from dataclasses import dataclass, field, asdict
 from functools import lru_cache
 from pathlib import Path
@@ -36,6 +37,14 @@ if TYPE_CHECKING:
 DORMANT_THREAD_GAP_CHAPTERS = 3
 ABSENT_CHARACTER_GAP_CHAPTERS = 5
 DEAD_KEYWORDS = ("dead", "killed", "deceased", "died")
+_DEAD_MARKER_RE = re.compile(
+    rf"\b(?:{'|'.join(map(re.escape, DEAD_KEYWORDS))})\b",
+    re.IGNORECASE,
+)
+
+
+def _contains_dead_marker(*values: str) -> bool:
+    return any(_DEAD_MARKER_RE.search(value or "") for value in values)
 
 
 # --------------------------------------------------------------------- Finding
@@ -132,9 +141,15 @@ def check_unresolved_foreshadowing(state: "StoryState", as_of_chapter: Optional[
     if cur == 0:
         return []
     resolved_all: set = set()
+    resolved_ids: set = set()
     for ch in state.chapters.values():
         for r in ch.foreshadowing_resolved:
             resolved_all.add(r.strip().lower())
+        resolved_ids.update(
+            str(r).strip().lower()
+            for r in getattr(ch, "foreshadowing_resolved_ids", [])
+            if str(r).strip()
+        )
     out: List[Finding] = []
     for ch in sorted(state.chapters.values(), key=lambda c: c.number):
         if ch.number > cur:
@@ -142,7 +157,10 @@ def check_unresolved_foreshadowing(state: "StoryState", as_of_chapter: Optional[
         gap = cur - ch.number
         if gap < DORMANT_THREAD_GAP_CHAPTERS:
             continue
-        for fs in ch.foreshadowing_planted:
+        for index, fs in enumerate(ch.foreshadowing_planted, start=1):
+            source_id = f"ch{ch.number}:fs{index}"
+            if source_id.lower() in resolved_ids:
+                continue
             key = fs.strip().lower()
             if key in resolved_all:
                 continue
@@ -156,6 +174,7 @@ def check_unresolved_foreshadowing(state: "StoryState", as_of_chapter: Optional[
                         f"({gap} chapters later): {fs[:80]}",
                 suggestion="Pay it off, hint at it again, or accept and document.",
                 chapter=ch.number,
+                entity_id=source_id,
             ))
     return out
 
@@ -179,13 +198,17 @@ def check_absent_characters(state: "StoryState", as_of_chapter: Optional[int] = 
                     entity_id=char.id,
                 ))
             continue
-        gap = cur - char.last_appearance_chapter
+        last_seen = max(
+            char.last_appearance_chapter,
+            getattr(char, "last_reference_chapter", 0),
+        )
+        gap = cur - last_seen
         if gap > ABSENT_CHARACTER_GAP_CHAPTERS:
             out.append(Finding(
                 severity="warning",
                 category="absent_character",
-                message=f"{char.full_name} ({char.role}) hasn't appeared in {gap} chapters "
-                        f"(last: ch{char.last_appearance_chapter}).",
+                message=f"{char.full_name} ({char.role}) hasn't appeared or been referenced "
+                        f"in {gap} chapters (last seen: ch{last_seen}).",
                 suggestion="Reintroduce, reference, or document the absence.",
                 chapter=cur,
                 entity_id=char.id,
@@ -198,7 +221,7 @@ def check_dead_characters_reappearing(state: "StoryState") -> List[Finding]:
     for char in state.characters.values():
         es = (char.emotional_state or "").lower()
         notes = (char.notes or "").lower()
-        died_marker = any(k in es or k in notes for k in DEAD_KEYWORDS)
+        died_marker = _contains_dead_marker(es, notes)
         if not died_marker:
             continue
         # If they have any later location update or "appears", flag.
@@ -286,7 +309,7 @@ def _is_dead_character(char) -> bool:
     es = (char.emotional_state or "").lower()
     notes = (char.notes or "").lower()
     role = (char.role or "").lower()
-    return any(k in es or k in notes or k in role for k in DEAD_KEYWORDS)
+    return _contains_dead_marker(es, notes, role)
 
 
 def check_relationship_integrity(state: "StoryState") -> List[Finding]:
@@ -517,7 +540,14 @@ def drop_exempt(state: "StoryState", findings: List[Finding]) -> List[Finding]:
     exempt = getattr(state, "continuity_exemptions", None) or {}
     if not exempt:
         return findings
-    return [f for f in findings if f.key not in exempt]
+    # Keep the pre-ID exemption key working for projects created before
+    # foreshadowing source ids were introduced.
+    legacy_foreshadowing = "unresolved_foreshadowing:" in exempt
+    return [
+        f for f in findings
+        if f.key not in exempt
+        and not (legacy_foreshadowing and f.category == "unresolved_foreshadowing")
+    ]
 
 
 def summarize(findings: List[Finding]) -> str:

@@ -299,6 +299,48 @@ python core/orchestrator.py setup        # or: python -m core.setup_wizard
 Prefer to configure by hand? `cp .env.example .env` and set your key(s). If you run a
 writing command with nothing configured, Novel OS offers the wizard automatically.
 
+For Sub2API or another OpenAI-compatible gateway:
+
+```bash
+NOVEL_OS_LLM_PROVIDER=openai_compatible
+NOVEL_OS_BASE_URL=https://your-sub2api-host.example/v1
+NOVEL_OS_API_KEY=your-key
+NOVEL_OS_MODEL=your-model-id
+```
+
+### One prompt to a complete book
+
+The full-book runner preserves the source prompt, creates a structured story
+foundation, writes chapters sequentially, checkpoints every stage, and compiles
+only approved Final artifacts:
+
+```bash
+python core/orchestrator.py run \
+  --project ./projects/the-life-she-kept \
+  --prompt ./prompt/master-prompt.md \
+  --chapters 24 \
+  --words 80000 \
+  --approval auto \
+  --output markdown epub
+```
+
+`--chapters` and `--words` are optional. When omitted, the runner infers them
+from the prompt (including chapter ranges and words-per-chapter ranges).
+
+Omit `--approval auto` to review each `chapter_NNN_candidate_final.md`. Approve
+one waiting chapter and continue with:
+
+```bash
+python core/orchestrator.py resume \
+  --project ./projects/the-life-she-kept \
+  --run-id RUN_ID \
+  --approve-chapter 1
+```
+
+Use `run-status` to inspect a run and `retry` for its current failed or blocked
+stage. Checkpoints live under `outputs/runs/<run-id>/`; compiled files are placed
+under `outputs/deliverables/`.
+
 ### 1 Initialize
 
 ```bash
@@ -392,15 +434,20 @@ just want to look around.
 | `character list` | List all characters with arc state |
 | `plot add --name --description [--type --priority]` | Register a plot thread |
 | `plot list` | List threads by priority and status |
-| `plan outline --chapters --words` | Generate act structure |
+| `plan outline --chapters --words` | Architect generates a full blueprint and structured foundation |
 | `plan chapter --number [--pov --summary] [--dry-run]` | Architect expands the chapter |
 | `write --chapter [--draft-file --dry-run]` | Scribe drafts (or accept a file) |
 | `edit --chapter --mode [--dry-run]` | Editor revises in one of 5 modes |
 | `validate --chapter [--dry-run]` | Pre-check + LLM Guardian validates |
+| `curate --chapter [--dry-run]` | Style Curator produces a candidate-final chapter |
 | `check [--chapter N]` | Deterministic engine only (no LLM) |
 | `approve --chapter` | Mark complete (blocked while `Status: FAIL`) |
 | `status` | Project dashboard |
 | `export --format markdown` | Compile approved chapters |
+| `run --project --prompt [--chapters --words --approval --output]` | Run the complete prompt-to-book pipeline |
+| `resume --project --run-id [--approve-chapter N \| --approval auto]` | Continue from durable checkpoints |
+| `run-status --project --run-id` | Inspect the current run, phase, chapter, and error |
+| `retry --project --run-id --phase [--chapter]` | Retry the named failed or blocked stage |
 
 ---
 

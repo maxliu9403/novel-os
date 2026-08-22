@@ -14,6 +14,7 @@ from continuity_engine import (  # noqa: E402
     check_relationship_integrity,
     check_relationship_since_anachronism,
     check_contradictory_relationships,
+    check_dead_characters_reappearing,
     check_dead_bonded_co_presence,
     run_all,
 )
@@ -101,6 +102,23 @@ def test_dead_bonded_co_presence(tmp_path):
     )
     findings = check_dead_bonded_co_presence(s, as_of_chapter=3)
     assert any(f.category == "dead_character_co_presence" and f.severity == "critical" for f in findings)
+
+
+def test_dead_character_check_uses_word_boundaries(tmp_path):
+    s = _state(tmp_path)
+    s.add_character(Character(
+        id="char_001", full_name="Lena", role="protagonist",
+        emotional_state="anxious but steadied by support",
+        notes="The story follows her recovery.",
+    ))
+    s.add_character(Character(
+        id="char_002", full_name="Mara", role="supporting",
+        notes="killed in ch1",
+    ))
+
+    findings = check_dead_characters_reappearing(s)
+
+    assert [f.entity_id for f in findings] == ["char_002"]
 
 
 def test_guardian_pack_neighborhood_from_prose(tmp_path):

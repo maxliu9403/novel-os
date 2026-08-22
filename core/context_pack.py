@@ -29,6 +29,7 @@ class ContextPack:
     cast: List[Dict[str, Any]] = field(default_factory=list)
     bonds: List[Dict[str, Any]] = field(default_factory=list)
     threads: List[Dict[str, Any]] = field(default_factory=list)
+    foreshadowing: List[Dict[str, Any]] = field(default_factory=list)
     prior_chapters: List[Dict[str, Any]] = field(default_factory=list)
     codex: List[Dict[str, Any]] = field(default_factory=list)
     budgets: Dict[str, int] = field(default_factory=dict)
@@ -186,10 +187,18 @@ def build_context_pack(
             "name": t.name,
             "status": t.status,
             "priority": t.priority,
+            "target_resolution_chapter": t.target_resolution_chapter,
+            "last_updated_chapter": t.last_updated_chapter,
             "description": (t.description or "")[:200],
             "rank": rank,
         })
     pack.threads = sorted(threads, key=lambda x: (-x["rank"], -x["priority"], x["name"].lower()))
+
+    # Give drafting and validation agents stable ids for recent unresolved
+    # setups. This keeps semantic payoff tracking explicit and avoids asking
+    # the parser to guess from paraphrased prose.
+    if purpose in ("scribe", "guardian"):
+        pack.foreshadowing = _recent_foreshadowing(state, chapter)
 
     # Prior chapters
     pack.prior_chapters = _prior_chapters(state, chapter, count=2)
@@ -264,7 +273,23 @@ def format_context_pack(pack: ContextPack, *, max_chars: int | None = None) -> s
     if pack.threads:
         lines.append("### Plot threads")
         for t in pack.threads:
-            lines.append(f"- **{t['name']}** (p{t['priority']}, {t['status']}): {t.get('description', '')}")
+            timing = []
+            if t.get("target_resolution_chapter"):
+                timing.append(f"target ch{t['target_resolution_chapter']}")
+            if t.get("last_updated_chapter"):
+                timing.append(f"last advanced ch{t['last_updated_chapter']}")
+            suffix = f"; {', '.join(timing)}" if timing else ""
+            lines.append(
+                f"- **{t['id']}** | **{t['name']}** "
+                f"(p{t['priority']}, {t['status']}{suffix}): {t.get('description', '')}"
+            )
+        lines.append("")
+
+    if pack.foreshadowing:
+        lines.append("### Recent foreshadowing ledger")
+        for item in pack.foreshadowing:
+            lines.append(f"- **{item['id']}** (planted ch{item['chapter']}): {item['text']}")
+        lines.append("Use `id=<id> | note=<payoff>` in Foreshadowing_Resolved when a setup is paid off.")
         lines.append("")
 
     if pack.codex:
@@ -335,7 +360,20 @@ def format_context_pack_raw(pack: ContextPack) -> str:
     if pack.threads:
         lines.append("### Plot threads")
         for t in pack.threads:
-            lines.append(f"- **{t['name']}**: {t.get('description', '')}")
+            timing = []
+            if t.get("target_resolution_chapter"):
+                timing.append(f"target ch{t['target_resolution_chapter']}")
+            if t.get("last_updated_chapter"):
+                timing.append(f"last advanced ch{t['last_updated_chapter']}")
+            suffix = f" ({', '.join(timing)})" if timing else ""
+            lines.append(
+                f"- **{t['id']}** | **{t['name']}**{suffix}: {t.get('description', '')}"
+            )
+        lines.append("")
+    if pack.foreshadowing:
+        lines.append("### Recent foreshadowing ledger")
+        for item in pack.foreshadowing:
+            lines.append(f"- {item['id']}: {item['text']}")
         lines.append("")
     if pack.codex:
         lines.append("### Codex")
@@ -385,6 +423,36 @@ def _prior_chapters(state: Any, chapter: int, count: int = 2) -> List[Dict[str, 
             bits = [b for b in [title, f"POV {pov}" if pov else ""] if b]
             synopsis = " · ".join(bits) if bits else f"Chapter {n}"
         out.append({"number": n, "title": title, "synopsis": synopsis})
+    return out
+
+
+def _recent_foreshadowing(state: Any, chapter: int, max_gap: int = 6) -> List[Dict[str, Any]]:
+    """Return recent unresolved setups with stable source ids."""
+    resolved_text: Set[str] = set()
+    resolved_ids: Set[str] = set()
+    chapters = getattr(state, "chapters", {}) or {}
+    for item in chapters.values():
+        resolved_text.update(str(v).strip().lower() for v in item.foreshadowing_resolved)
+        resolved_ids.update(
+            str(v).strip().lower()
+            for v in getattr(item, "foreshadowing_resolved_ids", [])
+        )
+
+    out: List[Dict[str, Any]] = []
+    for item in sorted(chapters.values(), key=lambda value: value.number):
+        gap = chapter - item.number
+        if item.number > chapter or gap < 3 or gap > max_gap:
+            continue
+        for index, text in enumerate(item.foreshadowing_planted, start=1):
+            source_id = f"ch{item.number}:fs{index}"
+            lowered = str(text).strip().lower()
+            if source_id.lower() in resolved_ids:
+                continue
+            if lowered in resolved_text or any(
+                lowered in value or value in lowered for value in resolved_text
+            ):
+                continue
+            out.append({"id": source_id, "chapter": item.number, "text": str(text).strip()[:240]})
     return out
 
 

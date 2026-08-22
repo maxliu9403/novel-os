@@ -213,6 +213,8 @@ Updated_Character_Positions: [List]
 Updated_Character_Knowledge: [List]
 New_World_Facts: [List]
 Plot_Thread_Updates: [List]
+Character_References: [List]
+Foreshadowing_Resolved: [List]
 [/CONTINUITY_STATE_UPDATE]
 ```
 
@@ -246,6 +248,9 @@ In `[CONTINUITY_STATE_UPDATE]`:
 
 - `Updated_Character_Positions` bulleted list of `Character Full Name: new location`. Only include characters whose location actually changed this chapter. Use specific place names (not vague phrases like "in a facility"). Use `[None]` if no positions changed.
 - `New_Facts_Established` bulleted list of new world/timeline/relationship facts, or `[None]`
+- `Plot_Thread_Updates` bulleted list using exact thread ids: `<thread_id> | status=<active|resolved|abandoned|foreshadowed> | milestone=<what changed> | chapter=<number>`. Resolved or abandoned threads are terminal; add `reopen=true` only for an explicit author decision to reopen one.
+- `Character_References` bulleted list using `<character_id or full name> | chapter=<number> | note=<reference or documented off-page absence>`; a reference is not a physical appearance
+- `Foreshadowing_Resolved` may use the ledger id form `id=chN:fsM | note=<payoff>` so semantic payoffs are recorded without copying setup text
 
 ## Status rubric
 

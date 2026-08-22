@@ -18,6 +18,116 @@ The first key found is auto-detected. Override with `NOVEL_OS_LLM_PROVIDER` if y
 
 ---
 
+## Full-book CLI from one prompt
+
+Use this path when you want Novel OS to perform the entire book workflow instead
+of clicking or invoking one chapter stage at a time.
+
+The `--chapters` and `--words` flags are optional; explicit flags win, otherwise
+the intake stage infers targets from the prompt.
+
+For an OpenAI-compatible gateway such as Sub2API, configure `.env` without
+putting the API key in a prompt or command line:
+
+```bash
+NOVEL_OS_LLM_PROVIDER=openai_compatible
+NOVEL_OS_BASE_URL=https://your-sub2api-host.example/v1
+NOVEL_OS_API_KEY=your-key
+NOVEL_OS_MODEL=your-model-id
+```
+
+Preview the intake without a model call:
+
+```bash
+python core/orchestrator.py run \
+  --project ./projects/my-novel \
+  --prompt ./prompt/master-prompt.md \
+  --chapters 24 \
+  --words 80000 \
+  --dry-run
+```
+
+Run unattended and compile Markdown plus EPUB:
+
+```bash
+python core/orchestrator.py run \
+  --project ./projects/my-novel \
+  --prompt ./prompt/master-prompt.md \
+  --chapters 24 \
+  --words 80000 \
+  --approval auto \
+  --output markdown epub
+```
+
+The runner processes chapters sequentially because each chapter updates the
+facts used by the next chapter. It persists `run.json`, `events.jsonl`, artifact
+hashes, prompts, and raw provider responses so an interrupted run can resume.
+
+The default policy is `review_required`. The run pauses after producing a
+candidate final for the current chapter:
+
+```bash
+python core/orchestrator.py run-status \
+  --project ./projects/my-novel --run-id RUN_ID
+
+# Review outputs/manuscript/chapter_001_candidate_final.md, then:
+python core/orchestrator.py resume \
+  --project ./projects/my-novel --run-id RUN_ID --approve-chapter 1
+```
+
+To switch the remaining run to unattended approval:
+
+```bash
+python core/orchestrator.py resume \
+  --project ./projects/my-novel --run-id RUN_ID --approval auto
+```
+
+Retry a recorded failed or blocked checkpoint:
+
+```bash
+python core/orchestrator.py retry \
+  --project ./projects/my-novel \
+  --run-id RUN_ID \
+  --phase chapter.validate \
+  --chapter 7
+```
+
+Resuming a run already marked `completed` performs an integrity audit instead
+of returning blindly. Every approved final must be a non-empty file whose hash
+matches its promotion checkpoint. If a final is damaged, the runner restores it
+only when the corresponding Style candidate is non-empty and still matches its
+trusted checkpoint; it then recompiles the requested deliverables without
+calling an agent or the model. Missing, empty, or untrusted source artifacts
+stop the repair rather than producing a partial book.
+
+An explicit retry of `chapter.check.pre`, `chapter.check.post`, or `book.check`
+adopts the current manuscript and StoryState as the new trusted input
+checkpoint. This preserves intentional continuity repairs instead of restoring
+the stale state that produced the original deterministic finding. Guardian
+validation retries still restore the clean post-edit checkpoint because a
+failed Guardian response may have partially updated state.
+
+Critical deterministic findings or a Guardian `FAIL` block promotion. Network,
+timeout, and rate-limit failures use bounded exponential retries; configuration
+and output-contract failures stop immediately with a non-zero exit code.
+
+Primary artifacts:
+
+```text
+outputs/input/prompt.md
+outputs/input/brief.json
+outputs/input/foundation.json
+outputs/outline.md
+outputs/runs/<run-id>/run.json
+outputs/runs/<run-id>/events.jsonl
+outputs/manuscript/chapter_NNN_candidate_final.md
+outputs/manuscript/chapter_NNN_final.md
+outputs/deliverables/book.md
+outputs/deliverables/book.epub
+```
+
+---
+
 ## 📚 Standard chapter loop
 
 ```mermaid

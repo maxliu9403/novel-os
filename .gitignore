@@ -54,6 +54,9 @@ ChatGPT Image *.png
 # --- Local Novel OS projects (user data, not source) ---
 /projects/
 
+# --- Local novel prompts (user-authored source material) ---
+/prompt/
+
 # --- Local SQLite database ---
 novel_os*.db
 *.db

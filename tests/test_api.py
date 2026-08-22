@@ -37,6 +37,21 @@ def test_health_ok():
     assert resp.json()["status"] == "ok"
 
 
+def test_cors_allows_loopback_vite_origin():
+    origin = "http://127.0.0.1:5174"
+    client = TestClient(create_app())
+    resp = client.options(
+        "/api/projects",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == origin
+
+
 def test_list_projects(projects_root):
     svc = ProjectService(projects_root)
     projects = svc.list_projects()

@@ -14,7 +14,12 @@ from .version import __version__
 
 #: Vite's default, and the next port it falls back to when that one is taken -
 #: which is exactly when a developer hits an unexplained "Failed to fetch".
-DEFAULT_CORS_ORIGINS = ("http://localhost:5173", "http://localhost:5174")
+DEFAULT_CORS_ORIGINS = (
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+)
 
 
 def _cors_origins() -> list[str]:

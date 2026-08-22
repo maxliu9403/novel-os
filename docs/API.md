@@ -96,6 +96,19 @@ state.save_state()
 
 The parser recognizes `[SCRIBE_STATE_UPDATE]`, `[EDITOR_ANALYSIS]`, `[EDITOR_STATE_UPDATE]`, `[CONTINUITY_REPORT]`, `[CONTINUITY_STATE_UPDATE]`, `[STYLE_ANALYSIS]`, `[STYLE_STATE_UPDATE]` blocks. Both `[TAG]…[/TAG]` and unclosed `[TAG]…` (stops at next known tag) are supported.
 
+State-update blocks may also carry durable continuity metadata. Use
+`Plot_Thread_Updates` entries such as
+`plot_001 | status=resolved | milestone=Acquisition closed | chapter=8`,
+`Character_References` entries such as
+`char_007 | chapter=8 | note=Referenced while off-page`, and
+`Foreshadowing_Resolved` ledger entries such as
+`id=ch6:fs2 | note=The hidden risk is disclosed`. These updates are written to
+the chapter state and survive checkpoint restore.
+
+Plot thread updates treat `resolved` and `abandoned` as terminal statuses. A
+model cannot reopen one by restating it as `active`; an author-controlled
+update must include `reopen=true`.
+
 Individual parsers and the applier are exposed if you need them:
 
 ```python

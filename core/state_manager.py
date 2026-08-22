@@ -42,6 +42,11 @@ class Character:
     current_location: str = ""
     emotional_state: str = ""
     last_appearance_chapter: int = 0
+    # A character may be referenced or deliberately kept off-page without
+    # appearing in a scene. Keep that fact separate from physical appearance
+    # so continuity checks do not require a false cast entry.
+    last_reference_chapter: int = 0
+    absence_note: str = ""
     notes: str = ""
     portrait_media_id: str = ""
     
@@ -163,11 +168,16 @@ class ChapterState:
     target_word_count: int = 2500
     scenes: List[Dict[str, Any]] = field(default_factory=list)
     plot_advances: List[str] = field(default_factory=list)
+    plot_thread_updates: List[Dict[str, Any]] = field(default_factory=list)
     character_development: Dict[str, str] = field(default_factory=dict)
     emotional_beats: List[str] = field(default_factory=list)
     new_information: List[str] = field(default_factory=list)
     foreshadowing_planted: List[str] = field(default_factory=list)
     foreshadowing_resolved: List[str] = field(default_factory=list)
+    # Stable source ids (for example ``ch18:fs2``) let an agent record a
+    # semantic payoff without copying the original sentence verbatim.
+    foreshadowing_resolved_ids: List[str] = field(default_factory=list)
+    character_references: List[Dict[str, Any]] = field(default_factory=list)
     hooks_start: List[str] = field(default_factory=list)
     hooks_end: List[str] = field(default_factory=list)
     characters_present: List[str] = field(default_factory=list)

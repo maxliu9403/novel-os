@@ -185,6 +185,9 @@ Key_Events: [Bullet points]
 Emotional_Shifts: [Character: Change]
 New_Information_Revealed: [List]
 Foreshadowing_Planted: [List]
+Foreshadowing_Resolved: [List]
+Plot_Thread_Updates: [List]
+Character_References: [List]
 Location_Changes: [Character: New location]
 [/SCRIBE_STATE_UPDATE]
 ```
@@ -220,7 +223,9 @@ Inside the block, use **only** these field names. Spelling and underscores matte
 - `Emotional_Shifts` bulleted list of `Character Name: new emotional state`
 - `New_Information_Revealed` bulleted list of facts the reader/characters learned (use `[None]` if nothing new)
 - `Foreshadowing_Planted` bulleted list of seeds for future payoff (use `[None]` if none)
-- `Foreshadowing_Resolved` bulleted list of prior seeds paid off this chapter (use `[None]` if none)
+- `Foreshadowing_Resolved` bulleted list of prior seeds paid off this chapter. Prefer the ledger id form `id=chN:fsM | note=<payoff>` (use `[None]` if none)
+- `Plot_Thread_Updates` bulleted list using the exact thread id from the context pack and pipe-separated fields: `<thread_id> | status=<active|resolved|abandoned|foreshadowed> | milestone=<what changed> | chapter=<number>`. Resolved or abandoned threads are terminal; use `reopen=true` only when the author explicitly intends to reopen one.
+- `Character_References` bulleted list using `<character_id or full name> | chapter=<number> | note=<on-page reference or documented off-page absence>`; do not list a referenced/off-page character as physically present
 
 ## Concrete example (copy this structure exactly)
 
@@ -243,6 +248,10 @@ New_Information_Revealed:
 Foreshadowing_Planted:
   - The locked drawer in Malk's office
 Foreshadowing_Resolved:
+  - [None]
+Plot_Thread_Updates:
+  - [None]
+Character_References:
   - [None]
 [/SCRIBE_STATE_UPDATE]
 ```
