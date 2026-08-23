@@ -413,6 +413,49 @@ def test_proposal_store_reports_uncertain_commit_after_link_directory_sync_failu
     assert store.load(proposal.proposal_id) == proposal
 
 
+def test_secure_store_reports_uncertain_commit_after_directory_close_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    if not proposals_module._SECURE_DIR_FD:
+        pytest.skip("secure directory descriptors are unavailable")
+
+    store = ProposalStore(tmp_path / "project")
+    proposal = CanonDeltaProposal(
+        chapter=1,
+        agent_name="scribe",
+        source_artifact_sha=SOURCE_SHA,
+        delta={"key_events": ["Door opens"]},
+    )
+    original_link = proposals_module.os.link
+    original_close = proposals_module.os.close
+    published_directory_fd = None
+
+    def record_link(*args, **kwargs):
+        nonlocal published_directory_fd
+        result = original_link(*args, **kwargs)
+        published_directory_fd = kwargs["dst_dir_fd"]
+        return result
+
+    def fail_published_directory_close(descriptor: int) -> None:
+        if published_directory_fd is not None and descriptor == published_directory_fd:
+            original_close(descriptor)
+            raise OSError("simulated post-publication directory close failure")
+        original_close(descriptor)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(proposals_module.os, "link", record_link)
+        patch.setattr(proposals_module.os, "close", fail_published_directory_close)
+
+        with pytest.raises(proposals_module.ProposalCommitUncertain) as raised:
+            store.save(proposal)
+
+        assert raised.value.operation == "proposal_save"
+        assert raised.value.proposal_id == proposal.proposal_id
+
+    assert store.load(proposal.proposal_id) == proposal
+
+
 def test_proposal_store_pre_link_failure_leaves_no_record_or_temp_file(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

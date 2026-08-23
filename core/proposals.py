@@ -197,64 +197,65 @@ class ProposalStore:
 
     def _save_secure(self, proposal: CanonDeltaProposal, payload: bytes) -> CanonDeltaProposal:
         target_name = f"{proposal.proposal_id}.json"
-        with self._directory_fd(create=True) as directory_fd:
-            try:
-                return self._load_from_fd(
-                    directory_fd,
-                    proposal.proposal_id,
-                    proposal.source_artifact_sha,
-                )
-            except FileNotFoundError:
-                pass
-
-            temporary_name = f".{proposal.proposal_id}.{os.urandom(8).hex()}.tmp"
-            temporary_exists = False
-            linked = False
-            try:
-                temp_fd = os.open(
-                    temporary_name,
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                    0o600,
-                    dir_fd=directory_fd,
-                )
-                temporary_exists = True
-                with os.fdopen(temp_fd, "wb") as handle:
-                    handle.write(payload)
-                    handle.flush()
-                    os.fsync(handle.fileno())
+        linked = False
+        try:
+            with self._directory_fd(create=True) as directory_fd:
                 try:
-                    os.link(
-                        temporary_name,
-                        target_name,
-                        src_dir_fd=directory_fd,
-                        dst_dir_fd=directory_fd,
-                        follow_symlinks=False,
-                    )
-                except FileExistsError:
                     return self._load_from_fd(
                         directory_fd,
                         proposal.proposal_id,
                         proposal.source_artifact_sha,
                     )
-                linked = True
-                os.unlink(temporary_name, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    pass
+
+                temporary_name = f".{proposal.proposal_id}.{os.urandom(8).hex()}.tmp"
                 temporary_exists = False
-                os.fsync(directory_fd)
-                return proposal
-            except OSError as exc:
-                if linked:
-                    raise ProposalCommitUncertain(
-                        operation="proposal_save",
-                        proposal_id=proposal.proposal_id,
-                    ) from exc
-                raise
-            finally:
-                if temporary_exists:
+                try:
+                    temp_fd = os.open(
+                        temporary_name,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                        0o600,
+                        dir_fd=directory_fd,
+                    )
+                    temporary_exists = True
+                    with os.fdopen(temp_fd, "wb") as handle:
+                        handle.write(payload)
+                        handle.flush()
+                        os.fsync(handle.fileno())
                     try:
-                        os.unlink(temporary_name, dir_fd=directory_fd)
-                    except OSError:
-                        # Cleanup is best-effort and must not mask the save outcome.
-                        pass
+                        os.link(
+                            temporary_name,
+                            target_name,
+                            src_dir_fd=directory_fd,
+                            dst_dir_fd=directory_fd,
+                            follow_symlinks=False,
+                        )
+                    except FileExistsError:
+                        return self._load_from_fd(
+                            directory_fd,
+                            proposal.proposal_id,
+                            proposal.source_artifact_sha,
+                        )
+                    linked = True
+                    os.unlink(temporary_name, dir_fd=directory_fd)
+                    temporary_exists = False
+                    os.fsync(directory_fd)
+                    return proposal
+                finally:
+                    if temporary_exists:
+                        try:
+                            os.unlink(temporary_name, dir_fd=directory_fd)
+                        except OSError:
+                            # Cleanup is best-effort and must not mask the save outcome.
+                            pass
+        except OSError as exc:
+            if linked:
+                raise ProposalCommitUncertain(
+                    operation="proposal_save",
+                    proposal_id=proposal.proposal_id,
+                ) from exc
+            raise
 
     def _save_compat(self, proposal: CanonDeltaProposal, payload: bytes) -> CanonDeltaProposal:
         self._assert_safe_layout()
