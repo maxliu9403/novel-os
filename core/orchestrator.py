@@ -24,6 +24,7 @@ from datetime import datetime
 # Import state manager
 from state_manager import StoryState, Character, PlotThread, ChapterState, TimelineEvent, StyleProfile, initialize_project
 from llm_client import LLMClient, LLMError
+from model_router import ModelRouter
 from state_parser import ingest_agent_output, normalize_agent_output, parse_agent_output
 from continuity_engine import run_all as run_continuity_checks, summarize as summarize_findings, to_context_block
 from prose_sanitize import sanitize_manuscript, apply_header_to_chapter, strip_em_dashes
@@ -53,6 +54,8 @@ class NovelOrchestrator:
         
         self._ensure_directories()
         self._llm: Optional[LLMClient] = None
+        self._llms: Dict[str, LLMClient] = {}
+        self._model_router = ModelRouter()
         # Book-level pipelines opt into exceptions so they can retry and record
         # a failed stage. Interactive legacy commands retain their friendly
         # print-and-return behavior.
@@ -89,10 +92,29 @@ class NovelOrchestrator:
         persisted = ProposalStore(self.project_path).save(proposal)
         self.last_canon_proposal_ids.append(persisted.proposal_id)
 
-    def _get_llm(self) -> LLMClient:
-        if self._llm is None:
-            self._llm = LLMClient()
-        return self._llm
+    def _get_llm(self, agent_name: str = "writer") -> LLMClient:
+        """Return a legacy override or a role-keyed cached client."""
+        if self._llm is not None:
+            return self._llm
+        role = self._model_router.normalize_role(agent_name)
+        if role not in self._llms:
+            self._llms[role] = self._model_router.client_for(role)
+        return self._llms[role]
+
+    @property
+    def llm(self) -> LLMClient:
+        """Compatibility access to the default writer client."""
+        return self._get_llm("writer")
+
+    @llm.setter
+    def llm(self, client: LLMClient) -> None:
+        self._llm = client
+        self._llms.clear()
+
+    def runtime_provenance_for(self, agent_name: str) -> tuple[str, str]:
+        """Return the resolved provider/model for an agent without credentials."""
+        llm = self._get_llm(agent_name)
+        return str(llm.provider), str(llm.model)
 
     def _run_agent_or_save_prompt(
         self,
@@ -118,7 +140,7 @@ class NovelOrchestrator:
             print(f"   [dry-run] Prompt saved: {prompt_path}")
             return None
         try:
-            llm = self._get_llm()
+            llm = self._get_llm(agent_name)
             print(f"   {label} ({llm.provider}:{llm.model})...")
             result = llm.run_agent(agent_name, user_prompt)
         except LLMError as e:
@@ -920,7 +942,7 @@ or recommendations.
             return None
 
         try:
-            llm = self._get_llm()
+            llm = self._get_llm("style_curator")
             print(f"   Style Curator polishing ({llm.provider}:{llm.model})...")
             result = llm.run_agent("style_curator", prompt)
         except LLMError as exc:

@@ -7,6 +7,7 @@ import pytest
 import orchestrator as orchestrator_module
 from continuity_engine import Finding
 from llm_client import LLMError
+from model_router import ModelRouter
 from orchestrator import NovelOrchestrator
 from prompt_intake import ingest_prompt
 from proposals import ProposalStore
@@ -177,6 +178,47 @@ def test_proposal_only_scribe_run_persists_artifacts_without_mutating_state(
 def test_state_update_mode_rejects_invalid_values(tmp_path: Path):
     with pytest.raises(ValueError, match="state_update_mode"):
         NovelOrchestrator(str(tmp_path / "invalid"), state_update_mode="invalid")
+
+
+def test_orchestrator_routes_and_caches_clients_by_agent_role(tmp_path: Path, monkeypatch):
+    created = []
+
+    class RoleClient:
+        def __init__(self, role):
+            self.provider = f"provider-{role}"
+            self.model = f"model-{role}"
+
+    def client_for(_self, role):
+        normalized = ModelRouter.normalize_role(role)
+        created.append(normalized)
+        return RoleClient(normalized)
+
+    monkeypatch.setattr(ModelRouter, "client_for", client_for)
+    orch = NovelOrchestrator(str(tmp_path / "project"))
+
+    writer = orch._get_llm("scribe")
+    assert orch._get_llm("writer") is writer
+    assert orch._get_llm("continuity_guardian") is not writer
+    assert orch._get_llm("style_curator") is not writer
+    assert created == ["writer", "guardian", "style"]
+    assert orch.runtime_provenance_for("scribe") == (
+        "provider-writer",
+        "model-writer",
+    )
+
+
+def test_legacy_llm_injection_remains_default_for_every_role(tmp_path: Path):
+    orch = NovelOrchestrator(str(tmp_path / "project"))
+    legacy = FakeLLM()
+    orch._llm = legacy
+
+    assert orch.llm is legacy
+    assert orch._get_llm("architect") is legacy
+    assert orch._get_llm("style_curator") is legacy
+    assert orch.runtime_provenance_for("continuity_guardian") == (
+        "fake",
+        "fake-model",
+    )
 
 
 def test_state_update_mode_override_is_isolated_and_legacy_still_saves(

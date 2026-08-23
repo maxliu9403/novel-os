@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional, Tuple
 
 
 SCHEMA_VERSION = 1
-DEFAULT_RUBRIC_VERSION = "quality-rubric-v1"
+DEFAULT_RUBRIC_VERSION = "quality.v1"
 SEVERITIES = frozenset({"critical", "major", "minor", "info"})
 REPAIR_CLASSES = frozenset(
     {"chapter_structure", "continuity", "prose", "style"}

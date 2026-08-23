@@ -24,6 +24,16 @@ from prompt_intake import ingest_prompt
 from styles import StyleSheet
 
 
+_STAGE_AGENTS = {
+    "outline": "architect",
+    "chapter.plan": "architect",
+    "chapter.write": "scribe",
+    "chapter.edit": "editor",
+    "chapter.validate": "continuity_guardian",
+    "chapter.style": "style_curator",
+}
+
+
 class PipelineError(RuntimeError):
     """A run stopped for a reason that should be visible to the CLI."""
 
@@ -430,7 +440,7 @@ class PipelineRunner:
                     result.decisions.append(
                         "Candidate promoted automatically under approval_policy=auto."
                     )
-                result.provider, result.model = self._runtime_model()
+                result.provider, result.model = self._runtime_model(phase)
                 self._save_stage(manifest, project, store, result, snapshot_state=True)
                 self._last_valid_state_snapshot = result.state_snapshot_path
                 self._event(manifest, "stage.done", phase=phase, chapter=chapter, attempt=attempt)
@@ -906,8 +916,16 @@ class PipelineRunner:
             output.write_bytes(render_bytes(book, sheet, fmt))
         return True
 
-    def _runtime_model(self) -> tuple[str, str]:
-        llm = getattr(getattr(self, "_active_orchestrator", None), "_llm", None)
+    def _runtime_model(self, phase: str) -> tuple[str, str]:
+        agent_name = _STAGE_AGENTS.get(phase)
+        if agent_name is None:
+            return "", ""
+        orchestrator = getattr(self, "_active_orchestrator", None)
+        provenance = getattr(orchestrator, "runtime_provenance_for", None)
+        if callable(provenance):
+            provider, model = provenance(agent_name)
+            return str(provider), str(model)
+        llm = getattr(orchestrator, "_llm", None)
         if llm is not None:
             return str(getattr(llm, "provider", "")), str(getattr(llm, "model", ""))
         return os.environ.get("NOVEL_OS_LLM_PROVIDER", ""), os.environ.get("NOVEL_OS_MODEL", "")

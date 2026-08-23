@@ -22,7 +22,14 @@ if _alternate_package_name is not None:
             setattr(_parent_package, _child_name, sys.modules[__name__])
 
 from .evidence import verify_evidence
-from .models import EvidenceSpan, EvaluationReport, EvaluationRequest, QualityFinding
+from .lab import QualityLab
+from .models import (
+    DEFAULT_RUBRIC_VERSION,
+    EvidenceSpan,
+    EvaluationReport,
+    EvaluationRequest,
+    QualityFinding,
+)
 
 if _alternate_package_name is not None:
     sys.modules[f"{_alternate_package_name}.models"] = sys.modules[
@@ -31,11 +38,14 @@ if _alternate_package_name is not None:
     sys.modules[f"{_alternate_package_name}.evidence"] = sys.modules[
         f"{__name__}.evidence"
     ]
+    sys.modules[f"{_alternate_package_name}.lab"] = sys.modules[f"{__name__}.lab"]
 
 __all__ = [
+    "DEFAULT_RUBRIC_VERSION",
     "EvidenceSpan",
     "EvaluationReport",
     "EvaluationRequest",
     "QualityFinding",
+    "QualityLab",
     "verify_evidence",
 ]

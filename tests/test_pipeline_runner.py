@@ -84,6 +84,16 @@ class FakeOrchestrator:
             f"Final {number}\n", encoding="utf-8"
         )
 
+    def runtime_provenance_for(self, agent_name):
+        role = {
+            "architect": "architect",
+            "scribe": "writer",
+            "editor": "editor",
+            "continuity_guardian": "guardian",
+            "style_curator": "style",
+        }[agent_name]
+        return f"provider-{role}", f"model-{role}"
+
 
 def _factory(project_path):
     return FakeOrchestrator(project_path)
@@ -113,6 +123,35 @@ def test_runner_completes_two_chapter_book(tmp_path: Path):
     assert manifest.get("chapter.write", 1).state_snapshot_path
     assert ("write", 1) in FakeOrchestrator.calls
     assert ("write", 2) in FakeOrchestrator.calls
+
+
+def test_agent_stages_persist_actual_role_provenance(tmp_path: Path):
+    FakeOrchestrator.calls = []
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("A story.", encoding="utf-8")
+
+    manifest = PipelineRunner(orchestrator_factory=_factory).run(RunSpec(
+        project_path=str(tmp_path / "project"),
+        prompt_path=str(prompt),
+        num_chapters=1,
+        target_words=20,
+        approval_policy="auto",
+    ))
+
+    assert (manifest.get("chapter.write", 1).provider, manifest.get("chapter.write", 1).model) == (
+        "provider-writer",
+        "model-writer",
+    )
+    assert (
+        manifest.get("chapter.validate", 1).provider,
+        manifest.get("chapter.validate", 1).model,
+    ) == ("provider-guardian", "model-guardian")
+    assert (manifest.get("chapter.style", 1).provider, manifest.get("chapter.style", 1).model) == (
+        "provider-style",
+        "model-style",
+    )
+    assert manifest.get("chapter.check.pre", 1).provider == ""
+    assert manifest.get("compile").model == ""
 
 
 def test_guardian_fail_blocks_auto_promotion(tmp_path: Path):
