@@ -77,7 +77,7 @@ class ProposalStore:
     """
 
     def __init__(self, project_root: os.PathLike[str] | str):
-        self.project_root = Path(project_root).resolve(strict=False)
+        self.project_root = Path(os.path.abspath(project_root))
         self.directory = self.project_root / "outputs" / "state" / "proposals"
 
     @staticmethod
@@ -91,9 +91,10 @@ class ProposalStore:
             raise ValueError("expected source artifact sha must be lowercase 64 hex")
 
     def _assert_safe_layout(self) -> None:
-        current = self.project_root
+        managed_paths = [self.project_root]
         for component in _MANAGED_COMPONENTS:
-            current = current / component
+            managed_paths.append(managed_paths[-1] / component)
+        for current in managed_paths:
             try:
                 metadata = current.lstat()
             except FileNotFoundError:
@@ -114,7 +115,12 @@ class ProposalStore:
         if create:
             self.project_root.mkdir(parents=True, exist_ok=True)
         flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-        current_fd = os.open(self.project_root, flags)
+        try:
+            current_fd = os.open(self.project_root, flags)
+        except OSError as exc:
+            if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+                raise _symlink_error(self.project_root) from exc
+            raise
         try:
             for component in _MANAGED_COMPONENTS:
                 try:

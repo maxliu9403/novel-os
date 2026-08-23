@@ -338,6 +338,69 @@ def test_proposal_store_rejects_record_with_missing_embedded_id(tmp_path: Path):
         store.load(proposal.proposal_id)
 
 
+@pytest.mark.parametrize("storage_mode", ["secure", "compat"])
+def test_proposal_store_rejects_symlinked_project_root_before_save(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    storage_mode: str,
+):
+    if storage_mode == "secure" and not proposals_module._SECURE_DIR_FD:
+        pytest.skip("secure directory descriptors are unavailable")
+    if storage_mode == "compat":
+        monkeypatch.setattr(proposals_module, "_SECURE_DIR_FD", False)
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    project = tmp_path / "project"
+    project.symlink_to(outside, target_is_directory=True)
+    store = ProposalStore(project)
+    proposal = CanonDeltaProposal(
+        chapter=1,
+        agent_name="scribe",
+        source_artifact_sha=SOURCE_SHA,
+        delta={"key_events": ["Door opens"]},
+    )
+
+    with pytest.raises(ValueError, match="symlink"):
+        store.save(proposal)
+
+    outside_record = (
+        outside / "outputs/state/proposals" / f"{proposal.proposal_id}.json"
+    )
+    assert not outside_record.exists()
+
+
+@pytest.mark.parametrize("storage_mode", ["secure", "compat"])
+def test_proposal_store_rejects_symlinked_project_root_before_load(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    storage_mode: str,
+):
+    if storage_mode == "secure" and not proposals_module._SECURE_DIR_FD:
+        pytest.skip("secure directory descriptors are unavailable")
+
+    outside = tmp_path / "outside"
+    proposal = CanonDeltaProposal(
+        chapter=1,
+        agent_name="scribe",
+        source_artifact_sha=SOURCE_SHA,
+        delta={"key_events": ["Door opens"]},
+    )
+    ProposalStore(outside).save(proposal)
+    outside_record = (
+        outside / "outputs/state/proposals" / f"{proposal.proposal_id}.json"
+    )
+    assert outside_record.is_file()
+
+    if storage_mode == "compat":
+        monkeypatch.setattr(proposals_module, "_SECURE_DIR_FD", False)
+    project = tmp_path / "project"
+    project.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink"):
+        ProposalStore(project).load(proposal.proposal_id)
+
+
 @pytest.mark.parametrize("component", ["outputs", "state", "proposals"])
 def test_proposal_store_rejects_symlinked_parent_before_save(tmp_path: Path, component: str):
     project = tmp_path / "project"
