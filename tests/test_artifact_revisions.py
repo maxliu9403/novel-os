@@ -203,6 +203,59 @@ def test_set_head_rejects_candidate_with_invalid_blob(
     assert store.get_head(2, "final").revision_id == base.revision_id
 
 
+def test_head_directory_fsync_failure_reports_uncertain_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    store = ArtifactStore(tmp_path)
+    base = store.put_text(
+        chapter=2,
+        kind="final",
+        text="Base",
+        source="import",
+    )
+    candidate = store.put_text(
+        chapter=2,
+        kind="final",
+        text="Candidate",
+        source="editor",
+    )
+    store.set_head(
+        2,
+        "final",
+        base.revision_id,
+        expected_revision_id=None,
+    )
+
+    def fail_directory_fsync(_path):
+        raise OSError("simulated post-replace directory fsync failure")
+
+    monkeypatch.setattr(
+        artifacts_module,
+        "_fsync_directory",
+        fail_directory_fsync,
+    )
+    with pytest.raises(artifacts_module.ArtifactCommitUncertain) as raised:
+        store.set_head(
+            2,
+            "final",
+            candidate.revision_id,
+            expected_revision_id=base.revision_id,
+        )
+
+    assert raised.value.operation == "head_update"
+    assert raised.value.revision_id == candidate.revision_id
+    assert store.get_head(2, "final").revision_id == candidate.revision_id
+
+    reconciled = store.set_head(
+        2,
+        "final",
+        candidate.revision_id,
+        expected_revision_id=base.revision_id,
+    )
+    assert reconciled.revision_id == candidate.revision_id
+
+
 def test_modified_blob_is_rejected_on_read(tmp_path: Path):
     store = ArtifactStore(tmp_path)
     revision = store.put_text(
@@ -396,6 +449,53 @@ def test_failed_revision_log_rewrite_preserves_existing_history(
     assert log.read_bytes() == original_log
     assert store.read_text(first.revision_id) == "Shared bytes"
     assert list(log.parent.glob(".revisions.jsonl.tmp-*")) == []
+
+
+def test_revision_log_directory_fsync_failure_reports_uncertain_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    store = ArtifactStore(tmp_path)
+    first = store.put_text(
+        chapter=1,
+        kind="draft",
+        text="Shared bytes",
+        source="scribe",
+    )
+
+    def fail_directory_fsync(_path):
+        raise OSError("simulated post-replace directory fsync failure")
+
+    monkeypatch.setattr(
+        artifacts_module,
+        "_fsync_directory",
+        fail_directory_fsync,
+    )
+    with pytest.raises(artifacts_module.ArtifactError) as raised:
+        store.put_text(
+            chapter=1,
+            kind="revised",
+            text="Shared bytes",
+            source="editor",
+            parent_revision_id=first.revision_id,
+        )
+
+    log = tmp_path / "outputs" / "artifacts" / "revisions.jsonl"
+    records = [
+        json.loads(line)
+        for line in log.read_text(encoding="utf-8").splitlines()
+    ]
+    committed_revision_id = records[-1]["revision_id"]
+    committed = store.get_revision(committed_revision_id)
+    assert committed.parent_revision_id == first.revision_id
+
+    uncertain_type = getattr(artifacts_module, "ArtifactCommitUncertain", None)
+    assert uncertain_type is not None
+    assert isinstance(raised.value, uncertain_type)
+    assert raised.value.operation == "revision_log_append"
+    assert raised.value.revision_id == committed_revision_id
+    assert "reconcile" in str(raised.value)
+    assert "ArtifactCommitUncertain" in artifacts_module.__all__
 
 
 def test_repeated_identical_head_update_is_idempotent_with_old_expectation(

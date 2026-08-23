@@ -45,6 +45,23 @@ class ArtifactError(Exception):
     """Base class for artifact persistence failures."""
 
 
+class ArtifactCommitUncertain(ArtifactError):
+    """Raised when a replaced artifact file may not be durably committed.
+
+    The current file may already contain the revision or head update. Callers
+    must reconcile by ``revision_id`` before retrying and must not blindly issue
+    a new write.
+    """
+
+    def __init__(self, *, operation: str, revision_id: str) -> None:
+        self.operation = operation
+        self.revision_id = revision_id
+        super().__init__(
+            f"{operation} for revision {revision_id} may already be committed; "
+            "reconcile the persisted revision/head by revision_id before retrying"
+        )
+
+
 class ArtifactCorruptionError(ArtifactError):
     """Raised when an artifact metadata or head file is malformed."""
 
@@ -291,7 +308,7 @@ class ArtifactStore:
             updated_at=self._utc_timestamp(),
         )
         heads[key] = head
-        self._write_heads(heads)
+        self._write_heads(heads, revision_id=revision_id)
         return head
 
     def _put_bytes(
@@ -411,6 +428,7 @@ class ArtifactStore:
             else:
                 os.replace(temp_name, target)
                 temp_name = ""
+                # Revision commit has not started; failure leaves a safe orphan blob.
                 _fsync_directory(self.blob_root)
         finally:
             if temp_name and os.path.exists(temp_name):
@@ -451,7 +469,13 @@ class ArtifactStore:
                 os.fsync(handle.fileno())
             os.replace(temp_name, self.revisions_path)
             temp_name = ""
-            _fsync_directory(self.artifact_root)
+            try:
+                _fsync_directory(self.artifact_root)
+            except OSError as exc:
+                raise ArtifactCommitUncertain(
+                    operation="revision_log_append",
+                    revision_id=revision.revision_id,
+                ) from exc
         except OSError as exc:
             raise ArtifactCorruptionError(
                 f"cannot atomically append {self.revisions_path}: {exc}"
@@ -588,7 +612,12 @@ class ArtifactStore:
             heads[key] = head
         return heads
 
-    def _write_heads(self, heads: Mapping[Tuple[int, str], ArtifactHead]) -> None:
+    def _write_heads(
+        self,
+        heads: Mapping[Tuple[int, str], ArtifactHead],
+        *,
+        revision_id: str,
+    ) -> None:
         self.artifact_root.mkdir(parents=True, exist_ok=True)
         payload = {
             "schema_version": 1,
@@ -612,7 +641,13 @@ class ArtifactStore:
                 os.fsync(handle.fileno())
             os.replace(temp_name, self.heads_path)
             temp_name = ""
-            _fsync_directory(self.artifact_root)
+            try:
+                _fsync_directory(self.artifact_root)
+            except OSError as exc:
+                raise ArtifactCommitUncertain(
+                    operation="head_update",
+                    revision_id=revision_id,
+                ) from exc
         except OSError as exc:
             raise ArtifactCorruptionError(
                 f"cannot atomically write {self.heads_path}: {exc}"
@@ -830,6 +865,7 @@ def _fsync_directory(path: Path) -> None:
 
 
 __all__ = [
+    "ArtifactCommitUncertain",
     "ArtifactCorruptionError",
     "ArtifactError",
     "ArtifactHead",
