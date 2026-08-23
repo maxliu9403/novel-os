@@ -1,6 +1,7 @@
 """Tests for artifact-bound quality evidence and evaluation reports."""
 
 import hashlib
+import importlib
 import json
 from dataclasses import FrozenInstanceError
 
@@ -187,7 +188,7 @@ def test_direct_construction_cannot_claim_evidence_was_verified():
     text = "The door locked."
     artifact_sha = _sha(text)
 
-    with pytest.raises(ValueError, match="with_verified_evidence"):
+    with pytest.raises(TypeError):
         QualityFinding(
             artifact_sha256=artifact_sha,
             category="causality",
@@ -198,6 +199,51 @@ def test_direct_construction_cannot_claim_evidence_was_verified():
             repair_class="chapter_structure",
             evidence_verified=True,
             _verification_performed=True,
+        )
+
+
+def test_imported_private_token_cannot_grant_live_verification_trust():
+    text = "The door locked."
+    artifact_sha = _sha(text)
+    models = importlib.import_module("quality.models")
+    imported_token = getattr(models, "_VERIFIED_EVIDENCE_CAPABILITY", object())
+
+    with pytest.raises(TypeError):
+        QualityFinding(
+            artifact_sha256=artifact_sha,
+            category="causality",
+            severity="critical",
+            message="The consequence is unclear",
+            evidence=(EvidenceSpan(artifact_sha, "not present"),),
+            suggested_action="Show the consequence",
+            repair_class="chapter_structure",
+            evidence_verified=True,
+            evidence_verification_result=True,
+            _verification_performed=imported_token,
+        )
+
+
+@pytest.mark.parametrize(
+    "legacy_keyword",
+    [
+        {"evidence_verified": True},
+        {"_verification_performed": object()},
+    ],
+)
+def test_public_constructor_rejects_legacy_trust_keywords(legacy_keyword):
+    text = "The door locked."
+    artifact_sha = _sha(text)
+
+    with pytest.raises(TypeError):
+        QualityFinding(
+            artifact_sha256=artifact_sha,
+            category="causality",
+            severity="critical",
+            message="The consequence is unclear",
+            evidence=(EvidenceSpan(artifact_sha, text),),
+            suggested_action="Show the consequence",
+            repair_class="chapter_structure",
+            **legacy_keyword,
         )
 
 

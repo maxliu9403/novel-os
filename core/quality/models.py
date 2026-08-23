@@ -7,7 +7,7 @@ import json
 import math
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import InitVar, dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from types import MappingProxyType
 from typing import Any, Dict, Optional, Tuple
@@ -25,7 +25,6 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _FINDING_ID_RE = re.compile(r"^finding-[0-9a-f]{64}$")
 _EVALUATION_ID_RE = re.compile(r"^evaluation-[0-9a-f]{64}$")
 _REPORT_ID_RE = re.compile(r"^report-[0-9a-f]{64}$")
-_VERIFIED_EVIDENCE_CAPABILITY = object()
 
 
 def _canonical_json(value: Any) -> str:
@@ -154,13 +153,12 @@ class QualityFinding:
     evidence: Tuple[EvidenceSpan, ...]
     suggested_action: str
     repair_class: str
-    evidence_verified: bool = False
+    evidence_verified: bool = field(default=False, init=False)
     evidence_verification_result: bool = False
     schema_version: int = SCHEMA_VERSION
     finding_id: str = ""
-    _verification_performed: InitVar[Any] = None
 
-    def __post_init__(self, _verification_performed: Any) -> None:
+    def __post_init__(self) -> None:
         _validate_schema_version(self.schema_version)
         _validate_sha256(self.artifact_sha256, "artifact_sha256")
         object.__setattr__(
@@ -197,28 +195,8 @@ class QualityFinding:
                 raise ValueError("all evidence must match the finding artifact")
         object.__setattr__(self, "evidence", evidence)
 
-        if type(self.evidence_verified) is not bool:
-            raise ValueError("evidence_verified must be a boolean")
         if type(self.evidence_verification_result) is not bool:
             raise ValueError("evidence_verification_result must be a boolean")
-        if (
-            _verification_performed is not None
-            and _verification_performed is not _VERIFIED_EVIDENCE_CAPABILITY
-        ):
-            raise ValueError(
-                "verified evidence must be derived by with_verified_evidence"
-            )
-        if self.evidence_verified and (
-            _verification_performed is not _VERIFIED_EVIDENCE_CAPABILITY
-        ):
-            raise ValueError(
-                "verified evidence must be derived by with_verified_evidence"
-            )
-        if self.evidence_verified != self.evidence_verification_result:
-            if _verification_performed is _VERIFIED_EVIDENCE_CAPABILITY:
-                raise ValueError(
-                    "evidence verification result must match verified evidence"
-                )
 
         expected_id = _content_id("finding", _finding_identity(self))
         if not isinstance(self.finding_id, str):
@@ -266,7 +244,7 @@ class QualityFinding:
         verified = bool(self.evidence) and all(
             verify_evidence(text, actual_artifact_sha, item) for item in self.evidence
         )
-        return QualityFinding(
+        checked = QualityFinding(
             artifact_sha256=self.artifact_sha256,
             category=self.category,
             severity=self.severity,
@@ -274,11 +252,12 @@ class QualityFinding:
             evidence=self.evidence,
             suggested_action=self.suggested_action,
             repair_class=self.repair_class,
-            evidence_verified=verified,
             evidence_verification_result=verified,
             schema_version=self.schema_version,
-            _verification_performed=_VERIFIED_EVIDENCE_CAPABILITY,
         )
+        if verified:
+            object.__setattr__(checked, "evidence_verified", True)
+        return checked
 
     def to_dict(self) -> Dict[str, Any]:
         return {"finding_id": self.finding_id, **_finding_identity(self)}
