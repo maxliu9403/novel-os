@@ -27,6 +27,20 @@ def _wait_for_race(barrier: threading.Barrier) -> None:
         pass
 
 
+def _fail_directory_open(
+    monkeypatch: pytest.MonkeyPatch,
+    directory: Path,
+) -> None:
+    original_open = artifacts_module.os.open
+
+    def fail_target_directory(path, flags, *args, **kwargs):
+        if Path(path) == directory:
+            raise OSError("simulated directory open failure")
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(artifacts_module.os, "open", fail_target_directory)
+
+
 def test_same_text_reuses_content_blob_but_creates_traceable_revision(
     tmp_path: Path,
 ):
@@ -254,6 +268,44 @@ def test_head_directory_fsync_failure_reports_uncertain_commit(
         expected_revision_id=base.revision_id,
     )
     assert reconciled.revision_id == candidate.revision_id
+
+
+def test_head_directory_open_failure_reports_uncertain_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    store = ArtifactStore(tmp_path)
+    base = store.put_text(
+        chapter=2,
+        kind="final",
+        text="Base",
+        source="import",
+    )
+    candidate = store.put_text(
+        chapter=2,
+        kind="final",
+        text="Candidate",
+        source="editor",
+    )
+    store.set_head(
+        2,
+        "final",
+        base.revision_id,
+        expected_revision_id=None,
+    )
+    _fail_directory_open(monkeypatch, store.artifact_root)
+
+    with pytest.raises(artifacts_module.ArtifactCommitUncertain) as raised:
+        store.set_head(
+            2,
+            "final",
+            candidate.revision_id,
+            expected_revision_id=base.revision_id,
+        )
+
+    assert raised.value.operation == "head_update"
+    assert raised.value.revision_id == candidate.revision_id
+    assert store.get_head(2, "final").revision_id == candidate.revision_id
 
 
 def test_modified_blob_is_rejected_on_read(tmp_path: Path):
@@ -496,6 +548,55 @@ def test_revision_log_directory_fsync_failure_reports_uncertain_commit(
     assert raised.value.revision_id == committed_revision_id
     assert "reconcile" in str(raised.value)
     assert "ArtifactCommitUncertain" in artifacts_module.__all__
+
+
+def test_revision_log_directory_open_failure_reports_uncertain_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    store = ArtifactStore(tmp_path)
+    first = store.put_text(
+        chapter=1,
+        kind="draft",
+        text="Shared bytes",
+        source="scribe",
+    )
+    _fail_directory_open(monkeypatch, store.artifact_root)
+
+    with pytest.raises(artifacts_module.ArtifactCommitUncertain) as raised:
+        store.put_text(
+            chapter=1,
+            kind="revised",
+            text="Shared bytes",
+            source="editor",
+            parent_revision_id=first.revision_id,
+        )
+
+    committed = store.get_revision(raised.value.revision_id)
+    assert raised.value.operation == "revision_log_append"
+    assert committed.parent_revision_id == first.revision_id
+
+
+def test_blob_directory_open_failure_is_not_a_committed_revision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    store = ArtifactStore(tmp_path)
+    text = "Orphaned bytes"
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    _fail_directory_open(monkeypatch, store.blob_root)
+
+    with pytest.raises(OSError, match="simulated directory open failure") as raised:
+        store.put_text(
+            chapter=1,
+            kind="draft",
+            text=text,
+            source="scribe",
+        )
+
+    assert not isinstance(raised.value, artifacts_module.ArtifactCommitUncertain)
+    assert (store.blob_root / digest).read_text(encoding="utf-8") == text
+    assert not store.revisions_path.exists()
 
 
 def test_repeated_identical_head_update_is_idempotent_with_old_expectation(

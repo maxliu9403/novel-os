@@ -854,10 +854,7 @@ def _head_from_record(record: Any) -> ArtifactHead:
 
 
 def _fsync_directory(path: Path) -> None:
-    try:
-        directory_fd = os.open(path, os.O_RDONLY)
-    except OSError:
-        return
+    directory_fd = os.open(path, os.O_RDONLY)
     try:
         os.fsync(directory_fd)
     finally:
