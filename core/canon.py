@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -15,10 +16,40 @@ from state_parser import apply_to_state, parse_agent_output
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _PROPOSAL_ID_RE = re.compile(r"^proposal-[0-9a-f]{64}$")
+_ALLOWED_AGENT_NAMES = frozenset(
+    {"scribe", "editor", "continuity_guardian", "style_curator"}
+)
 
 
 def _canonical_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def _validate_json_value(value: Any) -> None:
+    """Reject values outside the strict JSON value domain recursively."""
+    if value is None or type(value) in (bool, str, int):
+        return
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ValueError("delta must contain JSON-compatible values")
+        return
+    if type(value) is dict:
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError("delta must contain JSON-compatible values")
+            _validate_json_value(item)
+        return
+    if type(value) in (list, tuple):
+        for item in value:
+            _validate_json_value(item)
+        return
+    raise ValueError("delta must contain JSON-compatible values")
 
 
 def _freeze(value: Any) -> Any:
@@ -81,6 +112,8 @@ class CanonDeltaProposal:
             raise ValueError("chapter must be a positive integer")
         if not isinstance(self.agent_name, str) or not self.agent_name.strip():
             raise ValueError("agent_name must be nonblank")
+        if self.agent_name not in _ALLOWED_AGENT_NAMES:
+            raise ValueError("agent_name is not permitted to propose canon")
         if not isinstance(self.source_artifact_sha, str) or not _SHA256_RE.fullmatch(
             self.source_artifact_sha
         ):
@@ -102,7 +135,9 @@ class CanonDeltaProposal:
         if parsed_timestamp.tzinfo is None or parsed_timestamp.utcoffset() != timezone.utc.utcoffset(None):
             raise ValueError("timestamp must be UTC")
 
-        frozen_delta = _freeze(_normalize_delta(self.delta))
+        normalized_delta = _normalize_delta(self.delta)
+        _validate_json_value(normalized_delta)
+        frozen_delta = _freeze(normalized_delta)
         object.__setattr__(self, "delta", frozen_delta)
         try:
             identity = _identity_dict(

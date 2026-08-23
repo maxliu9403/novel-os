@@ -18,7 +18,13 @@ _PROPOSAL_ID_RE = re.compile(r"^proposal-[0-9a-f]{64}$")
 
 
 def _canonical_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
 
 
 def _record_sha256(proposal_data: Mapping[str, Any]) -> str:
@@ -51,8 +57,24 @@ class ProposalStore:
     """Append-only proposal records rooted below a Novel OS project."""
 
     def __init__(self, project_root: os.PathLike[str] | str):
-        self.project_root = Path(project_root)
+        # Resolve only the project root. The managed outputs/state/proposals
+        # chain is checked with lstat so it cannot redirect records elsewhere.
+        self.project_root = Path(project_root).resolve(strict=False)
         self.directory = self.project_root / "outputs" / "state" / "proposals"
+
+    def _assert_safe_layout(self) -> None:
+        """Reject symlinked managed parents before any filesystem operation."""
+        current = self.project_root
+        for component in ("outputs", "state", "proposals"):
+            current = current / component
+            try:
+                current.lstat()
+            except FileNotFoundError:
+                continue
+            if current.is_symlink():
+                raise ValueError(f"proposal storage parent must not be a symlink: {current}")
+            if not current.is_dir():
+                raise ValueError(f"proposal storage parent must be a directory: {current}")
 
     @staticmethod
     def _validate_proposal_id(proposal_id: str) -> None:
@@ -70,9 +92,17 @@ class ProposalStore:
             raise TypeError("proposal must be a CanonDeltaProposal")
         # Reconstructing validates every identity field before touching disk.
         proposal = CanonDeltaProposal.from_dict(proposal.to_dict())
+        self._assert_safe_layout()
         self.directory.mkdir(parents=True, exist_ok=True)
+        self._assert_safe_layout()
         target = self.directory / f"{proposal.proposal_id}.json"
-        if target.exists() or target.is_symlink():
+        try:
+            target.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            if target.is_symlink():
+                raise ValueError("proposal record must not be a symlink")
             return self.load(
                 proposal.proposal_id,
                 expected_source_artifact_sha=proposal.source_artifact_sha,
@@ -84,6 +114,7 @@ class ProposalStore:
             "record_sha256": _record_sha256(proposal_data),
         }
         payload = (_canonical_json(record) + "\n").encode("utf-8")
+        self._assert_safe_layout()
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{proposal.proposal_id}.",
             suffix=".tmp",
@@ -95,6 +126,7 @@ class ProposalStore:
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
+            self._assert_safe_layout()
             try:
                 os.link(temporary, target)
             except FileExistsError:
@@ -120,6 +152,7 @@ class ProposalStore:
         self._validate_proposal_id(proposal_id)
         if expected_source_artifact_sha is not None:
             self._validate_source_sha(expected_source_artifact_sha)
+        self._assert_safe_layout()
         path = self.directory / f"{proposal_id}.json"
         if path.is_symlink():
             raise ValueError("proposal record must not be a symlink")

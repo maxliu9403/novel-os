@@ -14,6 +14,7 @@ from state_manager import StoryState
 
 
 SOURCE_SHA = "a" * 64
+ALLOWED_AGENTS = ("scribe", "editor", "continuity_guardian", "style_curator")
 
 
 def _state_snapshot(state: StoryState):
@@ -119,6 +120,60 @@ def test_proposal_rejects_invalid_identity_fields(overrides, message):
 
     with pytest.raises(ValueError, match=message):
         CanonDeltaProposal(**values)
+
+
+@pytest.mark.parametrize("agent_name", ["architect", "", "unknown_agent"])
+def test_proposal_rejects_agents_that_cannot_propose_canon(agent_name):
+    with pytest.raises(ValueError, match="agent_name"):
+        CanonDeltaProposal(
+            chapter=1,
+            agent_name=agent_name,
+            source_artifact_sha=SOURCE_SHA,
+            delta={"key_events": ["Door opens"]},
+        )
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        b"bytes",
+        {"set"},
+        (value for value in ["generator"]),
+        object(),
+    ],
+)
+def test_proposal_rejects_non_strict_json_values(bad_value):
+    with pytest.raises(ValueError, match="JSON-compatible"):
+        CanonDeltaProposal(
+            chapter=1,
+            agent_name="scribe",
+            source_artifact_sha=SOURCE_SHA,
+            delta={"bad": bad_value},
+        )
+
+
+def test_proposal_rejects_non_string_mapping_keys():
+    with pytest.raises(ValueError, match="JSON-compatible"):
+        CanonDeltaProposal(
+            chapter=1,
+            agent_name="scribe",
+            source_artifact_sha=SOURCE_SHA,
+            delta={"nested": {1: "not a JSON object key"}},
+        )
+
+
+@pytest.mark.parametrize("agent_name", ALLOWED_AGENTS)
+def test_allowed_agents_can_build_proposals(agent_name):
+    proposal = CanonDeltaProposal(
+        chapter=1,
+        agent_name=agent_name,
+        source_artifact_sha=SOURCE_SHA,
+        delta={"key_events": ["Door opens"]},
+    )
+    assert proposal.agent_name == agent_name
 
 
 @pytest.mark.parametrize("actual_sha", ["A" * 64, "b" * 64])
@@ -277,3 +332,47 @@ def test_proposal_store_rejects_record_with_missing_embedded_id(tmp_path: Path):
 
     with pytest.raises(ValueError, match="proposal_id"):
         store.load(proposal.proposal_id)
+
+
+@pytest.mark.parametrize("component", ["outputs", "state", "proposals"])
+def test_proposal_store_rejects_symlinked_parent_before_save(tmp_path: Path, component: str):
+    project = tmp_path / "project"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (project / "outputs").mkdir(parents=True)
+    if component == "outputs":
+        (project / "outputs").rmdir()
+        (project / "outputs").symlink_to(outside, target_is_directory=True)
+    else:
+        (project / "outputs" / ("state" if component == "state" else "state/proposals")).mkdir(
+            parents=True
+        )
+        target = project / "outputs" / "state"
+        if component == "proposals":
+            target = target / "proposals"
+        target.rmdir()
+        target.symlink_to(outside, target_is_directory=True)
+
+    store = ProposalStore(project)
+    proposal = CanonDeltaProposal(
+        chapter=1,
+        agent_name="scribe",
+        source_artifact_sha=SOURCE_SHA,
+        delta={"key_events": ["Door opens"]},
+    )
+    with pytest.raises(ValueError, match="symlink"):
+        store.save(proposal)
+    assert not list(outside.glob("*.json"))
+
+
+def test_proposal_store_rejects_symlinked_parent_before_load(tmp_path: Path):
+    project = tmp_path / "project"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (project / "outputs" / "state").mkdir(parents=True)
+    (project / "outputs" / "state" / "proposals").symlink_to(
+        outside, target_is_directory=True
+    )
+
+    with pytest.raises(ValueError, match="symlink"):
+        ProposalStore(project).load("proposal-" + "a" * 64)
