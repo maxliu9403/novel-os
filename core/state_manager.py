@@ -183,6 +183,9 @@ class ChapterState:
     characters_present: List[str] = field(default_factory=list)
     continuity_checks: Dict[str, Any] = field(default_factory=dict)
     quality_scores: Dict[str, float] = field(default_factory=dict)
+    contract_id: str = ""
+    canonical_revision_id: str = ""
+    last_evaluation_id: str = ""
     last_modified: str = ""
     
     def to_dict(self) -> Dict[str, Any]:
