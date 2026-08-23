@@ -24,6 +24,28 @@ def _chapter_contract(**overrides):
     return ChapterContract(**values)
 
 
+INVALID_SCHEMA_VERSIONS = [
+    pytest.param("1", id="string"),
+    pytest.param(True, id="bool"),
+    pytest.param(0, id="zero"),
+    pytest.param(2, id="future"),
+    pytest.param(object(), id="object"),
+]
+
+
+def _construct_with_schema_version(contract_type, schema_version):
+    if contract_type is AuthorIntent:
+        return AuthorIntent("Premise", "Adults", schema_version=schema_version)
+    if contract_type is StoryContract:
+        return StoryContract(
+            "Title",
+            "Thriller",
+            AuthorIntent("Premise", "Adults"),
+            schema_version=schema_version,
+        )
+    return _chapter_contract(schema_version=schema_version)
+
+
 def test_author_intent_round_trips_and_serializes_schema_version():
     intent = AuthorIntent(
         premise="  A cooperative exposes a rigged acquisition.  ",
@@ -130,6 +152,49 @@ def test_blank_sequence_items_are_filtered():
     )
 
     assert story.themes == ("solidarity", "institutional memory")
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        pytest.param({"solidarity", "memory"}, id="set"),
+        pytest.param(frozenset({"solidarity", "memory"}), id="frozenset"),
+        pytest.param({"solidarity": True}, id="dict"),
+        pytest.param((value for value in ["solidarity"]), id="generator"),
+    ],
+)
+def test_sequence_fields_reject_non_sequence_iterables(values):
+    with pytest.raises(ValueError, match="themes"):
+        StoryContract(
+            title="The Last Ballot",
+            genre="Thriller",
+            intent=AuthorIntent("Workers uncover fraud", "Adults"),
+            themes=values,
+        )
+
+
+@pytest.mark.parametrize(
+    "contract_type",
+    [AuthorIntent, StoryContract, ChapterContract],
+)
+@pytest.mark.parametrize("schema_version", INVALID_SCHEMA_VERSIONS)
+def test_direct_construction_rejects_unsupported_schema_versions(
+    contract_type, schema_version
+):
+    with pytest.raises(ValueError, match="schema_version"):
+        _construct_with_schema_version(contract_type, schema_version)
+
+
+@pytest.mark.parametrize(
+    "contract_type",
+    [AuthorIntent, StoryContract, ChapterContract],
+)
+@pytest.mark.parametrize("schema_version", INVALID_SCHEMA_VERSIONS)
+def test_from_dict_rejects_schema_version_before_parsing_other_fields(
+    contract_type, schema_version
+):
+    with pytest.raises(ValueError, match="schema_version"):
+        contract_type.from_dict({"schema_version": schema_version})
 
 
 def test_legacy_chapter_state_loads_with_empty_contract_references():

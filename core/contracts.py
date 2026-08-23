@@ -2,8 +2,9 @@
 
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Dict, Tuple
 
 
 def _required_string(value: Any, field_name: str) -> str:
@@ -12,22 +13,24 @@ def _required_string(value: Any, field_name: str) -> str:
     return value.strip()
 
 
-def _string_tuple(values: Iterable[str], field_name: str) -> Tuple[str, ...]:
-    if isinstance(values, (str, bytes)):
+def _string_tuple(values: Sequence[str], field_name: str) -> Tuple[str, ...]:
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
         raise ValueError(f"{field_name} must be a sequence of strings")
-    try:
-        items = iter(values)
-    except TypeError as exc:
-        raise ValueError(f"{field_name} must be a sequence of strings") from exc
 
     normalized = []
-    for value in items:
+    for value in values:
         if not isinstance(value, str):
             raise ValueError(f"{field_name} must contain only strings")
         stripped = value.strip()
         if stripped:
             normalized.append(stripped)
     return tuple(normalized)
+
+
+def _schema_version(value: Any) -> int:
+    if type(value) is not int or value != 1:
+        raise ValueError("schema_version must be the integer 1")
+    return value
 
 
 class _ContractValue:
@@ -54,6 +57,7 @@ class AuthorIntent(_ContractValue):
     schema_version: int = 1
 
     def __post_init__(self) -> None:
+        _schema_version(self.schema_version)
         object.__setattr__(self, "premise", _required_string(self.premise, "premise"))
         object.__setattr__(
             self,
@@ -78,12 +82,13 @@ class AuthorIntent(_ContractValue):
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AuthorIntent":
+        schema_version = _schema_version(data.get("schema_version", 1))
         return cls(
             premise=data["premise"],
             target_audience=data["target_audience"],
             language=data.get("language", "en-US"),
             content_boundaries=data.get("content_boundaries", ()),
-            schema_version=data.get("schema_version", 1),
+            schema_version=schema_version,
         )
 
 
@@ -97,6 +102,7 @@ class StoryContract(_ContractValue):
     schema_version: int = 1
 
     def __post_init__(self) -> None:
+        _schema_version(self.schema_version)
         object.__setattr__(self, "title", _required_string(self.title, "title"))
         object.__setattr__(self, "genre", _required_string(self.genre, "genre"))
         if not isinstance(self.intent, AuthorIntent):
@@ -120,13 +126,14 @@ class StoryContract(_ContractValue):
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "StoryContract":
+        schema_version = _schema_version(data.get("schema_version", 1))
         return cls(
             title=data["title"],
             genre=data["genre"],
             intent=AuthorIntent.from_dict(data["intent"]),
             themes=data.get("themes", ()),
             non_negotiables=data.get("non_negotiables", ()),
-            schema_version=data.get("schema_version", 1),
+            schema_version=schema_version,
         )
 
 
@@ -146,6 +153,7 @@ class ChapterContract(_ContractValue):
     schema_version: int = 1
 
     def __post_init__(self) -> None:
+        _schema_version(self.schema_version)
         if not isinstance(self.chapter, int) or isinstance(self.chapter, bool) or self.chapter < 1:
             raise ValueError("chapter must be a positive integer")
         for field_name in (
@@ -191,6 +199,7 @@ class ChapterContract(_ContractValue):
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ChapterContract":
+        schema_version = _schema_version(data.get("schema_version", 1))
         return cls(
             chapter=data["chapter"],
             goal=data["goal"],
@@ -203,5 +212,5 @@ class ChapterContract(_ContractValue):
             preserve_facts=data.get("preserve_facts", ()),
             allowed_knowledge=data.get("allowed_knowledge", ()),
             world_event_ids=data.get("world_event_ids", ()),
-            schema_version=data.get("schema_version", 1),
+            schema_version=schema_version,
         )
