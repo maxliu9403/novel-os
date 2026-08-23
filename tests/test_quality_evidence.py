@@ -48,8 +48,9 @@ def _request(text: str = "Maren signed the agreement.") -> EvaluationRequest:
 def _report(**overrides) -> EvaluationReport:
     text = "Maren signed the agreement."
     request = _request(text)
-    finding = _finding(text).with_verified_evidence(text, request.artifact_sha256)
+    finding = _finding(text)
     values = {
+        "request": request,
         "artifact_sha256": request.artifact_sha256,
         "evaluation_id": request.evaluation_id,
         "rubric_version": request.rubric_version,
@@ -196,7 +197,42 @@ def test_direct_construction_cannot_claim_evidence_was_verified():
             suggested_action="Show the consequence",
             repair_class="chapter_structure",
             evidence_verified=True,
+            _verification_performed=True,
         )
+
+
+def test_serialized_verification_result_does_not_restore_blocking_trust():
+    text = "The door locked."
+    verified = _finding(text).with_verified_evidence(text, _sha(text))
+    payload = verified.to_dict()
+
+    restored = QualityFinding.from_dict(payload)
+
+    assert payload["evidence_verification_result"] is True
+    assert restored.to_dict() == payload
+    assert restored.evidence_verification_result is True
+    assert restored.evidence_verified is False
+    assert restored.blocking is False
+
+
+def test_forged_serialized_true_with_recomputed_id_cannot_block():
+    text = "The door locked."
+    payload = _finding(text).to_dict()
+    payload["evidence_verification_result"] = True
+    identity = {key: value for key, value in payload.items() if key != "finding_id"}
+    canonical = json.dumps(
+        identity,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    payload["finding_id"] = f"finding-{hashlib.sha256(canonical).hexdigest()}"
+
+    restored = QualityFinding.from_dict(payload)
+
+    assert restored.evidence_verified is False
+    assert restored.blocking is False
 
 
 def test_empty_finding_evidence_is_auditable_but_never_blocking():
@@ -235,9 +271,9 @@ def test_finding_rejects_unsupported_repair_class(repair_class):
         _finding("Text", repair_class=repair_class)
 
 
-def test_finding_round_trip_preserves_stable_id_and_verification_state():
+def test_unverified_finding_round_trip_preserves_stable_id_and_state():
     text = "The door locked."
-    finding = _finding(text).with_verified_evidence(text, _sha(text))
+    finding = _finding(text)
     payload = json.loads(json.dumps(finding.to_dict()))
     restored = QualityFinding.from_dict(payload)
 
@@ -255,7 +291,9 @@ def test_finding_from_dict_detects_id_and_nested_evidence_tampering():
     payload = finding.to_dict()
 
     with pytest.raises(ValueError, match="finding_id"):
-        QualityFinding.from_dict({**payload, "evidence_verified": True})
+        QualityFinding.from_dict(
+            {**payload, "evidence_verification_result": True}
+        )
 
     nested_tamper = json.loads(json.dumps(payload))
     nested_tamper["evidence"][0]["quote"] = "changed"
@@ -357,6 +395,42 @@ def test_report_rejects_findings_bound_to_another_artifact():
         _report(findings=(other,))
 
 
+def test_report_rejects_an_evaluation_id_not_bound_to_its_request():
+    with pytest.raises(ValueError, match="evaluation_id"):
+        _report(evaluation_id="evaluation-" + "d" * 64)
+
+
+def test_report_rejects_artifact_sha_not_bound_to_its_request():
+    with pytest.raises(ValueError, match="artifact_sha256"):
+        _report(artifact_sha256="d" * 64, findings=())
+
+
+def test_report_rejects_rubric_not_bound_to_its_request():
+    with pytest.raises(ValueError, match="rubric_version"):
+        _report(rubric_version="quality-rubric-v2")
+
+
+def test_report_serializes_its_bound_immutable_request():
+    report = _report()
+
+    assert report.request == _request()
+    assert report.request_id == report.request.evaluation_id
+    assert report.to_dict()["request"] == report.request.to_dict()
+
+
+@pytest.mark.parametrize("tampered_field", ["evaluation_id", "chapter"])
+def test_report_rejects_nested_request_identity_tampering(tampered_field):
+    payload = _report().to_dict()
+    payload["request"] = _request().to_dict()
+    if tampered_field == "evaluation_id":
+        payload["request"][tampered_field] = "evaluation-" + "d" * 64
+    else:
+        payload["request"][tampered_field] += 1
+
+    with pytest.raises(ValueError, match="evaluation_id"):
+        EvaluationReport.from_dict(payload)
+
+
 @pytest.mark.parametrize("field", ["artifact_sha256", "prompt_sha256"])
 def test_report_rejects_malformed_sha_fields(field):
     with pytest.raises(ValueError, match=field):
@@ -401,6 +475,7 @@ def test_all_models_reject_invalid_schema_versions(schema_version):
             schema_version=schema_version,
         ),
         lambda: EvaluationReport(
+            request=report.request,
             artifact_sha256=report.artifact_sha256,
             evaluation_id=report.evaluation_id,
             rubric_version=report.rubric_version,

@@ -25,6 +25,7 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _FINDING_ID_RE = re.compile(r"^finding-[0-9a-f]{64}$")
 _EVALUATION_ID_RE = re.compile(r"^evaluation-[0-9a-f]{64}$")
 _REPORT_ID_RE = re.compile(r"^report-[0-9a-f]{64}$")
+_VERIFIED_EVIDENCE_CAPABILITY = object()
 
 
 def _canonical_json(value: Any) -> str:
@@ -131,14 +132,20 @@ def _finding_identity(finding: "QualityFinding") -> Dict[str, Any]:
         "evidence": [item.to_dict() for item in finding.evidence],
         "suggested_action": finding.suggested_action,
         "repair_class": finding.repair_class,
-        "evidence_verified": finding.evidence_verified,
+        "evidence_verification_result": finding.evidence_verification_result,
         "schema_version": finding.schema_version,
     }
 
 
 @dataclass(frozen=True)
 class QualityFinding:
-    """An auditable quality claim whose blocking state is evidence-derived."""
+    """An auditable quality claim whose blocking trust exists only in memory.
+
+    ``evidence_verification_result`` records the last check for audit and stable
+    serialization. Only ``with_verified_evidence`` can grant the separate live
+    ``evidence_verified`` authority used by ``blocking``. Deserialization keeps
+    the result but intentionally does not restore that authority.
+    """
 
     artifact_sha256: str
     category: str
@@ -148,11 +155,12 @@ class QualityFinding:
     suggested_action: str
     repair_class: str
     evidence_verified: bool = False
+    evidence_verification_result: bool = False
     schema_version: int = SCHEMA_VERSION
     finding_id: str = ""
-    _verification_performed: InitVar[bool] = False
+    _verification_performed: InitVar[Any] = None
 
-    def __post_init__(self, _verification_performed: bool) -> None:
+    def __post_init__(self, _verification_performed: Any) -> None:
         _validate_schema_version(self.schema_version)
         _validate_sha256(self.artifact_sha256, "artifact_sha256")
         object.__setattr__(
@@ -191,10 +199,26 @@ class QualityFinding:
 
         if type(self.evidence_verified) is not bool:
             raise ValueError("evidence_verified must be a boolean")
-        if self.evidence_verified and not _verification_performed:
+        if type(self.evidence_verification_result) is not bool:
+            raise ValueError("evidence_verification_result must be a boolean")
+        if (
+            _verification_performed is not None
+            and _verification_performed is not _VERIFIED_EVIDENCE_CAPABILITY
+        ):
             raise ValueError(
                 "verified evidence must be derived by with_verified_evidence"
             )
+        if self.evidence_verified and (
+            _verification_performed is not _VERIFIED_EVIDENCE_CAPABILITY
+        ):
+            raise ValueError(
+                "verified evidence must be derived by with_verified_evidence"
+            )
+        if self.evidence_verified != self.evidence_verification_result:
+            if _verification_performed is _VERIFIED_EVIDENCE_CAPABILITY:
+                raise ValueError(
+                    "evidence verification result must match verified evidence"
+                )
 
         expected_id = _content_id("finding", _finding_identity(self))
         if not isinstance(self.finding_id, str):
@@ -251,8 +275,9 @@ class QualityFinding:
             suggested_action=self.suggested_action,
             repair_class=self.repair_class,
             evidence_verified=verified,
+            evidence_verification_result=verified,
             schema_version=self.schema_version,
-            _verification_performed=True,
+            _verification_performed=_VERIFIED_EVIDENCE_CAPABILITY,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -271,7 +296,7 @@ class QualityFinding:
             "evidence",
             "suggested_action",
             "repair_class",
-            "evidence_verified",
+            "evidence_verification_result",
             "schema_version",
         }
         _validate_exact_fields(data, expected, "quality finding")
@@ -282,7 +307,6 @@ class QualityFinding:
         values["evidence"] = tuple(
             EvidenceSpan.from_dict(item) for item in raw_evidence
         )
-        values["_verification_performed"] = True
         return cls(**values)
 
 
@@ -455,6 +479,7 @@ def _freeze_dimension_map(value: Any) -> Mapping[str, float]:
 
 def _report_identity(report: "EvaluationReport") -> Dict[str, Any]:
     return {
+        "request": report.request.to_dict(),
         "artifact_sha256": report.artifact_sha256,
         "evaluation_id": report.evaluation_id,
         "rubric_version": report.rubric_version,
@@ -474,6 +499,7 @@ def _report_identity(report: "EvaluationReport") -> Dict[str, Any]:
 class EvaluationReport:
     """A versioned evaluator result bound to its request and artifact."""
 
+    request: EvaluationRequest
     artifact_sha256: str
     evaluation_id: str
     rubric_version: str
@@ -490,15 +516,23 @@ class EvaluationReport:
 
     def __post_init__(self) -> None:
         _validate_schema_version(self.schema_version)
+        if not isinstance(self.request, EvaluationRequest):
+            raise ValueError("request must be an EvaluationRequest")
         _validate_sha256(self.artifact_sha256, "artifact_sha256")
+        if self.artifact_sha256 != self.request.artifact_sha256:
+            raise ValueError("artifact_sha256 must match the bound request")
         object.__setattr__(
             self, "evaluation_id", _required_string(self.evaluation_id, "evaluation_id")
         )
+        if self.evaluation_id != self.request.evaluation_id:
+            raise ValueError("evaluation_id must match the bound request")
         object.__setattr__(
             self,
             "rubric_version",
             _required_string(self.rubric_version, "rubric_version"),
         )
+        if self.rubric_version != self.request.rubric_version:
+            raise ValueError("rubric_version must match the bound request")
         _validate_sha256(self.prompt_sha256, "prompt_sha256")
         object.__setattr__(
             self,
@@ -556,12 +590,17 @@ class EvaluationReport:
     def to_dict(self) -> Dict[str, Any]:
         return {"report_id": self.report_id, **_report_identity(self)}
 
+    @property
+    def request_id(self) -> str:
+        return self.request.evaluation_id
+
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "EvaluationReport":
         if not isinstance(data, Mapping):
             raise ValueError("evaluation report must be an object")
         expected = {
             "report_id",
+            "request",
             "artifact_sha256",
             "evaluation_id",
             "rubric_version",
@@ -576,10 +615,12 @@ class EvaluationReport:
             "schema_version",
         }
         _validate_exact_fields(data, expected, "evaluation report")
+        request = EvaluationRequest.from_dict(data["request"])
         raw_findings = data["findings"]
         if not isinstance(raw_findings, list):
             raise ValueError("findings must be a JSON array")
         values = dict(data)
+        values["request"] = request
         values["findings"] = tuple(
             QualityFinding.from_dict(item) for item in raw_findings
         )
