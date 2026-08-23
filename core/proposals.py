@@ -252,7 +252,8 @@ class ProposalStore:
                 if temporary_exists:
                     try:
                         os.unlink(temporary_name, dir_fd=directory_fd)
-                    except FileNotFoundError:
+                    except OSError:
+                        # Cleanup is best-effort and must not mask the save outcome.
                         pass
 
     def _save_compat(self, proposal: CanonDeltaProposal, payload: bytes) -> CanonDeltaProposal:
@@ -300,7 +301,8 @@ class ProposalStore:
         finally:
             try:
                 temporary.unlink()
-            except FileNotFoundError:
+            except OSError:
+                # Cleanup is best-effort and must not mask the save outcome.
                 pass
 
     def save(self, proposal: CanonDeltaProposal) -> CanonDeltaProposal:

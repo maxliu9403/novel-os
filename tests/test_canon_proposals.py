@@ -443,6 +443,63 @@ def test_proposal_store_pre_link_failure_leaves_no_record_or_temp_file(
     assert list(store.directory.glob("*.tmp")) == []
 
 
+def test_secure_store_preserves_uncertain_error_when_post_link_cleanup_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    store = ProposalStore(tmp_path / "project")
+    proposal = CanonDeltaProposal(
+        chapter=1,
+        agent_name="scribe",
+        source_artifact_sha=SOURCE_SHA,
+        delta={"key_events": ["Door opens"]},
+    )
+    original_unlink = proposals_module.os.unlink
+
+    def fail_temp_unlink(path, *args, **kwargs):
+        if str(path).endswith(".tmp"):
+            raise OSError("simulated persistent temp unlink failure")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(proposals_module.os, "unlink", fail_temp_unlink)
+
+    with pytest.raises(proposals_module.ProposalCommitUncertain) as raised:
+        store.save(proposal)
+
+    assert raised.value.operation == "proposal_save"
+    assert raised.value.proposal_id == proposal.proposal_id
+    assert store.load(proposal.proposal_id) == proposal
+
+
+def test_compat_store_preserves_uncertain_error_when_post_link_cleanup_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(proposals_module, "_SECURE_DIR_FD", False)
+    store = ProposalStore(tmp_path / "project")
+    proposal = CanonDeltaProposal(
+        chapter=1,
+        agent_name="scribe",
+        source_artifact_sha=SOURCE_SHA,
+        delta={"key_events": ["Door opens"]},
+    )
+    original_unlink = Path.unlink
+
+    def fail_temp_unlink(path: Path, *args, **kwargs):
+        if path.name.endswith(".tmp"):
+            raise OSError("simulated persistent temp unlink failure")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_temp_unlink)
+
+    with pytest.raises(proposals_module.ProposalCommitUncertain) as raised:
+        store.save(proposal)
+
+    assert raised.value.operation == "proposal_save"
+    assert raised.value.proposal_id == proposal.proposal_id
+    assert store.load(proposal.proposal_id) == proposal
+
+
 def test_concurrent_identical_proposal_saves_publish_one_record(tmp_path: Path):
     project = tmp_path / "project"
     proposals = [
