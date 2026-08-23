@@ -2,6 +2,8 @@
 
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -354,6 +356,83 @@ def test_corrupt_revision_metadata_fails_explicitly(tmp_path: Path):
 
     with pytest.raises(ArtifactCorruptionError, match="revisions.jsonl"):
         store.get_revision(revision.revision_id)
+
+
+@pytest.mark.parametrize(
+    ("parent_case", "error_match"),
+    [
+        ("unknown", "parent.*unknown"),
+        ("other_chapter", "parent.*chapter"),
+    ],
+)
+def test_corrupt_revision_parent_chain_fails_explicitly(
+    tmp_path: Path,
+    parent_case: str,
+    error_match: str,
+):
+    store = ArtifactStore(tmp_path)
+    local_parent = store.put_text(
+        chapter=1,
+        kind="draft",
+        text="Parent",
+        source="scribe",
+    )
+    child = store.put_text(
+        chapter=1,
+        kind="revised",
+        text="Child",
+        source="editor",
+        parent_revision_id=local_parent.revision_id,
+    )
+    later_other_chapter = store.put_text(
+        chapter=2,
+        kind="draft",
+        text="Later revision",
+        source="scribe",
+    )
+    bad_parent_id = (
+        "0" * 64
+        if parent_case == "unknown"
+        else later_other_chapter.revision_id
+    )
+    log = tmp_path / "outputs" / "artifacts" / "revisions.jsonl"
+    records = [
+        json.loads(line)
+        for line in log.read_text(encoding="utf-8").splitlines()
+    ]
+    child_record = next(
+        record for record in records if record["revision_id"] == child.revision_id
+    )
+    child_record["parent_revision_id"] = bad_parent_id
+    identity = {
+        key: value
+        for key, value in child_record.items()
+        if key != "revision_id"
+    }
+    child_record["revision_id"] = hashlib.sha256(
+        json.dumps(
+            identity,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    log.write_text(
+        "".join(
+            json.dumps(
+                record,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+            for record in records
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ArtifactCorruptionError, match=error_match):
+        store.get_revision(child_record["revision_id"])
 
 
 def test_corrupt_head_file_fails_explicitly(tmp_path: Path):

@@ -306,18 +306,11 @@ class ArtifactStore:
             story_contract_revision_id=story_contract_revision_id,
             chapter_contract_revision_id=chapter_contract_revision_id,
         )
-        if parent_revision_id is not None:
-            try:
-                parent = revisions[parent_revision_id]
-            except KeyError:
-                raise KeyError(
-                    f"unknown parent artifact revision: {parent_revision_id}"
-                ) from None
-            if parent.chapter != chapter:
-                raise ValueError(
-                    f"parent revision {parent_revision_id} belongs to chapter "
-                    f"{parent.chapter}, not chapter {chapter}"
-                )
+        _validate_parent_reference(
+            revisions,
+            parent_revision_id=parent_revision_id,
+            child_chapter=chapter,
+        )
 
         digest = hashlib.sha256(data).hexdigest()
         metadata: Dict[str, Any] = {
@@ -446,6 +439,19 @@ class ArtifactStore:
                     f"{self.revisions_path}:{line_number}"
                 )
             revisions[revision.revision_id] = revision
+
+        for revision in revisions.values():
+            try:
+                _validate_parent_reference(
+                    revisions,
+                    parent_revision_id=revision.parent_revision_id,
+                    child_chapter=revision.chapter,
+                )
+            except (KeyError, ValueError) as exc:
+                raise ArtifactCorruptionError(
+                    f"{self.revisions_path} revision {revision.revision_id} has "
+                    f"an invalid parent chain: {exc}"
+                ) from exc
 
         for revision in revisions.values():
             try:
@@ -618,6 +624,27 @@ def _validate_contract_references(
         expected_kind="chapter_contract",
         expected_chapter=chapter,
     )
+
+
+def _validate_parent_reference(
+    revisions: Mapping[str, ArtifactRevision],
+    *,
+    parent_revision_id: Optional[str],
+    child_chapter: int,
+) -> None:
+    if parent_revision_id is None:
+        return
+    try:
+        parent = revisions[parent_revision_id]
+    except KeyError:
+        raise KeyError(
+            f"unknown parent artifact revision: {parent_revision_id}"
+        ) from None
+    if parent.chapter != child_chapter:
+        raise ValueError(
+            f"parent revision {parent_revision_id} belongs to chapter "
+            f"{parent.chapter}, not chapter {child_chapter}"
+        )
 
 
 def _validate_contract_reference(
