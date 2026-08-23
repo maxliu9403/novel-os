@@ -23,6 +23,7 @@ REPORT_STATUSES = frozenset({"pass", "needs_repair", "fail"})
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _FINDING_ID_RE = re.compile(r"^finding-[0-9a-f]{64}$")
+_CLAIM_SIGNATURE_RE = re.compile(r"^claim-[0-9a-f]{64}$")
 _EVALUATION_ID_RE = re.compile(r"^evaluation-[0-9a-f]{64}$")
 _REPORT_ID_RE = re.compile(r"^report-[0-9a-f]{64}$")
 
@@ -122,7 +123,7 @@ class EvidenceSpan:
         return cls(**dict(data))
 
 
-def _finding_identity(finding: "QualityFinding") -> Dict[str, Any]:
+def _claim_identity(finding: "QualityFinding") -> Dict[str, Any]:
     return {
         "artifact_sha256": finding.artifact_sha256,
         "category": finding.category,
@@ -131,8 +132,14 @@ def _finding_identity(finding: "QualityFinding") -> Dict[str, Any]:
         "evidence": [item.to_dict() for item in finding.evidence],
         "suggested_action": finding.suggested_action,
         "repair_class": finding.repair_class,
-        "evidence_verification_result": finding.evidence_verification_result,
         "schema_version": finding.schema_version,
+    }
+
+
+def _finding_identity(finding: "QualityFinding") -> Dict[str, Any]:
+    return {
+        **_claim_identity(finding),
+        "evidence_verification_result": finding.evidence_verification_result,
     }
 
 
@@ -235,6 +242,14 @@ class QualityFinding:
     @property
     def blocking(self) -> bool:
         return self.evidence_verified and self.severity in {"critical", "major"}
+
+    @property
+    def claim_signature(self) -> str:
+        """Return the stable claim dedupe key, independent of verification state."""
+        signature = _content_id("claim", _claim_identity(self))
+        if not _CLAIM_SIGNATURE_RE.fullmatch(signature):
+            raise ValueError("claim_signature has invalid format")
+        return signature
 
     def with_verified_evidence(
         self, text: str, actual_artifact_sha: str

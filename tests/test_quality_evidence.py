@@ -3,7 +3,12 @@
 import hashlib
 import importlib
 import json
+import os
+import re
+import subprocess
+import sys
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 
 import pytest
 
@@ -332,6 +337,28 @@ def test_unverified_finding_round_trip_preserves_stable_id_and_state():
         finding.evidence += (EvidenceSpan(_sha(text), text),)
 
 
+def test_claim_signature_is_stable_across_verification_and_round_trip():
+    text = "The door locked."
+    finding = _finding(text)
+    verified = finding.with_verified_evidence(text, _sha(text))
+    restored = QualityFinding.from_dict(verified.to_dict())
+
+    assert re.fullmatch(r"claim-[0-9a-f]{64}", finding.claim_signature)
+    assert verified.claim_signature == finding.claim_signature
+    assert restored.claim_signature == finding.claim_signature
+    assert verified.finding_id != finding.finding_id
+    with pytest.raises(FrozenInstanceError):
+        finding.claim_signature = "claim-" + "0" * 64
+
+
+def test_claim_signature_changes_when_claim_content_changes():
+    text = "The door locked."
+
+    assert _finding(text).claim_signature != _finding(
+        text, message="The choice is unclear"
+    ).claim_signature
+
+
 def test_finding_from_dict_detects_id_and_nested_evidence_tampering():
     finding = _finding("The door locked.")
     payload = finding.to_dict()
@@ -494,6 +521,88 @@ def test_report_from_dict_detects_root_and_nested_tampering():
     malformed_nested["findings"][0]["evidence"][0]["quote"] = "not the same"
     with pytest.raises(ValueError):
         EvaluationReport.from_dict(malformed_nested)
+
+
+@pytest.mark.parametrize(
+    "import_order",
+    [("quality", "core.quality"), ("core.quality", "quality")],
+)
+def test_quality_package_aliases_share_identity_and_support_mixed_models(
+    import_order,
+):
+    repo_root = Path(__file__).resolve().parents[1]
+    script = f"""
+import hashlib
+import importlib
+
+first = importlib.import_module({import_order[0]!r})
+second = importlib.import_module({import_order[1]!r})
+core_package = importlib.import_module("core")
+top_models = importlib.import_module("quality.models")
+core_models = importlib.import_module("core.quality.models")
+top_evidence = importlib.import_module("quality.evidence")
+core_evidence = importlib.import_module("core.quality.evidence")
+
+assert first is second
+assert core_package.quality is first
+assert top_models is core_models
+assert top_evidence is core_evidence
+assert first.EvidenceSpan is second.EvidenceSpan is top_models.EvidenceSpan
+assert first.QualityFinding is second.QualityFinding is top_models.QualityFinding
+assert (
+    first.EvaluationRequest
+    is second.EvaluationRequest
+    is top_models.EvaluationRequest
+)
+assert first.EvaluationReport is second.EvaluationReport is top_models.EvaluationReport
+assert first.verify_evidence is second.verify_evidence is top_evidence.verify_evidence
+
+text = "Maren signed the agreement."
+artifact_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+span = first.EvidenceSpan(artifact_sha, text)
+finding = second.QualityFinding.create(
+    artifact_sha256=artifact_sha,
+    category="causality",
+    severity="major",
+    message="The consequence is unclear",
+    evidence=(span,),
+    suggested_action="Show the consequence",
+    repair_class="chapter_structure",
+)
+request = first.EvaluationRequest.for_text(1, text)
+report = second.EvaluationReport(
+    request=request,
+    artifact_sha256=artifact_sha,
+    evaluation_id=request.evaluation_id,
+    rubric_version=request.rubric_version,
+    prompt_sha256="c" * 64,
+    evaluator_provider="fixture",
+    evaluator_model="deterministic-v1",
+    hard_gates={{"continuity": True}},
+    semantic_dimensions={{"causality": 8}},
+    findings=(finding,),
+    status="needs_repair",
+    created_at="2026-08-24T10:15:00+00:00",
+)
+assert report.request is request
+assert report.findings == (finding,)
+assert core_evidence.verify_evidence(text, artifact_sha, span) is True
+"""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(repo_root), str(repo_root / "core")]
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize("schema_version", [True, "1", 0, 2])
