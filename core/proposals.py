@@ -113,7 +113,11 @@ class ProposalStore:
         if not _SECURE_DIR_FD:
             raise RuntimeError("secure directory descriptors are unavailable")
         if create:
-            self.project_root.mkdir(parents=True, exist_ok=True)
+            try:
+                self.project_root.mkdir(parents=True, exist_ok=True)
+            except FileExistsError:
+                # Let the no-follow open below classify the existing root.
+                pass
         flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
         try:
             current_fd = os.open(self.project_root, flags)

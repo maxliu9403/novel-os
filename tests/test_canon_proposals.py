@@ -339,10 +339,12 @@ def test_proposal_store_rejects_record_with_missing_embedded_id(tmp_path: Path):
 
 
 @pytest.mark.parametrize("storage_mode", ["secure", "compat"])
+@pytest.mark.parametrize("root_target_kind", ["directory", "dangling", "file"])
 def test_proposal_store_rejects_symlinked_project_root_before_save(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     storage_mode: str,
+    root_target_kind: str,
 ):
     if storage_mode == "secure" and not proposals_module._SECURE_DIR_FD:
         pytest.skip("secure directory descriptors are unavailable")
@@ -350,9 +352,15 @@ def test_proposal_store_rejects_symlinked_project_root_before_save(
         monkeypatch.setattr(proposals_module, "_SECURE_DIR_FD", False)
 
     outside = tmp_path / "outside"
-    outside.mkdir()
+    if root_target_kind == "directory":
+        outside.mkdir()
+    elif root_target_kind == "file":
+        outside.write_bytes(b"outside file must remain unchanged")
     project = tmp_path / "project"
-    project.symlink_to(outside, target_is_directory=True)
+    project.symlink_to(
+        outside,
+        target_is_directory=root_target_kind != "file",
+    )
     store = ProposalStore(project)
     proposal = CanonDeltaProposal(
         chapter=1,
@@ -364,10 +372,16 @@ def test_proposal_store_rejects_symlinked_project_root_before_save(
     with pytest.raises(ValueError, match="symlink"):
         store.save(proposal)
 
-    outside_record = (
-        outside / "outputs/state/proposals" / f"{proposal.proposal_id}.json"
-    )
-    assert not outside_record.exists()
+    assert project.is_symlink()
+    if root_target_kind == "directory":
+        outside_record = (
+            outside / "outputs/state/proposals" / f"{proposal.proposal_id}.json"
+        )
+        assert not outside_record.exists()
+    elif root_target_kind == "dangling":
+        assert not outside.exists()
+    else:
+        assert outside.read_bytes() == b"outside file must remain unchanged"
 
 
 @pytest.mark.parametrize("storage_mode", ["secure", "compat"])
