@@ -3,11 +3,15 @@
 import copy
 import hashlib
 import json
+import os
+import stat
+import threading
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
 
+import proposals as proposals_module
 from canon import CanonDeltaProposal, apply_canon_proposal, build_canon_proposal
 from proposals import ProposalStore
 from state_manager import StoryState
@@ -376,3 +380,205 @@ def test_proposal_store_rejects_symlinked_parent_before_load(tmp_path: Path):
 
     with pytest.raises(ValueError, match="symlink"):
         ProposalStore(project).load("proposal-" + "a" * 64)
+
+
+def test_proposal_store_reports_uncertain_commit_after_link_directory_sync_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    store = ProposalStore(tmp_path / "project")
+    proposal = CanonDeltaProposal(
+        chapter=1,
+        agent_name="scribe",
+        source_artifact_sha=SOURCE_SHA,
+        delta={"key_events": ["Door opens"]},
+    )
+    original_fsync = proposals_module.os.fsync
+
+    def fail_directory_fsync(descriptor: int) -> None:
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            raise OSError("simulated proposal directory fsync failure")
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(proposals_module.os, "fsync", fail_directory_fsync)
+
+    with pytest.raises(Exception) as raised:
+        store.save(proposal)
+
+    uncertain_type = getattr(proposals_module, "ProposalCommitUncertain", None)
+    assert uncertain_type is not None
+    assert isinstance(raised.value, uncertain_type)
+    assert raised.value.operation == "proposal_save"
+    assert raised.value.proposal_id == proposal.proposal_id
+    assert store.load(proposal.proposal_id) == proposal
+
+
+def test_proposal_store_pre_link_failure_leaves_no_record_or_temp_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    store = ProposalStore(tmp_path / "project")
+    proposal = CanonDeltaProposal(
+        chapter=1,
+        agent_name="scribe",
+        source_artifact_sha=SOURCE_SHA,
+        delta={"key_events": ["Door opens"]},
+    )
+    original_fsync = proposals_module.os.fsync
+
+    def fail_regular_file_fsync(descriptor: int) -> None:
+        if stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise OSError("simulated proposal temp fsync failure")
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(proposals_module.os, "fsync", fail_regular_file_fsync)
+
+    with pytest.raises(OSError, match="temp fsync failure") as raised:
+        store.save(proposal)
+
+    uncertain_type = getattr(proposals_module, "ProposalCommitUncertain")
+    assert not isinstance(raised.value, uncertain_type)
+    target = store.directory / f"{proposal.proposal_id}.json"
+    assert not target.exists()
+    assert list(store.directory.glob("*.tmp")) == []
+
+
+def test_concurrent_identical_proposal_saves_publish_one_record(tmp_path: Path):
+    project = tmp_path / "project"
+    proposals = [
+        CanonDeltaProposal(
+            chapter=1,
+            agent_name="scribe",
+            source_artifact_sha=SOURCE_SHA,
+            delta={"key_events": ["Door opens"]},
+            timestamp=timestamp,
+        )
+        for timestamp in (
+            "2026-08-23T01:02:03+00:00",
+            "2026-08-23T04:05:06+00:00",
+        )
+    ]
+    start = threading.Barrier(3)
+    results = []
+    errors = []
+
+    def save(proposal: CanonDeltaProposal) -> None:
+        try:
+            start.wait(timeout=2)
+            results.append(ProposalStore(project).save(proposal))
+        except Exception as exc:  # pragma: no cover - surfaced by assertions
+            errors.append(exc)
+
+    threads = [threading.Thread(target=save, args=(proposal,)) for proposal in proposals]
+    for thread in threads:
+        thread.start()
+    start.wait(timeout=2)
+    for thread in threads:
+        thread.join(timeout=3)
+
+    assert not errors
+    assert not any(thread.is_alive() for thread in threads)
+    assert len(results) == 2
+    assert results[0] == results[1]
+    records = list((project / "outputs/state/proposals").glob("*.json"))
+    assert len(records) == 1
+
+
+def test_proposal_store_load_does_not_follow_record_swapped_to_symlink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    store = ProposalStore(tmp_path / "project")
+    proposal = CanonDeltaProposal(
+        chapter=1,
+        agent_name="scribe",
+        source_artifact_sha=SOURCE_SHA,
+        delta={"key_events": ["Door opens"]},
+    )
+    store.save(proposal)
+    record = store.directory / f"{proposal.proposal_id}.json"
+    outside = tmp_path / "outside.json"
+    outside.write_bytes(record.read_bytes())
+    swapped = False
+
+    original_is_symlink = Path.is_symlink
+    original_open = proposals_module.os.open
+
+    def swap_record() -> None:
+        nonlocal swapped
+        if swapped:
+            return
+        swapped = True
+        record.unlink()
+        record.symlink_to(outside)
+
+    def is_symlink_then_swap(path: Path) -> bool:
+        result = original_is_symlink(path)
+        if path == record and not result:
+            swap_record()
+        return result
+
+    def open_after_swap(path, flags, *args, **kwargs):
+        if path == record.name and kwargs.get("dir_fd") is not None:
+            swap_record()
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "is_symlink", is_symlink_then_swap)
+    monkeypatch.setattr(proposals_module.os, "open", open_after_swap)
+
+    with pytest.raises((OSError, ValueError)):
+        store.load(proposal.proposal_id)
+
+
+def test_proposal_store_load_does_not_follow_parent_swapped_to_symlink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    project = tmp_path / "project"
+    store = ProposalStore(project)
+    proposal = CanonDeltaProposal(
+        chapter=1,
+        agent_name="scribe",
+        source_artifact_sha=SOURCE_SHA,
+        delta={"key_events": ["Door opens"]},
+    )
+    store.save(proposal)
+
+    state_dir = project / "outputs" / "state"
+    moved_state = project / "outputs" / "state-original"
+    outside_state = tmp_path / "outside-state"
+    outside_proposals = outside_state / "proposals"
+    outside_proposals.mkdir(parents=True)
+    record_name = f"{proposal.proposal_id}.json"
+    (outside_proposals / record_name).write_bytes(
+        (state_dir / "proposals" / record_name).read_bytes()
+    )
+    swapped = False
+
+    original_is_dir = Path.is_dir
+    original_open = proposals_module.os.open
+
+    def swap_parent() -> None:
+        nonlocal swapped
+        if swapped:
+            return
+        swapped = True
+        state_dir.rename(moved_state)
+        state_dir.symlink_to(outside_state, target_is_directory=True)
+
+    def is_dir_then_swap(path: Path) -> bool:
+        result = original_is_dir(path)
+        if path == state_dir and result:
+            swap_parent()
+        return result
+
+    def open_after_swap(path, flags, *args, **kwargs):
+        if path == "state" and kwargs.get("dir_fd") is not None:
+            swap_parent()
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "is_dir", is_dir_then_swap)
+    monkeypatch.setattr(proposals_module.os, "open", open_after_swap)
+
+    with pytest.raises((OSError, ValueError)):
+        store.load(proposal.proposal_id)
