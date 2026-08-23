@@ -6,6 +6,7 @@ Central orchestration system that coordinates agents through the novel writing w
 
 import json
 import argparse
+import hashlib
 import os
 import re
 import sys
@@ -17,16 +18,18 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding="utf-8")
     except Exception:
         pass
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 from datetime import datetime
 
 # Import state manager
 from state_manager import StoryState, Character, PlotThread, ChapterState, TimelineEvent, StyleProfile, initialize_project
 from llm_client import LLMClient, LLMError
-from state_parser import ingest_agent_output, normalize_agent_output
+from state_parser import ingest_agent_output, normalize_agent_output, parse_agent_output
 from continuity_engine import run_all as run_continuity_checks, summarize as summarize_findings, to_context_block
 from prose_sanitize import sanitize_manuscript, apply_header_to_chapter, strip_em_dashes
 from context_pack import build_context_pack, format_context_pack, slice_chapter_for_llm
+from canon import build_canon_proposal
+from proposals import ProposalStore
 
 
 class NovelOrchestrator:
@@ -34,7 +37,12 @@ class NovelOrchestrator:
     Orchestrates the novel writing workflow across all agents.
     """
     
-    def __init__(self, project_path: str = "."):
+    def __init__(
+        self,
+        project_path: str = ".",
+        state_update_mode: Literal["legacy_apply", "proposal_only"] = "legacy_apply",
+    ):
+        self._validate_state_update_mode(state_update_mode)
         self.project_path = Path(project_path)
         self.state = StoryState(project_path)
         self.agents_dir = Path(__file__).parent.parent / "agents"
@@ -49,6 +57,37 @@ class NovelOrchestrator:
         # a failed stage. Interactive legacy commands retain their friendly
         # print-and-return behavior.
         self.raise_llm_errors = False
+        self.state_update_mode = state_update_mode
+        self.last_canon_proposal_ids: List[str] = []
+
+    @staticmethod
+    def _validate_state_update_mode(mode: str) -> None:
+        if mode not in ("legacy_apply", "proposal_only"):
+            raise ValueError(
+                "state_update_mode must be 'legacy_apply' or 'proposal_only'"
+            )
+
+    def _persist_canon_proposal(
+        self,
+        *,
+        chapter_number: Optional[int],
+        agent_name: str,
+        normalized_response: str,
+        source_path: Path,
+    ) -> None:
+        """Persist a parsed delta bound to the exact saved artifact bytes."""
+        if chapter_number is None or not parse_agent_output(agent_name, normalized_response):
+            return
+        source_sha = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        proposal = build_canon_proposal(
+            self.state,
+            chapter_number,
+            agent_name,
+            source_sha,
+            normalized_response,
+        )
+        persisted = ProposalStore(self.project_path).save(proposal)
+        self.last_canon_proposal_ids.append(persisted.proposal_id)
 
     def _get_llm(self) -> LLMClient:
         if self._llm is None:
@@ -64,12 +103,16 @@ class NovelOrchestrator:
         dry_run: bool,
         label: str,
         chapter_number: Optional[int] = None,
+        state_update_mode: Optional[Literal["legacy_apply", "proposal_only"]] = None,
     ) -> Optional[str]:
         """Either save the prompt (dry-run) or call the agent and save its output.
 
         On a successful real call, also ingest any state-update blocks the agent
         emitted into StoryState so persistent memory actually updates.
         """
+        self.last_canon_proposal_ids = []
+        resolved_mode = self.state_update_mode if state_update_mode is None else state_update_mode
+        self._validate_state_update_mode(resolved_mode)
         prompt_path.write_text(user_prompt, encoding='utf-8')
         if dry_run:
             print(f"   [dry-run] Prompt saved: {prompt_path}")
@@ -110,7 +153,7 @@ class NovelOrchestrator:
                 print("⚠️  Editor response is missing [REVISED_CHAPTER]; saving sanitized response.")
 
         # Only contract-valid responses may mutate persistent story state.
-        if chapter_number is not None:
+        if chapter_number is not None and resolved_mode == "legacy_apply":
             changes = ingest_agent_output(
                 self.state, chapter_number, agent_name, normalized_result
             )
@@ -125,7 +168,7 @@ class NovelOrchestrator:
         if agent_name in ("scribe", "editor") and output_path.suffix == ".md":
             clean, meta = sanitize_manuscript(manuscript_result)
             saved = clean
-            if chapter_number is not None:
+            if chapter_number is not None and resolved_mode == "legacy_apply":
                 chapter = self.state.get_chapter(chapter_number)
                 apply_header_to_chapter(chapter, meta)
                 if chapter and clean:
@@ -136,7 +179,14 @@ class NovelOrchestrator:
         output_path.write_text(saved, encoding='utf-8')
         print(f"✅ Output saved: {output_path}")
 
-        if chapter_number is not None:
+        if resolved_mode == "proposal_only":
+            self._persist_canon_proposal(
+                chapter_number=chapter_number,
+                agent_name=agent_name,
+                normalized_response=normalized_result,
+                source_path=output_path,
+            )
+        elif chapter_number is not None:
             self.state.save_state()
 
         return saved
@@ -799,6 +849,9 @@ Write the beat-sheet now. Outline only no prose.
 
     def curate_chapter(self, chapter_number: int, dry_run: bool = False):
         """Run the Style Curator and write a clean candidate-final manuscript."""
+        self.last_canon_proposal_ids = []
+        resolved_mode = self.state_update_mode
+        self._validate_state_update_mode(resolved_mode)
         print(f"\n🎨 CURATING Chapter {chapter_number}...")
         chapter = self.state.get_chapter(chapter_number)
         if not chapter:
@@ -876,9 +929,14 @@ or recommendations.
             if self.raise_llm_errors:
                 raise
             return None
+        if resolved_mode == "proposal_only":
+            raw_path = report_path.with_suffix(report_path.suffix + ".raw")
+            raw_path.write_text(result, encoding="utf-8")
+        normalized_result = normalize_agent_output(result)
+        response = normalized_result if resolved_mode == "proposal_only" else result
         match = re.search(
             r"\[REVISED_CHAPTER\](.*?)\[/REVISED_CHAPTER\]",
-            result,
+            response,
             re.IGNORECASE | re.DOTALL,
         )
         if not match:
@@ -886,22 +944,31 @@ or recommendations.
             if self.raise_llm_errors:
                 raise LLMError(message)
             print(f"❌ {message}; raw response saved at {report_path}")
-            report_path.write_text(strip_em_dashes(result), encoding="utf-8")
+            report_path.write_text(strip_em_dashes(response), encoding="utf-8")
             return None
         clean, meta = sanitize_manuscript(match.group(1).strip())
         if not clean:
             message = "Style Curator returned an empty revised chapter"
             if self.raise_llm_errors:
                 raise LLMError(message)
-            report_path.write_text(strip_em_dashes(result), encoding="utf-8")
+            report_path.write_text(strip_em_dashes(response), encoding="utf-8")
             print(f"❌ {message}; raw response saved at {report_path}")
             return None
-        report_path.write_text(strip_em_dashes(result), encoding="utf-8")
-        ingest_agent_output(self.state, chapter_number, "style_curator", result)
-        apply_header_to_chapter(chapter, meta)
-        chapter.word_count = len(clean.split())
+        report_path.write_text(strip_em_dashes(response), encoding="utf-8")
+        if resolved_mode == "legacy_apply":
+            ingest_agent_output(self.state, chapter_number, "style_curator", result)
+            apply_header_to_chapter(chapter, meta)
+            chapter.word_count = len(clean.split())
         candidate_path.write_text(clean, encoding="utf-8")
-        self.state.save_state()
+        if resolved_mode == "proposal_only":
+            self._persist_canon_proposal(
+                chapter_number=chapter_number,
+                agent_name="style_curator",
+                normalized_response=normalized_result,
+                source_path=candidate_path,
+            )
+        else:
+            self.state.save_state()
         print(f"✅ Candidate final saved: {candidate_path}")
         return clean
 
@@ -955,6 +1022,9 @@ Do not list a referenced/off-page character in Characters_Present.
     
     def write_chapter(self, chapter_number: int, draft_text: str = "", dry_run: bool = False):
         """Call the Scribe agent to draft the chapter, or accept supplied draft text."""
+        self.last_canon_proposal_ids = []
+        resolved_mode = self.state_update_mode
+        self._validate_state_update_mode(resolved_mode)
         print(f"\n✍️  Writing Chapter {chapter_number}...")
 
         chapter = self.state.get_chapter(chapter_number)
@@ -965,13 +1035,23 @@ Do not list a referenced/off-page character in Characters_Present.
         draft_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_draft.md"
 
         if draft_text:
-            clean, meta = sanitize_manuscript(draft_text)
-            apply_header_to_chapter(chapter, meta)
-            chapter.status = 'drafted'
-            chapter.word_count = len(clean.split())
+            normalized_draft = normalize_agent_output(draft_text)
+            clean, meta = sanitize_manuscript(normalized_draft)
+            if resolved_mode == "legacy_apply":
+                apply_header_to_chapter(chapter, meta)
+                chapter.status = 'drafted'
+                chapter.word_count = len(clean.split())
             draft_path.write_text(clean, encoding='utf-8')
             print(f"   Draft saved: {draft_path}")
-            self.state.save_state()
+            if resolved_mode == "proposal_only":
+                self._persist_canon_proposal(
+                    chapter_number=chapter_number,
+                    agent_name="scribe",
+                    normalized_response=normalized_draft,
+                    source_path=draft_path,
+                )
+            else:
+                self.state.save_state()
             return
 
         # Build Scribe user prompt: prefer expanded outline if present, else fall back.
@@ -993,19 +1073,38 @@ Do not list a referenced/off-page character in Characters_Present.
             chapter_number=chapter_number,
         )
 
-        if result is not None:
+        if result is not None and resolved_mode == "legacy_apply":
             chapter.status = 'drafted'
             chapter.word_count = len(result.split())
-        self.state.save_state()
+        if resolved_mode == "legacy_apply":
+            self.state.save_state()
     
     def submit_draft(self, chapter_number: int, draft_path: str):
         """Submit a draft file for a chapter (also ingests embedded state-update blocks)."""
+        self.last_canon_proposal_ids = []
+        resolved_mode = self.state_update_mode
+        self._validate_state_update_mode(resolved_mode)
         draft_file = Path(draft_path)
         if not draft_file.exists():
             print(f"❌ Draft file not found: {draft_path}")
             return
 
         draft_text = draft_file.read_text(encoding='utf-8')
+        if resolved_mode == "proposal_only":
+            normalized_draft = normalize_agent_output(draft_text)
+            clean, _meta = sanitize_manuscript(normalized_draft)
+            saved_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_draft.md"
+            saved_path.write_text(clean, encoding="utf-8")
+            self._persist_canon_proposal(
+                chapter_number=chapter_number,
+                agent_name="scribe",
+                normalized_response=normalized_draft,
+                source_path=saved_path,
+            )
+            print(f"✅ Draft submitted for Chapter {chapter_number}")
+            print(f"   Next: Run 'edit chapter --number {chapter_number}'")
+            return
+
         self.write_chapter(chapter_number, draft_text)
 
         changes = ingest_agent_output(self.state, chapter_number, "scribe", draft_text)
@@ -1022,6 +1121,9 @@ Do not list a referenced/off-page character in Characters_Present.
     
     def edit_chapter(self, chapter_number: int, mode: str = "line", dry_run: bool = False):
         """Call the Editor agent to revise the chapter."""
+        self.last_canon_proposal_ids = []
+        resolved_mode = self.state_update_mode
+        self._validate_state_update_mode(resolved_mode)
         print(f"\n🔍 EDITING Chapter {chapter_number} (Mode: {mode})")
 
         chapter = self.state.get_chapter(chapter_number)
@@ -1042,8 +1144,9 @@ Do not list a referenced/off-page character in Characters_Present.
         edit_prompt_path = self.feedback_dir / f"chapter_{chapter_number:03d}_edit_prompt.md"
         revised_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_revised.md"
 
-        chapter.status = 'editing'
-        self.state.save_state()
+        if resolved_mode == "legacy_apply":
+            chapter.status = 'editing'
+            self.state.save_state()
 
         result = self._run_agent_or_save_prompt(
             agent_name="editor",
@@ -1055,7 +1158,7 @@ Do not list a referenced/off-page character in Characters_Present.
             chapter_number=chapter_number,
         )
 
-        if result is not None:
+        if result is not None and resolved_mode == "legacy_apply":
             chapter.status = 'edited'
             self.state.save_state()
     
@@ -1136,16 +1239,39 @@ Provide:
     
     def submit_edit(self, chapter_number: int, edited_path: str):
         """Submit an edited chapter (also ingests embedded editor state-updates)."""
+        self.last_canon_proposal_ids = []
+        resolved_mode = self.state_update_mode
+        self._validate_state_update_mode(resolved_mode)
         edit_file = Path(edited_path)
         if not edit_file.exists():
             print(f"❌ Edit file not found: {edited_path}")
             return
 
         revised_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_revised.md"
+        text = edit_file.read_text(encoding='utf-8')
+        if resolved_mode == "proposal_only":
+            normalized_text = normalize_agent_output(text)
+            match = re.search(
+                r"\[REVISED(?:_|\s+)CHAPTER\](.*?)\[/REVISED(?:_|\s+)CHAPTER\]",
+                normalized_text,
+                re.IGNORECASE | re.DOTALL,
+            )
+            manuscript_text = match.group(1).strip() if match else normalized_text
+            clean, _meta = sanitize_manuscript(manuscript_text)
+            revised_path.write_text(clean, encoding="utf-8")
+            self._persist_canon_proposal(
+                chapter_number=chapter_number,
+                agent_name="editor",
+                normalized_response=normalized_text,
+                source_path=revised_path,
+            )
+            print(f"✅ Edit submitted for Chapter {chapter_number}")
+            print(f"   Next: Run 'validate chapter --number {chapter_number}'")
+            return
+
         import shutil
         shutil.copy(edit_file, revised_path)
 
-        text = edit_file.read_text(encoding='utf-8')
         changes = ingest_agent_output(self.state, chapter_number, "editor", text)
 
         chapter = self.state.get_chapter(chapter_number)
@@ -1165,6 +1291,9 @@ Provide:
     
     def validate_chapter(self, chapter_number: int, dry_run: bool = False):
         """Call the Continuity Guardian agent to validate the chapter."""
+        self.last_canon_proposal_ids = []
+        resolved_mode = self.state_update_mode
+        self._validate_state_update_mode(resolved_mode)
         print(f"\n🛡️  VALIDATING Chapter {chapter_number}...")
 
         chapter = self.state.get_chapter(chapter_number)
@@ -1186,7 +1315,8 @@ Provide:
         if findings:
             print(f"   🔬 Pre-check: {len(findings)} deterministic finding(s)")
             # Persist into chapter state and surface to the Guardian via the prompt.
-            chapter.continuity_checks['pre_check_findings'] = [f.to_dict() for f in findings]
+            if resolved_mode == "legacy_apply":
+                chapter.continuity_checks['pre_check_findings'] = [f.to_dict() for f in findings]
 
         validation_prompt = self._generate_validation_prompt(chapter_number, chapter_text)
         if findings:
@@ -1204,7 +1334,7 @@ Provide:
             chapter_number=chapter_number,
         )
 
-        if result is not None:
+        if result is not None and resolved_mode == "legacy_apply":
             chapter.status = 'validated'
             self.state.save_state()
     

@@ -523,6 +523,14 @@ _DISPATCH = {
 }
 
 
+def parse_agent_output(agent_name: str, agent_output: str) -> Dict[str, Any]:
+    """Parse an agent state-update block without mutating StoryState."""
+    parser = _DISPATCH.get(agent_name)
+    if not parser:
+        return {}
+    return parser(agent_output)
+
+
 def ingest_agent_output(
     state: "StoryState",
     chapter_number: int,
@@ -530,10 +538,7 @@ def ingest_agent_output(
     agent_output: str,
 ) -> List[str]:
     """One-call entry point. Parses + applies + returns change log (may be empty)."""
-    parser = _DISPATCH.get(agent_name)
-    if not parser:
-        return []
-    parsed = parser(agent_output)
+    parsed = parse_agent_output(agent_name, agent_output)
     if not parsed:
         return []
     return apply_to_state(state, chapter_number, parsed, source=agent_name)
