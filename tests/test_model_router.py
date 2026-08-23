@@ -5,6 +5,7 @@ import os
 import pytest
 
 import model_router
+from llm_client import LLMClient as RealLLMClient, LLMError
 from model_router import ModelRouter
 
 
@@ -71,6 +72,26 @@ def test_role_configuration_falls_back_field_by_field(monkeypatch):
         "base_url": "http://localhost:9000/v1",
         "max_tokens": 4096,
     }
+
+
+def test_nonblank_role_values_are_forwarded_without_rewriting(monkeypatch):
+    monkeypatch.setenv("NOVEL_OS_WRITER_PROVIDER", " openai_compatible ")
+    monkeypatch.setenv("NOVEL_OS_WRITER_MODEL", " padded-model ")
+    monkeypatch.setenv("NOVEL_OS_WRITER_BASE_URL", " http://localhost:9000/v1 ")
+
+    client = ModelRouter().client_for("writer")
+
+    assert client.kwargs["provider"] == " openai_compatible "
+    assert client.kwargs["model"] == " padded-model "
+    assert client.kwargs["base_url"] == " http://localhost:9000/v1 "
+
+
+def test_padded_invalid_provider_preserves_real_client_error(monkeypatch):
+    monkeypatch.setattr(model_router, "LLMClient", RealLLMClient)
+    monkeypatch.setenv("NOVEL_OS_WRITER_PROVIDER", " openai ")
+
+    with pytest.raises(LLMError, match=r"Unknown provider ' openai '"):
+        ModelRouter().client_for("writer")
 
 
 def test_existing_openai_compatible_globals_are_unchanged_without_role_overrides(

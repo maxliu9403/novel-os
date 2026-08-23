@@ -46,7 +46,7 @@ class ModelRouter:
         value = os.environ.get(name)
         if value is None or not value.strip():
             return None
-        return value.strip()
+        return value
 
     @classmethod
     def _field_for(cls, role: str, suffix: str) -> str | None:
