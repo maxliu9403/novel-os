@@ -1,13 +1,15 @@
 """Behavior tests for immutable, content-addressed artifact revisions."""
 
-from dataclasses import FrozenInstanceError
-from datetime import datetime, timezone
 import hashlib
 import json
+import threading
+from dataclasses import FrozenInstanceError
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
+import core.artifacts as artifacts_module
 from core.artifacts import (
     ArtifactCorruptionError,
     ArtifactHead,
@@ -16,6 +18,13 @@ from core.artifacts import (
     DuplicateArtifactRevision,
     StaleArtifactHead,
 )
+
+
+def _wait_for_race(barrier: threading.Barrier) -> None:
+    try:
+        barrier.wait(timeout=0.5)
+    except threading.BrokenBarrierError:
+        pass
 
 
 def test_same_text_reuses_content_blob_but_creates_traceable_revision(
@@ -60,6 +69,138 @@ def test_head_promotion_rejects_stale_expected_revision(tmp_path: Path):
             second.revision_id,
             expected_revision_id="wrong",
         )
+
+
+def test_two_store_instances_linearize_competing_head_updates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    first_store = ArtifactStore(tmp_path)
+    second_store = ArtifactStore(tmp_path)
+    base = first_store.put_text(
+        chapter=2,
+        kind="final",
+        text="Base",
+        source="import",
+    )
+    first_candidate = first_store.put_text(
+        chapter=2,
+        kind="final",
+        text="First candidate",
+        source="editor",
+    )
+    second_candidate = first_store.put_text(
+        chapter=2,
+        kind="final",
+        text="Second candidate",
+        source="repair",
+    )
+    first_store.set_head(
+        2,
+        "final",
+        base.revision_id,
+        expected_revision_id=None,
+    )
+
+    original_load_heads = ArtifactStore._load_heads
+    race_barrier = threading.Barrier(2)
+
+    def load_heads_at_same_base(store, revisions):
+        heads = original_load_heads(store, revisions)
+        _wait_for_race(race_barrier)
+        return heads
+
+    monkeypatch.setattr(ArtifactStore, "_load_heads", load_heads_at_same_base)
+    start_barrier = threading.Barrier(3)
+    outcomes = []
+    outcomes_guard = threading.Lock()
+
+    def promote(store: ArtifactStore, revision_id: str) -> None:
+        try:
+            start_barrier.wait(timeout=2)
+            store.set_head(
+                2,
+                "final",
+                revision_id,
+                expected_revision_id=base.revision_id,
+            )
+        except StaleArtifactHead:
+            outcome = "stale"
+        except Exception as exc:  # pragma: no cover - reported by the assertion
+            outcome = f"unexpected:{type(exc).__name__}:{exc}"
+        else:
+            outcome = "success"
+        with outcomes_guard:
+            outcomes.append(outcome)
+
+    threads = [
+        threading.Thread(
+            target=promote,
+            args=(first_store, first_candidate.revision_id),
+            daemon=True,
+        ),
+        threading.Thread(
+            target=promote,
+            args=(second_store, second_candidate.revision_id),
+            daemon=True,
+        ),
+    ]
+    for thread in threads:
+        thread.start()
+    start_barrier.wait(timeout=2)
+    for thread in threads:
+        thread.join(timeout=3)
+    monkeypatch.setattr(ArtifactStore, "_load_heads", original_load_heads)
+
+    assert not any(thread.is_alive() for thread in threads)
+    assert sorted(outcomes) == ["stale", "success"]
+    assert first_store.get_head(2, "final").revision_id in {
+        first_candidate.revision_id,
+        second_candidate.revision_id,
+    }
+
+
+@pytest.mark.parametrize("damage", ["deleted", "tampered"])
+def test_set_head_rejects_candidate_with_invalid_blob(
+    tmp_path: Path,
+    damage: str,
+):
+    store = ArtifactStore(tmp_path)
+    base = store.put_text(
+        chapter=2,
+        kind="final",
+        text="Base",
+        source="import",
+    )
+    candidate = store.put_text(
+        chapter=2,
+        kind="final",
+        text="Candidate",
+        source="editor",
+    )
+    store.set_head(
+        2,
+        "final",
+        base.revision_id,
+        expected_revision_id=None,
+    )
+    candidate_blob = (
+        tmp_path / "outputs" / "artifacts" / "sha256" / candidate.sha256
+    )
+    if damage == "deleted":
+        candidate_blob.unlink()
+    else:
+        candidate_blob.write_bytes(b"Tampered candidate")
+
+    with pytest.raises(ArtifactIntegrityError, match=candidate.revision_id):
+        store.set_head(
+            2,
+            "final",
+            candidate.revision_id,
+            expected_revision_id=base.revision_id,
+        )
+
+    assert store.get_head(2, "final").revision_id == base.revision_id
 
 
 def test_modified_blob_is_rejected_on_read(tmp_path: Path):
@@ -124,6 +265,72 @@ def test_fixed_timestamp_exposes_and_rejects_duplicate_revision_id(tmp_path: Pat
         )
 
 
+def test_two_store_instances_serialize_duplicate_revision_puts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    fixed_now = datetime(2026, 8, 23, 12, 0, tzinfo=timezone.utc)
+    first_store = ArtifactStore(tmp_path, clock=lambda: fixed_now)
+    second_store = ArtifactStore(tmp_path, clock=lambda: fixed_now)
+    original_load_revisions = ArtifactStore._load_revisions
+    race_barrier = threading.Barrier(2)
+
+    def load_revisions_at_same_base(store):
+        revisions = original_load_revisions(store)
+        _wait_for_race(race_barrier)
+        return revisions
+
+    monkeypatch.setattr(
+        ArtifactStore,
+        "_load_revisions",
+        load_revisions_at_same_base,
+    )
+    start_barrier = threading.Barrier(3)
+    outcomes = []
+    outcomes_guard = threading.Lock()
+
+    def put(store: ArtifactStore) -> None:
+        try:
+            start_barrier.wait(timeout=2)
+            store.put_text(
+                chapter=1,
+                kind="draft",
+                text="Same record",
+                source="scribe",
+            )
+        except DuplicateArtifactRevision:
+            outcome = "duplicate"
+        except Exception as exc:  # pragma: no cover - reported by the assertion
+            outcome = f"unexpected:{type(exc).__name__}:{exc}"
+        else:
+            outcome = "success"
+        with outcomes_guard:
+            outcomes.append(outcome)
+
+    threads = [
+        threading.Thread(target=put, args=(first_store,), daemon=True),
+        threading.Thread(target=put, args=(second_store,), daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+    start_barrier.wait(timeout=2)
+    for thread in threads:
+        thread.join(timeout=3)
+    monkeypatch.setattr(
+        ArtifactStore,
+        "_load_revisions",
+        original_load_revisions,
+    )
+
+    assert not any(thread.is_alive() for thread in threads)
+    assert sorted(outcomes) == ["duplicate", "success"]
+    assert len(
+        (
+            tmp_path / "outputs" / "artifacts" / "revisions.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+    ) == 1
+
+
 def test_duplicate_revision_log_entry_is_not_last_write_wins(tmp_path: Path):
     store = ArtifactStore(tmp_path)
     revision = store.put_text(
@@ -139,6 +346,56 @@ def test_duplicate_revision_log_entry_is_not_last_write_wins(tmp_path: Path):
 
     with pytest.raises(DuplicateArtifactRevision, match=revision.revision_id):
         store.get_revision(revision.revision_id)
+
+
+@pytest.mark.parametrize("failure_stage", ["fsync", "replace"])
+def test_failed_revision_log_rewrite_preserves_existing_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+):
+    store = ArtifactStore(tmp_path)
+    first = store.put_text(
+        chapter=1,
+        kind="draft",
+        text="Shared bytes",
+        source="scribe",
+    )
+    log = tmp_path / "outputs" / "artifacts" / "revisions.jsonl"
+    original_log = log.read_bytes()
+
+    if failure_stage == "fsync":
+
+        def fail_fsync(_fd):
+            raise OSError("simulated revision log fsync failure")
+
+        monkeypatch.setattr(artifacts_module.os, "fsync", fail_fsync)
+    else:
+        original_replace = artifacts_module.os.replace
+
+        def fail_revision_log_replace(source, destination):
+            if Path(destination) == log:
+                raise OSError("simulated revision log replace failure")
+            return original_replace(source, destination)
+
+        monkeypatch.setattr(
+            artifacts_module.os,
+            "replace",
+            fail_revision_log_replace,
+        )
+
+    with pytest.raises(ArtifactCorruptionError):
+        store.put_text(
+            chapter=1,
+            kind="revised",
+            text="Shared bytes",
+            source="editor",
+            parent_revision_id=first.revision_id,
+        )
+
+    assert log.read_bytes() == original_log
+    assert store.read_text(first.revision_id) == "Shared bytes"
+    assert list(log.parent.glob(".revisions.jsonl.tmp-*")) == []
 
 
 def test_repeated_identical_head_update_is_idempotent_with_old_expectation(

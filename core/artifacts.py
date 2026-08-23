@@ -12,6 +12,7 @@ import json
 import os
 import re
 import tempfile
+import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -36,6 +37,8 @@ _REVISION_FIELDS = {
     "timestamp",
 }
 _HEAD_FIELDS = {"chapter", "kind", "revision_id", "updated_at"}
+_PROJECT_LOCKS: Dict[str, threading.RLock] = {}
+_PROJECT_LOCKS_GUARD = threading.Lock()
 
 
 class ArtifactError(Exception):
@@ -130,6 +133,7 @@ class ArtifactStore:
         self.blob_root = self.artifact_root / "sha256"
         self.revisions_path = self.artifact_root / "revisions.jsonl"
         self.heads_path = self.artifact_root / "heads.json"
+        self._process_lock = _project_process_lock(self.artifact_root)
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     def put_text(
@@ -198,6 +202,9 @@ class ArtifactStore:
 
     def read_text(self, revision_id: str) -> str:
         revision = self.get_revision(revision_id)
+        return self._read_verified_text(revision)
+
+    def _read_verified_text(self, revision: ArtifactRevision) -> str:
         path = self.blob_root / revision.sha256
         try:
             data = path.read_bytes()
@@ -233,6 +240,22 @@ class ArtifactStore:
         *,
         expected_revision_id: Optional[str],
     ) -> ArtifactHead:
+        with self._process_lock:
+            return self._set_head_locked(
+                chapter,
+                kind,
+                revision_id,
+                expected_revision_id=expected_revision_id,
+            )
+
+    def _set_head_locked(
+        self,
+        chapter: int,
+        kind: str,
+        revision_id: str,
+        *,
+        expected_revision_id: Optional[str],
+    ) -> ArtifactHead:
         _validate_chapter_kind(chapter, kind)
         revisions = self._load_revisions()
         try:
@@ -244,6 +267,7 @@ class ArtifactStore:
                 f"revision {revision_id} ({revision.chapter}, {revision.kind!r}) "
                 f"does not match head target ({chapter}, {kind!r})"
             )
+        self._read_verified_text(revision)
 
         heads = self._load_heads(revisions)
         key = (chapter, kind)
@@ -271,6 +295,34 @@ class ArtifactStore:
         return head
 
     def _put_bytes(
+        self,
+        *,
+        chapter: int,
+        kind: str,
+        data: bytes,
+        source: str,
+        parent_revision_id: Optional[str],
+        provider: Optional[str],
+        model: Optional[str],
+        prompt_sha256: Optional[str],
+        story_contract_revision_id: Optional[str],
+        chapter_contract_revision_id: Optional[str],
+    ) -> ArtifactRevision:
+        with self._process_lock:
+            return self._put_bytes_locked(
+                chapter=chapter,
+                kind=kind,
+                data=data,
+                source=source,
+                parent_revision_id=parent_revision_id,
+                provider=provider,
+                model=model,
+                prompt_sha256=prompt_sha256,
+                story_contract_revision_id=story_contract_revision_id,
+                chapter_contract_revision_id=chapter_contract_revision_id,
+            )
+
+    def _put_bytes_locked(
         self,
         *,
         chapter: int,
@@ -381,16 +433,32 @@ class ArtifactStore:
     def _append_revision(self, revision: ArtifactRevision) -> None:
         self.artifact_root.mkdir(parents=True, exist_ok=True)
         line = _canonical_json(revision.to_dict()) + b"\n"
+        temp_name = ""
         try:
-            with self.revisions_path.open("ab") as handle:
-                handle.write(line)
+            existing = (
+                self.revisions_path.read_bytes()
+                if self.revisions_path.exists()
+                else b""
+            )
+            separator = b"" if not existing or existing.endswith(b"\n") else b"\n"
+            fd, temp_name = tempfile.mkstemp(
+                prefix=f".{self.revisions_path.name}.tmp-",
+                dir=str(self.artifact_root),
+            )
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(existing + separator + line)
                 handle.flush()
                 os.fsync(handle.fileno())
+            os.replace(temp_name, self.revisions_path)
+            temp_name = ""
             _fsync_directory(self.artifact_root)
         except OSError as exc:
             raise ArtifactCorruptionError(
-                f"cannot append {self.revisions_path}: {exc}"
+                f"cannot atomically append {self.revisions_path}: {exc}"
             ) from exc
+        finally:
+            if temp_name and os.path.exists(temp_name):
+                os.unlink(temp_name)
 
     def _load_revisions(self) -> Dict[str, ArtifactRevision]:
         if not self.revisions_path.exists():
@@ -574,6 +642,16 @@ def _canonical_json(value: Any) -> bytes:
         separators=(",", ":"),
         allow_nan=False,
     ).encode("utf-8")
+
+
+def _project_process_lock(artifact_root: Path) -> threading.RLock:
+    key = str(artifact_root.resolve())
+    with _PROJECT_LOCKS_GUARD:
+        lock = _PROJECT_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _PROJECT_LOCKS[key] = lock
+        return lock
 
 
 def _derive_revision_id(metadata: Mapping[str, Any]) -> str:
