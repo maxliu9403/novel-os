@@ -183,6 +183,7 @@ class QualityLab:
                 "start",
                 "end",
                 "artifact_sha256",
+                "artifact_revision_id",
             )
             if hasattr(raw, field)
         }
@@ -221,7 +222,12 @@ class QualityLab:
                 item = raw
             elif isinstance(raw, Mapping):
                 evidence_sha = raw.get("artifact_sha256", artifact_sha256)
-                if evidence_sha != artifact_sha256:
+                evidence_revision = raw.get("artifact_revision_id")
+                if evidence_sha != artifact_sha256 or evidence_revision not in (
+                    None,
+                    "",
+                    request.artifact_revision_id,
+                ):
                     continue
                 try:
                     item = EvidenceSpan(

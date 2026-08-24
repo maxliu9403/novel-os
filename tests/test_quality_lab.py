@@ -2,6 +2,7 @@
 
 import hashlib
 from dataclasses import FrozenInstanceError, replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -154,6 +155,55 @@ def test_finding_level_revision_mismatch_cannot_rebind_nested_evidence():
         _request(text, "revision-1"),
         candidate_text=text,
         continuity_findings=[from_old_revision],
+        created_at="2026-08-24T00:00:00+00:00",
+    )
+
+    assert report.findings[0].evidence == ()
+    assert report.findings[0].blocking is False
+    assert report.status == "pass"
+
+
+def test_object_finding_revision_mismatch_cannot_rebind_quote_evidence():
+    text = "Mara arrived three days earlier than the ledger allowed."
+    from_old_revision = SimpleNamespace(
+        severity="critical",
+        category="timeline",
+        message="Object evidence came from another revision.",
+        suggestion="Check the source revision.",
+        artifact_revision_id="revision-0",
+        evidence=[{"quote": "three days earlier"}],
+    )
+
+    report = QualityLab.evaluate_deterministic(
+        _request(text, "revision-1"),
+        candidate_text=text,
+        continuity_findings=[from_old_revision],
+        created_at="2026-08-24T00:00:00+00:00",
+    )
+
+    assert report.findings[0].evidence == ()
+    assert report.findings[0].blocking is False
+    assert report.status == "pass"
+
+
+def test_nested_evidence_revision_mismatch_cannot_be_rebound():
+    text = "Mara arrived three days earlier than the ledger allowed."
+    stale_nested = _finding(
+        text,
+        severity="critical",
+        artifact_revision_id="revision-1",
+        evidence=[
+            {
+                "artifact_revision_id": "revision-0",
+                "quote": "three days earlier",
+            }
+        ],
+    )
+
+    report = QualityLab.evaluate_deterministic(
+        _request(text, "revision-1"),
+        candidate_text=text,
+        continuity_findings=[stale_nested],
         created_at="2026-08-24T00:00:00+00:00",
     )
 

@@ -71,6 +71,21 @@ def _current_model_label() -> str:
         return os.environ.get("NOVEL_OS_MODEL", "") or ""
 
 
+def _runtime_model_label(orchestrator: object, agent_name: str, client: object | None = None) -> str:
+    """Return credential-free provenance for the role that produced an artifact."""
+    provenance = getattr(orchestrator, "runtime_provenance_for", None)
+    if callable(provenance):
+        provider, model = provenance(agent_name)
+        return f"{provider}:{model}".strip(":")
+    if client is not None:
+        provider = str(getattr(client, "provider", "") or "")
+        model = str(getattr(client, "model", "") or "")
+        label = f"{provider}:{model}".strip(":")
+        if label:
+            return label
+    return _current_model_label()
+
+
 def _slugify(text: str) -> str:
     out = "".join(c.lower() if c.isalnum() else "-" for c in text.strip())
     while "--" in out:
@@ -786,8 +801,9 @@ POV: {pov or "[unspecified]"}
         synopsis = ""
         try:
             orch = build_orchestrator(str(self._project_dir(project_id)))
-            raw = orch._get_llm().run_agent("architect", prompt)
-            model = _current_model_label()
+            llm = orch._get_llm("architect")
+            raw = llm.run_agent("architect", prompt)
+            model = _runtime_model_label(orch, "architect", llm)
             synopsis, _ = sanitize_manuscript(raw)
             synopsis = strip_em_dashes(synopsis).strip()
             if synopsis.startswith("```"):
@@ -1637,7 +1653,7 @@ Foreshadowing_Planted: …
                         db.upsert_artifact(
                             project_id, chapter, art_stage, text,
                             produced_by_agent=agent,
-                            produced_by_model=_current_model_label(),
+                            produced_by_model=_runtime_model_label(orch, agent),
                             reviewed_by="",
                             reviewed_at="",
                         )

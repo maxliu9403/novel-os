@@ -3,7 +3,8 @@
 from fastapi.testclient import TestClient
 
 from api.main import create_app
-from api import db
+from api import db, services
+from api.services import ProjectService
 
 
 def _client(tmp_path):
@@ -67,3 +68,38 @@ def test_stages_include_provenance_and_diff(tmp_path):
     assert diff["to_stage"] == "revised"
     assert diff["summary"]
     assert any("hinge" in ln.lower() for ln in diff["added_lines"]) or diff["to_words"] != diff["from_words"]
+
+
+def test_phase_job_records_actual_role_model_provenance(tmp_path, monkeypatch):
+    client, projects = _client(tmp_path)
+    created = client.post(
+        "/api/projects",
+        json={"title": "Role Bound", "genre": "Drama", "author": "Ada"},
+    ).json()
+    project_id = created["id"]
+    project = projects / project_id
+    captured = {}
+
+    class FakeOrchestrator:
+        def plan_chapter(self, number, summary="", pov=""):
+            (project / "outputs" / f"chapter_{number:03d}_outline.md").write_text(
+                "# Role-routed outline\n", encoding="utf-8"
+            )
+
+        def runtime_provenance_for(self, agent_name):
+            assert agent_name == "architect"
+            return "role-provider", "architect-model"
+
+    def capture_upsert(*args, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(services, "build_orchestrator", lambda *_a, **_k: FakeOrchestrator())
+    monkeypatch.setattr(services.db, "upsert_artifact", capture_upsert)
+    monkeypatch.setattr(services, "_current_model_label", lambda: "wrong-global-model")
+
+    ProjectService(projects).make_phase_job(
+        project_id, "plan_chapter", {"number": 1}
+    )()
+
+    assert captured["produced_by_agent"] == "architect"
+    assert captured["produced_by_model"] == "role-provider:architect-model"
