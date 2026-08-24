@@ -99,6 +99,14 @@ class PipelineRunner:
         store = self._store(project, run_id)
         manifest = store.load()
         manifest.spec.project_path = str(project)
+        try:
+            reconciled_promotions = self._reconcile_committed_promotions(
+                manifest, project, store
+            )
+        except Exception as exc:  # noqa: BLE001 - reconciliation failures are durable
+            return self._record_resume_failure(
+                manifest, store, exc, event="run.promotion_reconcile_failed"
+            )
         if manifest.status == "completed":
             try:
                 return self._repair_completed_run(manifest, project, store)
@@ -108,7 +116,7 @@ class PipelineRunner:
                 )
         if approval_policy:
             manifest.spec.approval_policy = approval_policy
-        if approve_chapter is not None:
+        if approve_chapter is not None and approve_chapter not in reconciled_promotions:
             try:
                 self._record_human_approval(
                     manifest, project, store, approve_chapter
@@ -119,6 +127,146 @@ class PipelineRunner:
                 )
         self._prepare_run(manifest, store)
         return self._execute(manifest, project, store)
+
+    def _reconcile_committed_promotions(
+        self,
+        manifest: RunManifest,
+        project: Path,
+        store: ManifestStore,
+    ) -> set[int]:
+        """Checkpoint durable promotions that committed before their stage save."""
+        if manifest.spec.quality_policy != "evidence_v1":
+            return set()
+
+        reconciled: set[int] = set()
+        for number in range(1, (manifest.spec.num_chapters or 0) + 1):
+            previous = manifest.get("chapter.promote", number)
+            if previous is None or previous.status == "done":
+                continue
+            key = f"pipeline-{manifest.run_id}-chapter-{number}"
+            try:
+                receipts = PromotionService(project).list_receipts(chapter=number)
+            except Exception as exc:  # noqa: BLE001 - normalize durable record errors
+                raise PipelineError(
+                    f"Cannot reconcile chapter {number} promotion: {exc}",
+                    blocked=True,
+                ) from exc
+            matches = [
+                receipt for receipt in receipts if receipt.idempotency_key == key
+            ]
+            if not matches:
+                continue
+            if len(matches) != 1:
+                raise PipelineError(
+                    f"Cannot reconcile chapter {number} promotion: idempotency key is ambiguous",
+                    blocked=True,
+                )
+            receipt = matches[0]
+
+            style = manifest.get("chapter.style", number)
+            if style is None or style.status != "done" or not style.revision_id:
+                raise PipelineError(
+                    f"Cannot reconcile chapter {number} promotion without its style checkpoint",
+                    blocked=True,
+                )
+            if receipt.new_artifact_revision_id != style.revision_id:
+                raise PipelineError(
+                    f"Cannot reconcile chapter {number} promotion: receipt candidate diverged",
+                    blocked=True,
+                )
+
+            artifacts = ArtifactStore(project)
+            revision = artifacts.get_revision(receipt.new_artifact_revision_id)
+            if revision.sha256 != receipt.new_artifact_sha256:
+                raise PipelineError(
+                    f"Cannot reconcile chapter {number} promotion: receipt artifact diverged",
+                    blocked=True,
+                )
+            ProposalStore(project).load(
+                receipt.canon_proposal_id,
+                expected_source_artifact_sha=receipt.new_artifact_sha256,
+            )
+
+            report_path = (
+                project
+                / "outputs/quality/evaluation_reports"
+                / f"{receipt.evaluation_report_id}.json"
+            )
+            if not report_path.is_file():
+                raise PipelineError(
+                    f"Cannot reconcile chapter {number} promotion: evaluation report is missing",
+                    blocked=True,
+                )
+            report = EvaluationReport.from_dict(
+                json.loads(report_path.read_text(encoding="utf-8"))
+            )
+            if (
+                report.report_id != receipt.evaluation_report_id
+                or report.request.artifact_revision_id != revision.revision_id
+                or report.artifact_sha256 != revision.sha256
+                or report.request.story_contract_id
+                != style.story_contract_revision_id
+                or report.request.chapter_contract_id
+                != style.chapter_contract_revision_id
+            ):
+                raise PipelineError(
+                    f"Cannot reconcile chapter {number} promotion: evaluation binding diverged",
+                    blocked=True,
+                )
+
+            if receipt.canon_proposal_id not in style.canon_proposal_ids:
+                style.canon_proposal_ids.append(receipt.canon_proposal_id)
+                self._write_stage_result(manifest, project, style)
+
+            final_relative = self._chapter_stage(number, "final")
+            final_path = project / final_relative
+            if not self._artifact_valid(
+                project, final_relative, receipt.new_artifact_sha256
+            ):
+                self._atomic_text(
+                    final_path,
+                    artifacts.read_text(receipt.new_artifact_revision_id),
+                )
+
+            result = StageResult(
+                phase="chapter.promote",
+                chapter=number,
+                status="done",
+                attempt=previous.attempt,
+                artifact_paths=[final_relative],
+                artifact_hashes={final_relative: self._sha256(final_path)},
+                input_hashes=dict(previous.input_hashes),
+                revision_id=receipt.new_artifact_revision_id,
+                story_contract_revision_id=style.story_contract_revision_id,
+                chapter_contract_revision_id=style.chapter_contract_revision_id,
+                canon_proposal_ids=list(style.canon_proposal_ids),
+                evaluation_report_ids=[receipt.evaluation_report_id],
+                promotion_receipt_id=receipt.receipt_id,
+                decisions=[
+                    "Recovered committed evidence promotion from its durable receipt."
+                ],
+                provider=style.provider,
+                model=style.model,
+                started_at=previous.started_at or receipt.committed_at,
+                finished_at=self._now(),
+            )
+            if manifest.spec.approval_policy == "auto":
+                result.decisions.append(
+                    "Candidate promoted automatically under approval_policy=auto."
+                )
+            self._require_quality_gate(manifest.spec.quality_policy, result)
+            self._validate_bound_revision(project, result)
+            self._validate_bound_proposals(project, result)
+            self._validate_evidence_records(manifest, project, result)
+            self._save_stage(manifest, project, store, result, snapshot_state=True)
+            self._event(
+                manifest,
+                "stage.promotion_reconciled",
+                phase="chapter.promote",
+                chapter=number,
+            )
+            reconciled.add(number)
+        return reconciled
 
     @staticmethod
     def _record_resume_failure(

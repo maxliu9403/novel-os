@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+import pipeline_runner as pipeline_runner_module
 from artifacts import ArtifactStore
 from canon_ledger import canonical_canon_sha
 from orchestrator import NovelOrchestrator
@@ -249,6 +250,174 @@ def test_evidence_policy_records_real_promotion_receipt(tmp_path: Path):
     assert (project / "outputs/manuscript/chapter_001_final.md").read_text(
         encoding="utf-8"
     ) == ArtifactStore(project).read_text(promotion.revision_id)
+
+
+def test_resume_reconciles_committed_promotion_before_restoring_state(
+    tmp_path: Path,
+    monkeypatch,
+):
+    class SimulatedProcessCrash(BaseException):
+        pass
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# One Prompt Book\n\nMara chooses a new life.", encoding="utf-8")
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=_real_orchestrator_with_fake_llm)
+    original_save_stage = runner._save_stage
+
+    def crash_before_promotion_checkpoint(
+        manifest,
+        active_project,
+        store,
+        result,
+        *,
+        snapshot_state=False,
+    ):
+        if (
+            result.phase == "chapter.promote"
+            and result.status == "done"
+            and result.promotion_receipt_id
+        ):
+            raise SimulatedProcessCrash
+        return original_save_stage(
+            manifest,
+            active_project,
+            store,
+            result,
+            snapshot_state=snapshot_state,
+        )
+
+    monkeypatch.setattr(runner, "_save_stage", crash_before_promotion_checkpoint)
+
+    with pytest.raises(SimulatedProcessCrash):
+        runner.run(_one_chapter_spec(
+            project,
+            prompt,
+            quality_policy="evidence_v1",
+        ))
+
+    run_paths = list((project / "outputs/runs").glob("*/run.json"))
+    assert len(run_paths) == 1
+    run_id = run_paths[0].parent.name
+    interrupted = runner._store(project, run_id).load()
+    assert interrupted.get("chapter.promote", 1).status == "running"
+    receipt = PromotionService(project).load_receipt(
+        f"pipeline-{run_id}-chapter-1"
+    )
+    assert receipt is not None
+    committed_canon_sha = canonical_canon_sha(StoryState(str(project)))
+    assert committed_canon_sha == receipt.new_canon_sha
+
+    resumed_runner = PipelineRunner(
+        orchestrator_factory=_real_orchestrator_with_fake_llm
+    )
+    monkeypatch.setattr(
+        resumed_runner,
+        "_restore_state",
+        lambda *_args, **_kwargs: pytest.fail(
+            "resume restored a pre-promotion StoryState snapshot"
+        ),
+    )
+    monkeypatch.setattr(
+        PromotionService,
+        "promote",
+        lambda *_args, **_kwargs: pytest.fail(
+            "resume constructed a second promotion request"
+        ),
+    )
+
+    completed = resumed_runner.resume(run_id, project)
+
+    assert completed.status == "completed", completed.error
+    promotion = completed.get("chapter.promote", 1)
+    assert promotion.status == "done"
+    assert promotion.promotion_receipt_id == receipt.receipt_id
+    assert promotion.revision_id == receipt.new_artifact_revision_id
+    assert promotion.evaluation_report_ids == [receipt.evaluation_report_id]
+    assert canonical_canon_sha(StoryState(str(project))) == committed_canon_sha
+
+
+def test_resume_recovers_unfinished_promotion_before_restoring_state(
+    tmp_path: Path,
+    monkeypatch,
+):
+    class SimulatedProcessCrash(BaseException):
+        pass
+
+    def interrupt_before_receipt(point):
+        if point == "before_receipt_commit":
+            raise SimulatedProcessCrash
+
+    real_promotion_service = PromotionService
+
+    def interrupted_service(project):
+        return real_promotion_service(
+            project,
+            fault_injector=interrupt_before_receipt,
+        )
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# One Prompt Book\n\nMara chooses a new life.", encoding="utf-8")
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=_real_orchestrator_with_fake_llm)
+    monkeypatch.setattr(
+        pipeline_runner_module,
+        "PromotionService",
+        interrupted_service,
+    )
+
+    with pytest.raises(SimulatedProcessCrash):
+        runner.run(_one_chapter_spec(
+            project,
+            prompt,
+            quality_policy="evidence_v1",
+        ))
+
+    run_paths = list((project / "outputs/runs").glob("*/run.json"))
+    assert len(run_paths) == 1
+    run_id = run_paths[0].parent.name
+    key = f"pipeline-{run_id}-chapter-1"
+    receipt_path = project / f"outputs/state/promotion_receipts/{key}.json"
+    assert not receipt_path.exists()
+    journal = json.loads(
+        (project / f"outputs/state/promotion_journal/{key}.json").read_text(
+            encoding="utf-8"
+        )
+    )["journal"]
+    assert journal["state"] == "head_committed"
+    committed_canon_sha = canonical_canon_sha(StoryState(str(project)))
+    assert committed_canon_sha == journal["receipt"]["new_canon_sha"]
+
+    monkeypatch.setattr(
+        pipeline_runner_module,
+        "PromotionService",
+        real_promotion_service,
+    )
+    resumed_runner = PipelineRunner(
+        orchestrator_factory=_real_orchestrator_with_fake_llm
+    )
+    monkeypatch.setattr(
+        resumed_runner,
+        "_restore_state",
+        lambda *_args, **_kwargs: pytest.fail(
+            "resume restored a pre-promotion StoryState snapshot"
+        ),
+    )
+    monkeypatch.setattr(
+        real_promotion_service,
+        "promote",
+        lambda *_args, **_kwargs: pytest.fail(
+            "resume constructed a second promotion request"
+        ),
+    )
+
+    completed = resumed_runner.resume(run_id, project)
+
+    assert completed.status == "completed", completed.error
+    receipt = real_promotion_service(project).load_receipt(key)
+    assert receipt is not None
+    assert completed.get("chapter.promote", 1).promotion_receipt_id == receipt.receipt_id
+    assert canonical_canon_sha(StoryState(str(project))) == committed_canon_sha
 
 
 def test_multi_chapter_evidence_promotion_commits_all_agent_proposals(

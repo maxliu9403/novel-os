@@ -2,6 +2,9 @@
 
 import hashlib
 import json
+import multiprocessing
+import os
+import queue
 import threading
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
@@ -39,6 +42,57 @@ def _fail_directory_open(
         return original_open(path, flags, *args, **kwargs)
 
     monkeypatch.setattr(artifacts_module.os, "open", fail_target_directory)
+
+
+def _process_put_after_shared_revision_log_read(
+    project: str,
+    text: str,
+    microsecond: int,
+    read_ready,
+    release_reads,
+    results,
+) -> None:
+    revisions_path = Path(project) / "outputs" / "artifacts" / "revisions.jsonl"
+    original_read_bytes = Path.read_bytes
+    synchronized = False
+
+    def read_bytes_at_same_base(path: Path) -> bytes:
+        nonlocal synchronized
+        data = original_read_bytes(path)
+        if path == revisions_path and not synchronized:
+            synchronized = True
+            read_ready.put(text)
+            if not release_reads.wait(timeout=5):
+                raise TimeoutError("revision-log read was not released")
+        return data
+
+    Path.read_bytes = read_bytes_at_same_base
+    try:
+        store = ArtifactStore(
+            project,
+            clock=lambda: datetime(
+                2026,
+                8,
+                24,
+                12,
+                0,
+                0,
+                microsecond,
+                tzinfo=timezone.utc,
+            ),
+        )
+        revision = store.put_text(
+            chapter=1,
+            kind="draft",
+            text=text,
+            source="scribe",
+        )
+    except Exception as exc:  # pragma: no cover - reported by parent assertion
+        results.put(("error", type(exc).__name__, str(exc)))
+    else:
+        results.put(("ok", revision.revision_id))
+    finally:
+        Path.read_bytes = original_read_bytes
 
 
 def test_same_text_reuses_content_blob_but_creates_traceable_revision(
@@ -434,6 +488,56 @@ def test_two_store_instances_serialize_duplicate_revision_puts(
             tmp_path / "outputs" / "artifacts" / "revisions.jsonl"
         ).read_text(encoding="utf-8").splitlines()
     ) == 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX flock/fork")
+def test_two_processes_preserve_both_revision_log_appends(tmp_path: Path):
+    store = ArtifactStore(tmp_path)
+    base = store.put_text(
+        chapter=1,
+        kind="draft",
+        text="Base record",
+        source="scribe",
+    )
+    context = multiprocessing.get_context("fork")
+    read_ready = context.Queue()
+    release_reads = context.Event()
+    results_queue = context.Queue()
+    processes = [
+        context.Process(
+            target=_process_put_after_shared_revision_log_read,
+            args=(
+                str(tmp_path),
+                text,
+                microsecond,
+                read_ready,
+                release_reads,
+                results_queue,
+            ),
+        )
+        for text, microsecond in (("First child", 1), ("Second child", 2))
+    ]
+
+    for process in processes:
+        process.start()
+    try:
+        read_ready.get(timeout=5)
+        try:
+            read_ready.get(timeout=1)
+        except queue.Empty:
+            pass
+    finally:
+        release_reads.set()
+        for process in processes:
+            process.join(timeout=10)
+    results = [results_queue.get(timeout=2) for _ in processes]
+
+    assert all(not process.is_alive() and process.exitcode == 0 for process in processes)
+    assert [result[0] for result in results] == ["ok", "ok"]
+    revision_ids = {result[1] for result in results}
+    assert len(revision_ids) == 2
+    history_ids = {revision.revision_id for revision in store.history()}
+    assert history_ids == {base.revision_id, *revision_ids}
 
 
 def test_duplicate_revision_log_entry_is_not_last_write_wins(tmp_path: Path):

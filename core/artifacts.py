@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import tempfile
 import threading
 from collections.abc import Callable, Mapping
@@ -18,6 +19,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+
+try:
+    import fcntl
+except ImportError as exc:  # pragma: no cover - Novel OS targets POSIX
+    raise RuntimeError("artifact locks require POSIX fcntl") from exc
 
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -135,8 +141,8 @@ class ArtifactStore:
     The normalized UTC timestamp participates in the revision ID, so a persisted
     record can be verified later and an exact repeated record is a duplicate.
 
-    This store provides atomic file replacement and single-process CAS semantics.
-    Cross-process writers must hold the higher-level per-project promotion lock.
+    Atomic replacement is paired with an artifact-specific process lock so
+    revision-log appends and head CAS updates remain linear across workers.
     """
 
     def __init__(
@@ -150,6 +156,7 @@ class ArtifactStore:
         self.blob_root = self.artifact_root / "sha256"
         self.revisions_path = self.artifact_root / "revisions.jsonl"
         self.heads_path = self.artifact_root / "heads.json"
+        self.lock_path = self.artifact_root / ".artifact.lock"
         self._process_lock = _project_process_lock(self.artifact_root)
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
@@ -261,8 +268,10 @@ class ArtifactStore:
 
     def get_head(self, chapter: int, kind: str) -> Optional[ArtifactHead]:
         _validate_chapter_kind(chapter, kind)
-        revisions = self._load_revisions()
-        return self._load_heads(revisions).get((chapter, kind))
+        with self._process_lock:
+            with _ArtifactFileLock(self.artifact_root, self.lock_path):
+                revisions = self._load_revisions()
+                return self._load_heads(revisions).get((chapter, kind))
 
     def set_head(
         self,
@@ -273,12 +282,13 @@ class ArtifactStore:
         expected_revision_id: Optional[str],
     ) -> ArtifactHead:
         with self._process_lock:
-            return self._set_head_locked(
-                chapter,
-                kind,
-                revision_id,
-                expected_revision_id=expected_revision_id,
-            )
+            with _ArtifactFileLock(self.artifact_root, self.lock_path):
+                return self._set_head_locked(
+                    chapter,
+                    kind,
+                    revision_id,
+                    expected_revision_id=expected_revision_id,
+                )
 
     def _set_head_locked(
         self,
@@ -341,18 +351,19 @@ class ArtifactStore:
         chapter_contract_revision_id: Optional[str],
     ) -> ArtifactRevision:
         with self._process_lock:
-            return self._put_bytes_locked(
-                chapter=chapter,
-                kind=kind,
-                data=data,
-                source=source,
-                parent_revision_id=parent_revision_id,
-                provider=provider,
-                model=model,
-                prompt_sha256=prompt_sha256,
-                story_contract_revision_id=story_contract_revision_id,
-                chapter_contract_revision_id=chapter_contract_revision_id,
-            )
+            with _ArtifactFileLock(self.artifact_root, self.lock_path):
+                return self._put_bytes_locked(
+                    chapter=chapter,
+                    kind=kind,
+                    data=data,
+                    source=source,
+                    parent_revision_id=parent_revision_id,
+                    provider=provider,
+                    model=model,
+                    prompt_sha256=prompt_sha256,
+                    story_contract_revision_id=story_contract_revision_id,
+                    chapter_contract_revision_id=chapter_contract_revision_id,
+                )
 
     def _put_bytes_locked(
         self,
@@ -702,6 +713,85 @@ def _project_process_lock(artifact_root: Path) -> threading.RLock:
             lock = threading.RLock()
             _PROJECT_LOCKS[key] = lock
         return lock
+
+
+class _ArtifactFileLock:
+    """Exclusive cross-process lock for artifact metadata write transactions."""
+
+    def __init__(self, artifact_root: Path, path: Path) -> None:
+        self.artifact_root = artifact_root
+        self.path = path
+        self._descriptor: Optional[int] = None
+
+    def __enter__(self) -> "_ArtifactFileLock":
+        try:
+            self.artifact_root.mkdir(parents=True, exist_ok=True)
+            root_mode = self.artifact_root.lstat().st_mode
+        except OSError as exc:
+            raise ArtifactCorruptionError(
+                f"cannot create artifact lock directory: {exc}"
+            ) from exc
+        if stat.S_ISLNK(root_mode) or not stat.S_ISDIR(root_mode):
+            raise ArtifactCorruptionError(
+                "artifact lock parent must be a real directory"
+            )
+
+        try:
+            lock_mode = self.path.lstat().st_mode
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise ArtifactCorruptionError(
+                f"cannot inspect artifact lock: {exc}"
+            ) from exc
+        else:
+            if stat.S_ISLNK(lock_mode) or not stat.S_ISREG(lock_mode):
+                raise ArtifactCorruptionError(
+                    "artifact lock must be a regular non-symlink file"
+                )
+
+        flags = os.O_RDWR | os.O_CREAT
+        if hasattr(os, "O_CLOEXEC"):
+            flags |= os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            descriptor = os.open(self.path, flags, 0o600)
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise ArtifactCorruptionError(
+                    "artifact lock descriptor must be a regular file"
+                )
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+        except BaseException:
+            if "descriptor" in locals():
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+            raise
+        self._descriptor = descriptor
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> bool:
+        descriptor = self._descriptor
+        self._descriptor = None
+        if descriptor is None:
+            return False
+        cleanup_error: Optional[OSError] = None
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        except OSError as caught:
+            cleanup_error = caught
+        try:
+            os.close(descriptor)
+        except OSError as caught:
+            if cleanup_error is None:
+                cleanup_error = caught
+        if exc_type is None and cleanup_error is not None:
+            raise ArtifactCorruptionError(
+                f"cannot release artifact lock: {cleanup_error}"
+            )
+        return False
 
 
 def _derive_revision_id(metadata: Mapping[str, Any]) -> str:
