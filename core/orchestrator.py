@@ -61,6 +61,7 @@ class NovelOrchestrator:
         # print-and-return behavior.
         self.raise_llm_errors = False
         self.state_update_mode = state_update_mode
+        self.quality_policy = "legacy"
         self.last_canon_proposal_ids: List[str] = []
 
     @staticmethod
@@ -529,7 +530,8 @@ genre-appropriate assumptions rather than asking questions.
                     json.dumps(foundation, indent=2, ensure_ascii=False) + "\n",
                     encoding="utf-8",
                 )
-                self._apply_story_foundation(foundation, target_words)
+                if self.state_update_mode == "legacy_apply":
+                    self._apply_story_foundation(foundation, target_words)
             except (ValueError, json.JSONDecodeError) as exc:
                 message = f"Architect output contract failed: {exc}"
                 if self.raise_llm_errors:
@@ -565,7 +567,13 @@ genre-appropriate assumptions rather than asking questions.
             raise ValueError("story foundation must define at least one plot thread")
         return data
 
-    def _apply_story_foundation(self, foundation: Dict[str, Any], target_words: int) -> None:
+    def _apply_story_foundation(
+        self,
+        foundation: Dict[str, Any],
+        target_words: int,
+        *,
+        persist: bool = True,
+    ) -> None:
         """Hydrate StoryState so context packs and continuity checks have canon."""
         if foundation.get("title") and self.state.metadata.get("title") in (None, "", "Untitled"):
             self.state.set_metadata("title", str(foundation["title"]))
@@ -637,7 +645,8 @@ genre-appropriate assumptions rather than asking questions.
                 chapter.target_word_count = max(1, int(raw.get("target_words") or default_target))
             except (TypeError, ValueError):
                 chapter.target_word_count = default_target
-            chapter.status = "planned"
+            if persist or chapter.status != "complete":
+                chapter.status = "planned"
 
         style = foundation.get("style") or {}
         if isinstance(style, dict):
@@ -649,8 +658,34 @@ genre-appropriate assumptions rather than asking questions.
             ):
                 if style.get(source):
                     setattr(self.state.style_profile, target, str(style[source]))
-        self._write_foundation_story_bible(foundation)
-        self.state.save_state()
+        if persist:
+            self._write_foundation_story_bible(foundation)
+            self.state.save_state()
+
+    def build_proposal_runtime_state(self) -> StoryState:
+        """Build non-canonical planning context from the persisted foundation."""
+        foundation_path = self.outputs_dir / "input" / "foundation.json"
+        if not foundation_path.is_file():
+            raise ValueError("proposal runtime state requires foundation.json")
+        foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
+        chapters = foundation.get("chapters") or []
+        target_words = sum(
+            max(0, int(item.get("target_words") or 0))
+            for item in chapters
+            if isinstance(item, dict)
+        )
+        canonical_state = self.state
+        runtime_state = StoryState(str(self.project_path))
+        try:
+            self.state = runtime_state
+            self._apply_story_foundation(
+                foundation,
+                target_words or max(1, len(chapters)),
+                persist=False,
+            )
+        finally:
+            self.state = canonical_state
+        return runtime_state
 
     def _write_foundation_story_bible(self, foundation: Dict[str, Any]) -> None:
         """Render Architect canon into the human-readable story bible."""
@@ -779,30 +814,43 @@ genre-appropriate assumptions rather than asking questions.
         """Plan a specific chapter in detail (Architect agent expands the outline)."""
         print(f"\n📋 Planning Chapter {chapter_number}...")
 
-        chapter = self.state.get_chapter(chapter_number)
-        if not chapter:
-            chapter = self.state.create_chapter(chapter_number)
+        canonical_state = self.state
+        if self.state_update_mode == "proposal_only":
+            self.state = self.build_proposal_runtime_state()
 
-        if summary:
-            chapter.plot_advances.append(summary)
-        if pov:
-            chapter.pov_character = pov
+        try:
+            chapter = self.state.get_chapter(chapter_number)
+            if not chapter:
+                chapter = self.state.create_chapter(chapter_number)
 
-        chapter.status = 'planned'
-        self.state.save_state()
+            if summary:
+                chapter.plot_advances.append(summary)
+            if pov:
+                chapter.pov_character = pov
 
-        prompt = self._generate_chapter_outline_prompt(chapter)
-        prompt_path = self.outputs_dir / f"chapter_{chapter_number:03d}_prompt.md"
-        outline_path = self.outputs_dir / f"chapter_{chapter_number:03d}_outline.md"
+            chapter.status = 'planned'
+            if self.state_update_mode == "legacy_apply":
+                self.state.save_state()
 
-        self._run_agent_or_save_prompt(
-            agent_name="architect",
-            user_prompt=prompt,
-            prompt_path=prompt_path,
-            output_path=outline_path,
-            dry_run=dry_run,
-            label="Architect expanding chapter outline",
-        )
+            prompt = self._generate_chapter_outline_prompt(chapter)
+            prompt_path = self.outputs_dir / f"chapter_{chapter_number:03d}_prompt.md"
+            outline_path = self.outputs_dir / f"chapter_{chapter_number:03d}_outline.md"
+
+            self._run_agent_or_save_prompt(
+                agent_name="architect",
+                user_prompt=prompt,
+                prompt_path=prompt_path,
+                output_path=outline_path,
+                dry_run=dry_run,
+                label="Architect expanding chapter outline",
+                chapter_number=(
+                    chapter_number
+                    if self.state_update_mode == "proposal_only"
+                    else None
+                ),
+            )
+        finally:
+            self.state = canonical_state
 
     def _generate_chapter_outline_prompt(self, chapter: ChapterState) -> str:
         """Prompt the Architect to produce a STRUCTURED BEAT-SHEET (not prose).
@@ -865,6 +913,31 @@ dialogue, or narrative paragraphs:
 
 Write the beat-sheet now. Outline only no prose.
 """
+        if self.quality_policy == "evidence_v1":
+            prompt += f"""
+
+## Machine-Readable Chapter Contract
+
+After the Markdown outline, emit exactly one JSON object inside these tags:
+
+```text
+[CHAPTER_CONTRACT]
+{{
+  "chapter": {chapter.number},
+  "goal": "...",
+  "obstacle": "...",
+  "active_choice": "...",
+  "cost": "...",
+  "irreversible_change": "...",
+  "local_payoff": "...",
+  "ending_pressure": "...",
+  "preserve_facts": ["..."],
+  "allowed_knowledge": ["..."],
+  "world_event_ids": ["..."]
+}}
+[/CHAPTER_CONTRACT]
+```
+"""
         return prompt
 
     # ===== Style Curation =====
@@ -882,13 +955,13 @@ Write the beat-sheet now. Outline only no prose.
                 raise ValueError(message)
             print(f"❌ {message}")
             return None
-        if chapter.status not in ("validated", "complete"):
+        if resolved_mode == "legacy_apply" and chapter.status not in ("validated", "complete"):
             message = f"Chapter {chapter_number} must be validated before style curation"
             if self.raise_llm_errors:
                 raise ValueError(message)
             print(f"❌ {message}")
             return None
-        if chapter.continuity_checks.get("status") == "FAIL":
+        if resolved_mode == "legacy_apply" and chapter.continuity_checks.get("status") == "FAIL":
             message = f"Chapter {chapter_number} failed continuity validation"
             if self.raise_llm_errors:
                 raise ValueError(message)
@@ -1083,6 +1156,22 @@ Do not list a referenced/off-page character in Characters_Present.
             user_prompt = outline_path.read_text(encoding='utf-8') + "\n\n" + pack_md
         else:
             user_prompt = self._generate_chapter_prompt(chapter)
+        if self.quality_policy == "evidence_v1":
+            from artifacts import ArtifactStore
+
+            artifacts = ArtifactStore(self.project_path)
+            contract_head = artifacts.get_head(chapter_number, "chapter_contract")
+            if contract_head is None:
+                raise ValueError(
+                    f"Chapter {chapter_number} has no current chapter contract revision"
+                )
+            contract = json.loads(artifacts.read_text(contract_head.revision_id))
+            user_prompt += (
+                "\n\n## Current Chapter Contract\n\n"
+                "```json\n"
+                + json.dumps(contract, ensure_ascii=False, sort_keys=True, indent=2)
+                + "\n```\n"
+            )
 
         prompt_path = self.outputs_dir / f"chapter_{chapter_number:03d}_scribe_prompt.md"
         result = self._run_agent_or_save_prompt(
@@ -1152,7 +1241,10 @@ Do not list a referenced/off-page character in Characters_Present.
         if not chapter:
             print(f"❌ Chapter {chapter_number} not found.")
             return
-        if chapter.status not in ['drafted', 'editing', 'edited']:
+        if (
+            resolved_mode == "legacy_apply"
+            and chapter.status not in ['drafted', 'editing', 'edited']
+        ):
             print(f"❌ Chapter {chapter_number} has no draft to edit.")
             return
 
@@ -1723,6 +1815,9 @@ Examples:
     run_parser.add_argument('--approval', default='review_required',
                             choices=['review_required', 'auto'],
                             help='Pause for review, or explicitly auto-promote candidate finals')
+    run_parser.add_argument('--quality-policy', default='legacy',
+                            choices=['legacy', 'evidence_v1'],
+                            help='Select legacy projection or evidence-backed promotion')
     run_parser.add_argument('--max-retries', type=int, default=2)
     run_parser.add_argument('--retry-backoff', type=float, default=2.0,
                             help='Initial retry delay in seconds (exponential, capped at 30s)')
@@ -1795,6 +1890,7 @@ Examples:
                     pov=args.pov,
                     edit_mode=args.edit_mode,
                     approval_policy=args.approval,
+                    quality_policy=args.quality_policy,
                     max_retries=args.max_retries,
                     retry_backoff_seconds=args.retry_backoff,
                     output_formats=tuple(args.output),

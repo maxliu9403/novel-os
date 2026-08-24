@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import orchestrator as orchestrator_module
+from canon_ledger import canonical_canon_sha
 from continuity_engine import Finding
 from llm_client import LLMError
 from model_router import ModelRouter
@@ -24,6 +25,16 @@ class FakeLLM:
     def run_agent(self, agent_name, prompt):
         self.calls.append((agent_name, prompt))
         if agent_name == "architect":
+            if "Outline Chapter" in prompt:
+                return """# Chapter 1
+
+## Chapter Goal
+Mara chooses change.
+
+[CHAPTER_CONTRACT]
+{"chapter": 1, "goal": "Mara chooses change.", "active_choice": "Mara opens the studio."}
+[/CHAPTER_CONTRACT]
+"""
             return """[STORY_FOUNDATION_JSON]
 {
   "title": "Test",
@@ -456,6 +467,66 @@ def test_plan_outline_calls_architect_and_chapter_prompt_reads_it(tmp_path: Path
     assert orch.state.get_chapter(1).title == "Opening"
     assert "Mara Vale" in (project / "outputs/story_bible.md").read_text(encoding="utf-8")
     assert "ARCHITECT ANALYSIS: Test" in chapter_prompt
+
+
+def test_proposal_only_plan_outline_preserves_canonical_state_and_file(tmp_path: Path):
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test\n\nA story.", encoding="utf-8")
+    project = tmp_path / "project"
+    ingest_prompt(project, prompt, {"title": "Author Title", "chapters": 2, "words": 5000})
+    orch = NovelOrchestrator(str(project), state_update_mode="proposal_only")
+    orch._llm = FakeLLM()
+    state_path = project / "outputs/state/story_state.json"
+    before_snapshot = _state_snapshot(orch.state)
+    before_hash = canonical_canon_sha(orch.state)
+    before_bytes = state_path.read_bytes()
+
+    orch.plan_outline(2, 5000)
+
+    assert _state_snapshot(orch.state) == before_snapshot
+    assert canonical_canon_sha(orch.state) == before_hash
+    assert state_path.read_bytes() == before_bytes
+    assert orch.state.get_chapter(1) is None
+    assert (project / "outputs/input/foundation.json").exists()
+
+
+def test_proposal_only_plan_chapter_rehydrates_runtime_without_changing_canon(
+    tmp_path: Path,
+):
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test\n\nA story.", encoding="utf-8")
+    project = tmp_path / "project"
+    ingest_prompt(project, prompt, {"title": "Author Title", "chapters": 2, "words": 5000})
+    planner = NovelOrchestrator(str(project), state_update_mode="proposal_only")
+    planner._llm = FakeLLM()
+    planner.plan_outline(2, 5000)
+
+    resumed = NovelOrchestrator(str(project), state_update_mode="proposal_only")
+    resumed._llm = FakeLLM()
+    state_path = project / "outputs/state/story_state.json"
+    before_snapshot = _state_snapshot(resumed.state)
+    before_hash = canonical_canon_sha(resumed.state)
+    before_bytes = state_path.read_bytes()
+
+    resumed.plan_chapter(1)
+
+    chapter_prompt = (project / "outputs/chapter_001_prompt.md").read_text(
+        encoding="utf-8"
+    )
+    assert "Mara Vale" in chapter_prompt
+    assert "Mara chooses change." in chapter_prompt
+    outline_path = project / "outputs/chapter_001_outline.md"
+    assert outline_path.exists()
+    assert len(resumed.last_canon_proposal_ids) == 1
+    proposal = ProposalStore(project).load(resumed.last_canon_proposal_ids[0])
+    assert proposal.agent_name == "architect"
+    assert proposal.chapter == 1
+    assert proposal.source_artifact_sha == hashlib.sha256(outline_path.read_bytes()).hexdigest()
+    assert proposal.delta["chapter_contract"]["active_choice"] == "Mara opens the studio."
+    assert _state_snapshot(resumed.state) == before_snapshot
+    assert canonical_canon_sha(resumed.state) == before_hash
+    assert state_path.read_bytes() == before_bytes
+    assert resumed.state.get_chapter(1) is None
 
 
 def test_style_curator_writes_clean_candidate_final(tmp_path: Path):

@@ -607,8 +607,9 @@ def _apply_canon_proposal_at(
 
     chapter = state.get_chapter(proposal.chapter)
     if chapter is not None:
+        chapter.status = "complete"
         chapter.last_modified = committed_at
-        if "status" in proposal.delta:
+        if "status" in chapter.continuity_checks:
             chapter.continuity_checks["validated_at"] = committed_at
     for entry in state.session_log[session_log_length:]:
         entry["timestamp"] = committed_at

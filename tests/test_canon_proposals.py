@@ -18,7 +18,7 @@ from state_manager import StoryState
 
 
 SOURCE_SHA = "a" * 64
-ALLOWED_AGENTS = ("scribe", "editor", "continuity_guardian", "style_curator")
+ALLOWED_AGENTS = ("architect", "scribe", "editor", "continuity_guardian", "style_curator")
 
 
 def _state_snapshot(state: StoryState):
@@ -126,7 +126,7 @@ def test_proposal_rejects_invalid_identity_fields(overrides, message):
         CanonDeltaProposal(**values)
 
 
-@pytest.mark.parametrize("agent_name", ["architect", "", "unknown_agent"])
+@pytest.mark.parametrize("agent_name", ["", "unknown_agent"])
 def test_proposal_rejects_agents_that_cannot_propose_canon(agent_name):
     with pytest.raises(ValueError, match="agent_name"):
         CanonDeltaProposal(
@@ -212,6 +212,45 @@ def test_apply_matching_sha_uses_legacy_state_behavior(tmp_path: Path):
     assert any("Door opens" in change for change in changes)
 
 
+def test_apply_proposal_chain_preserves_ordered_agent_deltas(tmp_path: Path):
+    state = StoryState(str(tmp_path / "project"))
+    scribe = CanonDeltaProposal(
+        chapter=1,
+        agent_name="scribe",
+        source_artifact_sha="b" * 64,
+        delta={"key_events": ["Door opens"]},
+    )
+    guardian = CanonDeltaProposal(
+        chapter=1,
+        agent_name="continuity_guardian",
+        source_artifact_sha="c" * 64,
+        delta={"new_facts_established": ["The key works"], "status": "PASS"},
+    )
+    chain = CanonDeltaProposal(
+        chapter=1,
+        agent_name="style_curator",
+        source_artifact_sha=SOURCE_SHA,
+        delta={
+            "proposal_chain": [
+                {
+                    "proposal_id": proposal.proposal_id,
+                    "agent_name": proposal.agent_name,
+                    "source_artifact_sha": proposal.source_artifact_sha,
+                    "delta": proposal.to_dict()["delta"],
+                }
+                for proposal in (scribe, guardian)
+            ]
+        },
+    )
+
+    apply_canon_proposal(state, chain, SOURCE_SHA)
+
+    chapter = state.get_chapter(1)
+    assert chapter.plot_advances == ["Door opens"]
+    assert chapter.new_information == ["The key works"]
+    assert chapter.continuity_checks["status"] == "PASS"
+
+
 @pytest.mark.parametrize(
     ("agent_name", "text"),
     [
@@ -226,6 +265,21 @@ def test_empty_or_unknown_updates_do_not_build_proposals(
 
     with pytest.raises(ValueError, match="state update"):
         build_canon_proposal(state, 1, agent_name, SOURCE_SHA, text)
+
+
+def test_architect_chapter_contract_builds_content_bound_proposal(tmp_path: Path):
+    state = StoryState(str(tmp_path / "project"))
+    text = """# Chapter 1
+
+[CHAPTER_CONTRACT]
+{"chapter": 1, "goal": "Open the door", "preserve_facts": ["The key exists"]}
+[/CHAPTER_CONTRACT]
+"""
+
+    proposal = build_canon_proposal(state, 1, "architect", SOURCE_SHA, text)
+
+    assert proposal.agent_name == "architect"
+    assert proposal.delta["chapter_contract"]["goal"] == "Open the door"
 
 
 def test_proposal_store_save_load_and_duplicate_save_are_idempotent(tmp_path: Path):

@@ -22,6 +22,7 @@ Closing tag is optional we accept either [/TAG] or "stop at next [TAG]".
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------- block extract
 
 _KNOWN_TAGS = {
+    "CHAPTER_CONTRACT",
     "SCRIBE_STATE_UPDATE",
     "EDITOR_ANALYSIS",
     "EDITOR_STATE_UPDATE",
@@ -143,6 +145,24 @@ def _normalize_key(raw: str) -> str:
 
 
 # ---------------------------------------------------------------- per-agent
+
+def parse_architect(text: str) -> Dict[str, Any]:
+    """Parse a chapter contract or a structured chapter-outline proposal."""
+    block = extract_block(text, "CHAPTER_CONTRACT")
+    if block:
+        try:
+            contract = json.loads(block)
+        except json.JSONDecodeError as exc:
+            raise ValueError("architect chapter contract must be valid JSON") from exc
+        if not isinstance(contract, dict):
+            raise ValueError("architect chapter contract must be a JSON object")
+        return {"chapter_contract": contract}
+
+    normalized = normalize_agent_output(text).strip()
+    if re.search(r"^#\s+Chapter\s+\d+\b", normalized, re.IGNORECASE | re.MULTILINE):
+        return {"chapter_outline": normalized}
+    return {}
+
 
 def parse_scribe(text: str) -> Dict[str, Any]:
     block = extract_block(text, "SCRIBE_STATE_UPDATE")
@@ -516,6 +536,7 @@ def apply_to_state(
 # ---------------------------------------------------------------- top-level
 
 _DISPATCH = {
+    "architect": parse_architect,
     "scribe": parse_scribe,
     "editor": parse_editor,
     "continuity_guardian": parse_continuity,

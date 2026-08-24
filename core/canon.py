@@ -17,7 +17,7 @@ from state_parser import apply_to_state, parse_agent_output
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _PROPOSAL_ID_RE = re.compile(r"^proposal-[0-9a-f]{64}$")
 _ALLOWED_AGENT_NAMES = frozenset(
-    {"scribe", "editor", "continuity_guardian", "style_curator"}
+    {"architect", "scribe", "editor", "continuity_guardian", "style_curator"}
 )
 
 
@@ -222,9 +222,43 @@ def apply_canon_proposal(
         raise ValueError("actual artifact sha must be lowercase 64 hex")
     if actual_artifact_sha != proposal.source_artifact_sha:
         raise ValueError("actual artifact sha does not match proposal source")
+    delta = _thaw(proposal.delta)
+    if "proposal_chain" in delta:
+        if set(delta) != {"proposal_chain"} or not isinstance(
+            delta["proposal_chain"], list
+        ) or not delta["proposal_chain"]:
+            raise ValueError("proposal_chain must be a nonempty proposal array")
+        changes: list[str] = []
+        expected_fields = {
+            "proposal_id",
+            "agent_name",
+            "source_artifact_sha",
+            "delta",
+        }
+        for entry in delta["proposal_chain"]:
+            if not isinstance(entry, dict) or set(entry) != expected_fields:
+                raise ValueError("proposal_chain entry has invalid fields")
+            nested = CanonDeltaProposal(
+                chapter=proposal.chapter,
+                agent_name=entry["agent_name"],
+                source_artifact_sha=entry["source_artifact_sha"],
+                delta=entry["delta"],
+                proposal_id=entry["proposal_id"],
+            )
+            if "proposal_chain" in nested.delta:
+                raise ValueError("proposal_chain entries cannot contain proposal chains")
+            changes.extend(
+                apply_to_state(
+                    state,
+                    nested.chapter,
+                    _thaw(nested.delta),
+                    source=nested.agent_name,
+                )
+            )
+        return changes
     return apply_to_state(
         state,
         proposal.chapter,
-        _thaw(proposal.delta),
+        delta,
         source=proposal.agent_name,
     )

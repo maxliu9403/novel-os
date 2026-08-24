@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 STAGE_STATUSES = {"pending", "running", "done", "retryable", "blocked", "failed", "skipped"}
 RUN_STATUSES = {"pending", "running", "paused", "completed", "failed", "cancelled"}
 APPROVAL_POLICIES = {"review_required", "auto"}
+QUALITY_POLICIES = {"legacy", "evidence_v1"}
 
 
 def _now() -> str:
@@ -54,6 +55,7 @@ class RunSpec:
     output_formats: Tuple[str, ...] = ("markdown",)
     dry_run: bool = False
     model: str = ""
+    quality_policy: str = "legacy"
 
     def __post_init__(self) -> None:
         self.project_path = str(self.project_path)
@@ -75,6 +77,8 @@ class RunSpec:
             raise ValueError("retry_backoff_seconds cannot be negative")
         if self.approval_policy not in APPROVAL_POLICIES:
             raise ValueError(f"Unknown approval policy '{self.approval_policy}'")
+        if self.quality_policy not in QUALITY_POLICIES:
+            raise ValueError(f"Unknown quality policy '{self.quality_policy}'")
 
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)
@@ -94,6 +98,13 @@ class StageResult:
     attempt: int = 1
     artifact_paths: List[str] = field(default_factory=list)
     artifact_hashes: Dict[str, str] = field(default_factory=dict)
+    input_hashes: Dict[str, str] = field(default_factory=dict)
+    revision_id: str = ""
+    story_contract_revision_id: str = ""
+    chapter_contract_revision_id: str = ""
+    canon_proposal_ids: List[str] = field(default_factory=list)
+    evaluation_report_ids: List[str] = field(default_factory=list)
+    promotion_receipt_id: str = ""
     state_snapshot_path: str = ""
     state_snapshot_hash: str = ""
     findings: List[Dict[str, Any]] = field(default_factory=list)
