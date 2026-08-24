@@ -418,11 +418,14 @@ class PipelineRunner:
         max_attempts = manifest.spec.max_retries + 1
         last_error = ""
         for attempt in range(1, max_attempts + 1):
+            provider, model = self._runtime_model(phase)
             result = StageResult(
                 phase=phase,
                 chapter=chapter,
                 status="running",
                 attempt=attempt,
+                provider=provider,
+                model=model,
                 started_at=self._now(),
             )
             self._save_stage(manifest, project, store, result)
@@ -440,7 +443,6 @@ class PipelineRunner:
                     result.decisions.append(
                         "Candidate promoted automatically under approval_policy=auto."
                     )
-                result.provider, result.model = self._runtime_model(phase)
                 self._save_stage(manifest, project, store, result, snapshot_state=True)
                 self._last_valid_state_snapshot = result.state_snapshot_path
                 self._event(manifest, "stage.done", phase=phase, chapter=chapter, attempt=attempt)

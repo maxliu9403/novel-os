@@ -278,6 +278,82 @@ def test_retryable_llm_error_retries_stage_and_records_attempt(tmp_path: Path):
     assert manifest.get("chapter.write", 1).attempt == 2
 
 
+def test_failed_agent_stage_persists_actual_role_provenance(tmp_path: Path):
+    class FailingWriterOrchestrator(FakeOrchestrator):
+        def write_chapter(self, number, dry_run=False):
+            raise LLMError("permanent upstream failure")
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("A story.", encoding="utf-8")
+    project = tmp_path / "project"
+
+    manifest = PipelineRunner(orchestrator_factory=FailingWriterOrchestrator).run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            approval_policy="auto",
+            max_retries=0,
+        )
+    )
+
+    failed = manifest.get("chapter.write", 1)
+    assert failed.status == "failed"
+    assert (failed.provider, failed.model) == (
+        "provider-writer",
+        "model-writer",
+    )
+
+
+def test_retryable_agent_attempt_persists_actual_role_provenance(tmp_path: Path):
+    class FlakyWriterOrchestrator(FakeOrchestrator):
+        write_attempts = 0
+
+        def write_chapter(self, number, dry_run=False):
+            type(self).write_attempts += 1
+            if type(self).write_attempts == 1:
+                raise LLMError("temporary upstream timeout")
+            return super().write_chapter(number, dry_run=dry_run)
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("A story.", encoding="utf-8")
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=FlakyWriterOrchestrator)
+    saved_results = []
+    original_save_stage = runner._save_stage
+
+    def capture_save(*args, **kwargs):
+        result = args[3]
+        original_save_stage(*args, **kwargs)
+        saved_results.append(StageResult.from_dict(result.to_dict()))
+
+    runner._save_stage = capture_save
+
+    manifest = runner.run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            approval_policy="auto",
+            max_retries=1,
+            retry_backoff_seconds=0,
+        )
+    )
+
+    retryable = next(
+        result
+        for result in saved_results
+        if result.phase == "chapter.write" and result.status == "retryable"
+    )
+    assert manifest.status == "completed"
+    assert (retryable.provider, retryable.model) == (
+        "provider-writer",
+        "model-writer",
+    )
+
+
 def test_retry_validation_preserves_manual_revised_edit(tmp_path: Path):
     FakeOrchestrator.calls = []
     FakeOrchestrator.fail_validation = True
