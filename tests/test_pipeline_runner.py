@@ -354,6 +354,35 @@ def test_retryable_agent_attempt_persists_actual_role_provenance(tmp_path: Path)
     )
 
 
+def test_provenance_resolution_failure_persists_the_agent_stage_error(tmp_path: Path):
+    class BrokenProvenanceOrchestrator(FakeOrchestrator):
+        def runtime_provenance_for(self, agent_name):
+            raise LLMError(f"invalid model configuration for {agent_name}")
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("A story.", encoding="utf-8")
+    project = tmp_path / "project"
+
+    manifest = PipelineRunner(orchestrator_factory=BrokenProvenanceOrchestrator).run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            approval_policy="auto",
+            max_retries=0,
+        )
+    )
+
+    failed = manifest.get("outline")
+    assert manifest.status == "failed"
+    assert failed is not None
+    assert failed.status == "failed"
+    assert failed.provider == ""
+    assert failed.model == ""
+    assert "invalid model configuration for architect" in failed.error
+
+
 def test_retry_validation_preserves_manual_revised_edit(tmp_path: Path):
     FakeOrchestrator.calls = []
     FakeOrchestrator.fail_validation = True

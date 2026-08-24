@@ -418,19 +418,23 @@ class PipelineRunner:
         max_attempts = manifest.spec.max_retries + 1
         last_error = ""
         for attempt in range(1, max_attempts + 1):
-            provider, model = self._runtime_model(phase)
             result = StageResult(
                 phase=phase,
                 chapter=chapter,
                 status="running",
                 attempt=attempt,
-                provider=provider,
-                model=model,
                 started_at=self._now(),
             )
-            self._save_stage(manifest, project, store, result)
-            self._event(manifest, "stage.started", phase=phase, chapter=chapter, attempt=attempt)
             try:
+                result.provider, result.model = self._runtime_model(phase)
+                self._save_stage(manifest, project, store, result)
+                self._event(
+                    manifest,
+                    "stage.started",
+                    phase=phase,
+                    chapter=chapter,
+                    attempt=attempt,
+                )
                 value = operation()
                 validator(value)
                 result.status = "done"
