@@ -1,10 +1,19 @@
-"""Process-wide advisory serialization for one project's promotion authority."""
+"""Process-wide advisory serialization for one project's promotion authority.
+
+Security boundary: managed paths are checked for symlinks before transaction
+I/O, and every Novel OS writer must cooperate through this lock. The project
+tree must not be concurrently renamed or replaced by a non-cooperating process
+running as the same OS user while the lock is held; such a process already has
+equivalent authority over the user's project files. Pre-existing untrusted
+symlinks remain fail-closed.
+"""
 
 from __future__ import annotations
 
 import errno
 import os
 import stat
+import sys
 from pathlib import Path
 from types import TracebackType
 from typing import Optional, Type
@@ -27,7 +36,29 @@ class ProjectLock:
         self.project_root = Path(os.path.abspath(os.fspath(project_root)))
         self.state_dir = self.project_root / "outputs" / "state"
         self.path = self.state_dir / ".promotion.lock"
+        self._checked_project_root = self._normalize_system_alias(self.project_root)
+        self._checked_state_dir = self._checked_project_root / "outputs" / "state"
+        self._checked_path = self._checked_state_dir / ".promotion.lock"
         self._descriptor: Optional[int] = None
+
+    @staticmethod
+    def _normalize_system_alias(path: Path) -> Path:
+        if sys.platform != "darwin":
+            return path
+        for alias_text, target_text in (
+            ("/var", "/private/var"),
+            ("/tmp", "/private/tmp"),
+        ):
+            alias = Path(alias_text)
+            target = Path(target_text)
+            try:
+                relative = path.relative_to(alias)
+                mode = alias.lstat().st_mode
+            except (FileNotFoundError, ValueError):
+                continue
+            if stat.S_ISLNK(mode) and Path(os.path.realpath(alias)) == target:
+                return target / relative
+        return path
 
     @staticmethod
     def _check_directory(path: Path) -> None:
@@ -40,13 +71,32 @@ class ProjectLock:
         if not stat.S_ISDIR(mode):
             raise ProjectLockError(f"promotion lock parent must be a directory: {path}")
 
+    @staticmethod
+    def _check_existing_prefixes(path: Path) -> None:
+        current = Path(path.anchor)
+        for component in path.parts[1:]:
+            current /= component
+            try:
+                mode = current.lstat().st_mode
+            except FileNotFoundError:
+                break
+            if stat.S_ISLNK(mode):
+                raise ProjectLockError(
+                    f"promotion lock parent must not contain a symlink: {current}"
+                )
+            if not stat.S_ISDIR(mode):
+                raise ProjectLockError(
+                    f"promotion lock parent must be a directory: {current}"
+                )
+
     def _create_safe_layout(self) -> None:
-        self._check_directory(self.project_root)
+        self._check_existing_prefixes(self._checked_project_root)
+        self._check_directory(self._checked_project_root)
         try:
-            self.project_root.mkdir(parents=True, exist_ok=True)
+            self._checked_project_root.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise ProjectLockError(f"cannot create project root: {exc}") from exc
-        current = self.project_root
+        current = self._checked_project_root
         for component in ("outputs", "state"):
             self._check_directory(current)
             current = current / component
@@ -63,7 +113,7 @@ class ProjectLock:
             raise ProjectLockError("project lock is already held by this context")
         self._create_safe_layout()
         try:
-            mode = self.path.lstat().st_mode
+            mode = self._checked_path.lstat().st_mode
         except FileNotFoundError:
             pass
         else:
@@ -80,7 +130,7 @@ class ProjectLock:
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
         try:
-            descriptor = os.open(self.path, flags, 0o600)
+            descriptor = os.open(self._checked_path, flags, 0o600)
         except OSError as exc:
             if exc.errno in (errno.ELOOP, errno.ENOTDIR):
                 raise ProjectLockError(

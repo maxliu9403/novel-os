@@ -8,20 +8,26 @@ import math
 import os
 import re
 import stat
+import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
+from project_identity import ProjectIdentityError, load_project_instance_id_unlocked
 
-SCHEMA_VERSION = 1
+
+CANON_SCHEMA_VERSION = 1
+LEGACY_ENTRY_SCHEMA_VERSION = 1
+ENTRY_SCHEMA_VERSION = 2
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 _ENTRY_RE = re.compile(r"^canon-entry-[0-9a-f]{64}$")
 _PROPOSAL_RE = re.compile(r"^proposal-[0-9a-f]{64}$")
 _REQUEST_RE = re.compile(r"^promotion-request-[0-9a-f]{64}$")
 _RECEIPT_RE = re.compile(r"^promotion-receipt-[0-9a-f]{64}$")
 _IDEMPOTENCY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_INSTANCE_RE = re.compile(r"^[0-9a-f]{32}$")
 _SEMANTIC_FIELDS = (
     "metadata",
     "story_bible",
@@ -152,7 +158,7 @@ def _semantic_value(state: Any, name: str) -> Any:
 
 def canonical_canon_bytes(state: Any) -> bytes:
     """Serialize semantic canon as compact, sorted, schema-versioned UTF-8 JSON."""
-    payload = {"schema_version": SCHEMA_VERSION}
+    payload = {"schema_version": CANON_SCHEMA_VERSION}
     payload.update({name: _semantic_value(state, name) for name in _SEMANTIC_FIELDS})
     return _json_bytes(payload)
 
@@ -184,7 +190,7 @@ def _utc_timestamp(value: Any, field: str) -> str:
     return value
 
 
-_ENTRY_FIELDS = {
+_LEGACY_ENTRY_FIELDS = {
     "entry_id",
     "previous_entry_id",
     "proposal_id",
@@ -198,10 +204,12 @@ _ENTRY_FIELDS = {
     "committed_at",
     "schema_version",
 }
+_ENTRY_FIELDS = _LEGACY_ENTRY_FIELDS | {"project_instance_id"}
 
 
 @dataclass(frozen=True)
 class CanonLedgerEntry:
+    project_instance_id: str
     previous_entry_id: Optional[str]
     proposal_id: str
     source_artifact_sha: str
@@ -212,11 +220,11 @@ class CanonLedgerEntry:
     request_id: str
     idempotency_key: str
     committed_at: str
-    schema_version: int = SCHEMA_VERSION
+    schema_version: int = ENTRY_SCHEMA_VERSION
     entry_id: str = ""
 
     def _identity(self) -> dict[str, Any]:
-        return {
+        identity = {
             "previous_entry_id": self.previous_entry_id,
             "proposal_id": self.proposal_id,
             "source_artifact_sha": self.source_artifact_sha,
@@ -229,10 +237,23 @@ class CanonLedgerEntry:
             "committed_at": self.committed_at,
             "schema_version": self.schema_version,
         }
+        if self.schema_version == ENTRY_SCHEMA_VERSION:
+            identity = {"project_instance_id": self.project_instance_id, **identity}
+        return identity
 
     def __post_init__(self) -> None:
-        if type(self.schema_version) is not int or self.schema_version != SCHEMA_VERSION:
-            raise ValueError("schema_version must be the integer 1")
+        if type(self.schema_version) is not int or self.schema_version not in {
+            LEGACY_ENTRY_SCHEMA_VERSION,
+            ENTRY_SCHEMA_VERSION,
+        }:
+            raise ValueError("schema_version must be the integer 1 or 2")
+        if self.schema_version == LEGACY_ENTRY_SCHEMA_VERSION:
+            if self.project_instance_id != "":
+                raise ValueError("legacy canon entry must not have a project identity")
+        elif not isinstance(self.project_instance_id, str) or not _INSTANCE_RE.fullmatch(
+            self.project_instance_id
+        ):
+            raise ValueError("project_instance_id has invalid format")
         if self.previous_entry_id is not None and (
             not isinstance(self.previous_entry_id, str)
             or not _ENTRY_RE.fullmatch(self.previous_entry_id)
@@ -270,9 +291,21 @@ class CanonLedgerEntry:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "CanonLedgerEntry":
-        if not isinstance(data, Mapping) or set(data) != _ENTRY_FIELDS:
+        if not isinstance(data, Mapping):
             raise ValueError("canon entry has invalid fields")
-        return cls(**dict(data))
+        fields = set(data)
+        schema_version = data.get("schema_version")
+        if schema_version == LEGACY_ENTRY_SCHEMA_VERSION:
+            if fields != _LEGACY_ENTRY_FIELDS:
+                raise ValueError("canon entry has invalid fields")
+            values = {"project_instance_id": "", **dict(data)}
+        elif schema_version == ENTRY_SCHEMA_VERSION:
+            if fields != _ENTRY_FIELDS:
+                raise ValueError("canon entry has invalid fields")
+            values = dict(data)
+        else:
+            raise ValueError("canon entry schema version is invalid")
+        return cls(**values)
 
 
 class CanonLedger:
@@ -301,6 +334,12 @@ class CanonLedger:
         if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
             raise CanonCorruptionError("canon ledger must be a regular non-symlink file")
 
+    def _project_instance_id(self) -> str:
+        try:
+            return load_project_instance_id_unlocked(self.project_root)
+        except ProjectIdentityError as exc:
+            raise CanonCorruptionError(f"invalid project identity: {exc}") from exc
+
     def history(self) -> tuple[CanonLedgerEntry, ...]:
         self._safe_layout()
         if not self.path.exists():
@@ -314,6 +353,7 @@ class CanonLedger:
         entries: list[CanonLedgerEntry] = []
         seen_ids: set[str] = set()
         seen_keys: set[str] = set()
+        project_instance_id: Optional[str] = None
         for index, line in enumerate(raw.splitlines(), 1):
             try:
                 record = json.loads(line, object_pairs_hook=_strict_object)
@@ -331,9 +371,24 @@ class CanonLedger:
                 raise CanonCorruptionError(
                     f"canon ledger line {index} is invalid: {exc}"
                 ) from exc
+            if entry.schema_version == ENTRY_SCHEMA_VERSION:
+                if project_instance_id is None:
+                    project_instance_id = self._project_instance_id()
+                if entry.project_instance_id != project_instance_id:
+                    raise CanonCorruptionError(
+                        "canon ledger entry belongs to another project instance"
+                    )
             previous = entries[-1] if entries else None
             if entry.previous_entry_id != (previous.entry_id if previous else None):
                 raise CanonCorruptionError("canon ledger entry chain is broken")
+            if (
+                previous is not None
+                and previous.schema_version == ENTRY_SCHEMA_VERSION
+                and entry.schema_version == LEGACY_ENTRY_SCHEMA_VERSION
+            ):
+                raise CanonCorruptionError(
+                    "legacy canon entry cannot follow an identity-bound entry"
+                )
             if previous and entry.base_canon_sha != previous.new_canon_sha:
                 raise CanonCorruptionError("canon ledger hash chain is broken")
             if entry.entry_id in seen_ids or entry.idempotency_key in seen_keys:
@@ -347,9 +402,28 @@ class CanonLedger:
         history = self.history()
         return history[-1] if history else None
 
-    def append(self, entry: CanonLedgerEntry) -> CanonLedgerEntry:
+    def append(
+        self,
+        entry: CanonLedgerEntry,
+        *,
+        _recovering_legacy_journal: bool = False,
+    ) -> CanonLedgerEntry:
         if not isinstance(entry, CanonLedgerEntry):
             raise TypeError("entry must be a CanonLedgerEntry")
+        if (
+            entry.schema_version == LEGACY_ENTRY_SCHEMA_VERSION
+            and not _recovering_legacy_journal
+        ):
+            raise CanonCorruptionError(
+                "new canon entries must be bound to the project identity"
+            )
+        if (
+            entry.schema_version == ENTRY_SCHEMA_VERSION
+            and entry.project_instance_id != self._project_instance_id()
+        ):
+            raise CanonCorruptionError(
+                "canon ledger entry belongs to another project instance"
+            )
         history = self.history()
         for existing in history:
             if existing.idempotency_key == entry.idempotency_key:
@@ -357,12 +431,21 @@ class CanonLedger:
                     return existing
                 raise CanonCorruptionError("idempotency key has a different canon entry")
         previous = history[-1] if history else None
+        if (
+            previous is not None
+            and previous.schema_version == ENTRY_SCHEMA_VERSION
+            and entry.schema_version == LEGACY_ENTRY_SCHEMA_VERSION
+        ):
+            raise CanonCorruptionError(
+                "legacy canon entry cannot follow an identity-bound entry"
+            )
         if entry.previous_entry_id != (previous.entry_id if previous else None):
             raise CanonCorruptionError("new canon entry does not extend the ledger")
         if previous and entry.base_canon_sha != previous.new_canon_sha:
             raise CanonCorruptionError("new canon entry has a stale base hash")
         self._safe_layout()
         self.state_dir.mkdir(parents=True, exist_ok=True)
+        existing_bytes = self.path.read_bytes() if self.path.exists() else b""
         data = entry.to_dict()
         line = _json_bytes(
             {
@@ -370,27 +453,45 @@ class CanonLedger:
                 "record_sha256": hashlib.sha256(_json_bytes(data)).hexdigest(),
             }
         ) + b"\n"
-        flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        fd = os.open(self.path, flags, 0o644)
+        fd, temporary = tempfile.mkstemp(
+            prefix=f".{self.path.name}.tmp-", dir=self.state_dir
+        )
+        published = False
         try:
             if not stat.S_ISREG(os.fstat(fd).st_mode):
                 raise CanonCorruptionError("canon ledger is not a regular file")
-            view = memoryview(line)
+            view = memoryview(existing_bytes + line)
             while view:
-                view = view[os.write(fd, view) :]
+                written = os.write(fd, view)
+                if written <= 0:
+                    raise OSError("canon ledger temporary write made no progress")
+                view = view[written:]
             os.fsync(fd)
-        finally:
             os.close(fd)
-        try:
+            fd = -1
+            os.replace(temporary, self.path)
+            published = True
+            temporary = ""
             directory_fd = os.open(self.state_dir, os.O_RDONLY | os.O_DIRECTORY)
             try:
                 os.fsync(directory_fd)
             finally:
                 os.close(directory_fd)
         except OSError as exc:
-            raise CanonCommitUncertain(entry.entry_id) from exc
+            if published:
+                raise CanonCommitUncertain(entry.entry_id) from exc
+            raise
+        finally:
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            if temporary:
+                try:
+                    os.unlink(temporary)
+                except FileNotFoundError:
+                    pass
         return entry
 
 

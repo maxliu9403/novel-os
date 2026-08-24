@@ -5,7 +5,15 @@ import json
 import pytest
 
 from canon_ledger import canonical_canon_bytes, canonical_canon_sha
-from state_manager import Character, RelationshipEdge, StoryState
+from state_manager import (
+    Character,
+    CodexEntry,
+    Collection,
+    PlotThread,
+    RelationshipEdge,
+    StoryState,
+    TimelineEvent,
+)
 
 
 def _state(tmp_path):
@@ -17,6 +25,21 @@ def _state(tmp_path):
     )
     state.relationships["mara-oren"] = RelationshipEdge(
         id="mara-oren", source_id="mara", target_id="oren", label="rival"
+    )
+    state.codex["north-door"] = CodexEntry(
+        id="north-door", entry_type="item", name="North Door", summary="Locked"
+    )
+    state.collections["locked-things"] = Collection(
+        id="locked-things", name="Locked Things", query="locked"
+    )
+    state.plot_threads["door"] = PlotThread(
+        id="door",
+        name="The Door",
+        description="Mara must decide whether to open it.",
+        thread_type="main",
+    )
+    state.timeline.append(
+        TimelineEvent(id="door-locked", description="The door was locked.", chapter=1)
     )
     state.create_chapter(1, "The Door")
     return state
@@ -52,12 +75,52 @@ def test_canonical_canon_is_stable_across_volatile_and_presentation_changes(tmp_
 @pytest.mark.parametrize(
     "mutate",
     [
-        lambda state: setattr(state.characters["mara"], "secret", "She knew."),
-        lambda state: state.chapters[1].new_information.append("The key is false."),
-        lambda state: setattr(state.relationships["mara-oren"], "status", "strained"),
-        lambda state: state.story_bible["rules"].update(doors="Locks remember."),
-        lambda state: state.continuity_exemptions.update(
-            {"door-rule": {"reason": "unreliable narrator", "at": "volatile"}}
+        pytest.param(
+            lambda state: state.metadata.update(title="The Open Door"), id="metadata"
+        ),
+        pytest.param(
+            lambda state: setattr(state.characters["mara"], "secret", "She knew."),
+            id="character",
+        ),
+        pytest.param(
+            lambda state: state.chapters[1].new_information.append("The key is false."),
+            id="chapter-fact",
+        ),
+        pytest.param(
+            lambda state: setattr(
+                state.relationships["mara-oren"], "status", "strained"
+            ),
+            id="relationship",
+        ),
+        pytest.param(
+            lambda state: state.story_bible["rules"].update(doors="Locks remember."),
+            id="story-rule",
+        ),
+        pytest.param(
+            lambda state: state.continuity_exemptions.update(
+                {"door-rule": {"reason": "unreliable narrator", "at": "volatile"}}
+            ),
+            id="continuity-exemption",
+        ),
+        pytest.param(
+            lambda state: setattr(state.codex["north-door"], "summary", "Warm"),
+            id="codex",
+        ),
+        pytest.param(
+            lambda state: setattr(state.collections["locked-things"], "query", "open"),
+            id="collection",
+        ),
+        pytest.param(
+            lambda state: setattr(state.plot_threads["door"], "status", "resolved"),
+            id="plot-thread",
+        ),
+        pytest.param(
+            lambda state: setattr(state.timeline[0], "description", "The door opened."),
+            id="timeline",
+        ),
+        pytest.param(
+            lambda state: setattr(state.style_profile, "tone", "ominous"),
+            id="style-profile",
         ),
     ],
 )
