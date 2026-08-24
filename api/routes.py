@@ -19,10 +19,12 @@ from .models import (
     StageReviewResult, StudioLlmStatus, StudioLlmUpdate, UpdateComment, UpdateProject,
     BinderMoveRequest, BinderPatchRequest, SynopsisRefreshResult, UpdateMedia,
     ProjectStatistics, OutlinerMetricsRefreshResult, UpdateCodexEntry,
+    ArtifactRevisionOut, ChapterQualityOut, EvaluationReportOut, PromotionReceiptOut,
 )
 from .version import __version__
 from .services import (
     BadRequest, ChapterNotFound, NoSourceArtifact, ProjectNotFound, ProjectService,
+    PromotionConflict, PromotionIntegrityFailure, PromotionUnavailable,
 )
 
 router = APIRouter(prefix="/api")
@@ -31,6 +33,23 @@ router = APIRouter(prefix="/api")
 def get_service() -> ProjectService:
     root = Path(os.environ.get("NOVEL_OS_PROJECTS_DIR", "./projects"))
     return ProjectService(root)
+
+
+def _promotion_http_error(error: Exception) -> HTTPException:
+    if isinstance(error, PromotionUnavailable):
+        return HTTPException(
+            status_code=503,
+            detail=(
+                "Promotion outcome needs reconciliation; refresh chapter quality "
+                "before another mutation."
+            ),
+        )
+    if isinstance(error, PromotionIntegrityFailure):
+        return HTTPException(
+            status_code=409,
+            detail=f"Promotion integrity conflict: {error}",
+        )
+    return HTTPException(status_code=409, detail=f"Promotion conflict: {error}")
 
 
 def get_media_store() -> media_lib.MediaStore:
@@ -326,7 +345,17 @@ def restore_snapshot(project_id: str, number: int, snap_id: str,
     current = svc.get_final_text(project_id, number)
     if current is not None:
         db.snapshot_create(project_id, number, current, "Before restore", "final")
-    wc = svc.save_final(project_id, number, snap.text)
+    try:
+        wc, _receipt = svc._promote_api_candidate(
+            project_id,
+            number,
+            snap.text,
+            source="snapshot_restore",
+            reason="snapshot_restore",
+            decision_metadata={"snapshot_id": snap.id, "scope": "chapter.final"},
+        )
+    except (PromotionConflict, PromotionIntegrityFailure, PromotionUnavailable) as e:
+        raise _promotion_http_error(e)
     return FinalResult(final=snap.text, word_count=wc)
 
 
@@ -837,6 +866,8 @@ def review_stage(
         raise _not_found(project_id, number, e)
     except BadRequest as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except (PromotionConflict, PromotionIntegrityFailure, PromotionUnavailable) as e:
+        raise _promotion_http_error(e)
 
 
 @router.post("/projects/{project_id}/chapters/{number}/final/promote", response_model=FinalResult)
@@ -854,6 +885,8 @@ def promote_final(project_id: str, number: int, force: bool = False,
             status_code=409,
             detail="Nothing to promote no draft or revised text exists yet.",
         )
+    except (PromotionConflict, PromotionIntegrityFailure, PromotionUnavailable) as e:
+        raise _promotion_http_error(e)
 
 
 @router.put("/projects/{project_id}/chapters/{number}/final", response_model=FinalResult)
@@ -865,6 +898,8 @@ def save_final(project_id: str, number: int, body: FinalSave,
         return FinalResult(final=text, word_count=wc)
     except (ProjectNotFound, ChapterNotFound) as e:
         raise _not_found(project_id, number, e)
+    except (PromotionConflict, PromotionIntegrityFailure, PromotionUnavailable) as e:
+        raise _promotion_http_error(e)
 
 
 @router.post(
@@ -925,6 +960,8 @@ def consequence_accept(project_id: str, number: int, body: ConsequenceAccept,
         raise HTTPException(status_code=404, detail=f"Chapter {number} not found")
     except BadRequest as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except (PromotionConflict, PromotionIntegrityFailure, PromotionUnavailable) as e:
+        raise _promotion_http_error(e)
 
 
 @router.get("/projects/{project_id}/chapters/{number}/final/doc", response_model=FinalDoc)
@@ -946,5 +983,59 @@ def save_final_doc(project_id: str, number: int, body: FinalDocSave,
         svc.save_final_doc(project_id, number, body.doc)
     except (ProjectNotFound, ChapterNotFound) as e:
         raise _not_found(project_id, number, e)
+    except (PromotionConflict, PromotionIntegrityFailure, PromotionUnavailable) as e:
+        raise _promotion_http_error(e)
     markdown = richtext.to_markdown(body.doc)
     return FinalDoc(doc=body.doc, markdown=markdown, word_count=richtext.word_count(body.doc))
+
+
+@router.get(
+    "/projects/{project_id}/chapters/{number}/quality",
+    response_model=ChapterQualityOut,
+)
+def chapter_quality(
+    project_id: str,
+    number: int,
+    svc: ProjectService = Depends(get_service),
+):
+    try:
+        return ChapterQualityOut(**svc.quality_projection(project_id, number))
+    except (ProjectNotFound, ChapterNotFound) as e:
+        raise _not_found(project_id, number, e)
+
+
+@router.get(
+    "/projects/{project_id}/chapters/{number}/artifacts/revisions",
+    response_model=list[ArtifactRevisionOut],
+)
+def chapter_artifact_revisions(
+    project_id: str,
+    number: int,
+    svc: ProjectService = Depends(get_service),
+):
+    try:
+        return [
+            ArtifactRevisionOut(**row)
+            for row in svc.quality_projection(project_id, number)["artifact_revisions"]
+        ]
+    except (ProjectNotFound, ChapterNotFound) as e:
+        raise _not_found(project_id, number, e)
+
+
+@router.get(
+    "/projects/{project_id}/chapters/{number}/quality/receipts/{receipt_id}",
+    response_model=PromotionReceiptOut,
+)
+def chapter_quality_receipt(
+    project_id: str,
+    number: int,
+    receipt_id: str,
+    svc: ProjectService = Depends(get_service),
+):
+    try:
+        receipt = svc.quality_receipt(project_id, number, receipt_id)
+    except (ProjectNotFound, ChapterNotFound) as e:
+        raise _not_found(project_id, number, e)
+    if receipt is None:
+        raise HTTPException(status_code=404, detail="Promotion receipt not found")
+    return PromotionReceiptOut(**receipt)

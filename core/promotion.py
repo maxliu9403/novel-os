@@ -831,6 +831,59 @@ class PromotionService:
                 self._receipt_consistent(receipt)
             return receipt
 
+    def list_receipts(self, *, chapter: Optional[int] = None) -> tuple[PromotionReceipt, ...]:
+        """Validate durable promotion state once and return committed receipts."""
+        if chapter is not None and (
+            isinstance(chapter, bool) or not isinstance(chapter, int) or chapter < 1
+        ):
+            raise ValueError("chapter must be a positive integer")
+        with ProjectLock(self.project_root):
+            self._ensure_project_instance_id()
+            self._validate_existing_transaction_identities()
+            self._preflight_storage()
+            unfinished = any(
+                (journal := self._load_journal(path.stem)) is not None
+                and journal["state"] != "committed"
+                for path in sorted(
+                    self.journal_dir.glob("*.json"), key=lambda item: item.name
+                )
+            )
+            if unfinished:
+                self._recover_unfinished_journals()
+                self._validate_existing_transaction_identities()
+
+            receipts: list[PromotionReceipt] = []
+            for path in sorted(self.receipt_dir.glob("*.json"), key=lambda item: item.name):
+                receipt = self._load_receipt_unlocked(path.stem)
+                if receipt is None:
+                    raise PromotionCorruptionError(
+                        f"promotion receipt disappeared during listing: {path.name}"
+                    )
+                self._validate_receipt_artifact(receipt)
+                if chapter is None or receipt.chapter == chapter:
+                    receipts.append(receipt)
+
+            history = self.ledger.history()
+            if history:
+                tail_key = history[-1].idempotency_key
+                tail = next(
+                    (
+                        receipt
+                        for receipt in receipts
+                        if receipt.idempotency_key == tail_key
+                    ),
+                    None,
+                )
+                if tail is None and chapter is not None:
+                    tail = self._load_receipt_unlocked(tail_key)
+                if tail is None:
+                    raise PromotionCorruptionError(
+                        "canon ledger tail has no committed promotion receipt"
+                    )
+                self._receipt_consistent(tail)
+
+            return tuple(sorted(receipts, key=lambda receipt: receipt.committed_at))
+
     def _load_journal(self, key: str) -> Optional[dict[str, Any]]:
         payload = self._read_record(self._journal_path(key), "journal")
         if payload is None:
@@ -1519,6 +1572,13 @@ class PromotionService:
 
     def _validate_existing_transaction_identities(self) -> None:
         history = self.ledger.history()
+        history_by_key: dict[str, CanonLedgerEntry] = {}
+        duplicate_history_keys: set[str] = set()
+        for entry in history:
+            if entry.idempotency_key in history_by_key:
+                duplicate_history_keys.add(entry.idempotency_key)
+            else:
+                history_by_key[entry.idempotency_key] = entry
         stores = (
             (self.journal_dir, self._load_journal),
             (self.receipt_dir, self._load_receipt_unlocked),
@@ -1571,13 +1631,11 @@ class PromotionService:
                         f"promotion transaction record disappeared: {path.name}"
                     )
                 if directory == self.receipt_dir:
-                    matching = [
-                        entry
-                        for entry in history
-                        if entry.idempotency_key == record.idempotency_key
-                    ]
-                    if len(matching) != 1 or not self._entry_matches_receipt(
-                        matching[0], record
+                    matching = history_by_key.get(record.idempotency_key)
+                    if (
+                        matching is None
+                        or record.idempotency_key in duplicate_history_keys
+                        or not self._entry_matches_receipt(matching, record)
                     ):
                         raise PromotionCorruptionError(
                             "persisted receipt does not match exactly one canon ledger entry"

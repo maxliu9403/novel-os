@@ -689,6 +689,44 @@ def test_compile_rejects_empty_final_instead_of_skipping_chapter(tmp_path: Path)
         runner._compile_book(manifest, project)
 
 
+def test_compile_reads_verified_final_head_not_mutable_projection(tmp_path: Path):
+    FakeOrchestrator.calls = []
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("A story.", encoding="utf-8")
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=_factory)
+    manifest = runner.run(RunSpec(
+        project_path=str(project),
+        prompt_path=str(prompt),
+        num_chapters=1,
+        target_words=20,
+        approval_policy="auto",
+    ))
+    artifacts = ArtifactStore(project)
+    current = artifacts.get_head(1, "final")
+    canonical = artifacts.put_text(
+        chapter=1,
+        kind="final",
+        text="Verified canonical Final 1.\n",
+        source="test_canonical",
+        parent_revision_id=current.revision_id if current else None,
+    )
+    artifacts.set_head(
+        1,
+        "final",
+        canonical.revision_id,
+        expected_revision_id=current.revision_id if current else None,
+    )
+    projection = project / "outputs/manuscript/chapter_001_final.md"
+    projection.write_text("Forged mutable projection.\n", encoding="utf-8")
+
+    runner._compile_book(manifest, project)
+
+    compiled = (project / "outputs/deliverables/book.md").read_text(encoding="utf-8")
+    assert "Final 1" in compiled
+    assert "Forged mutable projection." not in compiled
+
+
 def test_resume_completed_run_repairs_final_from_trusted_candidate_without_agents(tmp_path: Path):
     FakeOrchestrator.calls = []
     prompt = tmp_path / "prompt.md"

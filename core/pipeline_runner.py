@@ -1653,15 +1653,27 @@ class PipelineRunner:
         from state_manager import StoryState
 
         state = StoryState(str(project))
+        artifacts = ArtifactStore(project)
         chapters = []
         for number in range(1, manifest.spec.num_chapters + 1):
             path = project / self._chapter_stage(number, "final")
-            if not path.is_file():
+            try:
+                head = artifacts.get_head(number, "final")
+                if head is not None:
+                    text = artifacts.read_text(head.revision_id)
+                elif path.is_file():
+                    text = path.read_text(encoding="utf-8")
+                else:
+                    raise PipelineError(
+                        f"Chapter {number} has no approved final artifact; "
+                        "use --approval auto or resume after review",
+                        blocked=True,
+                    )
+            except ArtifactError as exc:
                 raise PipelineError(
-                    f"Chapter {number} has no approved final artifact; use --approval auto or resume after review",
+                    f"Chapter {number} approved final failed integrity validation: {exc}",
                     blocked=True,
-                )
-            text = path.read_text(encoding="utf-8")
+                ) from exc
             if not text.strip():
                 raise PipelineError(
                     f"Chapter {number} approved final artifact is empty",

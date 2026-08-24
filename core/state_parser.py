@@ -426,6 +426,43 @@ def apply_to_state(
     log: List[str] = []
     chapter = state.get_chapter(chapter_number) or state.create_chapter(chapter_number)
 
+    # ----- Final-derived chapter metadata
+    chapter_metadata = parsed.get("chapter_metadata")
+    if chapter_metadata is not None:
+        if not isinstance(chapter_metadata, dict):
+            raise ValueError("chapter_metadata must be an object")
+        allowed_metadata = {"title", "pov", "location", "time", "word_count"}
+        unknown_metadata = set(chapter_metadata) - allowed_metadata
+        if unknown_metadata:
+            raise ValueError(
+                f"chapter_metadata has unsupported fields: {sorted(unknown_metadata)}"
+            )
+        for field, attribute in (
+            ("title", "title"),
+            ("pov", "pov_character"),
+            ("location", "location"),
+            ("time", "time"),
+        ):
+            value = chapter_metadata.get(field)
+            if value is None:
+                continue
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"chapter_metadata.{field} must be a nonblank string")
+            setattr(chapter, attribute, value.strip())
+            log.append(f"[{source}] ch{chapter_number} {field} updated")
+        if "word_count" in chapter_metadata:
+            word_count = chapter_metadata["word_count"]
+            if (
+                isinstance(word_count, bool)
+                or not isinstance(word_count, int)
+                or word_count < 0
+            ):
+                raise ValueError(
+                    "chapter_metadata.word_count must be a nonnegative integer"
+                )
+            chapter.word_count = word_count
+            log.append(f"[{source}] ch{chapter_number} word_count = {word_count}")
+
     # ----- characters present -> chapter cast + bump last_appearance_chapter
     present_names: List[str] = []
     for raw in _as_list(parsed.get("characters_present")):

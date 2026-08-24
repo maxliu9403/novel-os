@@ -217,6 +217,21 @@ class ArtifactStore:
         except KeyError:
             raise KeyError(f"unknown artifact revision: {revision_id}") from None
 
+    def history(
+        self,
+        *,
+        chapter: Optional[int] = None,
+        kind: Optional[str] = None,
+    ) -> Tuple[ArtifactRevision, ...]:
+        """Return validated immutable revisions in commit order."""
+        revisions = self._load_revisions().values()
+        return tuple(
+            revision
+            for revision in revisions
+            if (chapter is None or revision.chapter == chapter)
+            and (kind is None or revision.kind == kind)
+        )
+
     def read_text(self, revision_id: str) -> str:
         revision = self.get_revision(revision_id)
         return self._read_verified_text(revision)

@@ -1,4 +1,6 @@
+import hashlib
 import json
+import logging
 import os
 import re
 import sys
@@ -19,6 +21,34 @@ if str(_CORE) not in sys.path:
 
 from state_manager import StoryState  # noqa: E402
 
+from artifacts import (  # noqa: E402
+    ArtifactCommitUncertain,
+    ArtifactCorruptionError,
+    ArtifactIntegrityError,
+    ArtifactStore,
+    StaleArtifactHead,
+)
+from canon import CanonDeltaProposal  # noqa: E402
+from canon_ledger import (  # noqa: E402
+    CanonCommitUncertain,
+    CanonCorruptionError,
+    canonical_canon_sha,
+)
+from project_identity import ensure_project_instance_id  # noqa: E402
+from promotion import (  # noqa: E402
+    IdempotencyConflict,
+    PromotionCommitUncertain,
+    PromotionCorruptionError,
+    PromotionRequest,
+    PromotionService,
+    StaleCanonError,
+)
+from proposals import ProposalStore  # noqa: E402
+from quality import EvaluationReport, EvaluationRequest, QualityLab  # noqa: E402
+
+
+_LOG = logging.getLogger(__name__)
+
 
 class ProjectNotFound(Exception):
     pass
@@ -35,6 +65,18 @@ class NoSourceArtifact(Exception):
 
 class BadRequest(Exception):
     pass
+
+
+class PromotionConflict(Exception):
+    """A concurrent writer invalidated the mutation's compare-and-swap base."""
+
+
+class PromotionIntegrityFailure(Exception):
+    """Authoritative promotion evidence failed an integrity check."""
+
+
+class PromotionUnavailable(Exception):
+    """A durable promotion outcome needs reconciliation before another write."""
 
 
 def build_orchestrator(project_dir: str):
@@ -58,7 +100,6 @@ PHASES: dict[str, Callable[[object, dict], object]] = {
     "write": lambda o, p: o.write_chapter(int(p["number"])),
     "edit": lambda o, p: o.edit_chapter(int(p["number"]), p.get("mode", "line")),
     "validate": lambda o, p: o.validate_chapter(int(p["number"])),
-    "approve": lambda o, p: o.approve_chapter(int(p["number"])),
 }
 
 
@@ -591,7 +632,11 @@ class ProjectService:
             paths = self._stage_paths(project_id, number)
             # Prefer the most finished prose available for this chapter.
             for stage in ("final", "revised", "draft"):
-                text = _read(paths[stage])
+                text = (
+                    self.get_final_text(project_id, number)
+                    if stage == "final"
+                    else _read(paths[stage])
+                )
                 if text:
                     chapters[number] = text
                     break
@@ -755,7 +800,7 @@ class ProjectService:
         paths = self._stage_paths(project_id, number)
         outline = _read(paths["outline"]) or ""
         prose = (
-            _read(paths["final"])
+            self.get_final_text(project_id, number)
             or _read(paths["revised"])
             or _read(paths["draft"])
             or ""
@@ -846,7 +891,7 @@ POV: {pov or "[unspecified]"}
                 continue
             paths = self._stage_paths(project_id, number)
             text = (
-                _read(paths["final"])
+                self.get_final_text(project_id, number)
                 or _read(paths["revised"])
                 or _read(paths["draft"])
                 or ""
@@ -926,6 +971,14 @@ POV: {pov or "[unspecified]"}
             raise ChapterNotFound(number)
 
     def get_final_text(self, project_id: str, number: int) -> str | None:
+        project = self._project_dir(project_id)
+        try:
+            artifacts = ArtifactStore(project)
+            head = artifacts.get_head(number, "final")
+            if head is not None:
+                return artifacts.read_text(head.revision_id)
+        except (ArtifactCorruptionError, ArtifactIntegrityError) as exc:
+            raise PromotionIntegrityFailure(str(exc)) from exc
         return _read(self._stage_paths(project_id, number)["final"])
 
     def chapter_stages(self, project_id: str, number: int) -> ChapterStages:
@@ -969,7 +1022,7 @@ POV: {pov or "[unspecified]"}
             outline=_read(p["outline"]),
             draft=_clean(_read(p["draft"])),
             revised=_clean(_read(p["revised"])),
-            final=_clean(_read(p["final"])),
+            final=_clean(self.get_final_text(project_id, number)),
             continuity=c.continuity_checks or None,
             provenance=provenance,
         )
@@ -986,7 +1039,11 @@ POV: {pov or "[unspecified]"}
         from prose_sanitize import sanitize_manuscript  # noqa: E402
 
         def _body(stage: str) -> str:
-            raw = _read(paths[stage]) or ""
+            raw = (
+                self.get_final_text(project_id, number)
+                if stage == "final"
+                else _read(paths[stage])
+            ) or ""
             clean, _ = sanitize_manuscript(raw)
             return clean.strip()
 
@@ -1014,41 +1071,282 @@ POV: {pov or "[unspecified]"}
             summary=summary,
         )
 
-    def _commit_final(self, project_id: str, number: int, text: str,
-                      doc: dict | None = None) -> int:
-        """Write final.md atomically, update chapter word_count + timestamp, persist.
-
-        When a ProseMirror document is supplied it is canonical, and `text` is
-        its markdown projection. Markdown-only writers (promote, restore, the
-        legacy PUT) convert on the way in so `doc_json` never drifts behind the
-        file on disk. The `.md` file is still written either way, because that
-        is what the agents and `core/orchestrator.py` read and because it
-        means a conversion bug can never leave a manuscript unreadable.
-        """
-        s = self._load(project_id)
-        c = s.chapters.get(number)
-        if c is None:
-            raise ChapterNotFound(number)
-        if doc is None:
-            doc = richtext.from_markdown(text) if text else richtext.empty_doc()
-        _atomic_write(self._stage_paths(project_id, number)["final"], text)
-        wc = len(text.split())
-        c.word_count = wc
-        c.last_modified = datetime.now(timezone.utc).isoformat()
-        s.save_state()
-        # DB is the system-of-record for the human-owned Final
+    def _promote_api_candidate(
+        self,
+        project_id: str,
+        number: int,
+        text: str,
+        *,
+        source: str,
+        reason: str,
+        actor: str = "author",
+        decision_metadata: dict | None = None,
+        state_delta: dict | None = None,
+        chapter_metadata: dict | None = None,
+        doc: dict | None = None,
+    ) -> tuple[int, object]:
+        """Create a revision-bound report/proposal and promote atomically."""
+        self.ensure_chapter(project_id, number)
+        project = self._project_dir(project_id)
         try:
-            db.upsert_artifact(
-                project_id, number, "final", text,
-                doc_json=json.dumps(doc, ensure_ascii=False),
-                produced_by_agent="author",
-                produced_by_model="",
-                reviewed_by="author",
-                reviewed_at=datetime.now(timezone.utc).isoformat(),
+            artifacts = ArtifactStore(project)
+            current = artifacts.get_head(number, "final")
+            candidate = artifacts.put_text(
+                chapter=number,
+                kind="final",
+                text=text,
+                source=source,
+                parent_revision_id=current.revision_id if current else None,
             )
-        except Exception:  # noqa: BLE001
-            pass
-        return wc
+            delta = dict(state_delta or {})
+            metadata = {
+                key: value
+                for key, value in (chapter_metadata or {}).items()
+                if key in {"title", "pov", "location", "time"} and value
+            }
+            metadata["word_count"] = len(text.split())
+            delta["chapter_metadata"] = metadata
+            proposal = ProposalStore(project).save(CanonDeltaProposal(
+                chapter=number,
+                agent_name="scribe",
+                source_artifact_sha=candidate.sha256,
+                delta=delta,
+            ))
+            evaluation_request = EvaluationRequest.for_text(
+                number,
+                text,
+                artifact_revision_id=candidate.revision_id,
+            )
+            report = QualityLab.evaluate_deterministic(
+                evaluation_request,
+                candidate_text=text,
+                continuity_findings=(),
+            )
+            report_path = (
+                project / "outputs/quality/evaluation_reports" / f"{report.report_id}.json"
+            )
+            _atomic_write(
+                report_path,
+                json.dumps(report.to_dict(), ensure_ascii=False) + "\n",
+            )
+            request = PromotionRequest(
+                project_id=project_id,
+                project_instance_id=ensure_project_instance_id(project),
+                chapter=number,
+                candidate_revision_id=candidate.revision_id,
+                candidate_sha256=candidate.sha256,
+                evaluation_report=report,
+                canon_proposal_id=proposal.proposal_id,
+                expected_final_revision_id=current.revision_id if current else None,
+                expected_final_sha256=(
+                    artifacts.get_revision(current.revision_id).sha256 if current else None
+                ),
+                base_canon_sha=canonical_canon_sha(StoryState(str(project))),
+                idempotency_key=f"api-{number}-{candidate.revision_id}",
+                actor=actor,
+                reason=reason,
+                decision_metadata=decision_metadata or {},
+            )
+            promotion = PromotionService(project)
+            try:
+                receipt = promotion.promote(request)
+            except PromotionCommitUncertain:
+                # A receipt may have committed before directory durability became
+                # uncertain. Read it by the same key before resuming the request.
+                receipt = promotion.load_receipt(request.idempotency_key)
+                if receipt is None:
+                    try:
+                        receipt = promotion.promote(request)
+                    except PromotionCommitUncertain:
+                        receipt = promotion.load_receipt(request.idempotency_key)
+                        if receipt is None:
+                            raise
+            final_text = artifacts.read_text(receipt.new_artifact_revision_id)
+        except (StaleArtifactHead, StaleCanonError, IdempotencyConflict) as exc:
+            raise PromotionConflict(str(exc)) from exc
+        except (
+            ArtifactCorruptionError,
+            ArtifactIntegrityError,
+            CanonCorruptionError,
+            PromotionCorruptionError,
+        ) as exc:
+            raise PromotionIntegrityFailure(str(exc)) from exc
+        except (
+            ArtifactCommitUncertain,
+            CanonCommitUncertain,
+            PromotionCommitUncertain,
+        ) as exc:
+            raise PromotionUnavailable(str(exc)) from exc
+
+        final_doc = doc
+        if final_doc is None:
+            final_doc = (
+                richtext.from_markdown(final_text)
+                if final_text
+                else richtext.empty_doc()
+            )
+        projection_operations = (
+            (
+                "legacy Final Markdown",
+                lambda: _atomic_write(
+                    self._stage_paths(project_id, number)["final"],
+                    final_text,
+                ),
+            ),
+            (
+                "Final SQLite row",
+                lambda: db.upsert_artifact(
+                    project_id,
+                    number,
+                    "final",
+                    final_text,
+                    doc_json=json.dumps(final_doc, ensure_ascii=False),
+                    produced_by_agent="author",
+                    produced_by_model="",
+                    reviewed_by=actor,
+                    reviewed_at=receipt.committed_at,
+                ),
+            ),
+            (
+                "artifact revision SQLite row",
+                lambda: db.project_artifact_revision(project_id, candidate.to_dict()),
+            ),
+            (
+                "evaluation report SQLite row",
+                lambda: db.project_evaluation_report(project_id, report.to_dict()),
+            ),
+            (
+                "promotion receipt SQLite row",
+                lambda: db.project_promotion_receipt(project_id, receipt.to_dict()),
+            ),
+        )
+        for projection_name, project_record in projection_operations:
+            try:
+                project_record()
+            except Exception:  # noqa: BLE001 - independently rebuildable projections
+                _LOG.warning(
+                    "Committed promotion, but %s projection failed",
+                    projection_name,
+                    exc_info=True,
+                )
+        return len(final_text.split()), receipt
+
+    def quality_projection(self, project_id: str, number: int) -> dict:
+        self.ensure_chapter(project_id, number)
+        project = self._project_dir(project_id)
+        try:
+            artifacts = ArtifactStore(project)
+            revisions = artifacts.history(chapter=number)
+        except (ArtifactCorruptionError, ArtifactIntegrityError) as exc:
+            raise PromotionIntegrityFailure(str(exc)) from exc
+        # Backfill read projections from authoritative core records.
+        for revision in revisions:
+            try:
+                db.project_artifact_revision(project_id, revision.to_dict())
+            except Exception:  # noqa: BLE001 - rebuildable query projection
+                _LOG.warning(
+                    "Artifact revision SQLite backfill failed",
+                    exc_info=True,
+                )
+        reports: list[EvaluationReport] = []
+        for path in sorted(
+            (project / "outputs/quality/evaluation_reports").glob("report-*.json")
+        ) if (project / "outputs/quality/evaluation_reports").exists() else []:
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                report = EvaluationReport.from_dict(payload)
+                if report.request.chapter == number:
+                    try:
+                        db.project_evaluation_report(project_id, payload)
+                    except Exception:  # noqa: BLE001 - rebuildable query projection
+                        _LOG.warning(
+                            "Evaluation report SQLite backfill failed",
+                            exc_info=True,
+                        )
+                    reports.append(report)
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+                raise PromotionIntegrityFailure(
+                    f"invalid evaluation report: {path.name}"
+                ) from exc
+        try:
+            receipts = list(PromotionService(project).list_receipts(chapter=number))
+            for receipt in receipts:
+                try:
+                    db.project_promotion_receipt(project_id, receipt.to_dict())
+                except Exception:  # noqa: BLE001 - rebuildable query projection
+                    _LOG.warning(
+                        "Promotion receipt SQLite backfill failed",
+                        exc_info=True,
+                    )
+            head = artifacts.get_head(number, "final")
+            final_sha256 = (
+                artifacts.get_revision(head.revision_id).sha256 if head else None
+            )
+        except (
+            ArtifactCorruptionError,
+            ArtifactIntegrityError,
+            CanonCorruptionError,
+            PromotionCorruptionError,
+        ) as exc:
+            raise PromotionIntegrityFailure(str(exc)) from exc
+
+        reports.sort(key=lambda report: report.created_at)
+        receipts.sort(key=lambda receipt: receipt.committed_at)
+        report_out = [
+            {
+                "report_id": report.report_id,
+                "chapter": report.request.chapter,
+                "artifact_revision_id": report.request.artifact_revision_id,
+                "artifact_sha256": report.artifact_sha256,
+                "evaluation_id": report.evaluation_id,
+                "rubric_version": report.rubric_version,
+                "prompt_sha256": report.prompt_sha256,
+                "evaluator_provider": report.evaluator_provider,
+                "evaluator_model": report.evaluator_model,
+                "hard_gates": dict(report.hard_gates),
+                "semantic_dimensions": dict(report.semantic_dimensions),
+                "findings": [finding.to_dict() for finding in report.findings],
+                "status": report.status,
+                "created_at": report.created_at,
+            }
+            for report in reports
+        ]
+        receipt_out = [
+            {
+                "receipt_id": receipt.receipt_id,
+                "chapter": receipt.chapter,
+                "request_id": receipt.request_id,
+                "idempotency_key": receipt.idempotency_key,
+                "old_artifact_revision_id": receipt.old_artifact_revision_id,
+                "old_artifact_sha256": receipt.old_artifact_sha256,
+                "new_artifact_revision_id": receipt.new_artifact_revision_id,
+                "new_artifact_sha256": receipt.new_artifact_sha256,
+                "old_canon_sha": receipt.old_canon_sha,
+                "new_canon_sha": receipt.new_canon_sha,
+                "canon_proposal_id": receipt.canon_proposal_id,
+                "evaluation_report_id": receipt.evaluation_report_id,
+                "actor": receipt.actor,
+                "reason": receipt.reason,
+                "decision_metadata": dict(receipt.decision_metadata),
+                "committed_at": receipt.committed_at,
+            }
+            for receipt in receipts
+        ]
+        return {
+            "chapter": number,
+            "final_revision_id": head.revision_id if head else None,
+            "final_sha256": final_sha256,
+            "artifact_revisions": [revision.to_dict() for revision in revisions],
+            "evaluation_reports": report_out,
+            "findings": [item for report in report_out for item in report["findings"]],
+            "promotion_receipts": receipt_out,
+        }
+
+    def quality_receipt(self, project_id: str, number: int, receipt_id: str) -> dict | None:
+        for receipt in self.quality_projection(project_id, number)["promotion_receipts"]:
+            if receipt["receipt_id"] == receipt_id:
+                return receipt
+        return None
 
     def get_final_doc(self, project_id: str, number: int) -> dict:
         """The Final as a ProseMirror document.
@@ -1064,7 +1362,9 @@ POV: {pov or "[unspecified]"}
         from prose_sanitize import repair_spaced_hyphen_corruption, sanitize_manuscript  # noqa: E402
 
         self.ensure_chapter(project_id, number)
-        stored = db.get_artifact_doc(project_id, number, "final")
+        text = self.get_final_text(project_id, number)
+        projected = db.get_artifact(project_id, number, "final")
+        stored = projected.doc_json if projected and projected.text == text else None
         if stored:
             try:
                 doc = json.loads(stored)
@@ -1072,24 +1372,19 @@ POV: {pov or "[unspecified]"}
                 if repair_spaced_hyphen_corruption(md) != md:
                     clean, _ = sanitize_manuscript(md)
                     clean_doc = richtext.from_markdown(clean) if clean else richtext.empty_doc()
-                    self._commit_final(project_id, number, clean, doc=clean_doc)
                     return clean_doc
                 return doc
             except json.JSONDecodeError:
                 pass  # corrupt JSON: fall back to the markdown, which is intact
-        text = self.get_final_text(project_id, number)
         if text and repair_spaced_hyphen_corruption(text) != text:
             clean, _ = sanitize_manuscript(text)
             clean_doc = richtext.from_markdown(clean) if clean else richtext.empty_doc()
-            self._commit_final(project_id, number, clean, doc=clean_doc)
             return clean_doc
         return richtext.from_markdown(text) if text else richtext.empty_doc()
 
     def save_final_doc(self, project_id: str, number: int, doc: dict) -> int:
         """Save a ProseMirror document as Final, projecting markdown for agents."""
-        from prose_sanitize import (  # noqa: E402
-            sanitize_manuscript, apply_header_to_chapter, strip_em_dashes,
-        )
+        from prose_sanitize import sanitize_manuscript, strip_em_dashes  # noqa: E402
         # House style is applied to the document's text nodes, not by parsing a
         # cleaned markdown string back into a document: that round trip drops
         # every mark markdown cannot express, which would wipe pending track
@@ -1097,10 +1392,24 @@ POV: {pov or "[unspecified]"}
         clean_doc = richtext.map_text(doc, strip_em_dashes)
         md = richtext.to_markdown(clean_doc)
         clean, meta = sanitize_manuscript(md)
-        s = self._load(project_id)
-        apply_header_to_chapter(s.chapters.get(number), meta)
-        s.save_state()
-        return self._commit_final(project_id, number, clean, doc=clean_doc)
+        legacy_migration = (
+            db.get_artifact_doc(project_id, number, "final") is None
+            and bool(self.get_final_text(project_id, number))
+        )
+        wc, _receipt = self._promote_api_candidate(
+            project_id,
+            number,
+            clean,
+            source="prosemirror_edit",
+            reason="legacy_migration" if legacy_migration else "author_edit",
+            decision_metadata={
+                "scope": "chapter.final",
+                "format": "prosemirror",
+            },
+            chapter_metadata=meta,
+            doc=clean_doc,
+        )
+        return wc
 
     def promote_final(self, project_id: str, number: int, force: bool = False) -> str:
         """Seed Final from revised||draft. Idempotent: never clobbers a human edit unless forced.
@@ -1109,8 +1418,9 @@ POV: {pov or "[unspecified]"}
         unreviewed AI stage (author override).
         """
         p = self._stage_paths(project_id, number)
-        if p["final"].exists() and not force:
-            return p["final"].read_text(encoding="utf-8")
+        existing_final = self.get_final_text(project_id, number)
+        if existing_final is not None and not force:
+            return existing_final
 
         source_stage = "revised" if p["revised"].exists() else ("draft" if p["draft"].exists() else None)
         if source_stage is None:
@@ -1130,14 +1440,24 @@ POV: {pov or "[unspecified]"}
             raise NoSourceArtifact(number)
         from prose_sanitize import sanitize_manuscript  # noqa: E402
         clean, meta = sanitize_manuscript(source)
-        s = self._load(project_id)
-        ch = s.chapters.get(number)
-        if ch is not None:
-            from prose_sanitize import apply_header_to_chapter  # noqa: E402
-            apply_header_to_chapter(ch, meta)
-            s.save_state()
-        self._commit_final(project_id, number, clean)
-        return clean
+        self._promote_api_candidate(
+            project_id,
+            number,
+            clean,
+            source="force_override" if force else f"stage_{source_stage}",
+            reason="force_override" if force else "stage_promotion",
+            decision_metadata={
+                "scope": "chapter.final",
+                "actor": "author",
+                "candidate_sha256": hashlib.sha256(clean.encode("utf-8")).hexdigest(),
+                "base_canon_sha": canonical_canon_sha(
+                    StoryState(str(self._project_dir(project_id)))
+                ),
+                "source_stage": source_stage,
+            },
+            chapter_metadata=meta,
+        )
+        return self.get_final_text(project_id, number) or ""
 
     def review_stage(
         self, project_id: str, number: int, stage: str, decision: str,
@@ -1191,16 +1511,18 @@ POV: {pov or "[unspecified]"}
             reviewed_at=now,
         )
 
-        s = self._load(project_id)
-        ch = s.chapters.get(number)
-        if ch is not None:
-            # Binder maps edited/validated → in_review
-            ch.status = "edited" if stage == "draft" else "validated"
-            ch.last_modified = now
-            s.save_state()
-
         # Human path into Final (agents never write Final).
-        self.promote_final(project_id, number, force=True)
+        from prose_sanitize import sanitize_manuscript  # noqa: E402
+        clean, meta = sanitize_manuscript(text)
+        self._promote_api_candidate(
+            project_id,
+            number,
+            clean,
+            source=f"stage_{stage}",
+            reason="stage_acceptance",
+            decision_metadata={"scope": "chapter.final", "source_stage": stage},
+            chapter_metadata=meta,
+        )
         return {
             "stage": stage,
             "decision": "accept",
@@ -1211,13 +1533,18 @@ POV: {pov or "[unspecified]"}
         }
 
     def save_final(self, project_id: str, number: int, text: str) -> int:
-        from prose_sanitize import sanitize_manuscript, apply_header_to_chapter  # noqa: E402
+        from prose_sanitize import sanitize_manuscript  # noqa: E402
         clean, meta = sanitize_manuscript(text)
-        s = self._load(project_id)
-        ch = s.chapters.get(number)
-        apply_header_to_chapter(ch, meta)
-        s.save_state()
-        return self._commit_final(project_id, number, clean)
+        wc, _receipt = self._promote_api_candidate(
+            project_id,
+            number,
+            clean,
+            source="author_edit",
+            reason="author_edit",
+            decision_metadata={"scope": "chapter.final"},
+            chapter_metadata=meta,
+        )
+        return wc
 
     def continue_paragraph(self, project_id: str, number: int, instruction: str) -> dict:
         """Scribe writes the next paragraph from an author instruction (chat)."""
@@ -1230,7 +1557,7 @@ POV: {pov or "[unspecified]"}
         paths = self._stage_paths(project_id, number)
         # Prefer Final, then revised, then draft as context.
         context = (
-            _read(paths["final"])
+            self.get_final_text(project_id, number)
             or _read(paths["revised"])
             or _read(paths["draft"])
             or ""
@@ -1448,8 +1775,7 @@ Foreshadowing_Planted: …
     ) -> dict:
         """Commit Final doc + world-state delta from a consequence preview."""
         from continuity_engine import run_all  # noqa: E402
-        from prose_sanitize import sanitize_manuscript, apply_header_to_chapter, strip_em_dashes  # noqa: E402
-        from state_parser import apply_to_state  # noqa: E402
+        from prose_sanitize import sanitize_manuscript, strip_em_dashes  # noqa: E402
 
         cached = ProjectService._consequence_previews.get(preview_id)
         if cached is None:
@@ -1464,16 +1790,21 @@ Foreshadowing_Planted: …
         delta = state_delta if state_delta is not None else (cached.get("state_delta") or {})
         md = richtext.to_markdown(doc)
         clean, meta = sanitize_manuscript(md)
-        s = self._load(project_id)
-        apply_header_to_chapter(s.chapters.get(number), meta)
-        changelog: list[str] = []
-        if delta:
-            changelog = apply_to_state(s, number, delta, source="consequence_accept")
-
         clean_doc = richtext.from_markdown(clean) if clean else richtext.empty_doc()
-        wc = self._commit_final(project_id, number, clean, doc=clean_doc)
-        s.save_state()
+        wc, _receipt = self._promote_api_candidate(
+            project_id,
+            number,
+            clean,
+            source="consequence_accept",
+            reason="consequence_accept",
+            decision_metadata={"scope": "chapter.final", "preview_id": preview_id},
+            state_delta=delta,
+            chapter_metadata=meta,
+            doc=clean_doc,
+        )
+        changelog = list(cached.get("changelog") or [])
         ProjectService._consequence_previews.pop(preview_id, None)
+        s = self._load(project_id)
 
         finding_dicts = [
             f.to_dict()
@@ -1634,11 +1965,20 @@ Foreshadowing_Planted: …
     def make_phase_job(self, project_id: str, stage: str, params: dict) -> Callable[[], None]:
         """Validate inputs and return a 0-arg callable the JobRunner can run."""
         self._project_dir(project_id)  # 404 if missing
-        if stage not in PHASES:
-            raise BadRequest(f"Unknown stage '{stage}'. Expected one of {sorted(PHASES)}.")
+        supported = {*PHASES, "approve"}
+        if stage not in supported:
+            raise BadRequest(
+                f"Unknown stage '{stage}'. Expected one of {sorted(supported)}."
+            )
         project_dir = str(self._project_dir(project_id))
 
         def fn() -> None:
+            if stage == "approve":
+                chapter = int(params["number"])
+                paths = self._stage_paths(project_id, chapter)
+                source_stage = "revised" if paths["revised"].exists() else "draft"
+                self.review_stage(project_id, chapter, source_stage, "accept")
+                return
             orch = build_orchestrator(project_dir)
             PHASES[stage](orch, params)
             # Stamp pipeline provenance after the agent write (P3.2).
@@ -1675,7 +2015,11 @@ Foreshadowing_Planted: …
         ]
         for c in sorted(s.chapters.values(), key=lambda c: c.number):
             p = self._stage_paths(project_id, c.number)
-            text = _read(p["final"]) or _read(p["revised"]) or _read(p["draft"])
+            text = (
+                self.get_final_text(project_id, c.number)
+                or _read(p["revised"])
+                or _read(p["draft"])
+            )
             if text:
                 lines.append(text)
                 lines.append("\n\n---\n\n")
@@ -1717,7 +2061,11 @@ Foreshadowing_Planted: …
         chapters: list[dict] = []
         for c in sorted(s.chapters.values(), key=lambda c: c.number):
             p = self._stage_paths(project_id, c.number)
-            text = _read(p["final"]) or _read(p["revised"]) or _read(p["draft"])
+            text = (
+                self.get_final_text(project_id, c.number)
+                or _read(p["revised"])
+                or _read(p["draft"])
+            )
             chapters.append({
                 "number": c.number,
                 "title": getattr(c, "title", "") or "",
@@ -1746,7 +2094,11 @@ Foreshadowing_Planted: …
         with_prose = 0
         for c in sorted(s.chapters.values(), key=lambda c: c.number):
             p = self._stage_paths(project_id, c.number)
-            text = _read(p["final"]) or _read(p["revised"]) or _read(p["draft"])
+            text = (
+                self.get_final_text(project_id, c.number)
+                or _read(p["revised"])
+                or _read(p["draft"])
+            )
             if text and text.strip():
                 texts.append(text)
                 with_prose += 1
