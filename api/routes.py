@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
@@ -55,6 +56,25 @@ def _promotion_http_error(error: Exception) -> HTTPException:
 def get_media_store() -> media_lib.MediaStore:
     root = Path(os.environ.get("NOVEL_OS_MEDIA_DIR", "./media"))
     return media_lib.LocalMediaStore(root)
+
+
+def _content_disposition(project_id: str, extension: str) -> str:
+    """Build a browser-compatible attachment name for any project id.
+
+    HTTP header values are Latin-1 in Starlette, while project ids may be
+    Unicode. Keep the legacy ASCII form when it is safe and add an RFC 5987
+    UTF-8 name otherwise, with an ASCII fallback for older clients.
+    """
+    filename = f"{project_id}.{extension}"
+    if filename.isascii() and not any(char in filename for char in '\"\\\r\n'):
+        return f'attachment; filename="{filename}"'
+
+    fallback_stem = "".join(
+        char if char.isascii() and (char.isalnum() or char in "._-") else "-"
+        for char in project_id
+    ).strip(".-")
+    fallback = f"{fallback_stem or 'novel'}.{extension}"
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(filename, safe='')}"
 
 
 @router.get("/health")
@@ -286,7 +306,7 @@ def compile_book(project_id: str, format: str = "html",
         content=body,
         media_type=content_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{project_id}.{ext}"',
+            "Content-Disposition": _content_disposition(project_id, ext),
         },
     )
 

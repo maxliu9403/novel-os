@@ -6,6 +6,7 @@ applies their contents to StoryState. This is what makes the "persistent
 memory" claim true: without it, agent output is discarded after rendering.
 
 Block tags recognized:
+  [REVISED_CHAPTER] (manuscript payload; closing tag may be omitted)
   [SCRIBE_STATE_UPDATE] ... [/SCRIBE_STATE_UPDATE]
   [EDITOR_ANALYSIS] / [EDITOR_STATE_UPDATE]
   [CONTINUITY_REPORT] / [CONTINUITY_STATE_UPDATE]
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
 
 _KNOWN_TAGS = {
     "CHAPTER_CONTRACT",
+    "REVISED_CHAPTER",
     "SCRIBE_STATE_UPDATE",
     "EDITOR_ANALYSIS",
     "EDITOR_STATE_UPDATE",
@@ -84,6 +86,20 @@ def extract_block(text: str, tag: str) -> Optional[str]:
     if next_tag and next_tag.group(0)[1:-1].lstrip("/").upper() in _KNOWN_TAGS:
         return rest[:next_tag.start()].strip()
     return rest.strip()
+
+
+def extract_manuscript_block(text: str, tag: str = "REVISED_CHAPTER") -> Optional[str]:
+    """Extract a manuscript payload from an agent protocol response.
+
+    Manuscript blocks are allowed to be truncated by a provider.  In that
+    case ``extract_block`` uses the next recognized protocol block as the
+    boundary, keeping state metadata out of the saved prose.  A missing
+    opening block still returns ``None`` so callers can enforce the contract.
+    """
+    normalized_tag = re.sub(r"[\s_-]+", "_", tag.strip()).upper()
+    if normalized_tag != "REVISED_CHAPTER":
+        raise ValueError("manuscript block tag must be REVISED_CHAPTER")
+    return extract_block(text, normalized_tag)
 
 
 # ---------------------------------------------------------------- field parser

@@ -50,6 +50,19 @@ _EVIDENCE_PROPOSAL_PHASES = (
 )
 
 
+def _is_repair_phase(phase: str) -> bool:
+    return phase.startswith("chapter.repair.")
+
+
+def _repair_number(phase: str) -> int:
+    if not _is_repair_phase(phase):
+        return 0
+    try:
+        return int(phase.rsplit(".", 1)[1])
+    except ValueError:
+        return 0
+
+
 class PipelineError(RuntimeError):
     """A run stopped for a reason that should be visible to the CLI."""
 
@@ -84,6 +97,7 @@ class PipelineRunner:
             spec.prompt_path = str(Path(spec.prompt_path).resolve())
         manifest = RunManifest.new(spec)
         store = self._store(project, manifest.run_id)
+        self._reconciled_promotions = set()
         self._prepare_run(manifest, store)
         return self._execute(manifest, project, store)
 
@@ -107,6 +121,7 @@ class PipelineRunner:
             return self._record_resume_failure(
                 manifest, store, exc, event="run.promotion_reconcile_failed"
             )
+        self._reconciled_promotions = reconciled_promotions
         if manifest.status == "completed":
             try:
                 return self._repair_completed_run(manifest, project, store)
@@ -139,41 +154,29 @@ class PipelineRunner:
             return set()
 
         reconciled: set[int] = set()
+        promotion_service = PromotionService(project)
+        promotion_service.recover_unfinished()
         for number in range(1, (manifest.spec.num_chapters or 0) + 1):
             previous = manifest.get("chapter.promote", number)
-            if previous is None or previous.status == "done":
+            if previous is None:
+                continue
+            if previous.status == "done" and self._checkpoint_valid(project, previous):
                 continue
             key = f"pipeline-{manifest.run_id}-chapter-{number}"
             try:
-                receipts = PromotionService(project).list_receipts(chapter=number)
+                # Read the exact historical receipt instead of listing all
+                # receipts. Listing validates the ledger tail against the
+                # current StoryState, which may still be an earlier snapshot
+                # after a crash or manual recovery. A non-tail receipt only
+                # needs its own ledger/artifact bindings validated.
+                receipt = promotion_service.load_receipt(key, check_current_tail=False)
             except Exception as exc:  # noqa: BLE001 - normalize durable record errors
                 raise PipelineError(
                     f"Cannot reconcile chapter {number} promotion: {exc}",
                     blocked=True,
                 ) from exc
-            matches = [
-                receipt for receipt in receipts if receipt.idempotency_key == key
-            ]
-            if not matches:
+            if receipt is None:
                 continue
-            if len(matches) != 1:
-                raise PipelineError(
-                    f"Cannot reconcile chapter {number} promotion: idempotency key is ambiguous",
-                    blocked=True,
-                )
-            receipt = matches[0]
-
-            style = manifest.get("chapter.style", number)
-            if style is None or style.status != "done" or not style.revision_id:
-                raise PipelineError(
-                    f"Cannot reconcile chapter {number} promotion without its style checkpoint",
-                    blocked=True,
-                )
-            if receipt.new_artifact_revision_id != style.revision_id:
-                raise PipelineError(
-                    f"Cannot reconcile chapter {number} promotion: receipt candidate diverged",
-                    blocked=True,
-                )
 
             artifacts = ArtifactStore(project)
             revision = artifacts.get_revision(receipt.new_artifact_revision_id)
@@ -204,19 +207,18 @@ class PipelineRunner:
                 report.report_id != receipt.evaluation_report_id
                 or report.request.artifact_revision_id != revision.revision_id
                 or report.artifact_sha256 != revision.sha256
-                or report.request.story_contract_id
-                != style.story_contract_revision_id
-                or report.request.chapter_contract_id
-                != style.chapter_contract_revision_id
             ):
                 raise PipelineError(
                     f"Cannot reconcile chapter {number} promotion: evaluation binding diverged",
                     blocked=True,
                 )
 
-            if receipt.canon_proposal_id not in style.canon_proposal_ids:
-                style.canon_proposal_ids.append(receipt.canon_proposal_id)
-                self._write_stage_result(manifest, project, style)
+            # The historical evaluation report is the source of truth for
+            # the contracts used by the committed request.  A regenerated
+            # style checkpoint may refer to a different proposal chain.
+            style_story_contract = report.request.story_contract_id
+            style_chapter_contract = report.request.chapter_contract_id
+            style_proposals = [receipt.canon_proposal_id]
 
             final_relative = self._chapter_stage(number, "final")
             final_path = project / final_relative
@@ -237,16 +239,16 @@ class PipelineRunner:
                 artifact_hashes={final_relative: self._sha256(final_path)},
                 input_hashes=dict(previous.input_hashes),
                 revision_id=receipt.new_artifact_revision_id,
-                story_contract_revision_id=style.story_contract_revision_id,
-                chapter_contract_revision_id=style.chapter_contract_revision_id,
-                canon_proposal_ids=list(style.canon_proposal_ids),
+                story_contract_revision_id=style_story_contract,
+                chapter_contract_revision_id=style_chapter_contract,
+                canon_proposal_ids=style_proposals,
                 evaluation_report_ids=[receipt.evaluation_report_id],
                 promotion_receipt_id=receipt.receipt_id,
                 decisions=[
                     "Recovered committed evidence promotion from its durable receipt."
                 ],
-                provider=style.provider,
-                model=style.model,
+                provider=previous.provider,
+                model=previous.model,
                 started_at=previous.started_at or receipt.committed_at,
                 finished_at=self._now(),
             )
@@ -555,6 +557,47 @@ class PipelineRunner:
 
     def _run_chapter(self, manifest: RunManifest, project: Path, store: ManifestStore, orchestrator: Any, number: int) -> None:
         spec = manifest.spec
+        repair_method = getattr(orchestrator, "repair_chapter", None)
+        auto_repair = bool(
+            spec.approval_policy == "auto"
+            and spec.max_quality_repairs > 0
+            and callable(repair_method)
+        )
+        # Once an evidence promotion has a durable receipt, that receipt is
+        # the authoritative chapter result.  Upstream checkpoint changes can
+        # force replay of the outline, but must never regenerate or promote a
+        # chapter that already committed under this run's idempotency key.
+        if spec.quality_policy == "evidence_v1":
+            promoted = manifest.get("chapter.promote", number)
+            receipt = None
+            if promoted is not None and promoted.status == "done":
+                # Keep the evidence gate active even when all manuscript
+                # checkpoints are otherwise reusable.
+                self._validate_evidence_records(manifest, project, promoted)
+                try:
+                    receipt = PromotionService(project).load_receipt(
+                        f"pipeline-{manifest.run_id}-chapter-{number}",
+                        check_current_tail=False,
+                    )
+                except Exception as exc:  # noqa: BLE001 - durable corruption is a blocked run
+                    raise PipelineError(
+                        f"Cannot reuse chapter {number} promotion: {exc}",
+                        blocked=True,
+                    ) from exc
+            if (
+                receipt is not None
+                and promoted is not None
+                and promoted.status == "done"
+                and promoted.promotion_receipt_id == receipt.receipt_id
+            ):
+                self._restore_committed_tail_state(manifest, project)
+                self._event(
+                    manifest,
+                    "stage.chapter_reused",
+                    chapter=number,
+                    receipt_id=receipt.receipt_id,
+                )
+                return
         self._stage(
             manifest, project, store, "chapter.plan", number,
             lambda: orchestrator.plan_chapter(number, dry_run=False),
@@ -567,10 +610,21 @@ class PipelineRunner:
             lambda _value: self._require_files(project, [self._chapter_stage(number, "draft")]),
             [self._chapter_stage(number, "draft")],
         )
+        precheck: Dict[str, int] = {"critical": 0}
+
+        def run_precheck() -> int:
+            value = orchestrator.run_checks(number)
+            precheck["critical"] = int(value or 0)
+            return value
+
         self._stage(
             manifest, project, store, "chapter.check.pre", number,
-            lambda: orchestrator.run_checks(number),
-            lambda value: self._check_result(value, "pre-edit continuity check"),
+            run_precheck,
+            (
+                (lambda _value: None)
+                if auto_repair
+                else (lambda value: self._check_result(value, "pre-edit continuity check"))
+            ),
             [],
         )
         self._stage(
@@ -579,18 +633,97 @@ class PipelineRunner:
             lambda _value: self._require_files(project, [self._chapter_stage(number, "revised")]),
             [self._chapter_stage(number, "revised")],
         )
-        self._stage(
-            manifest, project, store, "chapter.check.post", number,
-            lambda: orchestrator.run_checks(number),
-            lambda value: self._check_result(value, "post-edit continuity check"),
-            [],
-        )
-        self._stage(
-            manifest, project, store, "chapter.validate", number,
-            lambda: orchestrator.validate_chapter(number, dry_run=False),
-            lambda _value: self._validate_guardian(project, number),
-            [self._chapter_report(number, "continuity")],
-        )
+        repair_attempt = 0
+        while True:
+            postcheck: Dict[str, int] = {"critical": 0}
+
+            def run_postcheck() -> int:
+                value = orchestrator.run_checks(number)
+                postcheck["critical"] = int(value or 0)
+                return value
+
+            self._stage(
+                manifest, project, store, "chapter.check.post", number,
+                run_postcheck,
+                (
+                    (lambda _value: None)
+                    if auto_repair
+                    else (lambda value: self._check_result(value, "post-edit continuity check"))
+                ),
+                [],
+            )
+
+            guardian_error: Optional[PipelineError] = None
+            try:
+                self._stage(
+                    manifest, project, store, "chapter.validate", number,
+                    lambda: orchestrator.validate_chapter(number, dry_run=False),
+                    lambda _value: self._validate_guardian(project, number),
+                    [self._chapter_report(number, "continuity")],
+                )
+            except PipelineError as exc:
+                if not (
+                    auto_repair
+                    and exc.blocked
+                    and "Continuity Guardian blocked" in str(exc)
+                ):
+                    raise
+                guardian_error = exc
+
+            if postcheck["critical"] == 0 and guardian_error is None:
+                break
+            if not auto_repair:
+                if guardian_error is not None:
+                    raise guardian_error
+                self._check_result(
+                    postcheck["critical"], "post-edit continuity check"
+                )
+            if repair_attempt >= spec.max_quality_repairs:
+                raise PipelineError(
+                    f"Chapter {number} continuity still blocked after "
+                    f"{spec.max_quality_repairs} automatic repair attempts",
+                    blocked=True,
+                )
+
+            repair_attempt += 1
+            feedback = self._quality_repair_feedback(
+                project,
+                number,
+                precheck["critical"],
+                postcheck["critical"],
+                guardian_error,
+            )
+            repair_phase = f"chapter.repair.{repair_attempt}"
+            self._event(
+                manifest,
+                "chapter.quality_repair_started",
+                chapter=number,
+                repair_attempt=repair_attempt,
+                deterministic_critical=postcheck["critical"],
+            )
+            self._stage(
+                manifest,
+                project,
+                store,
+                repair_phase,
+                number,
+                lambda attempt=repair_attempt, repair_feedback=feedback: repair_method(
+                    number,
+                    repair_feedback,
+                    attempt,
+                    dry_run=False,
+                ),
+                lambda _value: self._require_files(
+                    project, [self._chapter_stage(number, "revised")]
+                ),
+                [self._chapter_stage(number, "revised")],
+            )
+            self._event(
+                manifest,
+                "chapter.quality_repair_done",
+                chapter=number,
+                repair_attempt=repair_attempt,
+            )
         self._stage(
             manifest, project, store, "chapter.style", number,
             lambda: self._curate(orchestrator, number),
@@ -605,6 +738,74 @@ class PipelineRunner:
             lambda: self._promote(manifest, project, number),
             lambda value: bool(value),
             [self._chapter_stage(number, "final" if spec.approval_policy == "auto" else "candidate_final")],
+        )
+
+    def _restore_committed_tail_state(
+        self,
+        manifest: RunManifest,
+        project: Path,
+    ) -> None:
+        """Restore the latest committed canonical projection after a replay.
+
+        Replaying intake/outline is allowed to rebuild planning context, but
+        it must not leave the durable StoryState at that proposal-only
+        foundation when the next uncommitted chapter is promoted.
+        """
+        from state_manager import StoryState
+
+        service = PromotionService(project)
+        history = service.ledger.history()
+        if not history:
+            return
+        tail = history[-1]
+        prefix = f"pipeline-{manifest.run_id}-chapter-"
+        if not tail.idempotency_key.startswith(prefix):
+            return
+        receipt = service.load_receipt(tail.idempotency_key, check_current_tail=False)
+        if receipt is None:
+            raise PipelineError(
+                f"Cannot restore committed canon: receipt missing for {tail.idempotency_key}",
+                blocked=True,
+            )
+        if canonical_canon_sha(StoryState(str(project))) == receipt.new_canon_sha:
+            return
+
+        stage = manifest.get("chapter.promote", tail.chapter)
+        snapshot = stage.state_snapshot_path if stage is not None else ""
+        if not snapshot or not self._artifact_valid(
+            project, snapshot, stage.state_snapshot_hash
+        ):
+            raise PipelineError(
+                f"Cannot restore committed canon: chapter {tail.chapter} state snapshot is missing",
+                blocked=True,
+            )
+        snapshot_payload = json.loads((project / snapshot).read_text(encoding="utf-8"))
+        if canonical_canon_sha(snapshot_payload) != receipt.new_canon_sha:
+            raise PipelineError(
+                f"Cannot restore committed canon: chapter {tail.chapter} state snapshot diverged",
+                blocked=True,
+            )
+        self._restore_state(project, snapshot)
+
+    @staticmethod
+    def _quality_repair_feedback(
+        project: Path,
+        number: int,
+        pre_critical: int,
+        post_critical: int,
+        guardian_error: Optional[PipelineError],
+    ) -> str:
+        report = project / PipelineRunner._chapter_report(number, "continuity")
+        report_text = (
+            report.read_text(encoding="utf-8")
+            if report.is_file()
+            else "[No Guardian report was produced]"
+        )
+        return (
+            f"Pre-edit deterministic critical count: {pre_critical}\n"
+            f"Post-edit deterministic critical count: {post_critical}\n"
+            f"Guardian gate: {guardian_error or 'passed'}\n\n"
+            f"{report_text}"
         )
 
     def _stage(
@@ -627,6 +828,11 @@ class PipelineRunner:
             if self._checkpoint_valid(project, previous):
                 if previous.state_snapshot_path:
                     self._last_valid_state_snapshot = previous.state_snapshot_path
+                # A completed checkpoint may have been produced by an earlier
+                # process instance. Refresh the active orchestrator so
+                # proposal-only runs can continue using the foundation-backed
+                # runtime state before the next stage executes.
+                self._reload_active_state(project)
                 return previous
             if self._last_valid_state_snapshot:
                 self._restore_state(project, self._last_valid_state_snapshot)
@@ -684,6 +890,10 @@ class PipelineRunner:
                 self._save_stage(manifest, project, store, result, snapshot_state=True)
                 self._last_valid_state_snapshot = result.state_snapshot_path
                 self._event(manifest, "stage.done", phase=phase, chapter=chapter, attempt=attempt)
+                # Stage operations can temporarily swap proposal runtime state
+                # or persist canon through another service. Reload after the
+                # durable checkpoint so the next stage observes current state.
+                self._reload_active_state(project)
                 return result
             except PipelineError as exc:
                 result.status = "blocked" if exc.blocked else "failed"
@@ -814,6 +1024,8 @@ class PipelineRunner:
                 PipelineRunner._chapter_stage(chapter or 0, "candidate_final")
             ],
         }
+        if _is_repair_phase(phase):
+            inputs[phase] = []
         return {
             relative: PipelineRunner._sha256(project / relative)
             for relative in inputs.get(phase, [])
@@ -875,7 +1087,7 @@ class PipelineRunner:
 
         orchestrator = getattr(self, "_active_orchestrator", None)
         proposal_ids = getattr(orchestrator, "last_canon_proposal_ids", ())
-        if result.phase in _STAGE_AGENTS and proposal_ids:
+        if (result.phase in _STAGE_AGENTS or _is_repair_phase(result.phase)) and proposal_ids:
             result.canon_proposal_ids = [str(value) for value in proposal_ids]
 
         revision_specs = {
@@ -883,7 +1095,11 @@ class PipelineRunner:
             "chapter.edit": ("revised", "editor"),
             "chapter.style": ("final", "style_curator"),
         }
-        revision_spec = revision_specs.get(result.phase)
+        revision_spec = (
+            ("revised", "editor")
+            if _is_repair_phase(result.phase)
+            else revision_specs.get(result.phase)
+        )
         if revision_spec is not None and result.chapter is not None:
             kind, source = revision_spec
             relative = self._chapter_stage(
@@ -902,8 +1118,13 @@ class PipelineRunner:
             if result.phase == "chapter.edit":
                 previous = manifest.get("chapter.write", result.chapter)
                 parent_revision_id = previous.revision_id if previous else None
+            elif _is_repair_phase(result.phase):
+                previous = self._latest_editor_stage(
+                    manifest, result.chapter, exclude_phase=result.phase
+                )
+                parent_revision_id = previous.revision_id if previous else None
             elif result.phase == "chapter.style":
-                previous = manifest.get("chapter.edit", result.chapter)
+                previous = self._latest_editor_stage(manifest, result.chapter)
                 parent_revision_id = previous.revision_id if previous else None
                 final_head = artifacts.get_head(result.chapter, "final")
                 if final_head is not None:
@@ -1042,7 +1263,8 @@ class PipelineRunner:
                 raise ValueError("evaluation report record is divergent")
 
             receipt = PromotionService(project).load_receipt(
-                f"pipeline-{manifest.run_id}-chapter-{result.chapter}"
+                f"pipeline-{manifest.run_id}-chapter-{result.chapter}",
+                check_current_tail=False,
             )
             if receipt is None:
                 raise ValueError("promotion receipt record is missing")
@@ -1118,6 +1340,10 @@ class PipelineRunner:
 
     @classmethod
     def _checkpoint_valid(cls, project: Path, result: StageResult) -> bool:
+        if result.input_hashes != cls._stage_input_hashes(
+            project, result.phase, result.chapter
+        ):
+            return False
         if not cls._files_exist(project, result.artifact_paths):
             return False
         artifacts_valid = all(
@@ -1255,6 +1481,9 @@ class PipelineRunner:
             "book.check": ("chapter.promote", None),
         }
         if phase in check_inputs and (chapter is not None or phase == "book.check"):
+            foundation_repaired = self._adopt_repaired_foundation(
+                manifest, project, phase
+            )
             producer_phase, manuscript_stage = check_inputs[phase]
             if phase == "book.check":
                 producers = [
@@ -1287,7 +1516,8 @@ class PipelineRunner:
                 / "stages"
                 / f"{self._stage_slug(producer)}.state.json"
             )
-            self._atomic_copy(state, snapshot)
+            if not foundation_repaired:
+                self._atomic_copy(state, snapshot)
             producer.state_snapshot_path = str(snapshot.relative_to(project))
             producer.state_snapshot_hash = self._sha256(snapshot)
             if manuscript_relative:
@@ -1319,9 +1549,15 @@ class PipelineRunner:
                         project, producer, replacement.sha256
                     )
                 producer.artifact_hashes[manuscript_relative] = artifact_sha
-            producer.decisions.append(
-                f"Current manuscript and StoryState adopted for explicit {phase} retry."
-            )
+            if foundation_repaired:
+                producer.decisions.append(
+                    f"Current manuscript adopted and existing StoryState checkpoint retained "
+                    f"for explicit {phase} retry after foundation repair."
+                )
+            else:
+                producer.decisions.append(
+                    f"Current manuscript and StoryState adopted for explicit {phase} retry."
+                )
             self._write_stage_result(manifest, project, producer)
             return
 
@@ -1363,6 +1599,35 @@ class PipelineRunner:
             post_check.state_snapshot_path = ""
             post_check.state_snapshot_hash = ""
             self._write_stage_result(manifest, project, post_check)
+
+    def _adopt_repaired_foundation(
+        self,
+        manifest: RunManifest,
+        project: Path,
+        retry_phase: str,
+    ) -> bool:
+        """Bind an explicit continuity repair to the completed outline checkpoint."""
+        relative = "outputs/input/foundation.json"
+        foundation = project / relative
+        outline = manifest.get("outline")
+        if (
+            outline is None
+            or outline.status != "done"
+            or relative not in outline.artifact_paths
+            or not foundation.is_file()
+        ):
+            return False
+
+        current_sha = self._sha256(foundation)
+        if outline.artifact_hashes.get(relative) == current_sha:
+            return False
+
+        outline.artifact_hashes[relative] = current_sha
+        outline.decisions.append(
+            f"Current foundation adopted for explicit {retry_phase} retry."
+        )
+        self._write_stage_result(manifest, project, outline)
+        return True
 
     def _write_stage_result(self, manifest: RunManifest, project: Path, result: StageResult) -> None:
         path = (
@@ -1438,7 +1703,8 @@ class PipelineRunner:
                 build_runtime_state = getattr(
                     orchestrator, "build_proposal_runtime_state", None
                 )
-                if callable(build_runtime_state):
+                foundation = project / "outputs/input/foundation.json"
+                if callable(build_runtime_state) and foundation.is_file():
                     orchestrator.state = build_runtime_state()
 
     @staticmethod
@@ -1536,6 +1802,7 @@ class PipelineRunner:
         project: Path,
         number: int,
     ) -> Dict[str, Any]:
+        self._restore_committed_tail_state(manifest, project)
         style = manifest.get("chapter.style", number)
         if style is None or not style.revision_id:
             raise PipelineError(
@@ -1610,7 +1877,22 @@ class PipelineRunner:
         store = ProposalStore(project)
         entries: list[Dict[str, Any]] = []
         try:
-            for phase in _EVIDENCE_PROPOSAL_PHASES:
+            phases = list(_EVIDENCE_PROPOSAL_PHASES[:3])
+            phases.extend(
+                result.phase
+                for result in sorted(
+                    (
+                        result
+                        for result in manifest.stages.values()
+                        if result.chapter == number
+                        and result.status == "done"
+                        and _is_repair_phase(result.phase)
+                    ),
+                    key=lambda result: _repair_number(result.phase),
+                )
+            )
+            phases.extend(_EVIDENCE_PROPOSAL_PHASES[3:])
+            for phase in phases:
                 stage = manifest.get(phase, number)
                 if stage is None or not stage.canon_proposal_ids:
                     raise ValueError(f"{phase} has no bound canon proposal")
@@ -1721,6 +2003,9 @@ class PipelineRunner:
                 chapter=number,
                 status="done",
                 attempt=current.attempt,
+                input_hashes=self._stage_input_hashes(
+                    project, "chapter.promote", number
+                ),
                 artifact_paths=[relative],
                 artifact_hashes={relative: self._sha256(target)},
                 revision_id=receipt.new_artifact_revision_id,
@@ -1748,6 +2033,9 @@ class PipelineRunner:
             chapter=number,
             status="done",
             attempt=current.attempt,
+            input_hashes=self._stage_input_hashes(
+                project, "chapter.promote", number
+            ),
             artifact_paths=[relative],
             artifact_hashes={relative: self._sha256(target)},
             decisions=["Human approval recorded by CLI; candidate promoted to canonical final."],
@@ -1855,7 +2143,7 @@ class PipelineRunner:
         return True
 
     def _runtime_model(self, phase: str) -> tuple[str, str]:
-        agent_name = _STAGE_AGENTS.get(phase)
+        agent_name = "editor" if _is_repair_phase(phase) else _STAGE_AGENTS.get(phase)
         if agent_name is None:
             return "", ""
         orchestrator = getattr(self, "_active_orchestrator", None)
@@ -1867,6 +2155,31 @@ class PipelineRunner:
         if llm is not None:
             return str(getattr(llm, "provider", "")), str(getattr(llm, "model", ""))
         return os.environ.get("NOVEL_OS_LLM_PROVIDER", ""), os.environ.get("NOVEL_OS_MODEL", "")
+
+    @staticmethod
+    def _latest_editor_stage(
+        manifest: RunManifest,
+        chapter: int,
+        *,
+        exclude_phase: str = "",
+    ) -> Optional[StageResult]:
+        candidates = [
+            result
+            for result in manifest.stages.values()
+            if result.chapter == chapter
+            and result.status == "done"
+            and result.phase != exclude_phase
+            and (result.phase == "chapter.edit" or _is_repair_phase(result.phase))
+        ]
+        if not candidates:
+            return None
+        return max(
+            candidates,
+            key=lambda result: (
+                1 if _is_repair_phase(result.phase) else 0,
+                _repair_number(result.phase),
+            ),
+        )
 
     @staticmethod
     def _chapter_outline(number: int) -> str:

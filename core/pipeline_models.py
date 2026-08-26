@@ -50,7 +50,8 @@ class RunSpec:
     pov: str = ""
     edit_mode: str = "line"
     approval_policy: str = "review_required"
-    max_retries: int = 2
+    max_retries: int = 5
+    max_quality_repairs: int = 2
     retry_backoff_seconds: float = 2.0
     output_formats: Tuple[str, ...] = ("markdown",)
     dry_run: bool = False
@@ -73,6 +74,8 @@ class RunSpec:
             raise ValueError("target_words must be at least num_chapters")
         if self.max_retries < 0:
             raise ValueError("max_retries cannot be negative")
+        if self.max_quality_repairs < 0:
+            raise ValueError("max_quality_repairs cannot be negative")
         if self.retry_backoff_seconds < 0:
             raise ValueError("retry_backoff_seconds cannot be negative")
         if self.approval_policy not in APPROVAL_POLICIES:

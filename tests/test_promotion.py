@@ -1278,6 +1278,35 @@ def test_rehashed_prepared_journal_cannot_forge_derived_canon(tmp_path):
     assert StoryState(str(project)).metadata["title"] != "FORGED CANON"
 
 
+def test_committed_v2_journal_replays_after_process_restart(tmp_path):
+    project = tmp_path / "project"
+    request, _old, _candidate = _promotion_fixture(project)
+
+    first = PromotionService(project).promote(request)
+
+    # A new service instance must validate the JSON-persisted journal, not just
+    # the in-memory payload returned by the initial commit.
+    restarted = PromotionService(project)
+    assert restarted.promote(request) == first
+
+
+def test_prepared_v2_journal_normalizes_chapter_keys_before_replay(tmp_path):
+    project = tmp_path / "project"
+    request, _old, _candidate = _promotion_fixture(project)
+    state = StoryState(str(project))
+    state.create_chapter(1)
+    state.save_state()
+    request = replace(
+        request,
+        base_canon_sha=canonical_canon_sha(state),
+        request_id="",
+    )
+
+    journal = PromotionService(project)._prepare(request)
+
+    assert all(isinstance(key, str) for key in journal["state_payload"]["chapters"])
+
+
 def test_rehashed_prepared_journal_cannot_persist_underived_state_projection(
     tmp_path,
 ):

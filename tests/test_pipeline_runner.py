@@ -271,6 +271,136 @@ def test_guardian_fail_blocks_auto_promotion(tmp_path: Path):
     FakeOrchestrator.fail_validation = False
 
 
+def test_auto_approval_repairs_guardian_failure_within_same_run(tmp_path: Path):
+    class RepairingOrchestrator(FakeOrchestrator):
+        validation_attempts = 0
+
+        def validate_chapter(self, number, dry_run=False):
+            type(self).validation_attempts += 1
+            type(self).calls.append(("validate", number))
+            chapter = self.state.get_chapter(number)
+            chapter.status = "validated"
+            status = "PASS" if type(self).validation_attempts > 1 else "FAIL"
+            chapter.continuity_checks["status"] = status
+            self.state.save_state()
+            (self.feedback / f"chapter_{number:03d}_continuity_report.md").write_text(
+                f"Status: {status}\nCritical_Issues: [timeline contradiction]\n",
+                encoding="utf-8",
+            )
+
+        def repair_chapter(self, number, feedback, attempt, dry_run=False):
+            type(self).calls.append(("repair", number, attempt))
+            assert "timeline contradiction" in feedback
+            (self.manuscript / f"chapter_{number:03d}_revised.md").write_text(
+                f"Repaired {number}\n", encoding="utf-8"
+            )
+
+    RepairingOrchestrator.calls = []
+    RepairingOrchestrator.validation_attempts = 0
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("A story.", encoding="utf-8")
+    project = tmp_path / "project"
+
+    manifest = PipelineRunner(orchestrator_factory=RepairingOrchestrator).run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            approval_policy="auto",
+            max_quality_repairs=2,
+        )
+    )
+
+    assert manifest.status == "completed", manifest.error
+    assert RepairingOrchestrator.validation_attempts == 2
+    assert ("repair", 1, 1) in RepairingOrchestrator.calls
+    assert manifest.get("chapter.repair.1", 1).status == "done"
+    assert (project / "outputs/deliverables/book.md").exists()
+
+
+def test_auto_approval_repairs_deterministic_precheck_within_same_run(
+    tmp_path: Path,
+):
+    class RepairingPrecheckOrchestrator(FakeOrchestrator):
+        repaired = False
+
+        def run_checks(self, number=None):
+            type(self).calls.append(("check", number))
+            if number is None:
+                return 0
+            return 0 if type(self).repaired else 1
+
+        def repair_chapter(self, number, feedback, attempt, dry_run=False):
+            type(self).calls.append(("repair", number, attempt))
+            type(self).repaired = True
+            (self.manuscript / f"chapter_{number:03d}_revised.md").write_text(
+                f"Repaired {number}\n", encoding="utf-8"
+            )
+
+    RepairingPrecheckOrchestrator.calls = []
+    RepairingPrecheckOrchestrator.repaired = False
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("A story.", encoding="utf-8")
+    project = tmp_path / "project"
+
+    manifest = PipelineRunner(
+        orchestrator_factory=RepairingPrecheckOrchestrator
+    ).run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            approval_policy="auto",
+            max_quality_repairs=2,
+        )
+    )
+
+    assert manifest.status == "completed", manifest.error
+    assert ("repair", 1, 1) in RepairingPrecheckOrchestrator.calls
+    assert RepairingPrecheckOrchestrator.calls.count(("check", 1)) >= 3
+    assert manifest.get("chapter.check.post", 1).status == "done"
+
+
+def test_quality_repair_budget_exhaustion_still_blocks_promotion(tmp_path: Path):
+    class UnrepairableOrchestrator(FakeOrchestrator):
+        def validate_chapter(self, number, dry_run=False):
+            type(self).calls.append(("validate", number))
+            (self.feedback / f"chapter_{number:03d}_continuity_report.md").write_text(
+                "Status: FAIL\nCritical_Issues: [persistent contradiction]\n",
+                encoding="utf-8",
+            )
+
+        def repair_chapter(self, number, feedback, attempt, dry_run=False):
+            type(self).calls.append(("repair", number, attempt))
+            (self.manuscript / f"chapter_{number:03d}_revised.md").write_text(
+                f"Still broken {number} attempt {attempt}\n", encoding="utf-8"
+            )
+
+    UnrepairableOrchestrator.calls = []
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("A story.", encoding="utf-8")
+    project = tmp_path / "project"
+
+    manifest = PipelineRunner(orchestrator_factory=UnrepairableOrchestrator).run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            approval_policy="auto",
+            max_quality_repairs=2,
+        )
+    )
+
+    assert manifest.status == "paused"
+    assert "after 2 automatic repair" in manifest.error
+    assert UnrepairableOrchestrator.calls.count(("repair", 1, 1)) == 1
+    assert UnrepairableOrchestrator.calls.count(("repair", 1, 2)) == 1
+    assert not (project / "outputs/manuscript/chapter_001_final.md").exists()
+
+
 def test_review_pause_resumes_with_auto_approval_without_rewriting_chapter(tmp_path: Path):
     FakeOrchestrator.calls = []
     prompt = tmp_path / "prompt.md"
@@ -492,6 +622,52 @@ def test_provenance_resolution_failure_persists_the_agent_stage_error(tmp_path: 
     assert "invalid model configuration for architect" in failed.error
 
 
+def test_retry_outline_does_not_require_foundation_before_architect_runs(
+    tmp_path: Path,
+):
+    class RetryOutlineOrchestrator(FakeOrchestrator):
+        outline_attempts = 0
+
+        def plan_outline(self, chapters, words, dry_run=False):
+            type(self).outline_attempts += 1
+            if type(self).outline_attempts == 1:
+                raise LLMError("temporary outline failure")
+            return super().plan_outline(chapters, words, dry_run=dry_run)
+
+        def build_proposal_runtime_state(self):
+            foundation = self.outputs / "input/foundation.json"
+            if not foundation.exists():
+                raise ValueError("proposal runtime state requires foundation.json")
+            return StoryState(str(self.project))
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("A story.", encoding="utf-8")
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=RetryOutlineOrchestrator)
+    failed = runner.run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            approval_policy="auto",
+            max_retries=0,
+        )
+    )
+
+    assert failed.status == "failed"
+    assert not (project / "outputs/input/foundation.json").exists()
+
+    completed = runner.retry(
+        failed.run_id,
+        project_path=project,
+        phase="outline",
+    )
+
+    assert completed.status == "completed", completed.error
+    assert (project / "outputs/input/foundation.json").exists()
+
+
 def test_retry_validation_preserves_manual_revised_edit(tmp_path: Path):
     FakeOrchestrator.calls = []
     FakeOrchestrator.fail_validation = True
@@ -560,6 +736,58 @@ def test_retry_precheck_adopts_current_story_state_at_write_checkpoint(tmp_path:
     assert completed.status == "completed", completed.error
     assert StoryState(str(project)).metadata["continuity_repaired"] is True
     assert StateGateOrchestrator.calls.count(("write", 1)) == 1
+
+
+def test_retry_precheck_adopts_repaired_foundation_without_rerunning_outline(tmp_path: Path):
+    class FoundationGateOrchestrator(FakeOrchestrator):
+        def run_checks(self, number=None):
+            type(self).calls.append(("check", number))
+            if number is None:
+                return 0
+            foundation = json.loads(
+                (self.outputs / "input/foundation.json").read_text(encoding="utf-8")
+            )
+            return 0 if foundation.get("continuity_repaired") else 1
+
+    FoundationGateOrchestrator.calls = []
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("A story.", encoding="utf-8")
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=FoundationGateOrchestrator)
+    paused = runner.run(RunSpec(
+        project_path=str(project),
+        prompt_path=str(prompt),
+        num_chapters=1,
+        target_words=20,
+        approval_policy="auto",
+    ))
+    assert paused.status == "paused"
+    assert paused.get("chapter.check.pre", 1).status == "blocked"
+
+    interrupted_state = StoryState(str(project))
+    interrupted_state.metadata["interrupted_outline_state"] = True
+    interrupted_state.save_state()
+
+    foundation = project / "outputs/input/foundation.json"
+    foundation.write_text(
+        json.dumps({"continuity_repaired": True}) + "\n",
+        encoding="utf-8",
+    )
+
+    completed = runner.retry(
+        paused.run_id,
+        project_path=project,
+        phase="chapter.check.pre",
+        chapter=1,
+    )
+
+    assert completed.status == "completed", completed.error
+    assert FoundationGateOrchestrator.calls.count(("outline", 1)) == 1
+    outline = completed.get("outline")
+    relative = "outputs/input/foundation.json"
+    assert outline.artifact_hashes[relative] == PipelineRunner._sha256(foundation)
+    assert any("foundation" in decision.lower() for decision in outline.decisions)
+    assert "interrupted_outline_state" not in StoryState(str(project)).metadata
 
 
 def test_retry_precheck_rebinds_manually_edited_draft_revision(tmp_path: Path):

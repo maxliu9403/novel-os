@@ -7,7 +7,7 @@ import pipeline_runner as pipeline_runner_module
 from artifacts import ArtifactStore
 from canon_ledger import canonical_canon_sha
 from orchestrator import NovelOrchestrator
-from pipeline_models import RunSpec
+from pipeline_models import RunManifest, RunSpec, StageResult
 from pipeline_runner import PipelineRunner
 from promotion import PromotionService
 from proposals import ProposalStore
@@ -88,6 +88,7 @@ Key_Events: [Mara commits to change]
 Emotional_Shifts: [Mara Vale: hopeful]
 New_Information_Revealed: [The studio is hers]
 Foreshadowing_Planted: [The open door]
+Plot_Thread_Updates: [plot_001 | status=active | milestone=Mara advances the studio opening | chapter={number}]
 [/SCRIBE_STATE_UPDATE]
 """
         if agent_name == "editor":
@@ -151,6 +152,167 @@ def _one_chapter_spec(project: Path, prompt: Path, **overrides):
     return RunSpec(**values)
 
 
+def test_completed_plan_checkpoint_refreshes_proposal_runtime_state(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir(parents=True, exist_ok=True)
+    (project / "outputs/input").mkdir(parents=True, exist_ok=True)
+    (project / "outputs/input/foundation.json").write_text(
+        json.dumps(
+            {
+                "title": "One Prompt Book",
+                "premise": "Mara chooses a new life.",
+                "themes": [],
+                "setting": {},
+                "characters": [],
+                "plot_threads": [],
+                "style": {},
+                "chapters": [
+                    {"number": 1, "title": "The Key", "target_words": 1},
+                    {"number": 2, "title": "Open Door", "target_words": 1},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    outline = project / "outputs/chapter_002_outline.md"
+    outline.parent.mkdir(parents=True, exist_ok=True)
+    outline.write_text("# Chapter 2\n", encoding="utf-8")
+
+    spec = RunSpec(
+        project_path=str(project),
+        num_chapters=2,
+        target_words=2,
+        approval_policy="auto",
+    )
+    manifest = RunManifest.new(spec)
+    previous = StageResult(
+        phase="chapter.plan",
+        chapter=2,
+        status="done",
+        artifact_paths=["outputs/chapter_002_outline.md"],
+        artifact_hashes={
+            "outputs/chapter_002_outline.md": PipelineRunner._sha256(outline)
+        },
+    )
+    manifest.record(previous)
+
+    orchestrator = NovelOrchestrator(str(project), state_update_mode="proposal_only")
+    runner = PipelineRunner()
+    runner._active_orchestrator = orchestrator
+    runner._rerun_started = False
+    runner._last_valid_state_snapshot = ""
+
+    runner._stage(
+        manifest,
+        project,
+        runner._store(project, manifest.run_id),
+        "chapter.plan",
+        2,
+        lambda: pytest.fail("completed plan checkpoint should be reused"),
+        lambda _value: None,
+        ["outputs/chapter_002_outline.md"],
+    )
+
+    assert orchestrator.state.get_chapter(2) is not None
+
+
+def test_foundation_preserves_resolved_plot_thread_status(tmp_path: Path):
+    project = tmp_path / "project"
+    foundation_dir = project / "outputs/input"
+    foundation_dir.mkdir(parents=True, exist_ok=True)
+    (foundation_dir / "foundation.json").write_text(
+        json.dumps(
+            {
+                "chapters": [],
+                "characters": [],
+                "plot_threads": [
+                    {
+                        "id": "plot_005",
+                        "name": "Old Harbor Deadline",
+                        "description": "The deadline has passed.",
+                        "type": "subplot",
+                        "status": "resolved",
+                        "last_updated_chapter": 20,
+                        "resolution_chapter": 20,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    orchestrator = NovelOrchestrator(str(project), state_update_mode="proposal_only")
+    runtime = orchestrator.build_proposal_runtime_state()
+
+    thread = runtime.plot_threads["plot_005"]
+    assert thread.status == "resolved"
+    assert thread.last_updated_chapter == 20
+
+
+def test_proposal_runtime_rebuilds_tracking_indexes_and_draft_status(tmp_path: Path):
+    project = tmp_path / "project"
+    foundation_dir = project / "outputs/input"
+    manuscript_dir = project / "outputs/manuscript"
+    foundation_dir.mkdir(parents=True, exist_ok=True)
+    manuscript_dir.mkdir(parents=True, exist_ok=True)
+    (foundation_dir / "foundation.json").write_text(
+        json.dumps(
+            {
+                "title": "One Prompt Book",
+                "premise": "Mara chooses a new life.",
+                "themes": [],
+                "setting": {},
+                "characters": [
+                    {
+                        "id": "char_001",
+                        "name": "Mara Vale",
+                        "role": "protagonist",
+                    },
+                    {
+                        "id": "char_002",
+                        "name": "Owen Vale",
+                        "role": "antagonist",
+                    },
+                ],
+                "plot_threads": [
+                    {
+                        "id": "plot_001",
+                        "name": "Second Chance",
+                        "description": "Mara starts over.",
+                        "type": "main",
+                    }
+                ],
+                "style": {},
+                "chapters": [
+                    {"number": 1, "title": "The Key", "pov": "Mara Vale"},
+                    {"number": 2, "title": "Open Door", "pov": "Mara Vale"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state = StoryState(str(project))
+    first = state.create_chapter(1)
+    first.status = "complete"
+    first.characters_present = ["Mara Vale", "Owen Vale"]
+    first.plot_thread_updates = [
+        {"thread_id": "plot_001", "status": "active", "chapter": 1}
+    ]
+    state.save_state()
+    (manuscript_dir / "chapter_002_draft.md").write_text(
+        "Mara opened the door.", encoding="utf-8"
+    )
+
+    orchestrator = NovelOrchestrator(str(project), state_update_mode="proposal_only")
+    runtime = orchestrator.build_proposal_runtime_state()
+
+    assert runtime.characters["char_001"].last_appearance_chapter == 2
+    assert runtime.characters["char_002"].last_appearance_chapter == 1
+    assert runtime.plot_threads["plot_001"].last_updated_chapter == 1
+    assert runtime.get_chapter(2).status == "drafted"
+
+
 def test_real_orchestrator_pipeline_completes_two_chapters(tmp_path: Path):
     prompt = tmp_path / "prompt.md"
     prompt.write_text("# One Prompt Book\n\nMara chooses a new life.", encoding="utf-8")
@@ -175,6 +337,41 @@ def test_real_orchestrator_pipeline_completes_two_chapters(tmp_path: Path):
     book = (project / "outputs/deliverables/book.md").read_text(encoding="utf-8")
     assert "# One Prompt Book" in book
     assert "Morning light claimed" in book
+
+
+def test_evidence_run_restores_committed_tail_before_next_promotion(tmp_path: Path):
+    class DriftBeforeSecondPromotionOrchestrator(NovelOrchestrator):
+        def curate_chapter(self, chapter_number: int, dry_run: bool = False):
+            result = super().curate_chapter(chapter_number, dry_run=dry_run)
+            if chapter_number == 2:
+                drifted = StoryState(str(self.project_path))
+                drifted.metadata["transient_projection_drift"] = True
+                drifted.save_state()
+            return result
+
+    def factory(project_path):
+        orchestrator = DriftBeforeSecondPromotionOrchestrator(project_path)
+        orchestrator._llm = PipelineLLM()
+        return orchestrator
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# One Prompt Book\n\nMara chooses a new life.", encoding="utf-8")
+    project = tmp_path / "project"
+
+    manifest = PipelineRunner(orchestrator_factory=factory).run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=2,
+            target_words=60,
+            approval_policy="auto",
+            quality_policy="evidence_v1",
+        )
+    )
+
+    assert manifest.status == "completed", manifest.error
+    assert manifest.get("chapter.promote", 2).promotion_receipt_id
+    assert "transient_projection_drift" not in StoryState(str(project)).metadata
 
 
 def test_evidence_plan_requires_chapter_contract(tmp_path: Path):
@@ -337,6 +534,44 @@ def test_resume_reconciles_committed_promotion_before_restoring_state(
     assert canonical_canon_sha(StoryState(str(project))) == committed_canon_sha
 
 
+def test_resume_reuses_committed_chapters_after_outline_checkpoint_changes(tmp_path: Path):
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# One Prompt Book\n\nMara chooses a new life.", encoding="utf-8")
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=_real_orchestrator_with_fake_llm)
+    manifest = runner.run(RunSpec(
+        project_path=str(project),
+        prompt_path=str(prompt),
+        num_chapters=2,
+        target_words=60,
+        approval_policy="auto",
+        quality_policy="evidence_v1",
+    ))
+    assert manifest.status == "completed", manifest.error
+
+    # Make the upstream outline checkpoint stale after both chapter
+    # promotions have committed.  A resume must replay planning context only.
+    outline = project / "outputs/outline.md"
+    outline.write_text(outline.read_text(encoding="utf-8") + "\nchanged\n", encoding="utf-8")
+    manifest.status = "paused"
+    manifest.error = "simulated outline checkpoint drift"
+    store = runner._store(project, manifest.run_id)
+    store.save(manifest)
+
+    PipelineLLM.calls.clear()
+    resumed = PipelineRunner(
+        orchestrator_factory=_real_orchestrator_with_fake_llm
+    ).resume(manifest.run_id, project)
+
+    assert resumed.status == "completed", resumed.error
+    assert "scribe" not in PipelineLLM.calls
+    assert "editor" not in PipelineLLM.calls
+    assert all(
+        resumed.get("chapter.promote", number).promotion_receipt_id
+        for number in (1, 2)
+    )
+
+
 def test_resume_recovers_unfinished_promotion_before_restoring_state(
     tmp_path: Path,
     monkeypatch,
@@ -420,6 +655,49 @@ def test_resume_recovers_unfinished_promotion_before_restoring_state(
     assert canonical_canon_sha(StoryState(str(project))) == committed_canon_sha
 
 
+def test_reconcile_historical_receipt_when_state_is_before_ledger_tail(tmp_path: Path):
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# One Prompt Book\n\nMara chooses a new life.", encoding="utf-8")
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=_real_orchestrator_with_fake_llm)
+    manifest = runner.run(RunSpec(
+        project_path=str(project),
+        prompt_path=str(prompt),
+        num_chapters=2,
+        target_words=60,
+        approval_policy="auto",
+        quality_policy="evidence_v1",
+    ))
+    assert manifest.status == "completed", manifest.error
+
+    # Reproduce a recovery window where a committed chapter-1 receipt exists,
+    # but the canonical projection has only been restored through chapter 1
+    # while the ledger tail is chapter 2.
+    first = manifest.get("chapter.promote", 1)
+    second = manifest.get("chapter.promote", 2)
+    assert first and second and first.state_snapshot_path
+    runner._atomic_copy(project / first.state_snapshot_path, project / "outputs/state/story_state.json")
+    first.status = "failed"
+    first.error = "checkpoint write interrupted"
+    first.finished_at = ""
+    manifest.status = "paused"
+    store = runner._store(project, manifest.run_id)
+    store.save(manifest)
+
+    reconciled = runner._reconcile_committed_promotions(manifest, project, store)
+
+    assert reconciled == {1}
+    assert manifest.get("chapter.promote", 1).status == "done"
+    assert manifest.get("chapter.promote", 1).promotion_receipt_id == first.promotion_receipt_id
+
+    # The same receipt also repairs a stage that says done but lost its final
+    # projection after the checkpoint was written.
+    final = project / "outputs/manuscript/chapter_001_final.md"
+    final.unlink()
+    assert runner._reconcile_committed_promotions(manifest, project, store) == {1}
+    assert final.read_text(encoding="utf-8") == ArtifactStore(project).read_text(first.revision_id)
+
+
 def test_multi_chapter_evidence_promotion_commits_all_agent_proposals(
     tmp_path: Path,
 ):
@@ -447,6 +725,11 @@ def test_multi_chapter_evidence_promotion_commits_all_agent_proposals(
         assert "The studio is hers" in chapter.new_information
         assert "The studio is open" in chapter.new_information
         assert chapter.continuity_checks["status"] == "PASS"
+    runtime = NovelOrchestrator(
+        str(project), state_update_mode="proposal_only"
+    ).build_proposal_runtime_state()
+    assert runtime.characters["char_001"].last_appearance_chapter == 2
+    assert runtime.plot_threads["plot_001"].last_updated_chapter == 2
 
 
 def _pause_after_evidence_promotion(project: Path, prompt: Path):

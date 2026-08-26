@@ -820,7 +820,20 @@ class PromotionService:
             raise PromotionCorruptionError("receipt idempotency key does not match path")
         return receipt
 
-    def load_receipt(self, idempotency_key: str) -> Optional[PromotionReceipt]:
+    def load_receipt(
+        self,
+        idempotency_key: str,
+        *,
+        check_current_tail: bool = True,
+    ) -> Optional[PromotionReceipt]:
+        """Load one durable receipt and validate its own ledger bindings.
+
+        Recovery may inspect a historical receipt while the projected
+        StoryState is still at an earlier snapshot.  In that case the receipt
+        must remain independently verifiable without requiring the current
+        state to match the ledger tail; normal callers retain the strict tail
+        check by default.
+        """
         key = self._safe_key(idempotency_key)
         with ProjectLock(self.project_root):
             self._ensure_project_instance_id()
@@ -828,8 +841,24 @@ class PromotionService:
             self._preflight_storage()
             receipt = self._load_receipt_unlocked(key)
             if receipt is not None:
-                self._receipt_consistent(receipt)
+                self._receipt_consistent(receipt, check_current_tail=check_current_tail)
             return receipt
+
+    def recover_unfinished(self) -> None:
+        """Recover durable promotion journals without listing the ledger tail."""
+        with ProjectLock(self.project_root):
+            self._ensure_project_instance_id()
+            self._preflight_storage()
+            unfinished = any(
+                (journal := self._load_journal(path.stem)) is not None
+                and journal["state"] != "committed"
+                for path in sorted(
+                    self.journal_dir.glob("*.json"), key=lambda item: item.name
+                )
+            )
+            if unfinished:
+                self._recover_unfinished_journals()
+                self._validate_existing_transaction_identities()
 
     def list_receipts(self, *, chapter: Optional[int] = None) -> tuple[PromotionReceipt, ...]:
         """Validate durable promotion state once and return committed receipts."""
@@ -1089,6 +1118,10 @@ class PromotionService:
             chapter.canonical_revision_id = candidate.revision_id
             chapter.last_evaluation_id = report.evaluation_id
         new_canon_sha = canonical_canon_sha(state)
+        # Keep the in-memory journal identical to the JSON representation that
+        # is written before replay. In particular, StoryState chapter keys are
+        # integers in memory but strings after JSON persistence.
+        state_payload = json.loads(_json_bytes(_state_payload(state, committed_at)))
         receipt = PromotionReceipt(
             project_id=request.project_id,
             project_instance_id=request.project_instance_id,
@@ -1129,7 +1162,7 @@ class PromotionService:
             "receipt": receipt.to_dict(),
             "ledger_entry": entry.to_dict(),
             "base_state_payload": base_state_payload,
-            "state_payload": _state_payload(state, committed_at),
+            "state_payload": state_payload,
         }
 
     @staticmethod
@@ -1319,7 +1352,12 @@ class PromotionService:
             if chapter is not None:
                 chapter.canonical_revision_id = candidate.revision_id
                 chapter.last_evaluation_id = report.evaluation_id
-            expected_state_payload = _state_payload(base_state, receipt.committed_at)
+            # JSON persistence converts integer chapter keys to strings. Normalize
+            # the replay projection through the same encoding boundary before the
+            # exact payload comparison below.
+            expected_state_payload = json.loads(
+                _json_bytes(_state_payload(base_state, receipt.committed_at))
+            )
             derived_canon_sha = canonical_canon_sha(base_state)
             projected_state = _state_from_payload(journal["state_payload"])
             projected_payload_sha = canonical_canon_sha(journal["state_payload"])

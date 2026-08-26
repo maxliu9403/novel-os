@@ -116,6 +116,36 @@ def test_docx_and_epub_are_served_as_downloadable_binaries(client):
         assert r.content.startswith(magic), fmt
 
 
+def test_compile_unicode_project_uses_rfc5987_filename(tmp_path):
+    project_id = "孩子出生那天我签了离婚协议"
+    root = tmp_path / "projects"
+    state_dir = root / project_id / "outputs" / "state"
+    state_dir.mkdir(parents=True)
+    (root / project_id / "outputs" / "manuscript").mkdir()
+    (state_dir / "story_state.json").write_text(json.dumps({
+        "metadata": {"title": project_id, "genre": "现实情感", "author": ""},
+        "characters": {}, "plot_threads": {},
+        "chapters": {"1": {"number": 1, "title": "开篇", "status": "drafted"}},
+        "timeline": [], "style_profile": {}, "session_log": [],
+    }), encoding="utf-8")
+    (root / project_id / "outputs" / "manuscript" / "chapter_001_final.md").write_text(
+        "第一章\n\n正文。\n", encoding="utf-8"
+    )
+
+    app = create_app(
+        projects_root=root,
+        db_url=f"sqlite:///{(tmp_path / 'unicode.db').as_posix()}",
+    )
+    response = TestClient(app).get(f"/api/projects/{project_id}/compile?format=epub")
+
+    assert response.status_code == 200
+    disposition = response.headers["content-disposition"]
+    assert 'filename="novel.epub"' in disposition
+    assert "filename*=UTF-8''" in disposition
+    assert "%E5%AD%A9%E5%AD%90" in disposition
+    assert response.content.startswith(b"PK")
+
+
 def test_an_unknown_format_is_a_400_that_lists_the_options(client):
     r = client.get("/api/projects/book/compile?format=pdf")
     assert r.status_code == 400

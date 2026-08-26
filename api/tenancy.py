@@ -30,11 +30,8 @@ ROLES = ("owner", "editor", "viewer")
 
 _SLUG = re.compile(r"[^a-z0-9-]+")
 
-# A project id is a directory name. Anything outside this set cannot be part of
-# one, which is what makes path construction safe rather than merely checked.
-_PROJECT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-
-
+# A project id is a single directory name. Shape validation below makes path
+# construction safe rather than merely checking the resolved result afterward.
 class TenancyError(ValueError):
     pass
 
@@ -46,10 +43,23 @@ def slugify(text: str) -> str:
 def valid_project_id(project_id: str) -> bool:
     """Reject anything that is not a plain directory name.
 
-    `..`, absolute paths, drive letters and separators all fail here, so a
-    caller cannot walk out of the projects root or into another tenant.
+    Project folders are user-facing identifiers and may contain Unicode (for
+    example, a Chinese manuscript title). Validate the path shape directly
+    instead of restricting the alphabet to ASCII. `..`, absolute paths,
+    separators and control characters still fail here, so a caller cannot walk
+    out of the projects root or into another tenant.
     """
-    return bool(project_id) and bool(_PROJECT_ID.fullmatch(project_id)) and project_id != ".."
+    if not isinstance(project_id, str) or not project_id:
+        return False
+    if not project_id[0].isalnum():
+        return False
+    if project_id in {".", ".."}:
+        return False
+    if "/" in project_id or "\\" in project_id or ":" in project_id:
+        return False
+    if any(ord(char) < 32 or ord(char) == 127 for char in project_id):
+        return False
+    return Path(project_id).name == project_id
 
 
 def ensure_default_workspace() -> db.Workspace:

@@ -605,6 +605,224 @@ Quality_Score_After: 10/10
     assert chapter.quality_scores == {}
 
 
+def test_empty_editor_manuscript_block_does_not_mutate_story_state(tmp_path: Path):
+    class EmptyEditor:
+        provider = "fake"
+        model = "fake-model"
+
+        def run_agent(self, _agent, _prompt):
+            return """[EDITOR_ANALYSIS]
+Mode: developmental
+[/EDITOR_ANALYSIS]
+[REVISED_CHAPTER]
+[EDITOR_STATE_UPDATE]
+Quality_Score_After: 10/10
+[/EDITOR_STATE_UPDATE]
+"""
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test\n\nA story.", encoding="utf-8")
+    project = tmp_path / "project"
+    ingest_prompt(project, prompt, {"chapters": 1, "words": 1000})
+    orch = NovelOrchestrator(str(project))
+    chapter = orch.state.create_chapter(1)
+    chapter.status = "drafted"
+    orch.state.save_state()
+    draft_path = project / "outputs/manuscript/chapter_001_draft.md"
+    draft_path.write_text("Draft prose.\n", encoding="utf-8")
+    orch._llm = EmptyEditor()
+    orch.raise_llm_errors = True
+
+    with pytest.raises(LLMError, match=r"empty revised chapter"):
+        orch.edit_chapter(1)
+
+    assert not (project / "outputs/manuscript/chapter_001_revised.md").exists()
+    assert chapter.quality_scores == {}
+
+
+def test_missing_editor_manuscript_block_does_not_write_sanitized_analysis(
+    tmp_path: Path,
+):
+    class AnalysisOnlyEditor:
+        provider = "fake"
+        model = "fake-model"
+
+        def run_agent(self, _agent, _prompt):
+            return """[EDITOR_ANALYSIS]
+Mode: developmental
+Issues_Found: analysis only
+[/EDITOR_ANALYSIS]
+"""
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test\n\nA story.", encoding="utf-8")
+    project = tmp_path / "project"
+    ingest_prompt(project, prompt, {"chapters": 1, "words": 1000})
+    orch = NovelOrchestrator(str(project))
+    chapter = orch.state.create_chapter(1)
+    chapter.status = "drafted"
+    orch.state.save_state()
+    draft_path = project / "outputs/manuscript/chapter_001_draft.md"
+    draft_path.write_text("Draft prose.\n", encoding="utf-8")
+    orch._llm = AnalysisOnlyEditor()
+
+    orch.edit_chapter(1)
+
+    assert not (project / "outputs/manuscript/chapter_001_revised.md").exists()
+    assert (project / "outputs/manuscript/chapter_001_revised.md.raw").exists()
+    assert chapter.quality_scores == {}
+
+
+def test_editor_accepts_revised_chapter_without_closing_marker(tmp_path: Path):
+    class TruncatedEditor:
+        provider = "fake"
+        model = "fake-model"
+
+        def run_agent(self, _agent, _prompt):
+            return """[EDITOR_ANALYSIS]
+Mode: developmental
+[/EDITOR_ANALYSIS]
+[REVISED_CHAPTER]
+# Chapter One
+
+Recovered edited prose.
+[EDITOR_STATE_UPDATE]
+Quality_Score_Before: 5/10
+Quality_Score_After: 8/10
+[/EDITOR_STATE_UPDATE]
+"""
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test\n\nA story.", encoding="utf-8")
+    project = tmp_path / "project"
+    ingest_prompt(project, prompt, {"chapters": 1, "words": 1000})
+    orch = NovelOrchestrator(str(project))
+    chapter = orch.state.create_chapter(1)
+    chapter.status = "drafted"
+    orch.state.save_state()
+    (project / "outputs/manuscript/chapter_001_draft.md").write_text(
+        "Draft prose.\n", encoding="utf-8"
+    )
+    orch._llm = TruncatedEditor()
+    orch.raise_llm_errors = True
+
+    orch.edit_chapter(1)
+
+    revised = (project / "outputs/manuscript/chapter_001_revised.md").read_text(
+        encoding="utf-8"
+    )
+    assert revised == "# Chapter One\n\nRecovered edited prose.\n"
+    assert chapter.quality_scores["quality_score_before"] == 5.0
+    assert chapter.quality_scores["quality_score_after"] == 8.0
+
+
+def test_style_curator_accepts_revised_chapter_without_closing_marker(tmp_path: Path):
+    class TruncatedStyleCurator:
+        provider = "fake"
+        model = "fake-model"
+
+        def run_agent(self, _agent, _prompt):
+            return """[STYLE_ANALYSIS]
+Consistency_Score: 9/10
+[/STYLE_ANALYSIS]
+[REVISED_CHAPTER]
+# Chapter One
+
+Recovered polished prose.
+[STYLE_STATE_UPDATE]
+Maintained_Characteristics: [close POV]
+[/STYLE_STATE_UPDATE]
+"""
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test\n\nA story.", encoding="utf-8")
+    project = tmp_path / "project"
+    ingest_prompt(project, prompt, {"chapters": 1, "words": 1000})
+    orch = NovelOrchestrator(str(project))
+    chapter = orch.state.create_chapter(1)
+    chapter.status = "validated"
+    chapter.continuity_checks["status"] = "PASS"
+    orch.state.save_state()
+    (project / "outputs/manuscript/chapter_001_revised.md").write_text(
+        "Rough prose.\n", encoding="utf-8"
+    )
+    orch._llm = TruncatedStyleCurator()
+    orch.raise_llm_errors = True
+
+    orch.curate_chapter(1)
+
+    candidate = (project / "outputs/manuscript/chapter_001_candidate_final.md").read_text(
+        encoding="utf-8"
+    )
+    assert candidate == "# Chapter One\n\nRecovered polished prose.\n"
+    report = (project / "outputs/feedback/chapter_001_style_report.md").read_text(
+        encoding="utf-8"
+    )
+    assert "STYLE_STATE_UPDATE" in report
+
+
+def test_proposal_only_submit_edit_accepts_revised_chapter_without_closing_marker(
+    tmp_path: Path, monkeypatch
+):
+    project, orch = _prepared_orchestrator(tmp_path, mode="proposal_only")
+    submitted = tmp_path / "submitted_edit.md"
+    submitted.write_text(
+        """[EDITOR_ANALYSIS]
+Mode: line
+[/EDITOR_ANALYSIS]
+[REVISED_CHAPTER]
+# Chapter One
+
+Recovered submitted prose.
+[EDITOR_STATE_UPDATE]
+Quality_Score_After: 9/10
+[/EDITOR_STATE_UPDATE]
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(orch.state, "save_state", lambda: None)
+
+    orch.submit_edit(1, str(submitted))
+
+    revised = (project / "outputs/manuscript/chapter_001_revised.md").read_text(
+        encoding="utf-8"
+    )
+    assert revised == "# Chapter One\n\nRecovered submitted prose.\n"
+    assert len(orch.last_canon_proposal_ids) == 1
+    proposal = ProposalStore(project).load(orch.last_canon_proposal_ids[0])
+    assert proposal.delta["quality_score_after"] == "9/10"
+
+
+def test_legacy_submit_edit_accepts_revised_chapter_without_closing_marker(
+    tmp_path: Path,
+):
+    project, orch = _prepared_orchestrator(tmp_path)
+    submitted = tmp_path / "submitted_edit.md"
+    submitted.write_text(
+        """[EDITOR_ANALYSIS]
+Mode: line
+[/EDITOR_ANALYSIS]
+[REVISED_CHAPTER]
+# Chapter One
+
+Recovered legacy prose.
+[EDITOR_STATE_UPDATE]
+Quality_Score_After: 9/10
+[/EDITOR_STATE_UPDATE]
+""",
+        encoding="utf-8",
+    )
+    orch.raise_llm_errors = True
+
+    orch.submit_edit(1, str(submitted))
+
+    revised = (project / "outputs/manuscript/chapter_001_revised.md").read_text(
+        encoding="utf-8"
+    )
+    assert revised == "# Chapter One\n\nRecovered legacy prose.\n"
+    assert orch.state.get_chapter(1).quality_scores["quality_score_after"] == 9.0
+
+
 def test_scribe_zero_width_contract_marker_is_normalized(tmp_path: Path):
     class ZeroWidthScribe:
         provider = "fake"

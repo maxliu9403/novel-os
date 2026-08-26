@@ -80,6 +80,15 @@ def test_project_detail(projects_root):
     assert resp.json()["author"] == "Test Author"
 
 
+def test_project_detail_accepts_unicode_project_id(tmp_path):
+    _seed_project(tmp_path, "孩子出生那天我签了离婚协议", "孩子出生那天我签了离婚协议", "现实情感")
+
+    resp = _client(tmp_path).get("/api/projects/孩子出生那天我签了离婚协议")
+
+    assert resp.status_code == 200
+    assert resp.json()["id"] == "孩子出生那天我签了离婚协议"
+
+
 def test_project_detail_404(projects_root):
     resp = _client(projects_root).get("/api/projects/nope")
     assert resp.status_code == 404

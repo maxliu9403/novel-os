@@ -6,6 +6,7 @@ Central orchestration system that coordinates agents through the novel writing w
 
 import json
 import argparse
+import copy
 import hashlib
 import os
 import re
@@ -25,11 +26,17 @@ from datetime import datetime
 from state_manager import StoryState, Character, PlotThread, ChapterState, TimelineEvent, StyleProfile, initialize_project
 from llm_client import LLMClient, LLMError
 from model_router import ModelRouter
-from state_parser import ingest_agent_output, normalize_agent_output, parse_agent_output
+from state_parser import (
+    extract_manuscript_block,
+    ingest_agent_output,
+    normalize_agent_output,
+    parse_agent_output,
+)
 from continuity_engine import run_all as run_continuity_checks, summarize as summarize_findings, to_context_block
 from prose_sanitize import sanitize_manuscript, apply_header_to_chapter, strip_em_dashes
 from context_pack import build_context_pack, format_context_pack, slice_chapter_for_llm
-from canon import build_canon_proposal
+from canon import apply_canon_proposal, build_canon_proposal
+from canon_ledger import CanonLedger
 from proposals import ProposalStore
 
 
@@ -163,17 +170,20 @@ class NovelOrchestrator:
         ):
             raise LLMError("Scribe response is missing [SCRIBE_STATE_UPDATE]")
         if agent_name == "editor":
-            match = re.search(
-                r"\[REVISED(?:_|\s+)CHAPTER\](.*?)\[/REVISED(?:_|\s+)CHAPTER\]",
-                normalized_result,
-                re.IGNORECASE | re.DOTALL,
-            )
-            if match:
-                manuscript_result = match.group(1).strip()
+            manuscript_block = extract_manuscript_block(normalized_result)
+            if manuscript_block is not None:
+                manuscript_result = manuscript_block
+                if not manuscript_result.strip():
+                    message = "Editor returned an empty revised chapter"
+                    if self.raise_llm_errors:
+                        raise LLMError(message)
+                    print(f"❌ {message}; raw response saved at {raw_path}")
+                    return None
             elif self.raise_llm_errors:
                 raise LLMError("Editor response is missing [REVISED_CHAPTER]")
             else:
-                print("⚠️  Editor response is missing [REVISED_CHAPTER]; saving sanitized response.")
+                print(f"❌ Editor response is missing [REVISED_CHAPTER]; raw response saved at {raw_path}")
+                return None
 
         # Only contract-valid responses may mutate persistent story state.
         if chapter_number is not None and resolved_mode == "legacy_apply":
@@ -621,14 +631,23 @@ genre-appropriate assumptions rather than asking questions.
                 resolution = int(resolution) if resolution is not None else None
             except (TypeError, ValueError):
                 resolution = None
+            status = str(raw.get("status") or "active").strip().lower()
+            if status not in {"active", "resolved", "abandoned", "foreshadowed"}:
+                status = "active"
+            try:
+                last_updated = int(raw.get("last_updated_chapter") or 0)
+            except (TypeError, ValueError):
+                last_updated = 0
             self.state.plot_threads[thread_id] = PlotThread(
                 id=thread_id,
                 name=str(raw["name"]).strip(),
                 description=str(raw.get("description") or ""),
                 thread_type=str(raw.get("type") or "main"),
+                status=status,
                 priority=priority,
                 start_chapter=int(raw.get("start_chapter") or 1),
                 target_resolution_chapter=resolution,
+                last_updated_chapter=last_updated,
             )
 
         chapters = foundation.get("chapters") or []
@@ -685,7 +704,77 @@ genre-appropriate assumptions rather than asking questions.
             )
         finally:
             self.state = canonical_state
+        self._rebuild_proposal_runtime_tracking(runtime_state)
         return runtime_state
+
+    def _rebuild_proposal_runtime_tracking(self, runtime_state: StoryState) -> None:
+        """Restore derived tracking that foundation hydration intentionally replaces."""
+        replay_state = copy.deepcopy(runtime_state)
+        proposal_store = ProposalStore(self.project_path)
+        for entry in CanonLedger(self.project_path).history():
+            proposal = proposal_store.load(
+                entry.proposal_id,
+                expected_source_artifact_sha=entry.source_artifact_sha,
+            )
+            apply_canon_proposal(
+                replay_state,
+                proposal,
+                entry.source_artifact_sha,
+            )
+
+        # Proposal replay mutates chapter fact lists as well. The canonical
+        # chapter projection is already loaded, so retain it and copy only the
+        # indexes that foundation hydration replaced with fresh objects.
+        runtime_state.characters = copy.deepcopy(replay_state.characters)
+        runtime_state.plot_threads = copy.deepcopy(replay_state.plot_threads)
+
+        for chapter_number in sorted(runtime_state.chapters):
+            chapter = runtime_state.chapters[chapter_number]
+            draft_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_draft.md"
+            revised_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_revised.md"
+            final_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_final.md"
+            written = draft_path.is_file() or revised_path.is_file() or final_path.is_file()
+
+            if chapter.status != "complete":
+                if revised_path.is_file():
+                    chapter.status = "edited"
+                elif draft_path.is_file():
+                    chapter.status = "drafted"
+
+            appearances = list(chapter.characters_present)
+            if written and chapter.pov_character:
+                appearances.append(chapter.pov_character)
+            for name in appearances:
+                character = runtime_state.get_character_by_name(str(name).strip())
+                if character is not None:
+                    character.last_appearance_chapter = max(
+                        character.last_appearance_chapter,
+                        chapter_number,
+                    )
+
+            for reference in chapter.character_references:
+                if not isinstance(reference, dict):
+                    continue
+                character = runtime_state.get_character(
+                    str(reference.get("character_id") or "")
+                )
+                if character is not None:
+                    character.last_reference_chapter = max(
+                        character.last_reference_chapter,
+                        int(reference.get("chapter") or chapter_number),
+                    )
+
+            for update in chapter.plot_thread_updates:
+                if not isinstance(update, dict):
+                    continue
+                thread = runtime_state.get_plot_thread(
+                    str(update.get("thread_id") or "")
+                )
+                if thread is not None:
+                    thread.last_updated_chapter = max(
+                        thread.last_updated_chapter,
+                        int(update.get("chapter") or chapter_number),
+                    )
 
     def _write_foundation_story_bible(self, foundation: Dict[str, Any]) -> None:
         """Render Architect canon into the human-readable story bible."""
@@ -1029,19 +1118,15 @@ or recommendations.
             raw_path.write_text(result, encoding="utf-8")
         normalized_result = normalize_agent_output(result)
         response = normalized_result if resolved_mode == "proposal_only" else result
-        match = re.search(
-            r"\[REVISED_CHAPTER\](.*?)\[/REVISED_CHAPTER\]",
-            response,
-            re.IGNORECASE | re.DOTALL,
-        )
-        if not match:
+        manuscript_block = extract_manuscript_block(response)
+        if manuscript_block is None:
             message = "Style Curator response is missing [REVISED_CHAPTER]"
             if self.raise_llm_errors:
                 raise LLMError(message)
             print(f"❌ {message}; raw response saved at {report_path}")
             report_path.write_text(strip_em_dashes(response), encoding="utf-8")
             return None
-        clean, meta = sanitize_manuscript(match.group(1).strip())
+        clean, meta = sanitize_manuscript(manuscript_block)
         if not clean:
             message = "Style Curator returned an empty revised chapter"
             if self.raise_llm_errors:
@@ -1255,6 +1340,22 @@ Do not list a referenced/off-page character in Characters_Present.
 
         draft_text = draft_path.read_text(encoding='utf-8')
         edit_prompt = self._generate_edit_prompt(chapter, draft_text, mode)
+        critical_findings = [
+            finding
+            for finding in run_continuity_checks(
+                self.state, self.project_path, as_of_chapter=chapter_number
+            )
+            if finding.severity == "critical"
+        ]
+        if critical_findings:
+            edit_prompt = (
+                "# BLOCKING CONTINUITY FINDINGS\n\n"
+                "Resolve these findings during the edit. Preserve the chapter contract "
+                "and return the complete revised chapter.\n\n"
+                + to_context_block(critical_findings)
+                + "\n"
+                + edit_prompt
+            )
         edit_prompt_path = self.feedback_dir / f"chapter_{chapter_number:03d}_edit_prompt.md"
         revised_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_revised.md"
 
@@ -1275,6 +1376,81 @@ Do not list a referenced/off-page character in Characters_Present.
         if result is not None and resolved_mode == "legacy_apply":
             chapter.status = 'edited'
             self.state.save_state()
+
+    def repair_chapter(
+        self,
+        chapter_number: int,
+        feedback: str,
+        attempt: int,
+        dry_run: bool = False,
+    ):
+        """Repair a revised chapter against blocking continuity feedback."""
+        self.last_canon_proposal_ids = []
+        resolved_mode = self.state_update_mode
+        self._validate_state_update_mode(resolved_mode)
+
+        chapter = self.state.get_chapter(chapter_number)
+        if not chapter:
+            raise ValueError(f"Chapter {chapter_number} not found")
+
+        revised_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_revised.md"
+        source_path = revised_path
+        if not source_path.is_file():
+            source_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_draft.md"
+        if not source_path.is_file():
+            raise ValueError(f"Chapter {chapter_number} has no manuscript to repair")
+
+        chapter_text = source_path.read_text(encoding="utf-8")
+        findings = run_continuity_checks(
+            self.state, self.project_path, as_of_chapter=chapter_number
+        )
+        blocking = [finding for finding in findings if finding.severity == "critical"]
+        repair_prompt = f"""# EDITOR CONTINUITY REPAIR: Chapter {chapter_number}
+
+This is automatic repair attempt {attempt}. Repair the current revised chapter so
+it satisfies the chapter contract and continuity gates. Address every verified
+critical issue. Treat warnings as guidance only. Preserve established names,
+timeline, causality, POV, legal/business facts, and the intended chapter outcome.
+Do not replace the story with a summary or commentary.
+
+## Blocking Feedback
+
+{feedback}
+
+## Deterministic Findings
+
+{to_context_block(blocking)}
+
+## Current Revised Chapter
+
+```markdown
+{chapter_text}
+```
+
+## Required Output
+
+Return a short `[EDITOR_ANALYSIS]` block, the complete repaired manuscript inside
+`[REVISED_CHAPTER]...[/REVISED_CHAPTER]`, and an `[EDITOR_STATE_UPDATE]` block.
+State updates must accurately record any repaired plot-thread, character,
+foreshadowing, timeline, or status facts.
+"""
+        prompt_path = (
+            self.feedback_dir
+            / f"chapter_{chapter_number:03d}_repair_{attempt:02d}_prompt.md"
+        )
+        result = self._run_agent_or_save_prompt(
+            agent_name="editor",
+            user_prompt=repair_prompt,
+            prompt_path=prompt_path,
+            output_path=revised_path,
+            dry_run=dry_run,
+            label=f"Editor repairing continuity (attempt {attempt})",
+            chapter_number=chapter_number,
+        )
+        if result is not None and resolved_mode == "legacy_apply":
+            chapter.status = "edited"
+            self.state.save_state()
+        return result
     
     def _generate_edit_prompt(self, chapter: ChapterState, draft_text: str, mode: str) -> str:
         """Generate an editing prompt."""
@@ -1365,13 +1541,20 @@ Provide:
         text = edit_file.read_text(encoding='utf-8')
         if resolved_mode == "proposal_only":
             normalized_text = normalize_agent_output(text)
-            match = re.search(
-                r"\[REVISED(?:_|\s+)CHAPTER\](.*?)\[/REVISED(?:_|\s+)CHAPTER\]",
-                normalized_text,
-                re.IGNORECASE | re.DOTALL,
-            )
-            manuscript_text = match.group(1).strip() if match else normalized_text
+            manuscript_text = extract_manuscript_block(normalized_text)
+            if manuscript_text is None:
+                message = "Editor response is missing [REVISED_CHAPTER]"
+                if self.raise_llm_errors:
+                    raise LLMError(message)
+                print(f"❌ {message}; preserving submitted response at {edit_file}")
+                return
             clean, _meta = sanitize_manuscript(manuscript_text)
+            if not clean:
+                message = "Editor returned an empty revised chapter"
+                if self.raise_llm_errors:
+                    raise LLMError(message)
+                print(f"❌ {message}; preserving submitted response at {edit_file}")
+                return
             revised_path.write_text(clean, encoding="utf-8")
             self._persist_canon_proposal(
                 chapter_number=chapter_number,
@@ -1383,14 +1566,32 @@ Provide:
             print(f"   Next: Run 'validate chapter --number {chapter_number}'")
             return
 
-        import shutil
-        shutil.copy(edit_file, revised_path)
+        normalized_text = normalize_agent_output(text)
+        manuscript_text = extract_manuscript_block(normalized_text)
+        if manuscript_text is None:
+            message = "Editor response is missing [REVISED_CHAPTER]"
+            if self.raise_llm_errors:
+                raise LLMError(message)
+            print(f"❌ {message}; preserving submitted response at {edit_file}")
+            return
+        clean, meta = sanitize_manuscript(manuscript_text)
+        if not clean:
+            message = "Editor returned an empty revised chapter"
+            if self.raise_llm_errors:
+                raise LLMError(message)
+            print(f"❌ {message}; preserving submitted response at {edit_file}")
+            return
+        revised_path.write_text(clean, encoding="utf-8")
 
-        changes = ingest_agent_output(self.state, chapter_number, "editor", text)
+        changes = ingest_agent_output(
+            self.state, chapter_number, "editor", normalized_text
+        )
 
         chapter = self.state.get_chapter(chapter_number)
         if chapter:
             chapter.status = 'edited'
+            apply_header_to_chapter(chapter, meta)
+            chapter.word_count = len(clean.split())
 
         if changes:
             print(f"   📝 State updates ({len(changes)}):")
@@ -1426,6 +1627,7 @@ Provide:
 
         # Deterministic pre-check runs free, gives the Guardian a head start.
         findings = run_continuity_checks(self.state, self.project_path, as_of_chapter=chapter_number)
+        self.last_continuity_findings = findings
         if findings:
             print(f"   🔬 Pre-check: {len(findings)} deterministic finding(s)")
             # Persist into chapter state and surface to the Guardian via the prompt.
@@ -1818,9 +2020,11 @@ Examples:
     run_parser.add_argument('--quality-policy', default='legacy',
                             choices=['legacy', 'evidence_v1'],
                             help='Select legacy projection or evidence-backed promotion')
-    run_parser.add_argument('--max-retries', type=int, default=2)
+    run_parser.add_argument('--max-retries', type=int, default=5)
     run_parser.add_argument('--retry-backoff', type=float, default=2.0,
                             help='Initial retry delay in seconds (exponential, capped at 30s)')
+    run_parser.add_argument('--max-quality-repairs', type=int, default=2,
+                            help='Automatic continuity repair passes per chapter under --approval auto')
     run_parser.add_argument('--output', nargs='+', default=['markdown'],
                             choices=['markdown', 'html', 'docx', 'epub'])
     run_parser.add_argument('--model', default='', help='Override NOVEL_OS_MODEL for this process')
@@ -1892,6 +2096,7 @@ Examples:
                     approval_policy=args.approval,
                     quality_policy=args.quality_policy,
                     max_retries=args.max_retries,
+                    max_quality_repairs=args.max_quality_repairs,
                     retry_backoff_seconds=args.retry_backoff,
                     output_formats=tuple(args.output),
                     dry_run=args.dry_run,
