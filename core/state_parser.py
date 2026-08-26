@@ -432,6 +432,93 @@ def _apply_character_references(
         )
 
 
+def _apply_payoff_events(
+    chapter: Any,
+    raw_events: Any,
+    chapter_number: int,
+    source: str,
+    log: List[str],
+) -> None:
+    """Record explicit book-level payoff evidence without inferring it."""
+    for raw in _as_list(raw_events):
+        payoff_id, fields = _parse_pipe_update(raw)
+        if not payoff_id:
+            log.append(f"[{source}] ignored payoff event without id")
+            continue
+        status = str(fields.get("status") or "recalled").strip().lower()
+        if status not in {"planted", "recalled", "paid", "intentional_open", "blocked"}:
+            log.append(f"[{source}] ignored invalid payoff status for {payoff_id}: {status!r}")
+            continue
+        event_chapter = _parse_optional_chapter(fields.get("chapter"), chapter_number)
+        event = {
+            "payoff_id": payoff_id,
+            "status": status,
+            "chapter": event_chapter,
+            "evidence": fields.get("evidence") or fields.get("note") or fields.get("payoff") or "",
+        }
+        if event not in chapter.payoff_events:
+            chapter.payoff_events.append(event)
+        log.append(f"[{source}] payoff {payoff_id}: status={status}")
+
+
+def _apply_arc_state_updates(
+    state: "StoryState",
+    chapter: Any,
+    raw_updates: Any,
+    chapter_number: int,
+    source: str,
+    log: List[str],
+) -> None:
+    """Apply explicit character arc evidence and keep the state index current."""
+    for raw in _as_list(raw_updates):
+        character_id, fields = _parse_pipe_update(raw)
+        cid = _resolve_character_id(state, character_id)
+        if not cid:
+            log.append(f"[{source}] unknown character arc referenced: {character_id!r}")
+            continue
+        character = state.characters[cid]
+        stage = str(fields.get("stage") or fields.get("arc_stage") or "").strip().lower()
+        if stage and stage not in {"beginning", "middle", "climax", "resolution"}:
+            log.append(f"[{source}] ignored invalid arc stage for {cid}: {stage!r}")
+            stage = ""
+        progress_text = fields.get("progress") or fields.get("arc_progress")
+        progress: Optional[int] = None
+        if progress_text not in (None, ""):
+            try:
+                progress = max(0, min(100, int(str(progress_text).strip())))
+            except ValueError:
+                log.append(f"[{source}] ignored invalid arc progress for {cid}: {progress_text!r}")
+        if stage:
+            character.arc_stage = stage
+        if progress is not None:
+            character.arc_progress = progress
+        event = {
+            "character_id": cid,
+            "chapter": chapter_number,
+            "stage": stage or character.arc_stage,
+            "progress": character.arc_progress,
+            "evidence": fields.get("evidence") or fields.get("choice") or fields.get("state") or "",
+        }
+        if event not in chapter.arc_state_updates:
+            chapter.arc_state_updates.append(event)
+        log.append(f"[{source}] {character.full_name}: arc={character.arc_stage}/{character.arc_progress}")
+
+
+def _apply_ending_evidence(
+    chapter: Any,
+    raw_evidence: Any,
+    source: str,
+    log: List[str],
+) -> None:
+    for evidence in _as_list(raw_evidence):
+        value = str(evidence).strip()
+        if not value or value.lower() in _PLACEHOLDER:
+            continue
+        if value not in chapter.ending_evidence:
+            chapter.ending_evidence.append(value)
+            log.append(f"[{source}] ending evidence recorded: {value[:60]}")
+
+
 def apply_to_state(
     state: "StoryState",
     chapter_number: int,
@@ -547,6 +634,22 @@ def apply_to_state(
         source,
         log,
     )
+    _apply_payoff_events(
+        chapter,
+        parsed.get("payoff_events"),
+        chapter_number,
+        source,
+        log,
+    )
+    _apply_arc_state_updates(
+        state,
+        chapter,
+        parsed.get("arc_state_updates"),
+        chapter_number,
+        source,
+        log,
+    )
+    _apply_ending_evidence(chapter, parsed.get("ending_evidence"), source, log)
 
     # ----- new information / facts
     new_facts = _as_list(parsed.get("new_information_revealed")) + _as_list(parsed.get("new_facts_established"))

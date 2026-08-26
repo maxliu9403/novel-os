@@ -506,6 +506,18 @@ Before the Markdown analysis, emit exactly one JSON object inside these tags:
       "type": "main", "priority": 5, "resolution_chapter": {num_chapters}
     }}
   ],
+  "ending_contract": {{
+    "schema_version": 1, "enforce": true,
+    "finale_window": {{"start_chapter": {max(1, num_chapters - 4)}, "end_chapter": {num_chapters}}},
+    "main_conflict": {{"thread_id": "plot_001", "required_status": "resolved",
+      "protagonist_choice": "...", "consequence": "..."}},
+    "character_arcs": [{{"character_id": "char_001", "required_end_state": "resolution",
+      "required_choice": "..."}}],
+    "plot_payoffs": [{{"id": "payoff_001", "setup_ids": ["ch1:fs1"],
+      "required_payoff": "...", "deadline": {num_chapters}, "allow_intentional_open": false}}],
+    "antagonist_outcome": {{"required": false}},
+    "emotional_contract": {{"reader_emotion": "...", "afterglow_state": "..."}}
+  }},
   "style": {{"tone": "...", "pov": "third_limited", "tense": "past", "prose_style": "balanced"}},
   "chapters": [
     {{
@@ -516,6 +528,11 @@ Before the Markdown analysis, emit exactly one JSON object inside these tags:
 }}
 [/STORY_FOUNDATION_JSON]
 ```
+
+The ending_contract is authoritative for the final 3-5 chapters. Every
+required payoff must reference a stable setup id such as ch3:fs2. Use an empty
+plot_payoffs list only when the story has no tracked long-range setup. Set
+allow_intentional_open=true only for a deliberate, documented open thread.
 
 Use exactly {num_chapters} chapter objects with unique numbers 1 through
 {num_chapters}. After the closing tag, provide the human-readable blueprint.
@@ -539,6 +556,14 @@ genre-appropriate assumptions rather than asking questions.
                 foundation_path.write_text(
                     json.dumps(foundation, indent=2, ensure_ascii=False) + "\n",
                     encoding="utf-8",
+                )
+                from ending_quality import ensure_quality_ledgers
+
+                ensure_quality_ledgers(
+                    self.project_path,
+                    foundation.get("ending_contract")
+                    if isinstance(foundation.get("ending_contract"), dict)
+                    else None,
                 )
                 if self.state_update_mode == "legacy_apply":
                     self._apply_story_foundation(foundation, target_words)
@@ -575,6 +600,24 @@ genre-appropriate assumptions rather than asking questions.
             raise ValueError("story foundation must define at least one character")
         if not isinstance(data.get("plot_threads"), list) or not data["plot_threads"]:
             raise ValueError("story foundation must define at least one plot thread")
+        ending = data.get("ending_contract")
+        if ending is not None:
+            if not isinstance(ending, dict):
+                raise ValueError("ending_contract must be a JSON object")
+            if ending.get("enforce", False):
+                required = {
+                    "finale_window",
+                    "main_conflict",
+                    "character_arcs",
+                    "plot_payoffs",
+                    "antagonist_outcome",
+                    "emotional_contract",
+                }
+                missing = sorted(key for key in required if key not in ending)
+                if missing:
+                    raise ValueError(
+                        "enforced ending_contract is missing: " + ", ".join(missing)
+                    )
         return data
 
     def _apply_story_foundation(
@@ -822,6 +865,18 @@ genre-appropriate assumptions rather than asking questions.
                 f"{raw.get('description') or '[Not specified]'}"
             )
 
+        ending = foundation.get("ending_contract")
+        if isinstance(ending, dict):
+            window = ending.get("finale_window") or {}
+            lines.extend([
+                "",
+                "## Ending Contract",
+                f"- Enforced: {bool(ending.get('enforce', False))}",
+                f"- Finale window: chapters {window.get('start_chapter', '?')}-{window.get('end_chapter', '?')}",
+                f"- Main conflict: {(ending.get('main_conflict') or {}).get('thread_id') or '[Not specified]'}",
+                f"- Required payoffs: {len(ending.get('plot_payoffs') or [])}",
+            ])
+
         style = foundation.get("style") or {}
         lines.extend([
             "",
@@ -955,6 +1010,7 @@ genre-appropriate assumptions rather than asking questions.
             else "[No full-book outline available]"
         )
 
+        ending_context = self._ending_contract_context(chapter.number)
         prompt = f"""# ARCHITECT TASK: Outline Chapter {chapter.number}
 
 Produce a structured **beat-sheet outline** for this chapter that the Scribe will
@@ -974,6 +1030,7 @@ later expand into prose. This is a PLANNING artifact.
 {master_outline}
 
 {pack_md}
+{ending_context}
 ## Required Output Format
 
 Return ONLY the outline, in this Markdown structure do NOT write any prose,
@@ -1083,6 +1140,8 @@ change story outcomes.
 - POV: {self.state.style_profile.point_of_view}
 - Prose style: {self.state.style_profile.prose_style}
 
+{self._ending_contract_context(chapter_number)}
+
 ## Validated Chapter
 ```markdown
 {chapter_text}
@@ -1155,6 +1214,7 @@ or recommendations.
     def _generate_chapter_prompt(self, chapter: ChapterState) -> str:
         """Generate a detailed prompt for the Scribe agent."""
         pack_md = format_context_pack(build_context_pack(self.state, chapter.number, purpose="scribe"))
+        ending_context = self._ending_contract_context(chapter.number)
 
         prompt = f"""# SCRIBE PROMPT: Chapter {chapter.number}
 
@@ -1169,6 +1229,7 @@ or recommendations.
 - **Premise**: {self.state.metadata.get('premise') or self.state.story_bible.get('premise') or '[Not provided]'}
 
 {pack_md}
+{ending_context}
 ## Chapter Goals
 - [Primary plot advancement]
 - [Character development moment]
@@ -1185,6 +1246,9 @@ End the response with the required state block. In addition to prose facts,
 record only evidence-backed metadata changes using these exact fields:
 - Plot_Thread_Updates: `<thread_id> | status=<active|resolved|abandoned|foreshadowed> | milestone=<change> | chapter=<number>`; resolved/abandoned threads are terminal unless `reopen=true` is explicit
 - Character_References: `<character_id or full name> | chapter=<number> | note=<reference or documented absence>`
+- Payoff_Events: `<payoff_id> | status=<recalled|paid|intentional_open> | evidence=<what changed> | chapter=<number>`
+- Arc_State_Updates: `<character_id or full name> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | evidence=<choice or observable state>`
+- Ending_Evidence: `irreversible_change=<observable final state>` and `emotional_payoff=<reader-facing closure>` in the finale window
 Do not list a referenced/off-page character in Characters_Present.
 
 ## Style Profile
@@ -1197,6 +1261,35 @@ Do not list a referenced/off-page character in Characters_Present.
 **Write the complete chapter now. Follow all protocols in your system instructions.**
 """
         return prompt
+
+    def _ending_contract_context(self, chapter_number: int) -> str:
+        """Inject the book-level ending contract only near the finale."""
+        contract_path = self.outputs_dir / "input" / "ending_contract.json"
+        if not contract_path.is_file():
+            return ""
+        try:
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return ""
+        if not isinstance(contract, dict) or not contract.get("enforce"):
+            return ""
+        window = contract.get("finale_window") or {}
+        try:
+            start = int(window.get("start_chapter") or 0)
+            end = int(window.get("end_chapter") or 0)
+        except (TypeError, ValueError):
+            return ""
+        if not start or not end or not (start <= chapter_number <= end):
+            return ""
+        return (
+            "## Book Ending Contract (authoritative)\n"
+            "This chapter is inside the finale window. Advance or pay off the\n"
+            "listed commitments; do not introduce a new core promise. Emit\n"
+            "structured payoff, arc, and ending evidence in the state block.\n\n"
+            "```json\n"
+            + json.dumps(contract, ensure_ascii=False, sort_keys=True, indent=2)
+            + "\n```\n"
+        )
     
     # ===== Writing Phase =====
     
@@ -1728,6 +1821,11 @@ Provide:
 - [ ] No dropped plot threads (unless intentional)
 - [ ] Cause-effect chains intact
 
+### Book Ending (when this chapter is inside the finale window)
+- [ ] Apply the authoritative ending contract and record each payoff as recalled or paid
+- [ ] Record the protagonist arc state and the observable final choice
+- [ ] In the final chapter, record `Ending_Evidence` for irreversible change and emotional payoff
+
 ## Output Format
 
 ```
@@ -1744,6 +1842,13 @@ Character_References:
   - <character_id or full name> | chapter=<number> | note=<reference or documented off-page absence>
 Foreshadowing_Resolved:
   - id=chN:fsM | note=<payoff>
+Payoff_Events:
+  - <payoff_id> | status=<recalled|paid|intentional_open> | evidence=<what changed> | chapter=<number>
+Arc_State_Updates:
+  - <character_id> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | evidence=<choice or state>
+Ending_Evidence:
+  - irreversible_change=<observable final state>
+  - emotional_payoff=<reader-facing closure>
 [CONTINUITY_REPORT]
 ```
 

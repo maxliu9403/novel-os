@@ -91,6 +91,9 @@ Define:
 - the protagonist's starting misbelief and final belief choice;
 - the external objective, deadline, failure cost, and irreversible ending direction;
 - the five interacting story forces: objective, relationship dilemma, internal misbelief, secret/question, adaptive pressure.
+- a book-level `ending_contract` that names the finale window, main conflict
+  payoff, protagonist's final choice, antagonist consequence, emotional
+  afterglow, and every core payoff that must be evidenced before compilation.
 
 ### Section B: characters and relationships
 
@@ -108,6 +111,12 @@ For realistic fiction, track money, work, family, law, health, logistics, and so
 
 For every major secret or mystery record its truth, knowledge distribution, first observable clue, fair misreading, escalation, payoff window, reveal, and changed action. Build a dated timeline with locations, travel or process duration, resource changes, and character knowledge at each milestone.
 
+Maintain a payoff ledger with stable ids (`chN:fsM` for foreshadowing and
+`payoff_N` for broader promises). Each item has a setup, target chapter, status
+(`planted`, `recalled`, `paid`, or `intentional_open`), and concrete evidence.
+Only `intentional_open` items may remain unresolved at the end, and they must
+be declared in the ending contract before drafting.
+
 ### Section D: structure, opening, and retention arc
 
 Choose a chapter count within the user's range and explain the choice. Map acts or volumes with goals, midpoint revaluation, irreversible choice, stage payoff, and carry-forward consequence. Design the first three chapters as a complete micro-arc:
@@ -118,9 +127,15 @@ Choose a chapter count within the user's range and explain the choice. Map acts 
 
 If the user has a free-reading window, make the first paid chapter immediately deliver the direct consequence of chapter three. A chapter ending earns its hook by changing knowledge, power, relationship, resources, identity, rules, moral cost, or time.
 
+Reserve the final 3-5 chapters as an explicit finale window. Plan them as a
+chain of escalation, revelation, protagonist choice, visible cost,
+antagonist consequence, emotional payoff, and afterglow. Do not open a new
+core promise in the final chapter. The last chapter must emit
+`Ending_Evidence` for an irreversible state change and reader-facing closure.
+
 ### Section E: quality gates and assumptions
 
-List the chapter contract, continuity ledgers, emotional and payoff rotation, likely cliches, realism risks, and assumptions the Architect may resolve. Confirm that the ending resolves both the external problem and the protagonist's defining belief choice.
+List the chapter contract, continuity ledgers, emotional and payoff rotation, likely cliches, realism risks, and assumptions the Architect may resolve. Confirm that the ending resolves both the external problem and the protagonist's defining belief choice. Treat an unresolved core payoff, active main conflict, unclosed protagonist arc, missing antagonist consequence, or finale without an irreversible change as a blocking quality issue. Treat only explicitly declared intentional open threads as warnings.
 
 The completion criterion for design review is explicit approval of the design direction. Before approval, keep the artifact as a proposal in the conversation rather than a final prompt.
 
@@ -136,7 +151,24 @@ After design approval, generate a complete prompt rather than a short summary. L
 4. Include a `## Assumptions` section in the prompt for details the user did not decide.
 5. Keep the prompt authoritative: repeat the locked title, language, genre, audience, tone, POV, chapter count, and word target in parseable `Key: Value` fields near the top.
 
-The prompt must instruct Novel OS to plan before drafting, maintain character/relationship/secret/timeline/resource ledgers, use a per-chapter causal contract, preserve POV and knowledge boundaries, rotate conflict and hook types, and produce a final reader-facing manuscript without agent commentary.
+The prompt must instruct Novel OS to plan before drafting, maintain character/relationship/secret/timeline/resource ledgers, emit and preserve a machine-readable `ending_contract`, update a payoff ledger after every chapter, use a per-chapter causal contract, preserve POV and knowledge boundaries, rotate conflict and hook types, reserve the final 3-5 chapters for payoff, and produce a final reader-facing manuscript without agent commentary.
+
+Every Scribe, Editor, and Continuity Guardian state block must include these
+fields when applicable:
+
+```text
+Payoff_Events:
+  - <payoff_id> | status=<recalled|paid|intentional_open> | evidence=<observable change> | chapter=<number>
+Arc_State_Updates:
+  - <character_id> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | evidence=<choice or observable state>
+Ending_Evidence:
+  - irreversible_change=<observable final state>
+  - emotional_payoff=<reader-facing closure>
+```
+
+For the final window, repeat the authoritative ending contract in the
+Architect, Scribe, Editor, and Guardian contexts. Compile only after
+`book_completion_report.json` records a passing ending review.
 
 ## Phase 5: validate the prompt
 
@@ -197,4 +229,3 @@ Finish with a compact report containing:
 - whether a model run was started.
 
 The Skill is complete when the user can open the prompt, see every approved design decision represented, run the printed command without editing placeholders, and understand the expected final artifact path.
-

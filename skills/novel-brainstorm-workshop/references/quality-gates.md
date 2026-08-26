@@ -31,6 +31,22 @@ Use these checks during design review and again before handing off the Prompt. T
 - Supporting characters have independent motives and boundaries.
 - The ending resolves the external problem and the protagonist's defining belief choice without a coincidental rescue.
 
+## Book ending gate
+
+- The story foundation contains an enforced `ending_contract` with a finale
+  window covering the last 3-5 chapters.
+- The main conflict thread reaches its required terminal status.
+- Every required payoff is `paid` with chapter evidence, or is explicitly
+  declared `intentional_open` in the contract.
+- Each principal character reaches the contract's required end state through an
+  observable choice, not a retrospective explanation.
+- The antagonist receives a causal consequence proportional to the story's
+  promise when the contract marks that outcome as required.
+- The final chapter contains explicit `Ending_Evidence` for an irreversible
+  state change and emotional closure.
+- A generated `book_completion_report.json` is the final quality receipt;
+  `completed` and Compile are not synonyms for a passing ending review.
+
 ## Prompt handoff
 
 - Top-level fields contain one fixed title, chapter count, and total word target.
@@ -38,4 +54,3 @@ Use these checks during design review and again before handing off the Prompt. T
 - Architect, Scribe, Editor, Continuity Guardian, and Style Curator have distinct responsibilities and shared state fields.
 - The final reader-facing artifact excludes planning commentary, agent analysis, scores, and work logs.
 - `prompt_intake` returns the expected title, genre, language, chapters, words, and premise when Novel OS is present.
-

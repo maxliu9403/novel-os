@@ -22,6 +22,15 @@ from canon import CanonDeltaProposal
 from contracts import AuthorIntent, ChapterContract, StoryContract
 from canon_ledger import canonical_canon_sha
 from compile_book import gather, render_bytes
+from ending_quality import (
+    ENDING_CONTRACT_RELATIVE,
+    ENDING_REPORT_RELATIVE,
+    PAYOFF_LEDGER_RELATIVE,
+    EndingReport,
+    ensure_quality_ledgers,
+    evaluate_ending,
+    load_ending_contract,
+)
 from llm_client import LLMError
 from pipeline_models import ManifestStore, RunManifest, RunSpec, StageResult
 from prompt_intake import ingest_prompt
@@ -512,6 +521,33 @@ class PipelineRunner:
             )
             for chapter in range(1, manifest.spec.num_chapters + 1):
                 self._run_chapter(manifest, project, store, orchestrator, chapter)
+
+            # The ending gate is opt-in for backward compatibility with older
+            # projects. New Architect outputs include an enforced contract.
+            if self._ending_contract_enforced(project):
+                self._stage(
+                    manifest,
+                    project,
+                    store,
+                    "ending.preflight",
+                    None,
+                    lambda: ensure_quality_ledgers(project),
+                    lambda _value: self._require_files(
+                        project,
+                        [ENDING_CONTRACT_RELATIVE, PAYOFF_LEDGER_RELATIVE],
+                    ),
+                    [ENDING_CONTRACT_RELATIVE, PAYOFF_LEDGER_RELATIVE],
+                )
+                self._stage(
+                    manifest,
+                    project,
+                    store,
+                    "ending.review",
+                    None,
+                    lambda: evaluate_ending(project, as_of_chapter=manifest.spec.num_chapters),
+                    self._validate_ending_result,
+                    [ENDING_CONTRACT_RELATIVE, PAYOFF_LEDGER_RELATIVE, ENDING_REPORT_RELATIVE],
+                )
 
             self._stage(
                 manifest,
@@ -1022,6 +1058,15 @@ class PipelineRunner:
             ],
             "chapter.promote": [
                 PipelineRunner._chapter_stage(chapter or 0, "candidate_final")
+            ],
+            "ending.preflight": [
+                ENDING_CONTRACT_RELATIVE,
+                "outputs/state/story_state.json",
+            ],
+            "ending.review": [
+                ENDING_CONTRACT_RELATIVE,
+                PAYOFF_LEDGER_RELATIVE,
+                "outputs/state/story_state.json",
             ],
         }
         if _is_repair_phase(phase):
@@ -1742,6 +1787,27 @@ class PipelineRunner:
     def _check_result(value: Any, label: str) -> None:
         if isinstance(value, int) and value > 0:
             raise PipelineError(f"{label} found {value} critical issue(s)", blocked=True)
+
+    @staticmethod
+    def _ending_contract_enforced(project: Path) -> bool:
+        try:
+            return bool(load_ending_contract(project).get("enforce", False))
+        except (OSError, ValueError, json.JSONDecodeError):
+            return False
+
+    @staticmethod
+    def _validate_ending_result(value: Any) -> None:
+        if not isinstance(value, EndingReport):
+            raise PipelineError("Ending review did not return a structured report", blocked=True)
+        if value.status != "pass":
+            critical = "; ".join(
+                str(item.get("message") or item.get("category") or "unknown")
+                for item in value.critical
+            )
+            raise PipelineError(
+                f"Book ending gate blocked compile: {critical or 'critical ending issue'}",
+                blocked=True,
+            )
 
     def _validate_guardian(self, project: Path, number: int) -> None:
         report = project / PipelineRunner._chapter_report(number, "continuity")
