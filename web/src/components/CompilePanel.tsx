@@ -93,6 +93,7 @@ export default function CompilePanel({ projectId }: { projectId: string }) {
             options={[
               { value: "docx", label: "Word (.docx)" },
               { value: "epub", label: "EPUB" },
+              { value: "pdf", label: "PDF (.pdf)" },
               { value: "html", label: "HTML" },
               { value: "markdown", label: "Markdown" },
             ]}

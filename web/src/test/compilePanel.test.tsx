@@ -56,6 +56,15 @@ test("the compile link carries the chosen format", async () => {
   expect(link).toHaveAttribute("href", expect.stringContaining("format=html"));
 });
 
+test("offers PDF and updates the compile link when selected", async () => {
+  renderPanel();
+  await userEvent.click(await screen.findByRole("button", { name: "Format" }));
+  await userEvent.click(await screen.findByRole("option", { name: "PDF (.pdf)" }));
+
+  const link = await screen.findByRole("link", { name: /Compile/ });
+  expect(link).toHaveAttribute("href", expect.stringContaining("format=pdf"));
+});
+
 test("editing a size and saving sends the whole sheet", async () => {
   const save = vi.spyOn(api, "saveStyles").mockResolvedValue(structuredClone(SHEET));
   renderPanel();

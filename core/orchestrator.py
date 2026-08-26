@@ -2026,7 +2026,7 @@ Examples:
     run_parser.add_argument('--max-quality-repairs', type=int, default=2,
                             help='Automatic continuity repair passes per chapter under --approval auto')
     run_parser.add_argument('--output', nargs='+', default=['markdown'],
-                            choices=['markdown', 'html', 'docx', 'epub'])
+                            choices=['markdown', 'html', 'docx', 'epub', 'pdf'])
     run_parser.add_argument('--model', default='', help='Override NOVEL_OS_MODEL for this process')
     run_parser.add_argument('--dry-run', action='store_true',
                             help='Persist prompt and brief only; do not call an LLM')

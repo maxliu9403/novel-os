@@ -69,7 +69,7 @@ export interface StyleSheet {
   scene_break_marker: string;
 }
 
-export type CompileFormat = "html" | "markdown" | "docx" | "epub";
+export type CompileFormat = "html" | "markdown" | "docx" | "epub" | "pdf";
 
 /** One chapter's measurable movement — the shape strip's unit (§4.3). */
 export interface ChapterActivity {
@@ -570,4 +570,3 @@ export const api = {
   // Media URLs come back root-relative; absolutise for <img src>.
   mediaUrl: (item: MediaItem) => `${BASE}${item.url}`,
 };
-

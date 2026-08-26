@@ -300,9 +300,9 @@ RENDERERS: Dict[str, Callable[[CompiledBook, StyleSheet], str]] = {
     "markdown": render_markdown,
 }
 
-# DOCX and EPUB produce bytes, not text. They live in their own modules and are
-# imported lazily so the text formats never pay for loading them.
-BINARY_FORMATS = ("docx", "epub")
+# DOCX, EPUB, and PDF produce bytes, not text. They live in their own modules
+# and are imported lazily so the text formats never pay for loading them.
+BINARY_FORMATS = ("docx", "epub", "pdf")
 
 FORMATS = tuple(sorted(RENDERERS)) + BINARY_FORMATS
 
@@ -312,9 +312,12 @@ CONTENT_TYPES = {
     "markdown": "text/markdown; charset=utf-8",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "epub": "application/epub+zip",
+    "pdf": "application/pdf",
 }
 
-EXTENSIONS = {"html": "html", "markdown": "md", "docx": "docx", "epub": "epub"}
+EXTENSIONS = {
+    "html": "html", "markdown": "md", "docx": "docx", "epub": "epub", "pdf": "pdf",
+}
 
 
 def _unknown(fmt: str) -> ValueError:
@@ -343,4 +346,8 @@ def render_bytes(book: CompiledBook, sheet: StyleSheet, fmt: str) -> bytes:
         from compile_epub import render_epub
 
         return render_epub(book, sheet)
+    if fmt == "pdf":
+        from compile_pdf import render_pdf
+
+        return render_pdf(book, sheet)
     raise _unknown(fmt)

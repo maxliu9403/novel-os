@@ -116,6 +116,14 @@ def test_docx_and_epub_are_served_as_downloadable_binaries(client):
         assert r.content.startswith(magic), fmt
 
 
+def test_pdf_is_served_as_a_downloadable_document(client):
+    r = client.get("/api/projects/book/compile?format=pdf")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/pdf")
+    assert 'filename="book.pdf"' in r.headers["content-disposition"]
+    assert r.content.startswith(b"%PDF-1.4")
+
+
 def test_compile_unicode_project_uses_rfc5987_filename(tmp_path):
     project_id = "孩子出生那天我签了离婚协议"
     root = tmp_path / "projects"
@@ -147,10 +155,10 @@ def test_compile_unicode_project_uses_rfc5987_filename(tmp_path):
 
 
 def test_an_unknown_format_is_a_400_that_lists_the_options(client):
-    r = client.get("/api/projects/book/compile?format=pdf")
+    r = client.get("/api/projects/book/compile?format=rtf")
     assert r.status_code == 400
     detail = r.json()["detail"]
-    assert "docx" in detail and "epub" in detail
+    assert "docx" in detail and "epub" in detail and "pdf" in detail
 
 
 def test_compile_404_for_an_unknown_project(client):

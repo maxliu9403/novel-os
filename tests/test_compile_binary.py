@@ -212,15 +212,29 @@ def test_epub_escapes_prose():
 
 # --------------------------------------------------------------- dispatch
 
-@pytest.mark.parametrize("fmt", ["html", "markdown", "docx", "epub"])
+@pytest.mark.parametrize("fmt", ["html", "markdown", "docx", "epub", "pdf"])
 def test_render_bytes_produces_something_for_every_format(fmt):
     out = render_bytes(_book(), StyleSheet(), fmt)
     assert isinstance(out, bytes) and len(out) > 0
 
 
+def test_pdf_is_a_unicode_document_with_page_objects():
+    book = gather(
+        title="孩子出生那天，我签了离婚协议", author="", genre="",
+        chapters=[{"number": 1, "title": "开篇", "text": "她抱着孩子走进雨里。"}],
+    )
+    pdf = render_bytes(book, StyleSheet(), "pdf")
+
+    assert pdf.startswith(b"%PDF-1.4")
+    assert b"/Type /Catalog" in pdf
+    assert b"/Subtype /Type0" in pdf
+    assert b"/MediaBox [0 0 595 842]" in pdf
+    assert "孩子出生那天".encode("utf-16-be").hex().upper().encode("ascii") in pdf
+
+
 def test_render_bytes_rejects_an_unknown_format_listing_all_of_them():
     with pytest.raises(ValueError) as e:
-        render_bytes(_book(), StyleSheet(), "pdf")
+        render_bytes(_book(), StyleSheet(), "rtf")
     message = str(e.value)
-    for fmt in ("html", "markdown", "docx", "epub"):
+    for fmt in ("html", "markdown", "docx", "epub", "pdf"):
         assert fmt in message

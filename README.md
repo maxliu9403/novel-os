@@ -14,7 +14,7 @@
 [![Tests](https://img.shields.io/badge/tests-374_py_·_70_ts-22c55e?style=for-the-badge)]()
 [![Agents](https://img.shields.io/badge/Agents-5_Specialized-f59e0b?style=for-the-badge)]()
 [![Providers](https://img.shields.io/badge/LLM_Providers-13+-06b6d4?style=for-the-badge)]()
-[![Export](https://img.shields.io/badge/Export-DOCX_·_EPUB_·_HTML-8b5cf6?style=for-the-badge)]()
+[![Export](https://img.shields.io/badge/Export-DOCX_·_EPUB_·_PDF_·_HTML-8b5cf6?style=for-the-badge)]()
 
 <br/>
 
@@ -420,7 +420,7 @@ just want to look around.
 | ✨ **Auto-extract** | Import a finished manuscript and the cast is *proposed* to you, not re-typed by you |
 | 📐 **Shape of the book** | Per-chapter movement, with sagging runs flagged |
 | ↯ **Consequence preview** | Rewrite a passage and see what it breaks *before* accepting |
-| 📤 **Compile** | DOCX · EPUB · HTML · Markdown, driven by named styles |
+| 📤 **Compile** | DOCX · EPUB · PDF · HTML · Markdown, driven by named styles |
 | ⌨️ **Keyboard-first** | `⌘K` palette · `⌘1/2/3` modes · `⌘.` quick note without leaving the page |
 
 ---
@@ -475,7 +475,8 @@ novel-os/
 │   ├── styles.py                      ← named compile styles
 │   ├── compile_book.py                ← gather → render
 │   ├── compile_docx.py                ← OOXML, no dependency
-│   └── compile_epub.py                ← EPUB 3, no dependency
+│   ├── compile_epub.py                ← EPUB 3, no dependency
+│   └── compile_pdf.py                 ← PDF 1.4 + CJK font, no dependency
 │
 ├── ⚡ api/                            ← FastAPI: the studio's backend
 │   ├── routes.py · services.py        ← HTTP → ProjectService → engine

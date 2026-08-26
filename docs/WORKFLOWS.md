@@ -47,7 +47,7 @@ python core/orchestrator.py run \
   --dry-run
 ```
 
-Run unattended and compile Markdown plus EPUB:
+Run unattended and compile Markdown, EPUB, and PDF:
 
 ```bash
 python core/orchestrator.py run \
@@ -56,7 +56,7 @@ python core/orchestrator.py run \
   --chapters 24 \
   --words 80000 \
   --approval auto \
-  --output markdown epub
+  --output markdown epub pdf
 ```
 
 The runner processes chapters sequentially because each chapter updates the
