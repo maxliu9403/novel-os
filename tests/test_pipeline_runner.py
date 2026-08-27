@@ -32,7 +32,31 @@ class FakeOrchestrator:
         )
         (self.outputs / "outline.md").write_text("# Full Outline\n", encoding="utf-8")
         (self.outputs / "input").mkdir(parents=True, exist_ok=True)
-        (self.outputs / "input/foundation.json").write_text("{}\n", encoding="utf-8")
+        foundation = {
+            "title": "Test Book",
+            "premise": "A test protagonist chooses change.",
+            "themes": [],
+            "setting": {},
+            "characters": [
+                {"id": "char_001", "name": "Test Protagonist", "role": "protagonist"}
+            ],
+            "plot_threads": [
+                {
+                    "id": "plot_001",
+                    "name": "Test Conflict",
+                    "description": "The protagonist must choose.",
+                    "type": "main",
+                }
+            ],
+            "style": {},
+            "chapters": [
+                {"number": number, "title": f"Chapter {number}"}
+                for number in range(1, chapters + 1)
+            ],
+        }
+        (self.outputs / "input/foundation.json").write_text(
+            json.dumps(foundation), encoding="utf-8"
+        )
 
     def plan_chapter(self, number, summary="", pov="", dry_run=False):
         type(self).calls.append(("plan", number))
@@ -769,8 +793,10 @@ def test_retry_precheck_adopts_repaired_foundation_without_rerunning_outline(tmp
     interrupted_state.save_state()
 
     foundation = project / "outputs/input/foundation.json"
+    repaired_foundation = json.loads(foundation.read_text(encoding="utf-8"))
+    repaired_foundation["continuity_repaired"] = True
     foundation.write_text(
-        json.dumps({"continuity_repaired": True}) + "\n",
+        json.dumps(repaired_foundation) + "\n",
         encoding="utf-8",
     )
 

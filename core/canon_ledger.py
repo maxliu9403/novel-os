@@ -21,6 +21,7 @@ from project_identity import ProjectIdentityError, load_project_instance_id_unlo
 CANON_SCHEMA_VERSION = 1
 LEGACY_ENTRY_SCHEMA_VERSION = 1
 ENTRY_SCHEMA_VERSION = 2
+RECONCILIATION_SCHEMA_VERSION = 3
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 _ENTRY_RE = re.compile(r"^canon-entry-[0-9a-f]{64}$")
 _PROPOSAL_RE = re.compile(r"^proposal-[0-9a-f]{64}$")
@@ -28,6 +29,9 @@ _REQUEST_RE = re.compile(r"^promotion-request-[0-9a-f]{64}$")
 _RECEIPT_RE = re.compile(r"^promotion-receipt-[0-9a-f]{64}$")
 _IDEMPOTENCY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _INSTANCE_RE = re.compile(r"^[0-9a-f]{32}$")
+_RECONCILIATION_REQUEST_RE = re.compile(
+    r"^foundation-reconciliation-request-[0-9a-f]{64}$"
+)
 _SEMANTIC_FIELDS = (
     "metadata",
     "story_bible",
@@ -308,6 +312,125 @@ class CanonLedgerEntry:
         return cls(**values)
 
 
+_RECONCILIATION_FIELDS = {
+    "entry_id",
+    "entry_kind",
+    "project_instance_id",
+    "previous_entry_id",
+    "base_canon_sha",
+    "new_canon_sha",
+    "foundation_sha256",
+    "artifact_heads_sha256",
+    "replayed_entry_ids",
+    "outcomes",
+    "reason",
+    "request_id",
+    "idempotency_key",
+    "committed_at",
+    "schema_version",
+}
+
+
+@dataclass(frozen=True)
+class CanonReconciliationEntry:
+    """Auditable canon repair that does not impersonate a chapter promotion."""
+
+    project_instance_id: str
+    previous_entry_id: str
+    base_canon_sha: str
+    new_canon_sha: str
+    foundation_sha256: str
+    artifact_heads_sha256: str
+    replayed_entry_ids: tuple[str, ...]
+    outcomes: Mapping[str, Mapping[str, str]]
+    reason: str
+    request_id: str
+    idempotency_key: str
+    committed_at: str
+    entry_kind: str = "foundation_reconciliation"
+    schema_version: int = RECONCILIATION_SCHEMA_VERSION
+    entry_id: str = ""
+
+    def _identity(self) -> dict[str, Any]:
+        return {
+            "entry_kind": self.entry_kind,
+            "project_instance_id": self.project_instance_id,
+            "previous_entry_id": self.previous_entry_id,
+            "base_canon_sha": self.base_canon_sha,
+            "new_canon_sha": self.new_canon_sha,
+            "foundation_sha256": self.foundation_sha256,
+            "artifact_heads_sha256": self.artifact_heads_sha256,
+            "replayed_entry_ids": list(self.replayed_entry_ids),
+            "outcomes": _normalize(self.outcomes, "outcomes"),
+            "reason": self.reason,
+            "request_id": self.request_id,
+            "idempotency_key": self.idempotency_key,
+            "committed_at": self.committed_at,
+            "schema_version": self.schema_version,
+        }
+
+    def __post_init__(self) -> None:
+        if self.entry_kind != "foundation_reconciliation":
+            raise ValueError("entry_kind must be foundation_reconciliation")
+        if self.schema_version != RECONCILIATION_SCHEMA_VERSION:
+            raise ValueError("reconciliation schema_version must be 3")
+        if not _INSTANCE_RE.fullmatch(str(self.project_instance_id)):
+            raise ValueError("project_instance_id has invalid format")
+        if not _ENTRY_RE.fullmatch(str(self.previous_entry_id)):
+            raise ValueError("previous_entry_id has invalid format")
+        for name in (
+            "base_canon_sha",
+            "new_canon_sha",
+            "foundation_sha256",
+            "artifact_heads_sha256",
+        ):
+            _valid_sha(getattr(self, name), name)
+        replayed = tuple(self.replayed_entry_ids)
+        if not replayed or any(not _ENTRY_RE.fullmatch(str(value)) for value in replayed):
+            raise ValueError("replayed_entry_ids must contain canon entry ids")
+        if len(set(replayed)) != len(replayed):
+            raise ValueError("replayed_entry_ids must not contain duplicates")
+        object.__setattr__(self, "replayed_entry_ids", replayed)
+        normalized_outcomes = _normalize(self.outcomes, "outcomes")
+        if not isinstance(normalized_outcomes, dict):
+            raise ValueError("outcomes must be an object")
+        for character_id, outcome in normalized_outcomes.items():
+            if not character_id.strip() or not isinstance(outcome, dict):
+                raise ValueError("outcomes must map character ids to objects")
+            if set(outcome) != {"outcome_state", "outcome_evidence"} or not all(
+                isinstance(outcome[field], str) and outcome[field].strip()
+                for field in ("outcome_state", "outcome_evidence")
+            ):
+                raise ValueError("each outcome requires state and evidence")
+        object.__setattr__(self, "outcomes", normalized_outcomes)
+        object.__setattr__(self, "reason", _required(self.reason, "reason"))
+        if not _RECONCILIATION_REQUEST_RE.fullmatch(str(self.request_id)):
+            raise ValueError("request_id has invalid format")
+        if not _IDEMPOTENCY_RE.fullmatch(str(self.idempotency_key)):
+            raise ValueError("idempotency_key has invalid format")
+        object.__setattr__(
+            self, "committed_at", _utc_timestamp(self.committed_at, "committed_at")
+        )
+        expected = "canon-entry-" + hashlib.sha256(
+            _json_bytes(self._identity())
+        ).hexdigest()
+        if self.entry_id and self.entry_id != expected:
+            raise ValueError("entry_id does not match reconciliation identity")
+        object.__setattr__(self, "entry_id", expected)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"entry_id": self.entry_id, **self._identity()}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "CanonReconciliationEntry":
+        if not isinstance(data, Mapping) or set(data) != _RECONCILIATION_FIELDS:
+            raise ValueError("reconciliation entry has invalid fields")
+        return cls(**dict(data))
+
+
+CanonEntry = CanonLedgerEntry | CanonReconciliationEntry
+
+
 class CanonLedger:
     """Append-only ledger; callers serialize writers with the project lock."""
 
@@ -340,7 +463,7 @@ class CanonLedger:
         except ProjectIdentityError as exc:
             raise CanonCorruptionError(f"invalid project identity: {exc}") from exc
 
-    def history(self) -> tuple[CanonLedgerEntry, ...]:
+    def history(self) -> tuple[CanonEntry, ...]:
         self._safe_layout()
         if not self.path.exists():
             return ()
@@ -350,7 +473,7 @@ class CanonLedger:
             raise CanonCorruptionError(f"cannot read canon ledger: {exc}") from exc
         if raw and not raw.endswith(b"\n"):
             raise CanonCorruptionError("canon ledger has a truncated final record")
-        entries: list[CanonLedgerEntry] = []
+        entries: list[CanonEntry] = []
         seen_ids: set[str] = set()
         seen_keys: set[str] = set()
         project_instance_id: Optional[str] = None
@@ -366,12 +489,18 @@ class CanonLedger:
                     _json_bytes(record["entry"])
                 ).hexdigest():
                     raise ValueError("record hash mismatch")
-                entry = CanonLedgerEntry.from_dict(record["entry"])
+                if record["entry"].get("schema_version") == RECONCILIATION_SCHEMA_VERSION:
+                    entry = CanonReconciliationEntry.from_dict(record["entry"])
+                else:
+                    entry = CanonLedgerEntry.from_dict(record["entry"])
             except (UnicodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
                 raise CanonCorruptionError(
                     f"canon ledger line {index} is invalid: {exc}"
                 ) from exc
-            if entry.schema_version == ENTRY_SCHEMA_VERSION:
+            if entry.schema_version in {
+                ENTRY_SCHEMA_VERSION,
+                RECONCILIATION_SCHEMA_VERSION,
+            }:
                 if project_instance_id is None:
                     project_instance_id = self._project_instance_id()
                 if entry.project_instance_id != project_instance_id:
@@ -383,7 +512,10 @@ class CanonLedger:
                 raise CanonCorruptionError("canon ledger entry chain is broken")
             if (
                 previous is not None
-                and previous.schema_version == ENTRY_SCHEMA_VERSION
+                and previous.schema_version in {
+                    ENTRY_SCHEMA_VERSION,
+                    RECONCILIATION_SCHEMA_VERSION,
+                }
                 and entry.schema_version == LEGACY_ENTRY_SCHEMA_VERSION
             ):
                 raise CanonCorruptionError(
@@ -398,27 +530,29 @@ class CanonLedger:
             entries.append(entry)
         return tuple(entries)
 
-    def current(self) -> Optional[CanonLedgerEntry]:
+    def current(self) -> Optional[CanonEntry]:
         history = self.history()
         return history[-1] if history else None
 
     def append(
         self,
-        entry: CanonLedgerEntry,
+        entry: CanonEntry,
         *,
         _recovering_legacy_journal: bool = False,
-    ) -> CanonLedgerEntry:
-        if not isinstance(entry, CanonLedgerEntry):
-            raise TypeError("entry must be a CanonLedgerEntry")
+    ) -> CanonEntry:
+        if not isinstance(entry, (CanonLedgerEntry, CanonReconciliationEntry)):
+            raise TypeError("entry must be a canon ledger entry")
         if (
-            entry.schema_version == LEGACY_ENTRY_SCHEMA_VERSION
+            isinstance(entry, CanonLedgerEntry)
+            and entry.schema_version == LEGACY_ENTRY_SCHEMA_VERSION
             and not _recovering_legacy_journal
         ):
             raise CanonCorruptionError(
                 "new canon entries must be bound to the project identity"
             )
         if (
-            entry.schema_version == ENTRY_SCHEMA_VERSION
+            entry.schema_version
+            in {ENTRY_SCHEMA_VERSION, RECONCILIATION_SCHEMA_VERSION}
             and entry.project_instance_id != self._project_instance_id()
         ):
             raise CanonCorruptionError(
@@ -433,7 +567,9 @@ class CanonLedger:
         previous = history[-1] if history else None
         if (
             previous is not None
-            and previous.schema_version == ENTRY_SCHEMA_VERSION
+            and previous.schema_version
+            in {ENTRY_SCHEMA_VERSION, RECONCILIATION_SCHEMA_VERSION}
+            and isinstance(entry, CanonLedgerEntry)
             and entry.schema_version == LEGACY_ENTRY_SCHEMA_VERSION
         ):
             raise CanonCorruptionError(
@@ -498,8 +634,10 @@ class CanonLedger:
 __all__ = [
     "CanonCommitUncertain",
     "CanonCorruptionError",
+    "CanonEntry",
     "CanonLedger",
     "CanonLedgerEntry",
+    "CanonReconciliationEntry",
     "canonical_canon_bytes",
     "canonical_canon_sha",
 ]

@@ -1,7 +1,7 @@
 ---
 name: novel-brainstorm-workshop
-description: "Turn a rough novel idea into a confirmed, causally sound story design and an executable Novel OS prompt. Use this skill whenever a user mentions writing a novel, developing a story premise, brainstorming characters, expanding a plot, building a story bible, tracking secrets or timelines, improving a novel prompt, or starting a new book. It is especially useful when the user has only a few scenes, a theme, a relationship conflict, or an ending idea and needs structured creative development before drafting."
-compatibility: "Works with Novel OS prompt files and its Python prompt_intake/orchestrator commands when those files are present."
+description: "Turn a rough novel idea into a confirmed, causally sound story design and an executable Novel OS prompt, including country- and region-specific online audience research. Use this skill whenever a user mentions writing a novel, developing a story premise, researching readers, comparing markets, brainstorming characters, expanding a plot, building a story bible, tracking secrets or timelines, improving a novel prompt, or starting a new book. It is especially useful when the user has only a few scenes, a theme, a relationship conflict, or an ending idea and needs structured creative development before drafting."
+compatibility: "Works with Novel OS prompt files, web search/browser or cited URL retrieval, and its Python prompt_intake/orchestrator commands when those files are present."
 ---
 
 # Novel Brainstorm Workshop
@@ -13,6 +13,7 @@ Turn an incomplete novel idea into a deliberate story engine, a reviewed design,
 - Follow the user's language. Chinese requests receive Chinese discussion and Chinese prompt files unless the user asks otherwise.
 - Treat the user's rough idea as the source of intent, not as a finished outline. Preserve explicit decisions and label low-impact additions as assumptions.
 - Keep the interaction focused. Ask at most five high-impact questions, one question per message. Ask only when an answer could change the story identity, audience, causal engine, protagonist arc, or ending.
+- For a new selection, lock the target market before creative branching: country, region or city culture, primary language, and single-market versus multi-market release. Run online audience research separately for each market and carry the evidence into the design and prompt.
 - Present two or three materially different approaches before fixing the structure. Include a recommendation and the tradeoff behind it.
 - Present the design in reviewable sections. Wait for confirmation after each section before writing the final prompt.
 - Use positive quality targets. A prohibition belongs only beside a concrete replacement behaviour.
@@ -41,7 +42,7 @@ Before asking a question, inspect the current workspace when it is available:
 2. Read only the files relevant to the requested branch. For an existing project, inspect its manifest, story bible, chapter files, and run status before proposing changes.
 3. Extract a compact intake record:
    - genre and subgenre;
-   - target readers, language, and tone;
+   - target readers, country, region or city culture, release markets, language, and tone;
    - protagonist, desire, capability, limitation, and fear;
    - relationship dilemma and opposing force;
    - external objective, deadline, failure cost, and ending direction;
@@ -51,15 +52,93 @@ Before asking a question, inspect the current workspace when it is available:
 
 Do not repeat facts already supplied. If a low-impact field is absent, write a conservative assumption and continue.
 
+## Phase 0.5: lock market scope and run online research
+
+Run this phase for `workshop`, `expand`, and `prompt-revise` before comparing story approaches. It is part of the selection workflow, not an optional afterthought.
+
+1. If country, region or city culture, primary language, or release scope is missing, ask one compact question before asking plot questions. The answer must identify:
+   - `country`: the intended reader market;
+   - `region`: a state, province, city, diaspora, or cultural area when relevant;
+   - `language`: the language and notable register or localization needs;
+   - `release_scope`: one market or a named list of markets.
+2. Generate search terms from that scope and use the available online retrieval capability (web search, browser, or direct URL fetch). Search each market independently for reader behaviour, platform and genre signals, cultural context, language habits, emotional drivers, and relevant seasonal or social details. Do not generalize one market's findings to another.
+3. Prefer current, attributable sources in this order: official statistics and regulators; platform or publisher reports; universities and research institutes; established trade or news publications; clearly labelled creator or community observations. Record the URL or publication id, publisher, publication date, access date, market, population, and what the source directly supports.
+4. Separate evidence from interpretation. Mark every finding as `direct_data`, `reported_observation`, or `creative_inference`, and assign `high`, `medium`, or `low` confidence. When public data is thin, record `research_status: partial` and state the assumption instead of presenting an inference as a fact.
+5. Translate findings into creative decisions: vocabulary and register, names and honorifics, family and workplace norms, setting details, taboo or sensitivity boundaries, platform promise, opening hook, emotional rhythm, and localization risks. Each implication must cite the finding ids that caused it.
+6. Save the result in the handoff as structured `audience_research`; do not leave it only in conversational prose. Preserve all market branches when the release is multi-market.
+
+Use this minimum record for every market:
+
+```yaml
+audience_research:
+  research_status: complete|partial|pending
+  market_scope:
+    country: <country>
+    region: <region or cultural area>
+    language: <language and register>
+    release_scope: <single market or named markets>
+  audience_age: <range or segment>
+  platform_signals: []
+  genre_signals: []
+  cultural_context: []
+  emotional_drivers: []
+  source_records:
+    - id: src_01
+      title: <source title>
+      publisher: <publisher>
+      url_or_id: <URL or publication id>
+      published_at: <date or unknown>
+      accessed_at: <date>
+      market: <country/region>
+      population: <sample or scope>
+      finding: <directly supported finding>
+      evidence_type: direct_data|reported_observation|creative_inference
+      confidence: high|medium|low
+  creative_implications:
+    - implication: <decision for this market>
+      source_ids: [src_01]
+      localization_risk: <risk or none>
+```
+
+If no online retrieval tool is available, keep `research_status: pending`, list the exact queries to run, and label all interim guidance as assumptions. Do not invent sources, statistics, or browsing results.
+
+Maintain a parallel `workshop_trace` for the reasoning that led to the design:
+
+```yaml
+workshop_trace:
+  intake: <normalized user intent and explicit constraints>
+  market_decision: <country/region/language/release scope and date>
+  research_queries: []
+  approach_options:
+    - id: approach_a
+      summary: <structure and pressure>
+      tradeoffs: <retention and continuity tradeoffs>
+      selected: true|false
+  section_decisions:
+    section_a: <confirmed contract>
+    section_b: <confirmed characters and relationships>
+    section_c: <confirmed world, secrets, and timeline>
+    section_d: <confirmed structure and opening>
+    section_e: <confirmed quality gates and assumptions>
+  open_assumptions: []
+  evidence_links: [src_01]
+```
+
+Append to this trace after every user answer or section confirmation. Preserve
+rejected approaches and their tradeoffs as decision history; never rewrite
+them as if they were selected. The final prompt carries the confirmed trace
+and the unresolved assumptions, while the reader-facing manuscript excludes
+the trace.
+
 ## Phase 1: high-impact question loop
 
 Rank missing information by how much it can change the story:
 
-1. protagonist identity, external objective, and failure cost;
-2. core relationship or opposing force;
-3. unusual restriction, rule, secret, or deadline;
-4. irreversible midpoint or ending choice;
-5. audience promise, tone, and length.
+1. If still missing, target country, region, language, and release scope;
+2. protagonist identity, external objective, and failure cost;
+3. core relationship or opposing force;
+4. unusual restriction, rule, secret, or deadline;
+5. irreversible midpoint or ending choice, then audience promise, tone, and length.
 
 Ask one concise question at a time. Prefer three or four concrete options plus a custom option. After each answer, update the intake record and remove the answered uncertainty. Stop when the story engine is causal and the next design section can be reviewed, or after five questions. Do not ask for names, cities, occupations, or decorative details when they do not change the engine; choose them later and record them as assumptions.
 
@@ -94,12 +173,18 @@ Define:
 - a book-level `ending_contract` that names the finale window, main conflict
   payoff, protagonist's final choice, antagonist consequence, emotional
   afterglow, and every core payoff that must be evidenced before compilation.
+- for every principal character, a lifecycle target (`required_arc_stage`) and
+  a distinct semantic result (`required_outcome`) with an observable choice or
+  changed condition that can prove the result in canon.
 
 ### Section B: characters and relationships
 
 For the protagonist, opposing force, and core supporting cast record:
 
 - public identity, desire, need, capability, limitation, fear, boundary, secret, resources, and pressure response;
+- personality core, visible behaviours, stress response, decision style, speech habits, emotional expression, strengths, flaws, change evidence, and personality complement or conflict with other characters;
+- starting arc stage, intended final arc stage, semantic outcome, and the
+  concrete action or durable condition that will evidence that outcome;
 - what each person knows, misreads, hides, and wants from the others;
 - relationship power, mutual leverage, trust evidence, suspicion evidence, and the next behaviour that can change the relationship.
 
@@ -151,7 +236,7 @@ After design approval, generate a complete prompt rather than a short summary. L
 4. Include a `## Assumptions` section in the prompt for details the user did not decide.
 5. Keep the prompt authoritative: repeat the locked title, language, genre, audience, tone, POV, chapter count, and word target in parseable `Key: Value` fields near the top.
 
-The prompt must instruct Novel OS to plan before drafting, maintain character/relationship/secret/timeline/resource ledgers, emit and preserve a machine-readable `ending_contract`, update a payoff ledger after every chapter, use a per-chapter causal contract, preserve POV and knowledge boundaries, rotate conflict and hook types, reserve the final 3-5 chapters for payoff, and produce a final reader-facing manuscript without agent commentary.
+The prompt must instruct Novel OS to plan before drafting, preserve the structured `audience_research` record and its market branches, preserve the confirmed `workshop_trace` and decision history, maintain character/relationship/secret/timeline/resource ledgers, emit and preserve a machine-readable `ending_contract`, update a payoff ledger after every chapter, use a per-chapter causal contract, preserve POV and knowledge boundaries, rotate conflict and hook types, reserve the final 3-5 chapters for payoff, and produce a final reader-facing manuscript without agent commentary.
 
 Every Scribe, Editor, and Continuity Guardian state block must include these
 fields when applicable:
@@ -160,7 +245,9 @@ fields when applicable:
 Payoff_Events:
   - <payoff_id> | status=<recalled|paid|intentional_open> | evidence=<observable change> | chapter=<number>
 Arc_State_Updates:
-  - <character_id> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | evidence=<choice or observable state>
+  - <character_id> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<semantic end state> | evidence=<choice or observable state>
+Personality_State_Updates:
+  - <character_id> | trait=<性格特征> | pressure_response=<压力下反应> | evidence=<具体行为>
 Ending_Evidence:
   - irreversible_change=<observable final state>
   - emotional_payoff=<reader-facing closure>
@@ -169,6 +256,14 @@ Ending_Evidence:
 For the final window, repeat the authoritative ending contract in the
 Architect, Scribe, Editor, and Guardian contexts. Compile only after
 `book_completion_report.json` records a passing ending review.
+Treat `stage` as narrative lifecycle position and `outcome` as the
+story-specific result, such as independence, accountability, reconciliation,
+or a deliberately chosen loss. Never encode a semantic result as an invented
+arc stage.
+
+Keep `audience_research`, `workshop_trace`, `Personality_State_Updates`, and
+the confirmed Section A-E decisions in working artifacts and reports so a
+project detail view can render the reasoning trail without re-running research.
 
 ## Phase 5: validate the prompt
 
@@ -178,7 +273,7 @@ When `core/prompt_intake.py` exists, validate before handing off:
 PYTHONPATH=core ./venv/bin/python -c "from pathlib import Path; from prompt_intake import ingest_prompt; r=ingest_prompt(Path('PROMPT_VALIDATION_PROJECT'), Path('PROMPT_PATH')); print(r.brief)"
 ```
 
-Replace `PROMPT_VALIDATION_PROJECT` and `PROMPT_PATH` with the actual paths. Confirm that the parsed brief contains the locked title, genre, language, chapter count, word target, audience, tone, and premise. Use a temporary validation project when no project has been selected; keep a real project untouched until the user runs the command.
+Replace `PROMPT_VALIDATION_PROJECT` and `PROMPT_PATH` with the actual paths. Confirm that the parsed brief contains the locked title, genre, language, chapter count, word target, audience, tone, and premise. Also confirm that the prompt contains a market-scoped `audience_research` section with country, region, language, source records, evidence types, confidence, and creative implications, a `workshop_trace` with Section A-E decisions and open assumptions, plus personality fields for every principal character. Use a temporary validation project when no project has been selected; keep a real project untouched until the user runs the command.
 
 Also run `git diff --check -- <prompt path>` when the file is inside a Git workspace. Report parser output and any corrected field; do not claim validation from file existence alone.
 

@@ -31,6 +31,7 @@ from ending_quality import (
     evaluate_ending,
     load_ending_contract,
 )
+from foundation_canon import FoundationCanonReceipt, FoundationCanonService
 from llm_client import LLMError
 from pipeline_models import ManifestStore, RunManifest, RunSpec, StageResult
 from prompt_intake import ingest_prompt
@@ -57,6 +58,11 @@ _EVIDENCE_PROPOSAL_PHASES = (
     "chapter.validate",
     "chapter.style",
 )
+
+# These stages establish durable state authority outside the run manifest.
+# Reusing their checkpoint must reassert that authority before a stage snapshot
+# can become the rollback boundary for later work.
+_STATE_AUTHORITY_PHASES = frozenset({"foundation.commit"})
 
 
 def _is_repair_phase(phase: str) -> bool:
@@ -519,6 +525,20 @@ class PipelineRunner:
                     "outputs/story_bible.md",
                 ],
             )
+            foundation_key = self._foundation_idempotency_key(manifest, project)
+            foundation_receipt = (
+                f"outputs/state/foundation_receipts/{foundation_key}.json"
+            )
+            self._stage(
+                manifest,
+                project,
+                store,
+                "foundation.commit",
+                None,
+                lambda: self._commit_story_foundation(manifest, project),
+                self._validate_foundation_commit,
+                [foundation_receipt],
+            )
             for chapter in range(1, manifest.spec.num_chapters + 1):
                 self._run_chapter(manifest, project, store, orchestrator, chapter)
 
@@ -862,6 +882,19 @@ class PipelineRunner:
             self._validate_bound_proposals(project, previous)
             self._validate_evidence_records(manifest, project, previous)
             if self._checkpoint_valid(project, previous):
+                if (
+                    manifest.spec.quality_policy == "evidence_v1"
+                    and phase in _STATE_AUTHORITY_PHASES
+                ):
+                    return self._reassert_state_authority(
+                        manifest,
+                        project,
+                        store,
+                        previous,
+                        operation,
+                        validator,
+                        artifacts,
+                    )
                 if previous.state_snapshot_path:
                     self._last_valid_state_snapshot = previous.state_snapshot_path
                 # A completed checkpoint may have been produced by an earlier
@@ -957,6 +990,56 @@ class PipelineRunner:
                     raise PipelineError(last_error) from exc
         raise PipelineError(last_error or f"Stage {phase} failed")
 
+    def _reassert_state_authority(
+        self,
+        manifest: RunManifest,
+        project: Path,
+        store: ManifestStore,
+        result: StageResult,
+        operation: Callable[[], Any],
+        validator: Callable[[Any], Any],
+        artifacts: list[str],
+    ) -> StageResult:
+        """Validate durable authority and replace any superseded rollback image."""
+        try:
+            value = operation()
+            validator(value)
+        except PipelineError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - authority failure blocks recovery
+            raise PipelineError(
+                f"Checkpoint {result.phase} authority validation failed: "
+                f"{type(exc).__name__}: {exc}",
+                blocked=True,
+            ) from exc
+
+        result.input_hashes = self._stage_input_hashes(
+            project, result.phase, result.chapter
+        )
+        result.artifact_paths = [
+            path for path in artifacts if (project / path).is_file()
+        ]
+        self._require_files(project, result.artifact_paths)
+        result.artifact_hashes = {
+            path: self._sha256(project / path) for path in result.artifact_paths
+        }
+        self._save_stage(
+            manifest,
+            project,
+            store,
+            result,
+            snapshot_state=True,
+        )
+        self._last_valid_state_snapshot = result.state_snapshot_path
+        self._reload_active_state(project)
+        self._event(
+            manifest,
+            "stage.authority_reasserted",
+            phase=result.phase,
+            chapter=result.chapter,
+        )
+        return result
+
     @staticmethod
     def _brief_overrides(spec: RunSpec) -> Dict[str, Any]:
         return {
@@ -1046,6 +1129,7 @@ class PipelineRunner:
     ) -> Dict[str, str]:
         inputs: Dict[str, list[str]] = {
             "outline": ["outputs/input/prompt.md", "outputs/input/brief.json"],
+            "foundation.commit": ["outputs/input/foundation.json"],
             "chapter.plan": ["outputs/outline.md"],
             "chapter.write": [PipelineRunner._chapter_outline(chapter or 0)],
             "chapter.check.pre": [PipelineRunner._chapter_stage(chapter or 0, "draft")],
@@ -1076,6 +1160,33 @@ class PipelineRunner:
             for relative in inputs.get(phase, [])
             if (project / relative).is_file()
         }
+
+    @staticmethod
+    def _foundation_idempotency_key(manifest: RunManifest, project: Path) -> str:
+        foundation_sha = PipelineRunner._sha256(
+            project / "outputs/input/foundation.json"
+        )
+        return f"pipeline-{manifest.run_id}-foundation-{foundation_sha[:16]}"
+
+    @staticmethod
+    def _commit_story_foundation(
+        manifest: RunManifest,
+        project: Path,
+    ) -> FoundationCanonReceipt:
+        foundation_path = project / "outputs/input/foundation.json"
+        foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
+        return FoundationCanonService(project).initialize(
+            foundation,
+            target_words=manifest.spec.target_words,
+            idempotency_key=PipelineRunner._foundation_idempotency_key(
+                manifest, project
+            ),
+        )
+
+    @staticmethod
+    def _validate_foundation_commit(value: Any) -> None:
+        if not isinstance(value, FoundationCanonReceipt):
+            raise ValueError("foundation canon initialization returned no receipt")
 
     def _capture_stage_metadata(
         self,

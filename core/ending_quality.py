@@ -21,6 +21,7 @@ from state_manager import StoryState
 ENDING_CONTRACT_RELATIVE = "outputs/input/ending_contract.json"
 PAYOFF_LEDGER_RELATIVE = "outputs/state/payoff_ledger.json"
 ENDING_REPORT_RELATIVE = "outputs/feedback/book_completion_report.json"
+ARC_LIFECYCLE_STAGES = {"beginning", "middle", "climax", "resolution"}
 
 
 def _now() -> str:
@@ -139,7 +140,7 @@ def _thread_status(state: StoryState, thread_id: str) -> Optional[str]:
     return thread.status if thread is not None else None
 
 
-def _arc_state(state: StoryState, character_id: str) -> Optional[str]:
+def _arc_stage(state: StoryState, character_id: str) -> Optional[str]:
     character = state.characters.get(character_id)
     if character is None:
         return None
@@ -148,8 +149,18 @@ def _arc_state(state: StoryState, character_id: str) -> Optional[str]:
     return str(character.arc_stage or "beginning").strip().lower()
 
 
+def _outcome_state(state: StoryState, character_id: str) -> Optional[str]:
+    character = state.characters.get(character_id)
+    if character is None:
+        return None
+    return str(character.outcome_state or "").strip().lower()
+
+
 def _evidence_for_arc(state: StoryState, character_id: str) -> List[str]:
     evidence: List[str] = []
+    character = state.characters.get(character_id)
+    if character is not None and character.outcome_evidence.strip():
+        evidence.append(f"canon: {character.outcome_evidence.strip()}")
     for chapter in state.chapters.values():
         update = chapter.arc_state_updates if hasattr(chapter, "arc_state_updates") else []
         for item in _as_list(update):
@@ -215,12 +226,32 @@ def evaluate_ending(project: Path | str, as_of_chapter: Optional[int] = None) ->
             if not isinstance(raw, dict):
                 continue
             character_id = str(raw.get("character_id") or "").strip()
-            expected = str(raw.get("required_end_state") or "resolution").strip().lower()
-            actual = _arc_state(state, character_id)
-            if actual is None:
+            if character_id not in state.characters:
                 critical.append({"category": "character_arc_missing", "entity_id": character_id, "message": f"Character arc {character_id or '[missing]'} is not present in canon."})
-            elif actual != expected:
-                critical.append({"category": "character_arc_unclosed", "entity_id": character_id, "message": f"Character {character_id} ends in {actual}, expected {expected}.", "evidence": _evidence_for_arc(state, character_id)})
+                continue
+
+            required_stage = str(raw.get("required_arc_stage") or "").strip().lower()
+            required_outcome = str(raw.get("required_outcome") or "").strip().lower()
+            if not required_stage and not required_outcome:
+                legacy_state = str(
+                    raw.get("required_end_state") or "resolution"
+                ).strip().lower()
+                if legacy_state in ARC_LIFECYCLE_STAGES:
+                    required_stage = legacy_state
+                else:
+                    required_outcome = legacy_state
+
+            if required_stage:
+                actual_stage = _arc_stage(state, character_id)
+                if actual_stage != required_stage:
+                    critical.append({"category": "character_arc_unclosed", "entity_id": character_id, "message": f"Character {character_id} arc stage is {actual_stage or 'missing'}, expected {required_stage}.", "evidence": _evidence_for_arc(state, character_id)})
+
+            if required_outcome:
+                actual_outcome = _outcome_state(state, character_id)
+                if actual_outcome != required_outcome:
+                    critical.append({"category": "character_outcome_unclosed", "entity_id": character_id, "message": f"Character {character_id} semantic outcome is {actual_outcome or 'missing'}, expected {required_outcome}.", "evidence": _evidence_for_arc(state, character_id)})
+                elif not _evidence_for_arc(state, character_id):
+                    critical.append({"category": "character_outcome_evidence_missing", "entity_id": character_id, "message": f"Character {character_id} reaches semantic outcome {required_outcome} without observable evidence."})
 
         resolved = _resolved_foreshadowing(state)
         payoff_events = _payoff_events(state)

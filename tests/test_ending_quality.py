@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from ending_quality import evaluate_ending, ensure_quality_ledgers, load_ending_contract
+from orchestrator import NovelOrchestrator
 from pipeline_models import RunManifest, RunSpec
 from pipeline_runner import PipelineRunner
 from state_manager import Character, StoryState, initialize_project
@@ -153,6 +154,110 @@ Ending_Evidence:
     assert state.chapters[4].payoff_events[0]["status"] == "paid"
     assert state.chapters[4].arc_state_updates[0]["progress"] == 100
     assert len(state.chapters[4].ending_evidence) == 2
+
+
+def test_semantic_character_outcome_is_distinct_from_arc_stage(tmp_path: Path):
+    contract = _contract(arc_state="accountability")
+    project = _project(tmp_path, contract=contract)
+    state = StoryState(str(project))
+    character = state.characters["char_001"]
+    character.arc_stage = "middle"
+    character.arc_progress = 55
+    character.outcome_state = "accountability"
+    character.outcome_evidence = (
+        "Mara hands over the original records and accepts the cost."
+    )
+    state.save_state()
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "pass"
+
+
+def test_explicit_arc_stage_and_semantic_outcome_are_both_enforced(tmp_path: Path):
+    contract = _contract()
+    arc_contract = contract["character_arcs"][0]
+    arc_contract.pop("required_end_state")
+    arc_contract["required_arc_stage"] = "resolution"
+    arc_contract["required_outcome"] = "independence"
+    project = _project(tmp_path, contract=contract)
+    state = StoryState(str(project))
+    character = state.characters["char_001"]
+    character.outcome_state = "independence"
+    character.outcome_evidence = "Mara signs a lease in her own name."
+    state.save_state()
+
+    passing = evaluate_ending(project, as_of_chapter=4)
+    assert passing.status == "pass"
+
+    state = StoryState(str(project))
+    state.characters["char_001"].outcome_state = "dependence"
+    state.save_state()
+
+    wrong_outcome = evaluate_ending(project, as_of_chapter=4)
+    assert wrong_outcome.status == "fail"
+    assert any(
+        item["category"] == "character_outcome_unclosed"
+        for item in wrong_outcome.critical
+    )
+
+    state = StoryState(str(project))
+    state.characters["char_001"].outcome_state = "independence"
+    state.characters["char_001"].arc_stage = "climax"
+    state.characters["char_001"].arc_progress = 80
+    state.save_state()
+
+    failing = evaluate_ending(project, as_of_chapter=4)
+    assert failing.status == "fail"
+    assert any(
+        item["category"] == "character_arc_unclosed"
+        for item in failing.critical
+    )
+
+
+def test_agent_arc_update_persists_semantic_outcome_and_evidence(tmp_path: Path):
+    project = _project(tmp_path, contract=_contract(arc_state="accountability"))
+    state = StoryState(str(project))
+
+    ingest_agent_output(
+        state,
+        4,
+        "scribe",
+        """[SCRIBE_STATE_UPDATE]
+Arc_State_Updates:
+  - char_001 | stage=resolution | progress=100 | outcome=accountability | evidence=Mara hands over the original records
+[/SCRIBE_STATE_UPDATE]""",
+    )
+    state.save_state()
+
+    reloaded = StoryState(str(project))
+    character = reloaded.characters["char_001"]
+    assert character.arc_stage == "resolution"
+    assert character.outcome_state == "accountability"
+    assert character.outcome_evidence == "Mara hands over the original records"
+    assert reloaded.chapters[4].arc_state_updates[-1]["outcome"] == "accountability"
+
+
+def test_finale_prompts_share_semantic_ending_contract(tmp_path: Path):
+    contract = _contract()
+    arc_contract = contract["character_arcs"][0]
+    arc_contract.pop("required_end_state")
+    arc_contract["required_arc_stage"] = "resolution"
+    arc_contract["required_outcome"] = "independence"
+    project = _project(tmp_path, contract=contract)
+    orchestrator = NovelOrchestrator(str(project))
+    chapter = orchestrator.state.get_chapter(4)
+
+    prompts = {
+        "architect": orchestrator._generate_chapter_outline_prompt(chapter),
+        "scribe": orchestrator._generate_chapter_prompt(chapter),
+        "editor": orchestrator._generate_edit_prompt(chapter, "Draft", "developmental"),
+        "guardian": orchestrator._generate_validation_prompt(4, "Draft"),
+    }
+
+    assert all('"required_outcome": "independence"' in value for value in prompts.values())
+    assert "outcome=<semantic end state>" in prompts["scribe"]
+    assert "outcome=<semantic end state>" in prompts["guardian"]
 
 
 def test_pipeline_ending_stages_gate_before_compile(tmp_path: Path):

@@ -492,16 +492,34 @@ def _apply_arc_state_updates(
             character.arc_stage = stage
         if progress is not None:
             character.arc_progress = progress
+        outcome = str(
+            fields.get("outcome") or fields.get("outcome_state") or ""
+        ).strip().lower()
+        evidence = str(
+            fields.get("evidence")
+            or fields.get("choice")
+            or fields.get("state")
+            or ""
+        ).strip()
+        if outcome:
+            character.outcome_state = outcome
+            if evidence:
+                character.outcome_evidence = evidence
         event = {
             "character_id": cid,
             "chapter": chapter_number,
             "stage": stage or character.arc_stage,
             "progress": character.arc_progress,
-            "evidence": fields.get("evidence") or fields.get("choice") or fields.get("state") or "",
+            "outcome": outcome or character.outcome_state,
+            "evidence": evidence,
         }
         if event not in chapter.arc_state_updates:
             chapter.arc_state_updates.append(event)
-        log.append(f"[{source}] {character.full_name}: arc={character.arc_stage}/{character.arc_progress}")
+        outcome_log = f", outcome={character.outcome_state}" if character.outcome_state else ""
+        log.append(
+            f"[{source}] {character.full_name}: "
+            f"arc={character.arc_stage}/{character.arc_progress}{outcome_log}"
+        )
 
 
 def _apply_ending_evidence(

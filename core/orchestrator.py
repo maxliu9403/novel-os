@@ -36,8 +36,9 @@ from continuity_engine import run_all as run_continuity_checks, summarize as sum
 from prose_sanitize import sanitize_manuscript, apply_header_to_chapter, strip_em_dashes
 from context_pack import build_context_pack, format_context_pack, slice_chapter_for_llm
 from canon import apply_canon_proposal, build_canon_proposal
-from canon_ledger import CanonLedger
+from canon_ledger import CanonLedger, CanonLedgerEntry, CanonReconciliationEntry
 from proposals import ProposalStore
+from story_foundation import apply_story_foundation
 
 
 class NovelOrchestrator:
@@ -511,7 +512,8 @@ Before the Markdown analysis, emit exactly one JSON object inside these tags:
     "finale_window": {{"start_chapter": {max(1, num_chapters - 4)}, "end_chapter": {num_chapters}}},
     "main_conflict": {{"thread_id": "plot_001", "required_status": "resolved",
       "protagonist_choice": "...", "consequence": "..."}},
-    "character_arcs": [{{"character_id": "char_001", "required_end_state": "resolution",
+    "character_arcs": [{{"character_id": "char_001",
+      "required_arc_stage": "resolution", "required_outcome": "...",
       "required_choice": "..."}}],
     "plot_payoffs": [{{"id": "payoff_001", "setup_ids": ["ch1:fs1"],
       "required_payoff": "...", "deadline": {num_chapters}, "allow_intentional_open": false}}],
@@ -628,98 +630,12 @@ genre-appropriate assumptions rather than asking questions.
         persist: bool = True,
     ) -> None:
         """Hydrate StoryState so context packs and continuity checks have canon."""
-        if foundation.get("title") and self.state.metadata.get("title") in (None, "", "Untitled"):
-            self.state.set_metadata("title", str(foundation["title"]))
-        if foundation.get("premise"):
-            self.state.set_metadata("premise", str(foundation["premise"]))
-            self.state.update_story_bible("premise", str(foundation["premise"]))
-        self.state.update_story_bible("themes", list(foundation.get("themes") or []))
-        self.state.update_story_bible("setting", dict(foundation.get("setting") or {}))
-
-        for index, raw in enumerate(foundation.get("characters") or [], start=1):
-            if not isinstance(raw, dict) or not str(raw.get("name") or "").strip():
-                continue
-            char_id = str(raw.get("id") or f"char_{index:03d}")
-            age = raw.get("age")
-            try:
-                age = int(age) if age is not None else None
-            except (TypeError, ValueError):
-                age = None
-            character = Character(
-                id=char_id,
-                full_name=str(raw["name"]).strip(),
-                role=str(raw.get("role") or "supporting"),
-                age=age,
-                physical_description=str(raw.get("physical_description") or ""),
-                internal_desire=str(raw.get("internal_desire") or ""),
-                external_goal=str(raw.get("external_goal") or ""),
-                fear=str(raw.get("fear") or ""),
-                weakness=str(raw.get("weakness") or ""),
-                strength=str(raw.get("strength") or ""),
-                secret=str(raw.get("secret") or ""),
-                notes=str(raw.get("arc") or raw.get("notes") or ""),
-            )
-            self.state.characters[char_id] = character
-
-        for index, raw in enumerate(foundation.get("plot_threads") or [], start=1):
-            if not isinstance(raw, dict) or not str(raw.get("name") or "").strip():
-                continue
-            thread_id = str(raw.get("id") or f"plot_{index:03d}")
-            try:
-                priority = max(1, min(5, int(raw.get("priority", 3))))
-            except (TypeError, ValueError):
-                priority = 3
-            resolution = raw.get("resolution_chapter")
-            try:
-                resolution = int(resolution) if resolution is not None else None
-            except (TypeError, ValueError):
-                resolution = None
-            status = str(raw.get("status") or "active").strip().lower()
-            if status not in {"active", "resolved", "abandoned", "foreshadowed"}:
-                status = "active"
-            try:
-                last_updated = int(raw.get("last_updated_chapter") or 0)
-            except (TypeError, ValueError):
-                last_updated = 0
-            self.state.plot_threads[thread_id] = PlotThread(
-                id=thread_id,
-                name=str(raw["name"]).strip(),
-                description=str(raw.get("description") or ""),
-                thread_type=str(raw.get("type") or "main"),
-                status=status,
-                priority=priority,
-                start_chapter=int(raw.get("start_chapter") or 1),
-                target_resolution_chapter=resolution,
-                last_updated_chapter=last_updated,
-            )
-
-        chapters = foundation.get("chapters") or []
-        default_target = max(1, target_words // max(1, len(chapters)))
-        for raw in chapters:
-            number = int(raw["number"])
-            chapter = self.state.get_chapter(number) or self.state.create_chapter(number)
-            chapter.title = str(raw.get("title") or f"Chapter {number}")
-            chapter.pov_character = str(raw.get("pov") or "")
-            summary = str(raw.get("summary") or "").strip()
-            if summary and summary not in chapter.plot_advances:
-                chapter.plot_advances.append(summary)
-            try:
-                chapter.target_word_count = max(1, int(raw.get("target_words") or default_target))
-            except (TypeError, ValueError):
-                chapter.target_word_count = default_target
-            if persist or chapter.status != "complete":
-                chapter.status = "planned"
-
-        style = foundation.get("style") or {}
-        if isinstance(style, dict):
-            for source, target in (
-                ("tone", "tone"),
-                ("pov", "point_of_view"),
-                ("tense", "tense"),
-                ("prose_style", "prose_style"),
-            ):
-                if style.get(source):
-                    setattr(self.state.style_profile, target, str(style[source]))
+        apply_story_foundation(
+            self.state,
+            foundation,
+            target_words,
+            preserve_completed_chapters=not persist,
+        )
         if persist:
             self._write_foundation_story_bible(foundation)
             self.state.save_state()
@@ -755,6 +671,15 @@ genre-appropriate assumptions rather than asking questions.
         replay_state = copy.deepcopy(runtime_state)
         proposal_store = ProposalStore(self.project_path)
         for entry in CanonLedger(self.project_path).history():
+            if isinstance(entry, CanonReconciliationEntry):
+                for character_id, outcome in entry.outcomes.items():
+                    character = replay_state.characters.get(character_id)
+                    if character is not None:
+                        character.outcome_state = outcome["outcome_state"]
+                        character.outcome_evidence = outcome["outcome_evidence"]
+                continue
+            if not isinstance(entry, CanonLedgerEntry):
+                continue
             proposal = proposal_store.load(
                 entry.proposal_id,
                 expected_source_artifact_sha=entry.source_artifact_sha,
@@ -1247,7 +1172,7 @@ record only evidence-backed metadata changes using these exact fields:
 - Plot_Thread_Updates: `<thread_id> | status=<active|resolved|abandoned|foreshadowed> | milestone=<change> | chapter=<number>`; resolved/abandoned threads are terminal unless `reopen=true` is explicit
 - Character_References: `<character_id or full name> | chapter=<number> | note=<reference or documented absence>`
 - Payoff_Events: `<payoff_id> | status=<recalled|paid|intentional_open> | evidence=<what changed> | chapter=<number>`
-- Arc_State_Updates: `<character_id or full name> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | evidence=<choice or observable state>`
+- Arc_State_Updates: `<character_id or full name> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<semantic end state> | evidence=<choice or observable state>`; `stage` is lifecycle position, while `outcome` is the contract result such as independence or accountability
 - Ending_Evidence: `irreversible_change=<observable final state>` and `emotional_payoff=<reader-facing closure>` in the finale window
 Do not list a referenced/off-page character in Characters_Present.
 
@@ -1285,7 +1210,8 @@ Do not list a referenced/off-page character in Characters_Present.
             "## Book Ending Contract (authoritative)\n"
             "This chapter is inside the finale window. Advance or pay off the\n"
             "listed commitments; do not introduce a new core promise. Emit\n"
-            "structured payoff, arc, and ending evidence in the state block.\n\n"
+            "structured payoff, arc, and ending evidence in the state block.\n"
+            "Keep narrative lifecycle stage separate from semantic character outcome.\n\n"
             "```json\n"
             + json.dumps(contract, ensure_ascii=False, sort_keys=True, indent=2)
             + "\n```\n"
@@ -1563,6 +1489,8 @@ foreshadowing, timeline, or status facts.
 {draft_text}
 ```
 
+{self._ending_contract_context(chapter.number)}
+
 ## Editing Instructions
 
 ### Mode-Specific Focus: {mode}
@@ -1768,6 +1696,7 @@ Provide:
 ## Current Story State
 
 {pack_md}
+{self._ending_contract_context(chapter_number)}
 
 ### Character Positions
 """
@@ -1823,7 +1752,7 @@ Provide:
 
 ### Book Ending (when this chapter is inside the finale window)
 - [ ] Apply the authoritative ending contract and record each payoff as recalled or paid
-- [ ] Record the protagonist arc state and the observable final choice
+- [ ] Record lifecycle `stage` and semantic `outcome` separately, with observable evidence
 - [ ] In the final chapter, record `Ending_Evidence` for irreversible change and emotional payoff
 
 ## Output Format
@@ -1845,7 +1774,7 @@ Foreshadowing_Resolved:
 Payoff_Events:
   - <payoff_id> | status=<recalled|paid|intentional_open> | evidence=<what changed> | chapter=<number>
 Arc_State_Updates:
-  - <character_id> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | evidence=<choice or state>
+  - <character_id> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<semantic end state> | evidence=<choice or state>
 Ending_Evidence:
   - irreversible_change=<observable final state>
   - emotional_payoff=<reader-facing closure>

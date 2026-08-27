@@ -334,9 +334,108 @@ def test_real_orchestrator_pipeline_completes_two_chapters(tmp_path: Path):
     final_state = StoryState(str(project))
     assert final_state.get_chapter(1).status == "complete"
     assert final_state.get_chapter(2).status == "complete"
+    assert final_state.characters["char_001"].full_name == "Mara Vale"
+    assert final_state.plot_threads["plot_001"].name == "Second Chance"
     book = (project / "outputs/deliverables/book.md").read_text(encoding="utf-8")
     assert "# One Prompt Book" in book
     assert "Morning light claimed" in book
+
+
+def test_evidence_pipeline_enforces_semantic_ending_contract(tmp_path: Path):
+    class EnforcedEndingLLM(PipelineLLM):
+        def run_agent(self, agent_name, prompt):
+            response = super().run_agent(agent_name, prompt)
+            if agent_name == "architect" and "Full Novel Blueprint" in prompt:
+                prefix, rest = response.split("[STORY_FOUNDATION_JSON]\n", 1)
+                encoded, suffix = rest.split("\n[/STORY_FOUNDATION_JSON]", 1)
+                foundation = json.loads(encoded)
+                foundation["ending_contract"] = {
+                    "schema_version": 1,
+                    "enforce": True,
+                    "finale_window": {"start_chapter": 1, "end_chapter": 2},
+                    "main_conflict": {
+                        "thread_id": "plot_001",
+                        "required_status": "resolved",
+                        "protagonist_choice": "Mara opens the studio",
+                        "consequence": "The lease becomes her responsibility",
+                    },
+                    "character_arcs": [
+                        {
+                            "character_id": "char_001",
+                            "required_arc_stage": "resolution",
+                            "required_outcome": "independence",
+                            "required_choice": "Mara opens the studio",
+                        }
+                    ],
+                    "plot_payoffs": [
+                        {
+                            "id": "payoff_001",
+                            "setup_ids": ["ch1:fs1"],
+                            "required_payoff": "The open door becomes her business",
+                            "deadline": 2,
+                            "allow_intentional_open": False,
+                        }
+                    ],
+                    "antagonist_outcome": {"required": False},
+                    "emotional_contract": {
+                        "reader_emotion": "earned hope",
+                        "afterglow_state": "self-directed life",
+                    },
+                }
+                return (
+                    prefix
+                    + "[STORY_FOUNDATION_JSON]\n"
+                    + json.dumps(foundation)
+                    + "\n[/STORY_FOUNDATION_JSON]"
+                    + suffix
+                )
+            if agent_name == "scribe" and "Chapter 2" in prompt:
+                response = response.replace(
+                    "status=active | milestone=Mara advances the studio opening",
+                    "status=resolved | milestone=Mara opens the studio",
+                )
+                return response.replace(
+                    "[/SCRIBE_STATE_UPDATE]",
+                    """Payoff_Events: [payoff_001 | status=paid | evidence=The open door becomes her business | chapter=2]
+Arc_State_Updates: [char_001 | stage=resolution | progress=100 | outcome=independence | evidence=Mara opens the studio in her own name]
+Ending_Evidence: [irreversible_change=Mara assumes the lease; emotional_payoff=She chooses a self-directed life]
+[/SCRIBE_STATE_UPDATE]""",
+                )
+            return response
+
+    def factory(project_path):
+        orchestrator = NovelOrchestrator(project_path)
+        orchestrator._llm = EnforcedEndingLLM()
+        return orchestrator
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# One Prompt Book\n\nMara chooses a new life.", encoding="utf-8")
+    project = tmp_path / "project"
+
+    manifest = PipelineRunner(orchestrator_factory=factory).run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=2,
+            target_words=60,
+            approval_policy="auto",
+            quality_policy="evidence_v1",
+        )
+    )
+
+    assert manifest.status == "completed", manifest.error
+    assert manifest.get("ending.review").status == "done"
+    state = StoryState(str(project))
+    assert state.plot_threads["plot_001"].status == "resolved"
+    assert state.characters["char_001"].arc_stage == "resolution"
+    assert state.characters["char_001"].outcome_state == "independence"
+    report = json.loads(
+        (project / "outputs/feedback/book_completion_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert report["status"] == "pass"
+    assert (project / "outputs/deliverables/book.md").is_file()
 
 
 def test_evidence_run_restores_committed_tail_before_next_promotion(tmp_path: Path):

@@ -38,8 +38,9 @@ Use these checks during design review and again before handing off the Prompt. T
 - The main conflict thread reaches its required terminal status.
 - Every required payoff is `paid` with chapter evidence, or is explicitly
   declared `intentional_open` in the contract.
-- Each principal character reaches the contract's required end state through an
-  observable choice, not a retrospective explanation.
+- Each principal character reaches both the required lifecycle stage and the
+  distinct semantic outcome through an observable choice or durable changed
+  condition, not a retrospective explanation.
 - The antagonist receives a causal consequence proportional to the story's
   promise when the contract marks that outcome as required.
 - The final chapter contains explicit `Ending_Evidence` for an irreversible

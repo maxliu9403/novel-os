@@ -32,7 +32,6 @@ from canon_ledger import (
     CanonLedgerEntry,
     canonical_canon_sha,
 )
-from document_tree import Binder
 from project_lock import ProjectLock
 from project_identity import (
     ProjectIdentityError,
@@ -41,17 +40,9 @@ from project_identity import (
 )
 from proposals import ProposalStore
 from quality import EvaluationReport
-from state_manager import (
-    ChapterState,
-    Character,
-    CodexEntry,
-    Collection,
-    PlotThread,
-    RelationshipEdge,
-    StoryState,
-    StyleProfile,
-    TimelineEvent,
-)
+from state_codec import state_from_payload as _state_from_payload
+from state_codec import state_payload as _state_payload
+from state_manager import StoryState
 
 
 LEGACY_SCHEMA_VERSION = 1
@@ -64,23 +55,6 @@ _PROPOSAL_ID_RE = re.compile(r"^proposal-[0-9a-f]{64}$")
 _IDEMPOTENCY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _INSTANCE_RE = re.compile(r"^[0-9a-f]{32}$")
 _JOURNAL_STATES = {"prepared", "state_committed", "head_committed", "committed"}
-_STATE_PAYLOAD_FIELDS = {
-    "metadata",
-    "story_bible",
-    "characters",
-    "codex",
-    "relationships",
-    "collections",
-    "continuity_exemptions",
-    "compile_styles",
-    "plot_threads",
-    "chapters",
-    "binder",
-    "timeline",
-    "style_profile",
-    "session_log",
-    "last_saved",
-}
 
 
 class PromotionError(Exception):
@@ -524,74 +498,6 @@ def _receipt_identity_fields() -> tuple[str, ...]:
     )
 
 
-def _state_payload(state: StoryState, saved_at: str) -> dict[str, Any]:
-    state.sync_binder()
-    return {
-        "metadata": state.metadata,
-        "story_bible": state.story_bible,
-        "characters": {key: item.to_dict() for key, item in state.characters.items()},
-        "codex": {key: item.to_dict() for key, item in state.codex.items()},
-        "relationships": {
-            key: item.to_dict() for key, item in state.relationships.items()
-        },
-        "collections": {key: item.to_dict() for key, item in state.collections.items()},
-        "continuity_exemptions": dict(state.continuity_exemptions),
-        "compile_styles": dict(state.compile_styles),
-        "plot_threads": {
-            key: item.to_dict() for key, item in state.plot_threads.items()
-        },
-        "chapters": {key: item.to_dict() for key, item in state.chapters.items()},
-        "binder": state.binder.to_list(),
-        "timeline": [item.to_dict() for item in state.timeline],
-        "style_profile": state.style_profile.to_dict(),
-        "session_log": list(state.session_log),
-        "last_saved": saved_at,
-    }
-
-
-def _state_from_payload(payload: Mapping[str, Any]) -> StoryState:
-    if not isinstance(payload, Mapping) or set(payload) != _STATE_PAYLOAD_FIELDS:
-        raise ValueError("state payload has invalid fields")
-    try:
-        data = json.loads(_json_bytes(payload))
-        state = StoryState.__new__(StoryState)
-        state.metadata = dict(data["metadata"])
-        state.story_bible = dict(data["story_bible"])
-        state.characters = {
-            key: Character.from_dict(value)
-            for key, value in data["characters"].items()
-        }
-        state.codex = {
-            key: CodexEntry.from_dict(value)
-            for key, value in data["codex"].items()
-        }
-        state.relationships = {
-            key: RelationshipEdge.from_dict(value)
-            for key, value in data["relationships"].items()
-        }
-        state.collections = {
-            key: Collection.from_dict(value)
-            for key, value in data["collections"].items()
-        }
-        state.continuity_exemptions = dict(data["continuity_exemptions"])
-        state.compile_styles = dict(data["compile_styles"])
-        state.plot_threads = {
-            key: PlotThread.from_dict(value)
-            for key, value in data["plot_threads"].items()
-        }
-        state.chapters = {
-            int(key): ChapterState.from_dict(value)
-            for key, value in data["chapters"].items()
-        }
-        state.binder = Binder.from_list(data["binder"])
-        state.timeline = [TimelineEvent.from_dict(value) for value in data["timeline"]]
-        state.style_profile = StyleProfile.from_dict(dict(data["style_profile"]))
-        state.session_log = list(data["session_log"])
-    except (AttributeError, KeyError, TypeError, ValueError) as exc:
-        raise ValueError(f"state payload is invalid: {exc}") from exc
-    return state
-
-
 def _apply_canon_proposal_at(
     state: StoryState,
     proposal: CanonDeltaProposal,
@@ -893,8 +799,11 @@ class PromotionService:
                     receipts.append(receipt)
 
             history = self.ledger.history()
-            if history:
-                tail_key = history[-1].idempotency_key
+            promotion_history = [
+                entry for entry in history if isinstance(entry, CanonLedgerEntry)
+            ]
+            if promotion_history:
+                tail_key = promotion_history[-1].idempotency_key
                 tail = next(
                     (
                         receipt
