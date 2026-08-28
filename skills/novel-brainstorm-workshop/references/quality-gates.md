@@ -41,6 +41,11 @@ Use these checks during design review and again before handing off the Prompt. T
 - Each principal character reaches both the required lifecycle stage and the
   distinct semantic outcome through an observable choice or durable changed
   condition, not a retrospective explanation.
+- Outcome matching is explicit: omitted `outcome_match_mode` uses `auto`
+  (strict for short ASCII identifiers, tolerant for natural-language state);
+  `exact` enforces a complete value, `normalized` tolerates formatting, and
+  `contains` permits a richer state. Paraphrases are listed in
+  `required_outcome_aliases` rather than accepted by fuzzy similarity.
 - The antagonist receives a causal consequence proportional to the story's
   promise when the contract marks that outcome as required.
 - The final chapter contains explicit `Ending_Evidence` for an irreversible

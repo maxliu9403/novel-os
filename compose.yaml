@@ -1,0 +1,49 @@
+name: novel-os
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NOVEL_OS_PROJECTS_DIR: /data/projects
+      NOVEL_OS_MEDIA_DIR: /data/media
+      NOVEL_OS_DB: sqlite:////data/novel_os.db
+      NOVEL_OS_SETTINGS_PATH: /data/studio_settings.json
+    volumes:
+      - ./docker-data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    init: true
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${NOVEL_OS_WEB_PORT:-5174}:80"
+    init: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s

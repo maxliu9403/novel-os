@@ -245,7 +245,7 @@ fields when applicable:
 Payoff_Events:
   - <payoff_id> | status=<recalled|paid|intentional_open> | evidence=<observable change> | chapter=<number>
 Arc_State_Updates:
-  - <character_id> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<semantic end state> | evidence=<choice or observable state>
+  - <character_id> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<canonical outcome value from ending_contract> | evidence=<choice or observable state>
 Personality_State_Updates:
   - <character_id> | trait=<性格特征> | pressure_response=<压力下反应> | evidence=<具体行为>
 Ending_Evidence:
@@ -260,6 +260,12 @@ Treat `stage` as narrative lifecycle position and `outcome` as the
 story-specific result, such as independence, accountability, reconciliation,
 or a deliberately chosen loss. Never encode a semantic result as an invented
 arc stage.
+Use stable outcome identifiers with exact matching when possible. When
+`outcome_match_mode` is omitted, `auto` keeps short ASCII identifiers exact and
+allows formatting or appended detail in natural-language outcomes. An explicit
+`normalized` mode tolerates formatting-only differences, while `contains`
+permits an intentionally richer actual state. Put approved paraphrases in
+`required_outcome_aliases`; avoid fuzzy similarity for the quality gate.
 
 Keep `audience_research`, `workshop_trace`, `Personality_State_Updates`, and
 the confirmed Section A-E decisions in working artifacts and reports so a

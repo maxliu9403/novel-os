@@ -126,7 +126,12 @@ separate: `required_arc_stage` is one of `beginning`, `middle`, `climax`, or
 `resolution`; `required_outcome` is the story-specific semantic result. Both
 must be supported by observable evidence. Existing prompts that use
 `required_end_state` remain readable, but new prompts must use the two explicit
-fields.
+fields. `outcome_match_mode` is optional and defaults to `auto`: short ASCII
+outcome identifiers remain exact while natural-language outcomes tolerate
+formatting and appended detail. Use `exact` to enforce a complete value,
+`normalized` for formatting-only differences, `contains` for an intentionally
+richer actual state, and `required_outcome_aliases` for explicitly approved
+paraphrases. Stable outcome identifiers are preferred over long prose values.
 
 ## Agent handoff blocks
 
@@ -140,7 +145,7 @@ Emotional_Shifts: ...
 New_Information_Revealed: ...
 Foreshadowing_Planted: ...
 Payoff_Events: <payoff_id> | status=<recalled|paid|intentional_open> | evidence=<observable change> | chapter=<number>
-Arc_State_Updates: <character_id> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<semantic end state> | evidence=<choice or observable state>
+Arc_State_Updates: <character_id> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<canonical outcome value from ending_contract> | evidence=<choice or observable state>
 Personality_State_Updates: <character_id> | trait=<性格特征> | pressure_response=<压力下反应> | evidence=<具体行为>
 Ending_Evidence: irreversible_change=<observable final state>; emotional_payoff=<reader-facing closure>
 [/SCRIBE_STATE_UPDATE]

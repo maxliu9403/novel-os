@@ -514,6 +514,7 @@ Before the Markdown analysis, emit exactly one JSON object inside these tags:
       "protagonist_choice": "...", "consequence": "..."}},
     "character_arcs": [{{"character_id": "char_001",
       "required_arc_stage": "resolution", "required_outcome": "...",
+      "outcome_match_mode": "auto", "required_outcome_aliases": [],
       "required_choice": "..."}}],
     "plot_payoffs": [{{"id": "payoff_001", "setup_ids": ["ch1:fs1"],
       "required_payoff": "...", "deadline": {num_chapters}, "allow_intentional_open": false}}],
@@ -535,6 +536,14 @@ The ending_contract is authoritative for the final 3-5 chapters. Every
 required payoff must reference a stable setup id such as ch3:fs2. Use an empty
 plot_payoffs list only when the story has no tracked long-range setup. Set
 allow_intentional_open=true only for a deliberate, documented open thread.
+
+For character outcomes, prefer short stable identifiers (for example
+`independence`). When `outcome_match_mode` is omitted or set to `auto`, short
+ASCII identifiers remain exact while natural-language outcomes tolerate
+formatting and appended detail. Use `exact` to enforce a complete value,
+`normalized` for formatting-only differences, and `contains` when an explicitly
+richer state is intended. For legitimate paraphrases, list approved
+alternatives in `required_outcome_aliases`; do not rely on fuzzy similarity.
 
 Use exactly {num_chapters} chapter objects with unique numbers 1 through
 {num_chapters}. After the closing tag, provide the human-readable blueprint.
@@ -1172,7 +1181,7 @@ record only evidence-backed metadata changes using these exact fields:
 - Plot_Thread_Updates: `<thread_id> | status=<active|resolved|abandoned|foreshadowed> | milestone=<change> | chapter=<number>`; resolved/abandoned threads are terminal unless `reopen=true` is explicit
 - Character_References: `<character_id or full name> | chapter=<number> | note=<reference or documented absence>`
 - Payoff_Events: `<payoff_id> | status=<recalled|paid|intentional_open> | evidence=<what changed> | chapter=<number>`
-- Arc_State_Updates: `<character_id or full name> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<semantic end state> | evidence=<choice or observable state>`; `stage` is lifecycle position, while `outcome` is the contract result such as independence or accountability
+- Arc_State_Updates: `<character_id or full name> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<canonical outcome value from ending_contract> | evidence=<choice or observable state>`; `stage` is lifecycle position, while `outcome` is the contract result such as independence or accountability. Keep narrative explanation in `evidence`.
 - Ending_Evidence: `irreversible_change=<observable final state>` and `emotional_payoff=<reader-facing closure>` in the finale window
 Do not list a referenced/off-page character in Characters_Present.
 
@@ -1774,7 +1783,7 @@ Foreshadowing_Resolved:
 Payoff_Events:
   - <payoff_id> | status=<recalled|paid|intentional_open> | evidence=<what changed> | chapter=<number>
 Arc_State_Updates:
-  - <character_id> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<semantic end state> | evidence=<choice or state>
+  - <character_id> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<canonical outcome value from ending_contract> | evidence=<choice or state>
 Ending_Evidence:
   - irreversible_change=<observable final state>
   - emotional_payoff=<reader-facing closure>

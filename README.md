@@ -409,6 +409,46 @@ just want to look around.
 | `NOVEL_OS_DB` | SQLite by default; Postgres by changing the URL |
 | `NOVEL_OS_CORS_ORIGINS` | Comma-separated browser origins (default: Vite's 5173 and 5174) |
 
+### Docker deployment
+
+Docker Compose builds the React app, serves it through Nginx, and proxies
+`/api` to the FastAPI container. The Studio is exposed on port `5174` and all
+runtime data is persisted under the gitignored `docker-data/` directory.
+
+```bash
+./deploy.sh up       # build, start, and wait for both health checks
+./deploy.sh logs     # follow frontend and backend logs
+./deploy.sh status   # show container health and the local URL
+./deploy.sh down     # stop containers without deleting manuscripts
+```
+
+Start a complete novel through the interactive launcher. It lists the Markdown
+files under `prompt/`, infers chapter and word targets by default, and hides all
+container paths and stable pipeline options:
+
+```bash
+./deploy.sh novel          # choose a prompt and confirm the run interactively
+./deploy.sh novel --help   # show every available command and option
+./deploy.sh novel-status   # inspect the most recently updated run
+./deploy.sh novel-resume   # continue the most recently updated run
+./deploy.sh novel-retry    # retry its current failed or blocked stage
+```
+
+The novel commands reuse the healthy backend container, never recreate an
+existing service, and do not manage the frontend. Use `./deploy.sh restart`
+explicitly after changing application code or deployment configuration.
+
+To skip prompt selection, pass the file directly:
+
+```bash
+./deploy.sh novel './prompt/master-prompt.md'
+```
+
+Provider credentials are loaded from the existing `.env` file. When an
+OpenAI-compatible provider runs on the Docker host, use
+`http://host.docker.internal:PORT/v1` instead of `http://127.0.0.1:PORT/v1`.
+Set `NOVEL_OS_WEB_PORT` before running the script to override port `5174`.
+
 ### What's in the studio
 
 | | |

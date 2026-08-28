@@ -10,6 +10,8 @@ and promotion receipts.
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +24,8 @@ ENDING_CONTRACT_RELATIVE = "outputs/input/ending_contract.json"
 PAYOFF_LEDGER_RELATIVE = "outputs/state/payoff_ledger.json"
 ENDING_REPORT_RELATIVE = "outputs/feedback/book_completion_report.json"
 ARC_LIFECYCLE_STAGES = {"beginning", "middle", "climax", "resolution"}
+OUTCOME_MATCH_MODES = {"auto", "exact", "normalized", "contains"}
+_CONTAINS_IGNORED_TERMS = ("以及", "并且", "同时", "此外", "的")
 
 
 def _now() -> str:
@@ -156,6 +160,89 @@ def _outcome_state(state: StoryState, character_id: str) -> Optional[str]:
     return str(character.outcome_state or "").strip().lower()
 
 
+def _normalized_outcome_text(value: Any) -> str:
+    """Normalize formatting without attempting semantic interpretation.
+
+    NFKC handles full-width forms, while retaining letters, numbers, CJK
+    characters, and underscores. Punctuation and whitespace are formatting
+    noise for the explicitly opt-in ``normalized``/``contains`` modes.
+    """
+    text = unicodedata.normalize("NFKC", str(value or "")).strip().casefold()
+    return "".join(char for char in text if char.isalnum() or char == "_")
+
+
+def _outcome_aliases(raw: Dict[str, Any], required_outcome: str) -> List[str]:
+    values = [required_outcome]
+    for value in _as_list(raw.get("required_outcome_aliases")):
+        alias = str(value or "").strip().lower()
+        if alias and alias not in values:
+            values.append(alias)
+    return values
+
+
+def _outcome_match_mode(contract: Dict[str, Any], raw: Dict[str, Any]) -> str:
+    value = raw.get("outcome_match_mode")
+    if value is None:
+        value = raw.get("match_mode")
+    if value is None:
+        value = contract.get("outcome_match_mode", contract.get("match_mode", "auto"))
+    return str(value or "auto").strip().lower()
+
+
+def _is_ascii_outcome_id(value: str) -> bool:
+    return bool(re.fullmatch(r"[a-z0-9_]+", str(value).strip().lower()))
+
+
+def _contains_outcome(actual: str, expected: str) -> bool:
+    """Check an explicitly richer outcome without substring ID collisions."""
+    expected_normalized = _normalized_outcome_text(expected)
+    if not expected_normalized:
+        return False
+    # ``dependence`` is a substring of ``independence``. Treat simple ASCII
+    # outcome identifiers as tokens so ``contains`` remains safe for IDs.
+    expected_text = unicodedata.normalize("NFKC", expected).casefold()
+    expected_tokens = re.findall(r"[a-z0-9_]+", expected_text)
+    if len(expected_tokens) == 1 and expected_normalized == expected_tokens[0]:
+        actual_text = unicodedata.normalize("NFKC", actual).casefold()
+        return expected_normalized in re.findall(r"[a-z0-9_]+", actual_text)
+    actual_normalized = _normalized_outcome_text(actual)
+    if expected_normalized in actual_normalized:
+        return True
+    # Natural-language contracts often gain connective words inside an
+    # existing clause. Ignore only a small, explicit set in ``contains``;
+    # semantic synonyms still require ``required_outcome_aliases``.
+    for term in _CONTAINS_IGNORED_TERMS:
+        expected_normalized = expected_normalized.replace(term, "")
+        actual_normalized = actual_normalized.replace(term, "")
+    return expected_normalized in actual_normalized
+
+
+def _outcome_matches(actual: str, expected_values: Iterable[str], mode: str) -> bool:
+    expected_values = list(expected_values)
+    if mode == "auto":
+        normalized_values = [_normalized_outcome_text(value) for value in expected_values]
+        if normalized_values and all(_is_ascii_outcome_id(value) for value in expected_values):
+            return actual in expected_values
+        if normalized_values and all(
+            normalized and _is_ascii_outcome_id(normalized)
+            for normalized in normalized_values
+        ):
+            normalized_actual = _normalized_outcome_text(actual)
+            return normalized_actual in normalized_values
+        return _outcome_matches(actual, expected_values, "contains")
+    if mode == "exact":
+        return actual in expected_values
+    if mode == "normalized":
+        normalized_actual = _normalized_outcome_text(actual)
+        return any(
+            normalized_actual == _normalized_outcome_text(expected)
+            for expected in expected_values
+        )
+    if mode == "contains":
+        return any(_contains_outcome(actual, expected) for expected in expected_values)
+    return False
+
+
 def _evidence_for_arc(state: StoryState, character_id: str) -> List[str]:
     evidence: List[str] = []
     character = state.characters.get(character_id)
@@ -248,8 +335,32 @@ def evaluate_ending(project: Path | str, as_of_chapter: Optional[int] = None) ->
 
             if required_outcome:
                 actual_outcome = _outcome_state(state, character_id)
-                if actual_outcome != required_outcome:
-                    critical.append({"category": "character_outcome_unclosed", "entity_id": character_id, "message": f"Character {character_id} semantic outcome is {actual_outcome or 'missing'}, expected {required_outcome}.", "evidence": _evidence_for_arc(state, character_id)})
+                match_mode = _outcome_match_mode(contract, raw)
+                if match_mode not in OUTCOME_MATCH_MODES:
+                    critical.append({
+                        "category": "ending_contract_invalid",
+                        "entity_id": character_id,
+                        "message": (
+                            f"Character {character_id} has unsupported outcome_match_mode "
+                            f"{match_mode!r}; expected one of {sorted(OUTCOME_MATCH_MODES)}."
+                        ),
+                    })
+                    continue
+                expected_values = _outcome_aliases(raw, required_outcome)
+                if actual_outcome is None or not _outcome_matches(
+                    actual_outcome, expected_values, match_mode
+                ):
+                    critical.append({
+                        "category": "character_outcome_unclosed",
+                        "entity_id": character_id,
+                        "message": (
+                            f"Character {character_id} semantic outcome is "
+                            f"{actual_outcome or 'missing'}, expected {required_outcome} "
+                            f"(match_mode={match_mode})."
+                        ),
+                        "match_mode": match_mode,
+                        "evidence": _evidence_for_arc(state, character_id),
+                    })
                 elif not _evidence_for_arc(state, character_id):
                     critical.append({"category": "character_outcome_evidence_missing", "entity_id": character_id, "message": f"Character {character_id} reaches semantic outcome {required_outcome} without observable evidence."})
 

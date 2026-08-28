@@ -215,6 +215,146 @@ def test_explicit_arc_stage_and_semantic_outcome_are_both_enforced(tmp_path: Pat
     )
 
 
+def _outcome_contract(mode: str = "exact") -> dict:
+    contract = _contract()
+    arc_contract = contract["character_arcs"][0]
+    arc_contract.pop("required_end_state")
+    arc_contract["required_arc_stage"] = "resolution"
+    arc_contract["required_outcome"] = "independence."
+    arc_contract["outcome_match_mode"] = mode
+    return contract
+
+
+def test_normalized_outcome_mode_ignores_formatting_only_differences(tmp_path: Path):
+    project = _project(tmp_path, contract=_outcome_contract("normalized"))
+    state = StoryState(str(project))
+    state.characters["char_001"].outcome_state = "  INDEPENDENCE  "
+    state.characters["char_001"].outcome_evidence = "Mara signs a lease."
+    state.save_state()
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "pass"
+
+
+def test_contains_outcome_mode_allows_an_explicitly_richer_state(tmp_path: Path):
+    project = _project(tmp_path, contract=_outcome_contract("contains"))
+    state = StoryState(str(project))
+    state.characters["char_001"].outcome_state = (
+        "independence with a stable home and income"
+    )
+    state.characters["char_001"].outcome_evidence = "Mara signs a lease."
+    state.save_state()
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "pass"
+
+
+def test_contains_outcome_mode_tolerates_connective_words_inside_a_clause(
+    tmp_path: Path,
+):
+    contract = _outcome_contract("contains")
+    contract["character_arcs"][0]["required_outcome"] = (
+        "拥有独立住所、稳定收入、明确育儿和照护边界。"
+    )
+    project = _project(tmp_path, contract=contract)
+    state = StoryState(str(project))
+    state.characters["char_001"].outcome_state = (
+        "拥有独立住所、稳定收入以及明确的育儿和照护边界，不等待认可而继续生活"
+    )
+    state.characters["char_001"].outcome_evidence = "Mara signs a lease."
+    state.save_state()
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "pass"
+
+
+def test_auto_outcome_mode_handles_natural_language_without_contract_changes(
+    tmp_path: Path,
+):
+    contract = _outcome_contract("auto")
+    contract["character_arcs"][0].pop("outcome_match_mode")
+    contract["character_arcs"][0]["required_outcome"] = (
+        "拥有独立住所、稳定收入、明确育儿和照护边界。"
+    )
+    project = _project(tmp_path, contract=contract)
+    state = StoryState(str(project))
+    state.characters["char_001"].outcome_state = (
+        "拥有独立住所、稳定收入以及明确的育儿和照护边界，不等待认可而继续生活"
+    )
+    state.characters["char_001"].outcome_evidence = "Mara signs a lease."
+    state.save_state()
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "pass"
+
+
+def test_auto_outcome_mode_keeps_short_ascii_ids_strict(tmp_path: Path):
+    contract = _outcome_contract("auto")
+    contract["character_arcs"][0].pop("outcome_match_mode")
+    contract["character_arcs"][0]["required_outcome"] = "independence"
+    project = _project(tmp_path, contract=contract)
+    state = StoryState(str(project))
+    state.characters["char_001"].outcome_state = "independence with extra detail"
+    state.characters["char_001"].outcome_evidence = "Mara signs a lease."
+    state.save_state()
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "fail"
+
+
+def test_contains_mode_does_not_confuse_similar_ascii_outcome_ids(tmp_path: Path):
+    project = _project(tmp_path, contract=_outcome_contract("contains"))
+    state = StoryState(str(project))
+    state.characters["char_001"].outcome_state = "dependence"
+    state.characters["char_001"].outcome_evidence = "Mara remains dependent."
+    state.save_state()
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "fail"
+    assert any(
+        item["category"] == "character_outcome_unclosed"
+        for item in report.critical
+    )
+
+
+def test_contains_mode_supports_multiword_outcome_phrases(tmp_path: Path):
+    contract = _outcome_contract("contains")
+    contract["character_arcs"][0]["required_outcome"] = "independent life"
+    project = _project(tmp_path, contract=contract)
+    state = StoryState(str(project))
+    state.characters["char_001"].outcome_state = (
+        "chooses an independent life with a stable home"
+    )
+    state.characters["char_001"].outcome_evidence = "Mara signs a lease."
+    state.save_state()
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "pass"
+
+
+def test_outcome_aliases_allow_explicit_paraphrases(tmp_path: Path):
+    contract = _outcome_contract("exact")
+    contract["character_arcs"][0]["required_outcome_aliases"] = [
+        "chooses an independent life"
+    ]
+    project = _project(tmp_path, contract=contract)
+    state = StoryState(str(project))
+    state.characters["char_001"].outcome_state = "chooses an independent life"
+    state.characters["char_001"].outcome_evidence = "Mara signs a lease."
+    state.save_state()
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "pass"
+
+
 def test_agent_arc_update_persists_semantic_outcome_and_evidence(tmp_path: Path):
     project = _project(tmp_path, contract=_contract(arc_state="accountability"))
     state = StoryState(str(project))
@@ -256,8 +396,12 @@ def test_finale_prompts_share_semantic_ending_contract(tmp_path: Path):
     }
 
     assert all('"required_outcome": "independence"' in value for value in prompts.values())
-    assert "outcome=<semantic end state>" in prompts["scribe"]
-    assert "outcome=<semantic end state>" in prompts["guardian"]
+    assert "outcome=<canonical outcome value from ending_contract>" in prompts[
+        "scribe"
+    ]
+    assert "outcome=<canonical outcome value from ending_contract>" in prompts[
+        "guardian"
+    ]
 
 
 def test_pipeline_ending_stages_gate_before_compile(tmp_path: Path):

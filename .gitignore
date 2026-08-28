@@ -63,3 +63,6 @@ novel_os*.db
 
 # --- Uploaded media blobs (user data, not source) ---
 /media/
+
+# --- Docker deployment data ---
+/docker-data/
