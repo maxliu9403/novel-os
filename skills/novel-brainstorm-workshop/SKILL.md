@@ -1,7 +1,6 @@
 ---
 name: novel-brainstorm-workshop
-description: "Turn a rough novel idea into a confirmed, causally sound story design and an executable Novel OS prompt, including country- and region-specific online audience research. Use this skill whenever a user mentions writing a novel, developing a story premise, researching readers, comparing markets, brainstorming characters, expanding a plot, building a story bible, tracking secrets or timelines, improving a novel prompt, or starting a new book. It is especially useful when the user has only a few scenes, a theme, a relationship conflict, or an ending idea and needs structured creative development before drafting."
-compatibility: "Works with Novel OS prompt files, web search/browser or cited URL retrieval, and its Python prompt_intake/orchestrator commands when those files are present."
+description: "Turn a rough novel idea into a confirmed, causally sound story design and an executable Novel OS prompt, including country- and region-specific online audience research. Use this skill whenever a user mentions writing a novel, developing a story premise, researching readers, comparing markets, brainstorming characters, expanding a plot, building a story bible, tracking secrets or timelines, improving a novel prompt, starting a new book, developing an English-language novel, or strengthening commercial retention, the opening hook, the first three chapters, conflict variety, atmosphere, reader identification, or a paid-reading bridge. It is especially useful when the user has only a few scenes, a theme, a relationship conflict, or an ending idea and needs structured creative development before drafting."
 ---
 
 # Novel Brainstorm Workshop
@@ -10,9 +9,10 @@ Turn an incomplete novel idea into a deliberate story engine, a reviewed design,
 
 ## Operating contract
 
-- Follow the user's language. Chinese requests receive Chinese discussion and Chinese prompt files unless the user asks otherwise.
+- Use the user's requested output language and target-market register. Chinese and English are first-class paths; preserve each market's idiom, social context, and localization decisions in separate research branches when needed.
 - Treat the user's rough idea as the source of intent, not as a finished outline. Preserve explicit decisions and label low-impact additions as assumptions.
 - Keep the interaction focused. Ask at most five high-impact questions, one question per message. Ask only when an answer could change the story identity, audience, causal engine, protagonist arc, or ending.
+- Treat the target audience as a required user decision. When the conversation and confirmed project scope do not identify the primary reader segment, ask who the novel is for before market research or creative branching; never fill this field as an assumption. Confirm at least the audience's age or life stage and primary genre expectation, reading motivation, or emotional need. Ask about gender tendency, platform, or purchasing context only when it materially changes the design.
 - For a new selection, lock the target market before creative branching: country, region or city culture, primary language, and single-market versus multi-market release. Run online audience research separately for each market and carry the evidence into the design and prompt.
 - Present two or three materially different approaches before fixing the structure. Include a recommendation and the tradeoff behind it.
 - Present the design in reviewable sections. Wait for confirmation after each section before writing the final prompt.
@@ -31,6 +31,7 @@ Select the narrowest branch before doing creative work:
 | Existing prompt that needs stronger structure | `prompt-revise` | Evidence-based prompt revision and validation |
 | Existing manuscript or project | `canon-aware` | Canon extraction, continuity-aware design or continuation prompt |
 | One chapter only | `chapter-shortcut` | Compact chapter contract or draft; skip full project design unless requested |
+| Commercial web fiction,爽文, retention, opening hook, first-three-chapter, conflict variety, atmosphere, reader identification, or paid-conversion request | Add `retention_first` profile to the narrowest branch | Cross-language opening contract, conflict braid, micro-arc, and retention review |
 
 If the request is ambiguous, assume `workshop` and state the detected object in one compact `Current:` line.
 
@@ -48,30 +49,41 @@ Before asking a question, inspect the current workspace when it is available:
    - external objective, deadline, failure cost, and ending direction;
    - world rules or realism constraints;
    - chapter range, per-chapter length, and free-to-paid constraints;
+   - reader promise, primary satisfaction source, opening window, and desired retention profile when relevant;
    - explicit must-have, must-avoid, and existing canon.
 
 Do not repeat facts already supplied. If a low-impact field is absent, write a conservative assumption and continue.
 
-## Phase 0.5: lock market scope and run online research
+## Phase 0.5: lock audience and market scope, then run online research
 
 Run this phase for `workshop`, `expand`, and `prompt-revise` before comparing story approaches. It is part of the selection workflow, not an optional afterthought.
 
-1. If country, region or city culture, primary language, or release scope is missing, ask one compact question before asking plot questions. The answer must identify:
+1. If the target audience is missing, ask one compact audience question before research or plot questions. The answer must identify:
+   - `primary_reader_segment`: who the story is primarily for;
+   - `age_or_life_stage`: the relevant age range or life stage;
+   - `reading_motivation`: the main genre expectation, emotional need, or satisfaction sought.
+   Record optional gender tendency, platform, and purchasing context when they materially affect the story or release strategy. This decision must come from the user rather than an inferred assumption.
+2. If country, region or city culture, primary language, or release scope is missing, ask one compact market question before asking plot questions. The answer must identify:
    - `country`: the intended reader market;
    - `region`: a state, province, city, diaspora, or cultural area when relevant;
    - `language`: the language and notable register or localization needs;
    - `release_scope`: one market or a named list of markets.
-2. Generate search terms from that scope and use the available online retrieval capability (web search, browser, or direct URL fetch). Search each market independently for reader behaviour, platform and genre signals, cultural context, language habits, emotional drivers, and relevant seasonal or social details. Do not generalize one market's findings to another.
-3. Prefer current, attributable sources in this order: official statistics and regulators; platform or publisher reports; universities and research institutes; established trade or news publications; clearly labelled creator or community observations. Record the URL or publication id, publisher, publication date, access date, market, population, and what the source directly supports.
-4. Separate evidence from interpretation. Mark every finding as `direct_data`, `reported_observation`, or `creative_inference`, and assign `high`, `medium`, or `low` confidence. When public data is thin, record `research_status: partial` and state the assumption instead of presenting an inference as a fact.
-5. Translate findings into creative decisions: vocabulary and register, names and honorifics, family and workplace norms, setting details, taboo or sensitivity boundaries, platform promise, opening hook, emotional rhythm, and localization risks. Each implication must cite the finding ids that caused it.
-6. Save the result in the handoff as structured `audience_research`; do not leave it only in conversational prose. Preserve all market branches when the release is multi-market.
+3. Generate search terms from that scope and use the available online retrieval capability (web search, browser, or direct URL fetch). Search each market independently for reader behaviour, platform and genre signals, cultural context, language habits, emotional drivers, and relevant seasonal or social details. Do not generalize one market's findings to another.
+4. Prefer current, attributable sources in this order: official statistics and regulators; platform or publisher reports; universities and research institutes; established trade or news publications; clearly labelled creator or community observations. Record the URL or publication id, publisher, publication date, access date, market, population, and what the source directly supports.
+5. Separate evidence from interpretation. Mark every finding as `direct_data`, `reported_observation`, or `creative_inference`, and assign `high`, `medium`, or `low` confidence. When public data is thin, record `research_status: partial` and state the assumption instead of presenting an inference as a fact.
+6. Translate findings into creative decisions: vocabulary and register, names and honorifics, family and workplace norms, setting details, taboo or sensitivity boundaries, platform promise, opening hook, emotional rhythm, and localization risks. Each implication must cite the finding ids that caused it.
+7. Save the result in the handoff as structured `audience_research`; do not leave it only in conversational prose. Preserve all market branches when the release is multi-market.
 
 Use this minimum record for every market:
 
 ```yaml
 audience_research:
   research_status: complete|partial|pending
+  target_audience:
+    primary_reader_segment: <user-confirmed segment>
+    age_or_life_stage: <user-confirmed range or stage>
+    reading_motivation: <genre expectation, emotional need, or satisfaction sought>
+    gender_platform_or_purchase_context: <user-confirmed value or not material>
   market_scope:
     country: <country>
     region: <region or cultural area>
@@ -107,6 +119,7 @@ Maintain a parallel `workshop_trace` for the reasoning that led to the design:
 ```yaml
 workshop_trace:
   intake: <normalized user intent and explicit constraints>
+  audience_decision: <user-confirmed primary segment, age/life stage, and reading motivation>
   market_decision: <country/region/language/release scope and date>
   research_queries: []
   approach_options:
@@ -134,7 +147,7 @@ the trace.
 
 Rank missing information by how much it can change the story:
 
-1. If still missing, target country, region, language, and release scope;
+1. If still missing, the user-confirmed target audience, then country, region, language, and release scope;
 2. protagonist identity, external objective, and failure cost;
 3. core relationship or opposing force;
 4. unusual restriction, rule, secret, or deadline;
@@ -151,6 +164,8 @@ Offer two or three approaches that differ in structure or pressure, not merely i
 - opening point and time order;
 - primary engine of conflict;
 - how the protagonist gains agency;
+- how the first sentence, first screen, and first three chapters deliver value;
+- which conflict dimensions braid together and how the setting carries pressure;
 - likely emotional experience and retention strength;
 - continuity or pacing risk;
 - what kind of ending it naturally supports.
@@ -176,6 +191,10 @@ Define:
 - for every principal character, a lifecycle target (`required_arc_stage`) and
   a distinct semantic result (`required_outcome`) with an observable choice or
   changed condition that can prove the result in canon.
+- when `retention_first` is active, a machine-readable opening contract with a
+  reader promise, immediate event and stakes, first-screen signals, conflict
+  braid, satisfaction loop, atmosphere pressure, identification anchor, chapter 1-3 value map,
+  irreversible chapter-three step, and paid bridge.
 
 ### Section B: characters and relationships
 
@@ -204,13 +223,20 @@ be declared in the ending contract before drafting.
 
 ### Section D: structure, opening, and retention arc
 
+When the request signals `retention_first`, load
+[references/retention-opening.md](references/retention-opening.md) before
+designing this section. Use its language-neutral contract and adapt the window
+and examples to the selected language, market, genre, and platform.
+
 Choose a chapter count within the user's range and explain the choice. Map acts or volumes with goals, midpoint revaluation, irreversible choice, stage payoff, and carry-forward consequence. Design the first three chapters as a complete micro-arc:
 
 1. premise collision and immediate loss;
 2. strategy test, relationship pressure, and first earned resource;
 3. local payoff, costly protagonist choice, visible irreversible consequence, and a concrete next objective.
 
-If the user has a free-reading window, make the first paid chapter immediately deliver the direct consequence of chapter three. A chapter ending earns its hook by changing knowledge, power, relationship, resources, identity, rules, moral cost, or time.
+For `retention_first`, make the first sentence or opening window show at least two concrete signals, braid two or three conflict dimensions into a causal chain, and give every one of the first three chapters a local value delivery. Show atmosphere through details that affect pressure, choice, evidence, or relationship, and anchor identification in a specific desire, fear, habit, object, or boundary. Rotate the source of satisfaction across competence, evidence, status, relationship, moral courage, fair revelation, or survival rather than repeating one confrontation pattern.
+
+If the user has a free-reading window, make the first paid chapter immediately deliver the direct consequence of chapter three. A chapter ending earns its hook by changing knowledge, power, relationship, resources, identity, rules, moral cost, or time. The retention reference supplies the review rubric and anti-pattern replacements.
 
 Reserve the final 3-5 chapters as an explicit finale window. Plan them as a
 chain of escalation, revelation, protagonist choice, visible cost,
@@ -226,7 +252,7 @@ The completion criterion for design review is explicit approval of the design di
 
 ## Phase 4: build the prompt artifact
 
-After design approval, generate a complete prompt rather than a short summary. Load `references/prompt-contract.md` and the relevant sections of `references/genre-adapters.md` and `references/quality-gates.md` before writing.
+After design approval, generate a complete prompt rather than a short summary. Load `references/prompt-contract.md` and the relevant sections of `references/genre-adapters.md` and `references/quality-gates.md` before writing. When `retention_first` is active, also load `references/retention-opening.md` and include its opening contract in the Prompt.
 
 ### File and naming rules
 
@@ -236,7 +262,7 @@ After design approval, generate a complete prompt rather than a short summary. L
 4. Include a `## Assumptions` section in the prompt for details the user did not decide.
 5. Keep the prompt authoritative: repeat the locked title, language, genre, audience, tone, POV, chapter count, and word target in parseable `Key: Value` fields near the top.
 
-The prompt must instruct Novel OS to plan before drafting, preserve the structured `audience_research` record and its market branches, preserve the confirmed `workshop_trace` and decision history, maintain character/relationship/secret/timeline/resource ledgers, emit and preserve a machine-readable `ending_contract`, update a payoff ledger after every chapter, use a per-chapter causal contract, preserve POV and knowledge boundaries, rotate conflict and hook types, reserve the final 3-5 chapters for payoff, and produce a final reader-facing manuscript without agent commentary.
+The prompt must instruct Novel OS to plan before drafting, preserve the structured `audience_research` record and its market branches, preserve the confirmed `workshop_trace` and decision history, maintain character/relationship/secret/timeline/resource ledgers, emit and preserve a machine-readable `ending_contract`, update a payoff ledger after every chapter, use a per-chapter causal contract, preserve POV and knowledge boundaries, rotate conflict and hook types, reserve the final 3-5 chapters for payoff, and produce a final reader-facing manuscript without agent commentary. When `retention_first` is active, it must also preserve the opening contract, first-screen evidence, conflict braid, satisfaction loop, atmosphere and identification decisions, first-three-chapter value map, and paid bridge.
 
 Every Scribe, Editor, and Continuity Guardian state block must include these
 fields when applicable:
@@ -281,7 +307,7 @@ PYTHONPATH=core ./venv/bin/python -c "from pathlib import Path; from prompt_inta
 
 Replace `PROMPT_VALIDATION_PROJECT` and `PROMPT_PATH` with the actual paths. Confirm that the parsed brief contains the locked title, genre, language, chapter count, word target, audience, tone, and premise. Also confirm that the prompt contains a market-scoped `audience_research` section with country, region, language, source records, evidence types, confidence, and creative implications, a `workshop_trace` with Section A-E decisions and open assumptions, plus personality fields for every principal character. Use a temporary validation project when no project has been selected; keep a real project untouched until the user runs the command.
 
-Also run `git diff --check -- <prompt path>` when the file is inside a Git workspace. Report parser output and any corrected field; do not claim validation from file existence alone.
+Also run `git diff --check -- <prompt path>` when the file is inside a Git workspace. For a `retention_first` Prompt, verify the opening contract, the first-screen signal list, at least two conflict dimensions, local value for chapters 1-3, and the paid bridge are present and internally consistent. Report parser output and any corrected field; do not claim validation from file existence alone.
 
 ## Phase 6: hand off the run command
 

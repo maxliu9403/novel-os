@@ -17,6 +17,28 @@ Use these checks during design review and again before handing off the Prompt. T
 - A free-window ending completes a stage payoff before creating the next target; the first paid chapter opens on its direct consequence.
 - Recent chapters vary opening situation, setting, conflict, strategy, emotional result, and hook type.
 
+### Retention-first opening gate
+
+Apply when the Prompt contains `retention_profile.mode: retention_first`:
+
+- The opening contract names a concrete event, immediate stakes, a specific question, and a protagonist choice.
+- The selected first-screen window contains at least two recorded signals from `event`, `loss`, `contradiction`, `cost`, `question`, or `choice`.
+- The first three chapters use at least two conflict dimensions and connect them through protagonist action and opposing feedback.
+- Chapter 1 shows agency and delivers a local reward, reveal, counteraction, or meaningful change.
+- Chapter 2 shows an adaptive response and an earned resource, evidence, tactical win, or relationship truth; the cost remains active.
+- Chapter 3 answers a short-term question and crosses a visible irreversible threshold with a concrete next objective.
+- The satisfaction loop names the protagonist's recognition, move, opposing response, visible consequence, and higher-level goal; each cycle delivers a distinct form of value.
+- Atmosphere details change pressure, evidence, relationship, movement, or meaning; they are not interchangeable decoration.
+- The identification anchor is a specific desire, fear, habit, object, or boundary expressed in the target market's register.
+- Satisfaction sources and escalation dimensions rotate across competence, evidence, status, relationship, moral choice, knowledge, resources, and time.
+- The first paid chapter displays the direct consequence named in `paid_bridge` before opening a separate thread.
+- The evidence cites chapter, scene, or draft locations. Numeric scores do not replace evidence.
+
+`retention_first` is a cross-language design profile. Adjust the opening window,
+idiom, social assumptions, and reader promise for each language and market
+branch; a Chinese character count is not a universal English or multilingual
+threshold.
+
 ## Continuity and fairness
 
 - Names, ages, relationships, locations, resources, dates, and knowledge boundaries are tracked.
@@ -55,6 +77,7 @@ Use these checks during design review and again before handing off the Prompt. T
 
 ## Prompt handoff
 
+- The target audience is explicitly confirmed by the user and records the primary reader segment, age or life stage, and main reading motivation; it is not an inferred assumption.
 - Top-level fields contain one fixed title, chapter count, and total word target.
 - All approved decisions appear in the Prompt; assumptions are labeled in one section.
 - Architect, Scribe, Editor, Continuity Guardian, and Style Curator have distinct responsibilities and shared state fields.
