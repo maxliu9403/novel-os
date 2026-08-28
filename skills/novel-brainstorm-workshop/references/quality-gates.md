@@ -42,6 +42,7 @@ threshold.
 ## Continuity and fairness
 
 - Names, ages, relationships, locations, resources, dates, and knowledge boundaries are tracked.
+- Story-facing cities, districts, institutions, landmarks, and other place names are invented or abstract; real geography appears only in separated audience-research metadata.
 - Every major reversal has earlier evidence, a plausible motive, a fair prior interpretation, and a changed next action.
 - Secrets have a payoff window, an answer, and an observable aftermath.
 - Legal, medical, technical, cultural, and professional processes match the chosen setting.
@@ -78,6 +79,7 @@ threshold.
 ## Prompt handoff
 
 - The target audience is explicitly confirmed by the user and records the primary reader segment, age or life stage, and main reading motivation; it is not an inferred assumption.
+- The Prompt carries `setting_policy.mode: fictionalized` and keeps real market/source locations inside `audience_research` rather than the story-facing world ledger.
 - Top-level fields contain one fixed title, chapter count, and total word target.
 - All approved decisions appear in the Prompt; assumptions are labeled in one section.
 - Architect, Scribe, Editor, Continuity Guardian, and Style Curator have distinct responsibilities and shared state fields.

@@ -18,6 +18,7 @@ retention_profile:
   language: <output language>
   market_scope: <country, region, and release markets>
   target_audience: <user-confirmed primary reader segment, age/life stage, and reading motivation>
+  setting_mode: fictionalized
   reader_promise: <the repeatable experience the reader is buying>
   primary_satisfaction: <revenge|competence|romance|mystery|power|belonging|other>
   opening_window:
