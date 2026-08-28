@@ -15,7 +15,7 @@ Chapters: <fixed chapter count>
 Words: <total prose target>
 ```
 
-Use actual values in the final artifact. A range may be discussed in the body, but the top-level run needs one fixed chapter count and one total target.
+Use actual values in the final artifact. `Audience` must come from a user-confirmed target audience decision; when it is missing, return to the question loop before generating the Prompt. A range may be discussed in the body, but the top-level run needs one fixed chapter count and one total target.
 
 ## Required body sections
 
@@ -29,7 +29,7 @@ Use actual values in the final artifact. A range may be discussed in the body, b
 8. **Secret and timeline ledger**: truth, knowledge distribution, clues, fair misreading, payoff window, dates, locations, duration, and state changes.
 9. **Ending contract and payoff ledger**: finale window, main conflict resolution, protagonist final choice and state, antagonist consequence, emotional afterglow, stable payoff ids, target chapters, evidence requirements, and explicitly declared intentional open threads.
 10. **Structure**: acts or volumes, goals, midpoint shifts, irreversible choices, stage payoffs, and carry-forward consequences. Reserve the final 3-5 chapters for the ending contract.
-11. **First three chapters**: opening collision, emotional investment, protagonist capability, local payoff, costly choice, and next pressure.
+11. **Retention-first opening and first three chapters**: when selected, the opening contract, first-screen signals, conflict braid, atmosphere pressure, identification anchor, chapter value map, and irreversible threshold; otherwise retain the normal opening collision and micro-arc requirements.
 12. **First paid chapter** when relevant: direct consequence of the free-window choice and immediate substantive delivery.
 13. **Chapter contract**: objective -> obstacle -> action -> feedback -> choice -> cost -> payoff -> irreversible change -> next pressure.
 14. **Pacing and rotation**: vary conflict, emotional result, setting, strategy, payoff, and hook type.
@@ -39,9 +39,49 @@ Use actual values in the final artifact. A range may be discussed in the body, b
 18. **Assumptions**: only details the user did not decide.
 19. **Final delivery**: story bible, market research and source ledger, machine-readable `workshop_trace` for intake, questions, alternatives, and Section A-E decisions, outline, complete chapters, reports, `book_completion_report.json`, and reader-facing manuscript.
 
+## Retention-first opening contract
+
+Include this contract when the user requests commercial web fiction, stronger
+retention, a satisfying or爽文 experience, a stronger opening, the first three
+chapters, or a paid-reading bridge. The contract is language-neutral and must
+carry the selected output language, market, genre, and platform assumptions.
+
+```yaml
+retention_profile:
+  mode: retention_first
+  language: <output language>
+  market_scope: <country, region, and release markets>
+  target_audience: <user-confirmed primary reader segment, age/life stage, and reading motivation>
+  reader_promise: <repeatable reader experience>
+  primary_satisfaction: <competence, revenge, romance, mystery, power, belonging, or other>
+  opening_window:
+    unit: characters|words|sentences|platform_screen
+    target: <language- and platform-adjusted range>
+opening_contract:
+  opening_event: <concrete event already in progress>
+  opening_stakes: <immediate loss, opportunity, or risk>
+  opening_question: <specific question that guides the first chapter>
+  protagonist_immediate_choice: <choice with meaningful costs>
+  first_screen_signals: [event, loss, choice]
+  chapter_1_value: <local reward, reveal, counteraction, or meaningful change>
+  chapter_2_reversal_or_resource: <feedback, evidence, resource, or relationship truth>
+  chapter_3_irreversible_step: <visible state change and its cost>
+  conflict_braid: [external, relationship, internal]
+  satisfaction_loop: <pressure -> recognition -> move -> response -> consequence -> higher goal>
+  atmosphere_pressure: <how setting and sensory detail affect choice or risk>
+  identification_anchor: <specific desire, fear, habit, object, or boundary>
+  paid_bridge: <direct consequence shown at the first paid chapter opening>
+```
+
+`first_screen_signals` records the signals actually present, not a list of
+aspirations. Select one primary conflict and at least one supporting dimension;
+each dimension must alter the protagonist's available choices. Keep Chinese,
+English, and other market branches separate when idiom, social context, or
+register changes the reader promise.
+
 ## First-three-chapter contract
 
-The opening micro-arc must show the premise in action, the cost of doing nothing, the protagonist's competence and vulnerability, a first self-directed action, one local payoff, and a concrete next target. Chapter three must complete a visible state change before it creates the next pressure. The first paid chapter opens on that direct consequence and delivers substantive progress before widening the story.
+The opening micro-arc must show the premise in action, the cost of doing nothing, the protagonist's competence and vulnerability, a first self-directed action, one local payoff, and a concrete next target. Under `retention_first`, chapter 1 delivers a local reward or reveal, chapter 2 shows opposing feedback and an earned resource or relationship truth, and chapter 3 answers a short-term question before a costly irreversible step. Chapter three must complete a visible state change before it creates the next pressure. The first paid chapter opens on that direct consequence and delivers substantive progress before widening the story.
 
 ## Audience research record
 
@@ -52,6 +92,11 @@ can be rendered in a project detail view without re-running the web search:
 ```yaml
 audience_research:
   research_status: complete|partial|pending
+  target_audience:
+    primary_reader_segment: <user-confirmed segment>
+    age_or_life_stage: <user-confirmed range or stage>
+    reading_motivation: <genre expectation, emotional need, or satisfaction sought>
+    gender_platform_or_purchase_context: <user-confirmed value or not material>
   market_scope:
     country: <country>
     region: <region or cultural area>
@@ -93,6 +138,7 @@ view can distinguish selected decisions from rejected options:
 ```yaml
 workshop_trace:
   intake: <normalized user intent and explicit constraints>
+  audience_decision: <user-confirmed primary segment, age/life stage, and reading motivation>
   market_decision: <country/region/language/release scope and date>
   research_queries: []
   approach_options:

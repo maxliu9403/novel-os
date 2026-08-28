@@ -449,6 +449,254 @@ OpenAI-compatible provider runs on the Docker host, use
 `http://host.docker.internal:PORT/v1` instead of `http://127.0.0.1:PORT/v1`.
 Set `NOVEL_OS_WEB_PORT` before running the script to override port `5174`.
 
+### 迁移到新环境（不迁移小说产物）
+
+以下步骤用于在另一台电脑上重新部署 Novel OS 和 Codex Skill，只迁移源码，
+不迁移已有小说、运行记录、数据库或导出文件。命令以 macOS、Linux 或 WSL
+的 shell 环境为例。
+
+#### 迁移范围
+
+| 内容 | 处理方式 |
+|---|---|
+| Git 仓库源码 | 从远端重新拉取 |
+| `.env` | 在新设备上根据 `.env.example` 重新创建，不提交或传输密钥 |
+| `skills/novel-brainstorm-workshop/` | 安装到新设备的 `$CODEX_HOME/skills/` |
+| `docker-data/` | 不迁移；新部署会创建空目录 |
+| `projects/`、`outputs/`、`novel_os.db` | 不迁移；它们属于本地运行数据 |
+| `prompt/` | 可选；只复制仍需使用的作者提示词 |
+
+仓库已经通过 `.gitignore` 排除上述本地数据。正常的 `git clone` 不会带上
+原设备的小说内容。
+
+#### 1. 准备新设备
+
+安装并启动：
+
+- Git；
+- Docker Desktop，或 Docker Engine 与 Docker Compose v2；
+- Codex App/CLI（仅在需要使用 `novel-brainstorm-workshop` Skill 时需要）。
+
+确认 Docker 可用：
+
+```bash
+docker info >/dev/null
+docker compose version
+```
+
+#### 2. 拉取源码
+
+```bash
+git clone https://github.com/maxliu9403/novel-os.git
+cd novel-os
+```
+
+如果部署内容还在功能分支，检出包含 `deploy.sh` 的分支：
+
+```bash
+git checkout feat/novel-quality-closure
+```
+
+合并到默认分支后可以省略这一步。确认部署文件存在：
+
+```bash
+test -x ./deploy.sh
+test -f ./compose.yaml
+```
+
+如果文件系统没有保留可执行权限：
+
+```bash
+chmod +x ./deploy.sh
+```
+
+#### 3. 配置模型提供商
+
+在新设备上创建独立配置：
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env`，至少配置一个可用的模型提供商。OpenAI-compatible 服务示例：
+
+```dotenv
+NOVEL_OS_LLM_PROVIDER=openai_compatible
+NOVEL_OS_BASE_URL=https://YOUR_ENDPOINT/v1
+NOVEL_OS_API_KEY=YOUR_API_KEY
+NOVEL_OS_MODEL=YOUR_MODEL
+```
+
+`.env` 包含凭据并已被 Git 忽略，不要提交。如果模型服务运行在 Docker
+宿主机上，容器访问地址应使用：
+
+```dotenv
+NOVEL_OS_BASE_URL=http://host.docker.internal:PORT/v1
+```
+
+端口 `5174` 被占用时，可以把新的固定端口写入 `.env`：
+
+```dotenv
+NOVEL_OS_WEB_PORT=5175
+```
+
+#### 4. 迁移 Codex Skill
+
+Skill 的发布源是仓库目录：
+
+```text
+skills/novel-brainstorm-workshop/
+```
+
+`CODEX_HOME` 未设置时默认使用 `~/.codex`。从已经检出的仓库安装：
+
+```bash
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+SKILL_DEST="$CODEX_HOME/skills/novel-brainstorm-workshop"
+mkdir -p "$SKILL_DEST"
+cp -R skills/novel-brainstorm-workshop/. "$SKILL_DEST/"
+test -f "$SKILL_DEST/SKILL.md"
+```
+
+也可以在未克隆完整仓库时，通过 Codex 自带安装器直接从 GitHub 安装：
+
+```bash
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+python3 "$CODEX_HOME/skills/.system/skill-installer/scripts/install-skill-from-github.py" \
+  --repo maxliu9403/novel-os \
+  --ref feat/novel-quality-closure \
+  --path skills/novel-brainstorm-workshop
+```
+
+如果该 Skill 已存在，安装器会停止而不是覆盖。更新已有副本时，在仓库根目录
+执行：
+
+```bash
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+rsync -a --delete \
+  skills/novel-brainstorm-workshop/ \
+  "$CODEX_HOME/skills/novel-brainstorm-workshop/"
+```
+
+安装或更新后重新打开 Codex，或开始一个新对话。调用方式：
+
+```text
+$novel-brainstorm-workshop
+```
+
+该 Skill 运行在 Codex 主机侧，不会被安装进 Novel OS Docker 容器；
+`./deploy.sh up` 和 Skill 安装是两个独立步骤。
+
+#### 5. 部署并验证服务
+
+首次部署：
+
+```bash
+./deploy.sh up
+```
+
+不带参数的 `./deploy.sh` 也默认执行 `up`。该命令会构建前端和后端镜像、
+启动容器，并等待两个健康检查通过。验证状态：
+
+```bash
+./deploy.sh status
+curl -fsS http://localhost:5174/api/health
+```
+
+浏览器访问：
+
+```text
+http://localhost:5174
+```
+
+如果在 `.env` 设置了 `NOVEL_OS_WEB_PORT`，使用对应端口。
+
+#### 6. 使用 Novel OS
+
+查看所有交互命令：
+
+```bash
+./deploy.sh novel --help
+```
+
+把新的 Markdown 提示词放入 `prompt/`，然后通过菜单启动：
+
+```bash
+mkdir -p prompt
+./deploy.sh novel
+```
+
+也可以直接指定提示词和输出格式：
+
+```bash
+NOVEL_OS_OUTPUT='markdown epub' \
+  ./deploy.sh novel './prompt/my-novel.md'
+```
+
+运行管理命令：
+
+```bash
+./deploy.sh novel-status                         # 查看最近一次运行
+./deploy.sh novel-resume                         # 从持久化检查点继续
+./deploy.sh novel-retry                          # 重试当前阻塞阶段
+./deploy.sh novel-status PROJECT RUN_ID          # 查看指定运行
+./deploy.sh novel-resume PROJECT RUN_ID          # 恢复指定运行
+./deploy.sh novel-retry PROJECT RUN_ID           # 重试指定运行
+```
+
+生成内容保存在新设备本地：
+
+```text
+docker-data/projects/PROJECT/outputs/
+```
+
+其中最终导出文件位于：
+
+```text
+docker-data/projects/PROJECT/outputs/deliverables/
+```
+
+#### 7. 更新、停止和故障排查
+
+更新源码后需要重建容器，才能加载新的 Python、前端或 Compose 代码：
+
+```bash
+git pull --ff-only
+./deploy.sh restart
+```
+
+`novel`、`novel-resume` 和 `novel-retry` 会复用健康的 backend 容器，
+不会自动加载刚修改的镜像内容。小说正在生成时不要执行 `restart`；等待运行
+结束或进入可恢复的暂停状态后再重建。
+
+常用诊断命令：
+
+```bash
+./deploy.sh status
+./deploy.sh logs backend
+./deploy.sh logs frontend
+./deploy.sh config
+```
+
+`./deploy.sh config` 会打印解析后的 Compose 配置，其中可能包含来自 `.env`
+的凭据；只在本机诊断使用，不要把完整输出粘贴到公开问题或日志中。
+
+停止服务但保留新设备上的本地数据：
+
+```bash
+./deploy.sh down
+```
+
+常见问题：
+
+- `docker compose` 不存在：安装 Compose v2，而不是旧的 `docker-compose`；
+- Docker socket 权限错误：启动 Docker Desktop，或修复当前用户的 Docker 权限；
+- 页面端口冲突：在 `.env` 设置新的 `NOVEL_OS_WEB_PORT` 后执行 `restart`；
+- 小说调用提示缺少模型配置：检查 `.env` 中 provider、endpoint、key 和 model；
+- 修改代码后行为仍旧：执行 `./deploy.sh restart`，不要只运行 `novel-retry`；
+- Codex 找不到 Skill：确认 `$CODEX_HOME/skills/novel-brainstorm-workshop/SKILL.md`
+  存在，然后重新打开 Codex 或开始新对话。
+
 ### What's in the studio
 
 | | |
@@ -536,6 +784,8 @@ novel-os/
 │   └── style_curator/
 │
 ├── 📋 templates/                      ← story bible / character / outline starters
+├── 🧩 skills/
+│   └── novel-brainstorm-workshop/     ← Codex story-design and prompt workshop
 ├── 📚 docs/                           ← WORKFLOWS.md, API.md
 ├── 🎬 examples/                       ← demo project + recent smoke run
 ├── 🎨 assets/                         ← mascot + optional generated imagery
