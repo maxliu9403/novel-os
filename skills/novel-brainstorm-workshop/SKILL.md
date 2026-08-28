@@ -338,8 +338,11 @@ them with the command rather than relying on the operator to re-enter them:
 ```bash
 cd /path/to/Novel-OS
 NOVEL_OS_PROJECT_NAME='PROJECT_SLUG' \
+NOVEL_OS_TITLE='TITLE' \
+NOVEL_OS_GENRE='GENRE' \
 NOVEL_OS_CHAPTERS='CHAPTERS' \
 NOVEL_OS_WORDS='WORDS' \
+NOVEL_OS_EDIT_MODE='developmental' \
 NOVEL_OS_APPROVAL='auto' \
 NOVEL_OS_QUALITY_POLICY='evidence_v1' \
 NOVEL_OS_OUTPUT='markdown epub' \
@@ -354,13 +357,15 @@ Docker artifact path as `docker-data/projects/PROJECT_SLUG/outputs/`.
 Use the launcher's persisted-run commands for recovery:
 
 ```bash
-./deploy.sh novel-status 'PROJECT_SLUG' 'RUN_ID'
-./deploy.sh novel-resume 'PROJECT_SLUG' 'RUN_ID'
-./deploy.sh novel-retry 'PROJECT_SLUG' 'RUN_ID'
+./deploy.sh novel-status 'RUN_ID'
+./deploy.sh novel-resume 'RUN_ID'
+./deploy.sh novel-retry 'RUN_ID'
 ```
 
-Omit `PROJECT_SLUG` and `RUN_ID` only when the user explicitly wants the most
-recent persisted run.
+Use only `RUN_ID` for a specific persisted run; the launcher resolves it across
+all projects. Omit `RUN_ID` when the user explicitly wants the most recent run.
+If a legacy deployment contains a duplicate RUN_ID, the launcher reports the
+matches and accepts the compatibility form `PROJECT RUN_ID` to disambiguate.
 
 ### Native fallback
 
