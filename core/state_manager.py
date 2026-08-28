@@ -36,6 +36,10 @@ class Character:
     secret: str = ""
     arc_stage: str = "beginning"  # beginning, middle, climax, resolution
     arc_progress: int = 0  # 0-100
+    # Arc stage is a narrative lifecycle position. Outcome is the semantic
+    # state the character reaches, such as accountability or independence.
+    outcome_state: str = ""
+    outcome_evidence: str = ""
     relationships: Dict[str, str] = field(default_factory=dict)
     knowledge: List[str] = field(default_factory=list)
     possessions: List[str] = field(default_factory=list)
@@ -177,12 +181,21 @@ class ChapterState:
     # Stable source ids (for example ``ch18:fs2``) let an agent record a
     # semantic payoff without copying the original sentence verbatim.
     foreshadowing_resolved_ids: List[str] = field(default_factory=list)
+    # Book-level quality evidence emitted by Scribe/Editor/Guardian. These are
+    # indexed separately from prose so the ending gate can verify payoff and
+    # arc closure without guessing from chapter text.
+    payoff_events: List[Dict[str, Any]] = field(default_factory=list)
+    arc_state_updates: List[Dict[str, Any]] = field(default_factory=list)
+    ending_evidence: List[str] = field(default_factory=list)
     character_references: List[Dict[str, Any]] = field(default_factory=list)
     hooks_start: List[str] = field(default_factory=list)
     hooks_end: List[str] = field(default_factory=list)
     characters_present: List[str] = field(default_factory=list)
     continuity_checks: Dict[str, Any] = field(default_factory=dict)
     quality_scores: Dict[str, float] = field(default_factory=dict)
+    contract_id: str = ""
+    canonical_revision_id: str = ""
+    last_evaluation_id: str = ""
     last_modified: str = ""
     
     def to_dict(self) -> Dict[str, Any]:

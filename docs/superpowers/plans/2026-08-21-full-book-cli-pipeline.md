@@ -61,7 +61,7 @@
 
 - [x] Run Style Curator after Guardian validation and write a candidate final artifact.
 - [x] Require explicit `--approval auto` for unattended promotion; default to review-required.
-- [x] Gather only completed chapters and render Markdown/HTML/DOCX/EPUB from one compiled book source.
+- [x] Gather only completed chapters and render Markdown/HTML/DOCX/EPUB/PDF from one compiled book source.
 - [x] Test that incomplete chapters cannot enter exports and auto approval is audited.
 
 ### Task 6: Verification and documentation

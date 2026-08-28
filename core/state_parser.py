@@ -6,6 +6,7 @@ applies their contents to StoryState. This is what makes the "persistent
 memory" claim true: without it, agent output is discarded after rendering.
 
 Block tags recognized:
+  [REVISED_CHAPTER] (manuscript payload; closing tag may be omitted)
   [SCRIBE_STATE_UPDATE] ... [/SCRIBE_STATE_UPDATE]
   [EDITOR_ANALYSIS] / [EDITOR_STATE_UPDATE]
   [CONTINUITY_REPORT] / [CONTINUITY_STATE_UPDATE]
@@ -22,6 +23,7 @@ Closing tag is optional we accept either [/TAG] or "stop at next [TAG]".
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
@@ -33,6 +35,8 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------- block extract
 
 _KNOWN_TAGS = {
+    "CHAPTER_CONTRACT",
+    "REVISED_CHAPTER",
     "SCRIBE_STATE_UPDATE",
     "EDITOR_ANALYSIS",
     "EDITOR_STATE_UPDATE",
@@ -82,6 +86,20 @@ def extract_block(text: str, tag: str) -> Optional[str]:
     if next_tag and next_tag.group(0)[1:-1].lstrip("/").upper() in _KNOWN_TAGS:
         return rest[:next_tag.start()].strip()
     return rest.strip()
+
+
+def extract_manuscript_block(text: str, tag: str = "REVISED_CHAPTER") -> Optional[str]:
+    """Extract a manuscript payload from an agent protocol response.
+
+    Manuscript blocks are allowed to be truncated by a provider.  In that
+    case ``extract_block`` uses the next recognized protocol block as the
+    boundary, keeping state metadata out of the saved prose.  A missing
+    opening block still returns ``None`` so callers can enforce the contract.
+    """
+    normalized_tag = re.sub(r"[\s_-]+", "_", tag.strip()).upper()
+    if normalized_tag != "REVISED_CHAPTER":
+        raise ValueError("manuscript block tag must be REVISED_CHAPTER")
+    return extract_block(text, normalized_tag)
 
 
 # ---------------------------------------------------------------- field parser
@@ -143,6 +161,24 @@ def _normalize_key(raw: str) -> str:
 
 
 # ---------------------------------------------------------------- per-agent
+
+def parse_architect(text: str) -> Dict[str, Any]:
+    """Parse a chapter contract or a structured chapter-outline proposal."""
+    block = extract_block(text, "CHAPTER_CONTRACT")
+    if block:
+        try:
+            contract = json.loads(block)
+        except json.JSONDecodeError as exc:
+            raise ValueError("architect chapter contract must be valid JSON") from exc
+        if not isinstance(contract, dict):
+            raise ValueError("architect chapter contract must be a JSON object")
+        return {"chapter_contract": contract}
+
+    normalized = normalize_agent_output(text).strip()
+    if re.search(r"^#\s+Chapter\s+\d+\b", normalized, re.IGNORECASE | re.MULTILINE):
+        return {"chapter_outline": normalized}
+    return {}
+
 
 def parse_scribe(text: str) -> Dict[str, Any]:
     block = extract_block(text, "SCRIBE_STATE_UPDATE")
@@ -396,6 +432,111 @@ def _apply_character_references(
         )
 
 
+def _apply_payoff_events(
+    chapter: Any,
+    raw_events: Any,
+    chapter_number: int,
+    source: str,
+    log: List[str],
+) -> None:
+    """Record explicit book-level payoff evidence without inferring it."""
+    for raw in _as_list(raw_events):
+        payoff_id, fields = _parse_pipe_update(raw)
+        if not payoff_id:
+            log.append(f"[{source}] ignored payoff event without id")
+            continue
+        status = str(fields.get("status") or "recalled").strip().lower()
+        if status not in {"planted", "recalled", "paid", "intentional_open", "blocked"}:
+            log.append(f"[{source}] ignored invalid payoff status for {payoff_id}: {status!r}")
+            continue
+        event_chapter = _parse_optional_chapter(fields.get("chapter"), chapter_number)
+        event = {
+            "payoff_id": payoff_id,
+            "status": status,
+            "chapter": event_chapter,
+            "evidence": fields.get("evidence") or fields.get("note") or fields.get("payoff") or "",
+        }
+        if event not in chapter.payoff_events:
+            chapter.payoff_events.append(event)
+        log.append(f"[{source}] payoff {payoff_id}: status={status}")
+
+
+def _apply_arc_state_updates(
+    state: "StoryState",
+    chapter: Any,
+    raw_updates: Any,
+    chapter_number: int,
+    source: str,
+    log: List[str],
+) -> None:
+    """Apply explicit character arc evidence and keep the state index current."""
+    for raw in _as_list(raw_updates):
+        character_id, fields = _parse_pipe_update(raw)
+        cid = _resolve_character_id(state, character_id)
+        if not cid:
+            log.append(f"[{source}] unknown character arc referenced: {character_id!r}")
+            continue
+        character = state.characters[cid]
+        stage = str(fields.get("stage") or fields.get("arc_stage") or "").strip().lower()
+        if stage and stage not in {"beginning", "middle", "climax", "resolution"}:
+            log.append(f"[{source}] ignored invalid arc stage for {cid}: {stage!r}")
+            stage = ""
+        progress_text = fields.get("progress") or fields.get("arc_progress")
+        progress: Optional[int] = None
+        if progress_text not in (None, ""):
+            try:
+                progress = max(0, min(100, int(str(progress_text).strip())))
+            except ValueError:
+                log.append(f"[{source}] ignored invalid arc progress for {cid}: {progress_text!r}")
+        if stage:
+            character.arc_stage = stage
+        if progress is not None:
+            character.arc_progress = progress
+        outcome = str(
+            fields.get("outcome") or fields.get("outcome_state") or ""
+        ).strip().lower()
+        evidence = str(
+            fields.get("evidence")
+            or fields.get("choice")
+            or fields.get("state")
+            or ""
+        ).strip()
+        if outcome:
+            character.outcome_state = outcome
+            if evidence:
+                character.outcome_evidence = evidence
+        event = {
+            "character_id": cid,
+            "chapter": chapter_number,
+            "stage": stage or character.arc_stage,
+            "progress": character.arc_progress,
+            "outcome": outcome or character.outcome_state,
+            "evidence": evidence,
+        }
+        if event not in chapter.arc_state_updates:
+            chapter.arc_state_updates.append(event)
+        outcome_log = f", outcome={character.outcome_state}" if character.outcome_state else ""
+        log.append(
+            f"[{source}] {character.full_name}: "
+            f"arc={character.arc_stage}/{character.arc_progress}{outcome_log}"
+        )
+
+
+def _apply_ending_evidence(
+    chapter: Any,
+    raw_evidence: Any,
+    source: str,
+    log: List[str],
+) -> None:
+    for evidence in _as_list(raw_evidence):
+        value = str(evidence).strip()
+        if not value or value.lower() in _PLACEHOLDER:
+            continue
+        if value not in chapter.ending_evidence:
+            chapter.ending_evidence.append(value)
+            log.append(f"[{source}] ending evidence recorded: {value[:60]}")
+
+
 def apply_to_state(
     state: "StoryState",
     chapter_number: int,
@@ -405,6 +546,43 @@ def apply_to_state(
     """Mutate StoryState from a parsed agent block. Returns a change log."""
     log: List[str] = []
     chapter = state.get_chapter(chapter_number) or state.create_chapter(chapter_number)
+
+    # ----- Final-derived chapter metadata
+    chapter_metadata = parsed.get("chapter_metadata")
+    if chapter_metadata is not None:
+        if not isinstance(chapter_metadata, dict):
+            raise ValueError("chapter_metadata must be an object")
+        allowed_metadata = {"title", "pov", "location", "time", "word_count"}
+        unknown_metadata = set(chapter_metadata) - allowed_metadata
+        if unknown_metadata:
+            raise ValueError(
+                f"chapter_metadata has unsupported fields: {sorted(unknown_metadata)}"
+            )
+        for field, attribute in (
+            ("title", "title"),
+            ("pov", "pov_character"),
+            ("location", "location"),
+            ("time", "time"),
+        ):
+            value = chapter_metadata.get(field)
+            if value is None:
+                continue
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"chapter_metadata.{field} must be a nonblank string")
+            setattr(chapter, attribute, value.strip())
+            log.append(f"[{source}] ch{chapter_number} {field} updated")
+        if "word_count" in chapter_metadata:
+            word_count = chapter_metadata["word_count"]
+            if (
+                isinstance(word_count, bool)
+                or not isinstance(word_count, int)
+                or word_count < 0
+            ):
+                raise ValueError(
+                    "chapter_metadata.word_count must be a nonnegative integer"
+                )
+            chapter.word_count = word_count
+            log.append(f"[{source}] ch{chapter_number} word_count = {word_count}")
 
     # ----- characters present -> chapter cast + bump last_appearance_chapter
     present_names: List[str] = []
@@ -474,6 +652,22 @@ def apply_to_state(
         source,
         log,
     )
+    _apply_payoff_events(
+        chapter,
+        parsed.get("payoff_events"),
+        chapter_number,
+        source,
+        log,
+    )
+    _apply_arc_state_updates(
+        state,
+        chapter,
+        parsed.get("arc_state_updates"),
+        chapter_number,
+        source,
+        log,
+    )
+    _apply_ending_evidence(chapter, parsed.get("ending_evidence"), source, log)
 
     # ----- new information / facts
     new_facts = _as_list(parsed.get("new_information_revealed")) + _as_list(parsed.get("new_facts_established"))
@@ -516,11 +710,20 @@ def apply_to_state(
 # ---------------------------------------------------------------- top-level
 
 _DISPATCH = {
+    "architect": parse_architect,
     "scribe": parse_scribe,
     "editor": parse_editor,
     "continuity_guardian": parse_continuity,
     "style_curator": parse_style,
 }
+
+
+def parse_agent_output(agent_name: str, agent_output: str) -> Dict[str, Any]:
+    """Parse an agent state-update block without mutating StoryState."""
+    parser = _DISPATCH.get(agent_name)
+    if not parser:
+        return {}
+    return parser(agent_output)
 
 
 def ingest_agent_output(
@@ -530,10 +733,7 @@ def ingest_agent_output(
     agent_output: str,
 ) -> List[str]:
     """One-call entry point. Parses + applies + returns change log (may be empty)."""
-    parser = _DISPATCH.get(agent_name)
-    if not parser:
-        return []
-    parsed = parser(agent_output)
+    parsed = parse_agent_output(agent_name, agent_output)
     if not parsed:
         return []
     return apply_to_state(state, chapter_number, parsed, source=agent_name)

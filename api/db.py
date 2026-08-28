@@ -1,21 +1,26 @@
 """Database layer SQLite via SQLModel.
 
-The agent engine (core/) stays file-based; this DB is the API's system-of-record.
-Engine-produced files are mirrored in via `ingest_project`; human-owned content
-(Final text, snapshots, comments) is written here directly. All helpers open a
-short-lived session from the process-wide engine fine for a single-process,
-single-user local app.
+The agent engine (core/) stays file-based; this DB is the API's rebuildable query
+projection. Engine-produced files are mirrored in via `ingest_project`; snapshots
+and comments are written here directly, while canonical Final content is projected
+from its promoted artifact head. All helpers open a short-lived session from the
+process-wide engine, suitable for a single-process, single-user local app.
 """
 
 from __future__ import annotations
 
 import json
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from sqlmodel import Field, Session, SQLModel, create_engine, delete, select
+
+_CORE = Path(__file__).resolve().parent.parent / "core"
+if str(_CORE) not in sys.path:
+    sys.path.insert(0, str(_CORE))
 
 STAGES = ("outline", "draft", "revised", "final")
 
@@ -57,10 +62,10 @@ class Chapter(SQLModel, table=True):
 class Artifact(SQLModel, table=True):
     """One row per (project, chapter, stage) holding the stage's text.
 
-    `doc_json` carries the ProseMirror document for Final (PLAN.md P1). It is
-    the canonical form; `text` is the markdown projection agents read, and is
-    regenerated from the document on every save. Drafts and revisions stay
-    markdown-only immutable provenance.
+    `doc_json` carries the ProseMirror projection for Final (PLAN.md P1), preserving
+    UI-only marks that Markdown cannot express. `text` is the corresponding Markdown
+    projection agents read. The promoted artifact head remains canonical; drafts and
+    revisions stay Markdown-only immutable provenance.
     """
     id: str = Field(default_factory=_new_id, primary_key=True)
     project_id: str = Field(index=True)
@@ -75,6 +80,87 @@ class Artifact(SQLModel, table=True):
     produced_by_model: str = ""
     reviewed_by: str = ""
     reviewed_at: str = ""
+
+
+class ArtifactRevisionProjection(SQLModel, table=True):
+    """Append-only query projection of a core ArtifactRevision record."""
+
+    id: str = Field(primary_key=True)
+    project_id: str = Field(index=True)
+    revision_id: str = Field(index=True)
+    chapter: int = Field(index=True)
+    kind: str = Field(index=True)
+    sha256: str
+    byte_length: int
+    parent_revision_id: str = ""
+    source: str
+    provider: str = ""
+    model: str = ""
+    prompt_sha256: str = ""
+    story_contract_revision_id: str = ""
+    chapter_contract_revision_id: str = ""
+    created_at: str
+
+
+class EvaluationReportProjection(SQLModel, table=True):
+    """Credential-free projection of one immutable evaluation report."""
+
+    id: str = Field(primary_key=True)
+    project_id: str = Field(index=True)
+    report_id: str = Field(index=True)
+    chapter: int = Field(index=True)
+    artifact_revision_id: str = Field(index=True)
+    artifact_sha256: str
+    evaluation_id: str
+    rubric_version: str
+    prompt_sha256: str
+    evaluator_provider: str
+    evaluator_model: str
+    hard_gates_json: str = "{}"
+    semantic_dimensions_json: str = "{}"
+    status: str
+    created_at: str
+
+
+class QualityFindingProjection(SQLModel, table=True):
+    """Append-only finding projection owned by an evaluation report."""
+
+    id: str = Field(primary_key=True)
+    project_id: str = Field(index=True)
+    report_id: str = Field(index=True)
+    finding_id: str = Field(index=True)
+    chapter: int = Field(index=True)
+    artifact_sha256: str
+    category: str
+    severity: str
+    message: str
+    evidence_json: str = "[]"
+    suggested_action: str = ""
+    repair_class: str = ""
+    evidence_verification_result: bool = False
+
+
+class PromotionReceiptProjection(SQLModel, table=True):
+    """Append-only projection of the core promotion authority receipt."""
+
+    id: str = Field(primary_key=True)
+    project_id: str = Field(index=True)
+    receipt_id: str = Field(index=True)
+    chapter: int = Field(index=True)
+    request_id: str
+    idempotency_key: str
+    old_artifact_revision_id: str = ""
+    old_artifact_sha256: str = ""
+    new_artifact_revision_id: str = Field(index=True)
+    new_artifact_sha256: str
+    old_canon_sha: str
+    new_canon_sha: str
+    canon_proposal_id: str
+    evaluation_report_id: str = Field(index=True)
+    actor: str
+    reason: str
+    decision_metadata_json: str = "{}"
+    committed_at: str
 
 
 class Snapshot(SQLModel, table=True):
@@ -272,14 +358,31 @@ def ingest_project(root: Path, project_id: str) -> None:
             s.add(row)
 
             for stage in STAGES:
-                # Final is DB-owned: don't let an (older) file clobber a saved Final.
                 f = _stage_file(project_dir, number, stage)
-                if not f.exists():
-                    continue
-                text = f.read_text(encoding="utf-8")
                 art = _get_artifact(s, project_id, number, stage)
-                if stage == "final" and art is not None:
-                    continue
+                if stage == "final":
+                    try:
+                        from artifacts import ArtifactStore
+
+                        store = ArtifactStore(project_dir)
+                        head = store.get_head(number, "final")
+                        text = store.read_text(head.revision_id) if head else None
+                    except ImportError:
+                        from core.artifacts import ArtifactStore
+
+                        store = ArtifactStore(project_dir)
+                        head = store.get_head(number, "final")
+                        text = store.read_text(head.revision_id) if head else None
+                    if text is None:
+                        if art is not None:
+                            continue
+                        if not f.exists():
+                            continue
+                        text = f.read_text(encoding="utf-8")
+                else:
+                    if not f.exists():
+                        continue
+                    text = f.read_text(encoding="utf-8")
                 if art is None:
                     art = Artifact(project_id=project_id, chapter=number, stage=stage)
                 art.text = text
@@ -366,6 +469,164 @@ def get_artifact_doc(project_id: str, chapter: int, stage: str) -> Optional[str]
     with _session() as s:
         art = _get_artifact(s, project_id, chapter, stage)
         return (art.doc_json or None) if art else None
+
+
+# -------------------------------------------------------- quality projections
+
+def project_artifact_revision(project_id: str, payload: dict) -> None:
+    row_id = f"{project_id}:{payload['revision_id']}"
+    with _session() as s:
+        if s.get(ArtifactRevisionProjection, row_id) is not None:
+            return
+        s.add(ArtifactRevisionProjection(
+            id=row_id,
+            project_id=project_id,
+            revision_id=payload["revision_id"],
+            chapter=payload["chapter"],
+            kind=payload["kind"],
+            sha256=payload["sha256"],
+            byte_length=payload["byte_length"],
+            parent_revision_id=payload.get("parent_revision_id") or "",
+            source=payload["source"],
+            provider=payload.get("provider") or "",
+            model=payload.get("model") or "",
+            prompt_sha256=payload.get("prompt_sha256") or "",
+            story_contract_revision_id=(
+                payload.get("story_contract_revision_id") or ""
+            ),
+            chapter_contract_revision_id=(
+                payload.get("chapter_contract_revision_id") or ""
+            ),
+            created_at=payload["timestamp"],
+        ))
+        s.commit()
+
+
+def artifact_revisions_list(
+    project_id: str, chapter: int, kind: str | None = None
+) -> list[ArtifactRevisionProjection]:
+    with _session() as s:
+        query = select(ArtifactRevisionProjection).where(
+            ArtifactRevisionProjection.project_id == project_id,
+            ArtifactRevisionProjection.chapter == chapter,
+        )
+        if kind:
+            query = query.where(ArtifactRevisionProjection.kind == kind)
+        return list(s.exec(query.order_by(ArtifactRevisionProjection.created_at)).all())
+
+
+def project_evaluation_report(project_id: str, payload: dict) -> None:
+    report_id = payload["report_id"]
+    request = payload["request"]
+    row_id = f"{project_id}:{report_id}"
+    with _session() as s:
+        if s.get(EvaluationReportProjection, row_id) is None:
+            s.add(EvaluationReportProjection(
+                id=row_id,
+                project_id=project_id,
+                report_id=report_id,
+                chapter=request["chapter"],
+                artifact_revision_id=request["artifact_revision_id"],
+                artifact_sha256=payload["artifact_sha256"],
+                evaluation_id=payload["evaluation_id"],
+                rubric_version=payload["rubric_version"],
+                prompt_sha256=payload["prompt_sha256"],
+                evaluator_provider=payload["evaluator_provider"],
+                evaluator_model=payload["evaluator_model"],
+                hard_gates_json=json.dumps(payload["hard_gates"], sort_keys=True),
+                semantic_dimensions_json=json.dumps(
+                    payload["semantic_dimensions"], sort_keys=True
+                ),
+                status=payload["status"],
+                created_at=payload["created_at"],
+            ))
+        for finding in payload["findings"]:
+            finding_row_id = f"{project_id}:{report_id}:{finding['finding_id']}"
+            if s.get(QualityFindingProjection, finding_row_id) is None:
+                s.add(QualityFindingProjection(
+                    id=finding_row_id,
+                    project_id=project_id,
+                    report_id=report_id,
+                    finding_id=finding["finding_id"],
+                    chapter=request["chapter"],
+                    artifact_sha256=finding["artifact_sha256"],
+                    category=finding["category"],
+                    severity=finding["severity"],
+                    message=finding["message"],
+                    evidence_json=json.dumps(finding["evidence"], sort_keys=True),
+                    suggested_action=finding["suggested_action"],
+                    repair_class=finding["repair_class"],
+                    evidence_verification_result=finding[
+                        "evidence_verification_result"
+                    ],
+                ))
+        s.commit()
+
+
+def evaluation_reports_list(
+    project_id: str, chapter: int
+) -> list[EvaluationReportProjection]:
+    with _session() as s:
+        return list(s.exec(
+            select(EvaluationReportProjection).where(
+                EvaluationReportProjection.project_id == project_id,
+                EvaluationReportProjection.chapter == chapter,
+            ).order_by(EvaluationReportProjection.created_at)
+        ).all())
+
+
+def quality_findings_list(
+    project_id: str, chapter: int
+) -> list[QualityFindingProjection]:
+    with _session() as s:
+        return list(s.exec(
+            select(QualityFindingProjection).where(
+                QualityFindingProjection.project_id == project_id,
+                QualityFindingProjection.chapter == chapter,
+            )
+        ).all())
+
+
+def project_promotion_receipt(project_id: str, payload: dict) -> None:
+    row_id = f"{project_id}:{payload['receipt_id']}"
+    with _session() as s:
+        if s.get(PromotionReceiptProjection, row_id) is not None:
+            return
+        s.add(PromotionReceiptProjection(
+            id=row_id,
+            project_id=project_id,
+            receipt_id=payload["receipt_id"],
+            chapter=payload["chapter"],
+            request_id=payload["request_id"],
+            idempotency_key=payload["idempotency_key"],
+            old_artifact_revision_id=payload.get("old_artifact_revision_id") or "",
+            old_artifact_sha256=payload.get("old_artifact_sha256") or "",
+            new_artifact_revision_id=payload["new_artifact_revision_id"],
+            new_artifact_sha256=payload["new_artifact_sha256"],
+            old_canon_sha=payload["old_canon_sha"],
+            new_canon_sha=payload["new_canon_sha"],
+            canon_proposal_id=payload["canon_proposal_id"],
+            evaluation_report_id=payload["evaluation_report_id"],
+            actor=payload["actor"],
+            reason=payload["reason"],
+            decision_metadata_json=json.dumps(
+                payload["decision_metadata"], sort_keys=True
+            ),
+            committed_at=payload["committed_at"],
+        ))
+        s.commit()
+
+
+def promotion_receipts_list(
+    project_id: str, chapter: int
+) -> list[PromotionReceiptProjection]:
+    with _session() as s:
+        return list(s.exec(
+            select(PromotionReceiptProjection).where(
+                PromotionReceiptProjection.project_id == project_id,
+                PromotionReceiptProjection.chapter == chapter,
+            ).order_by(PromotionReceiptProjection.committed_at)
+        ).all())
 
 
 # --------------------------------------------------------------------------- snapshots
@@ -648,7 +909,22 @@ def projects_for_workspace(workspace_id: str) -> list[str]:
 def _clear_all() -> None:
     """Test helper wipe every table."""
     with _session() as s:
-        for model in (Artifact, Snapshot, Comment, Media, Chapter, Project,
-                      AuthSession, Membership, ProjectOwnership, User, Workspace):
+        for model in (
+            QualityFindingProjection,
+            EvaluationReportProjection,
+            PromotionReceiptProjection,
+            ArtifactRevisionProjection,
+            Artifact,
+            Snapshot,
+            Comment,
+            Media,
+            Chapter,
+            Project,
+            AuthSession,
+            Membership,
+            ProjectOwnership,
+            User,
+            Workspace,
+        ):
             s.exec(delete(model))
         s.commit()

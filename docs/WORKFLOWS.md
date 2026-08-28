@@ -47,7 +47,7 @@ python core/orchestrator.py run \
   --dry-run
 ```
 
-Run unattended and compile Markdown plus EPUB:
+Run unattended and compile Markdown, EPUB, and PDF:
 
 ```bash
 python core/orchestrator.py run \
@@ -56,12 +56,18 @@ python core/orchestrator.py run \
   --chapters 24 \
   --words 80000 \
   --approval auto \
-  --output markdown epub
+  --output markdown epub pdf
 ```
 
 The runner processes chapters sequentially because each chapter updates the
 facts used by the next chapter. It persists `run.json`, `events.jsonl`, artifact
 hashes, prompts, and raw provider responses so an interrupted run can resume.
+
+Runs record a `quality_policy`: `legacy` keeps compatibility with older
+manifests and emits a synthetic receipt, while `evidence_v1` requires a passing
+evaluation report, revision-bound proposals, contract-head checks, and a real
+promotion receipt. The provider/model recorded for each role is the runtime
+client that produced or judged that artifact.
 
 The default policy is `review_required`. The run pauses after producing a
 candidate final for the current chapter:
@@ -107,6 +113,26 @@ the stale state that produced the original deterministic finding. Guardian
 validation retries still restore the clean post-edit checkpoint because a
 failed Guardian response may have partially updated state.
 
+Every API Final mutation follows the same evidence boundary: text or rich text
+first becomes an immutable candidate revision, then a deterministic report and
+canon proposal are created, and only `PromotionService` can commit the new head.
+The same proposal carries the actual Final word count and any parsed chapter-header
+title, POV, location, and time, so manuscript and StoryState metadata advance atomically.
+This includes stage acceptance, direct text saves, ProseMirror saves, snapshot
+restore, consequence acceptance, and force overrides. Force overrides record
+the actor, reason, scope, candidate SHA, and base SHA; they still enforce stale
+head checks and create a receipt. A GET of a legacy Final may convert Markdown
+to an in-memory ProseMirror document, but it does not persist that conversion.
+Once a Final head exists, reads verify and use that immutable revision; the mutable
+Markdown and SQLite rows are rebuildable projections. Projection failures after a
+receipt commit do not reverse or hide the committed result. Concurrent-head and
+integrity conflicts surface as HTTP 409, while an unresolved durable outcome uses
+HTTP 503 and requires a quality-state refresh before another mutation.
+
+To roll back, select the previous receipt's `old_artifact_revision_id` and
+promote that exact revision as a new candidate with a new idempotency key. Keep
+both receipts so the audit trail remains append-only.
+
 Critical deterministic findings or a Guardian `FAIL` block promotion. Network,
 timeout, and rate-limit failures use bounded exponential retries; configuration
 and output-contract failures stop immediately with a non-zero exit code.
@@ -124,6 +150,9 @@ outputs/manuscript/chapter_NNN_candidate_final.md
 outputs/manuscript/chapter_NNN_final.md
 outputs/deliverables/book.md
 outputs/deliverables/book.epub
+outputs/artifacts/revisions.jsonl
+outputs/state/promotion_receipts/<id>.json
+outputs/quality/evaluation_reports/<id>.json
 ```
 
 ---

@@ -23,7 +23,7 @@
 | P3 | Moat B consequence preview, provenance, review | ◐ Preview + provenance + review + comment personas |
 | P4 | Studio binder, corkboard, outliner, research | ◐ Binder + corkboard + outliner + research + **⌘K search** + **Collections MVP**; semantic collections later |
 | P5 | Word parity track changes, styles, AI images | ◐ **Track changes + named styles shipped**; spellcheck / AI images not started |
-| P6 | Publishing DOCX / EPUB / PDF / HTML | ◐ **DOCX · EPUB · HTML · Markdown all shipped, with no new dependencies**; PDF and epubcheck validation remain |
+| P6 | Publishing DOCX / EPUB / PDF / HTML | ◐ **DOCX · EPUB · PDF · HTML · Markdown all shipped, with no new dependencies**; epubcheck validation remains |
 | P7 | Commercial auth, billing, onboarding, marketing | ☐ Not started |
 
 **Storage + layer architecture:** [`docs/superpowers/plans/2026-08-08-full-stack-architecture-and-buildout.md`](docs/superpowers/plans/2026-08-08-full-stack-architecture-and-buildout.md)
@@ -195,12 +195,13 @@ Scrivener parity, now that the differentiators exist.
 ## P6 Publishing
 
 - Compile engine walking the document tree.
-  - **Shipped:** `core/compile_book.py`, split into **gather** (walk chapters, pick the most finished prose, parse to typed blocks) and **render** (blocks + stylesheet → a format). That split is what makes DOCX and EPUB new *renderers* rather than new walks. `GET …/compile?format=html|markdown`.
+  - **Shipped:** `core/compile_book.py`, split into **gather** (walk chapters, pick the most finished prose, parse to typed blocks) and **render** (blocks + stylesheet → a format). That split is what makes DOCX, EPUB, and PDF new *renderers* rather than new walks. `GET …/compile?format=html|markdown|docx|epub|pdf`.
   - Final is read as the **reject-all** projection, so a pending track-change is never exported as though the author accepted it.
 - **DOCX / EPUB / PDF / HTML** with automatic front-matter, blurb, and chapter titles drawn from state.
   - **Shipped: DOCX and EPUB written directly**, with `zipfile` and the standard library. Both formats are ZIP-of-XML and our block set is narrow, so emitting OOXML and EPUB 3 by hand costs a few hundred lines and **no dependency** — which is what `requirements.txt` asks for, and it means a writer who exports twice a year carries no document library to do it.
+  - **Shipped: PDF written directly** with a standard-library PDF 1.4 renderer and the built-in `STSong-Light` CID font, so Chinese manuscripts work without a platform converter or bundled font.
   - HTML is self-contained and printable (an emailed export must stand alone). EPUB writes one document per chapter so navigation and progress work.
-  - **Remaining:** PDF (the one format that genuinely needs a renderer) and validating EPUB against epubcheck.
+  - **Remaining:** validating EPUB against epubcheck.
 - Inline images and styles carry through with fidelity.
 - Export presets; validate EPUB against epubcheck.
 

@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.main import create_app
+from artifacts import ArtifactStore
 
 CH1 = """
 Lena Marrow stood at the rail. "You should go inside," said Mara.
@@ -83,3 +84,24 @@ def test_a_project_with_no_prose_proposes_nothing(client, tmp_path):
     (tmp_path / "projects" / "book" / "outputs" / "manuscript"
      / "chapter_001_final.md").unlink()
     assert client.get("/api/projects/book/codex/proposals").json() == []
+
+
+def test_proposals_prefer_canonical_final_head(client, tmp_path):
+    project = tmp_path / "projects" / "book"
+    canonical = CH1.replace("Mara", "Ilyana")
+    artifacts = ArtifactStore(project)
+    revision = artifacts.put_text(
+        chapter=1,
+        kind="final",
+        text=canonical,
+        source="test_canonical",
+    )
+    artifacts.set_head(1, "final", revision.revision_id, expected_revision_id=None)
+
+    names = [
+        proposal["name"]
+        for proposal in client.get("/api/projects/book/codex/proposals").json()
+    ]
+
+    assert "Ilyana" in names
+    assert "Mara" not in names

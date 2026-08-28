@@ -6,6 +6,8 @@ Central orchestration system that coordinates agents through the novel writing w
 
 import json
 import argparse
+import copy
+import hashlib
 import os
 import re
 import sys
@@ -17,16 +19,26 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding="utf-8")
     except Exception:
         pass
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 from datetime import datetime
 
 # Import state manager
 from state_manager import StoryState, Character, PlotThread, ChapterState, TimelineEvent, StyleProfile, initialize_project
 from llm_client import LLMClient, LLMError
-from state_parser import ingest_agent_output, normalize_agent_output
+from model_router import ModelRouter
+from state_parser import (
+    extract_manuscript_block,
+    ingest_agent_output,
+    normalize_agent_output,
+    parse_agent_output,
+)
 from continuity_engine import run_all as run_continuity_checks, summarize as summarize_findings, to_context_block
 from prose_sanitize import sanitize_manuscript, apply_header_to_chapter, strip_em_dashes
 from context_pack import build_context_pack, format_context_pack, slice_chapter_for_llm
+from canon import apply_canon_proposal, build_canon_proposal
+from canon_ledger import CanonLedger, CanonLedgerEntry, CanonReconciliationEntry
+from proposals import ProposalStore
+from story_foundation import apply_story_foundation
 
 
 class NovelOrchestrator:
@@ -34,7 +46,12 @@ class NovelOrchestrator:
     Orchestrates the novel writing workflow across all agents.
     """
     
-    def __init__(self, project_path: str = "."):
+    def __init__(
+        self,
+        project_path: str = ".",
+        state_update_mode: Literal["legacy_apply", "proposal_only"] = "legacy_apply",
+    ):
+        self._validate_state_update_mode(state_update_mode)
         self.project_path = Path(project_path)
         self.state = StoryState(project_path)
         self.agents_dir = Path(__file__).parent.parent / "agents"
@@ -45,15 +62,68 @@ class NovelOrchestrator:
         
         self._ensure_directories()
         self._llm: Optional[LLMClient] = None
+        self._llms: Dict[str, LLMClient] = {}
+        self._model_router = ModelRouter()
         # Book-level pipelines opt into exceptions so they can retry and record
         # a failed stage. Interactive legacy commands retain their friendly
         # print-and-return behavior.
         self.raise_llm_errors = False
+        self.state_update_mode = state_update_mode
+        self.quality_policy = "legacy"
+        self.last_canon_proposal_ids: List[str] = []
 
-    def _get_llm(self) -> LLMClient:
-        if self._llm is None:
-            self._llm = LLMClient()
-        return self._llm
+    @staticmethod
+    def _validate_state_update_mode(mode: str) -> None:
+        if mode not in ("legacy_apply", "proposal_only"):
+            raise ValueError(
+                "state_update_mode must be 'legacy_apply' or 'proposal_only'"
+            )
+
+    def _persist_canon_proposal(
+        self,
+        *,
+        chapter_number: Optional[int],
+        agent_name: str,
+        normalized_response: str,
+        source_path: Path,
+    ) -> None:
+        """Persist a parsed delta bound to the exact saved artifact bytes."""
+        if chapter_number is None or not parse_agent_output(agent_name, normalized_response):
+            return
+        source_sha = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        proposal = build_canon_proposal(
+            self.state,
+            chapter_number,
+            agent_name,
+            source_sha,
+            normalized_response,
+        )
+        persisted = ProposalStore(self.project_path).save(proposal)
+        self.last_canon_proposal_ids.append(persisted.proposal_id)
+
+    def _get_llm(self, agent_name: str = "writer") -> LLMClient:
+        """Return a legacy override or a role-keyed cached client."""
+        if self._llm is not None:
+            return self._llm
+        role = self._model_router.normalize_role(agent_name)
+        if role not in self._llms:
+            self._llms[role] = self._model_router.client_for(role)
+        return self._llms[role]
+
+    @property
+    def llm(self) -> LLMClient:
+        """Compatibility access to the default writer client."""
+        return self._get_llm("writer")
+
+    @llm.setter
+    def llm(self, client: LLMClient) -> None:
+        self._llm = client
+        self._llms.clear()
+
+    def runtime_provenance_for(self, agent_name: str) -> tuple[str, str]:
+        """Return the resolved provider/model for an agent without credentials."""
+        llm = self._get_llm(agent_name)
+        return str(llm.provider), str(llm.model)
 
     def _run_agent_or_save_prompt(
         self,
@@ -64,18 +134,22 @@ class NovelOrchestrator:
         dry_run: bool,
         label: str,
         chapter_number: Optional[int] = None,
+        state_update_mode: Optional[Literal["legacy_apply", "proposal_only"]] = None,
     ) -> Optional[str]:
         """Either save the prompt (dry-run) or call the agent and save its output.
 
         On a successful real call, also ingest any state-update blocks the agent
         emitted into StoryState so persistent memory actually updates.
         """
+        self.last_canon_proposal_ids = []
+        resolved_mode = self.state_update_mode if state_update_mode is None else state_update_mode
+        self._validate_state_update_mode(resolved_mode)
         prompt_path.write_text(user_prompt, encoding='utf-8')
         if dry_run:
             print(f"   [dry-run] Prompt saved: {prompt_path}")
             return None
         try:
-            llm = self._get_llm()
+            llm = self._get_llm(agent_name)
             print(f"   {label} ({llm.provider}:{llm.model})...")
             result = llm.run_agent(agent_name, user_prompt)
         except LLMError as e:
@@ -97,20 +171,23 @@ class NovelOrchestrator:
         ):
             raise LLMError("Scribe response is missing [SCRIBE_STATE_UPDATE]")
         if agent_name == "editor":
-            match = re.search(
-                r"\[REVISED(?:_|\s+)CHAPTER\](.*?)\[/REVISED(?:_|\s+)CHAPTER\]",
-                normalized_result,
-                re.IGNORECASE | re.DOTALL,
-            )
-            if match:
-                manuscript_result = match.group(1).strip()
+            manuscript_block = extract_manuscript_block(normalized_result)
+            if manuscript_block is not None:
+                manuscript_result = manuscript_block
+                if not manuscript_result.strip():
+                    message = "Editor returned an empty revised chapter"
+                    if self.raise_llm_errors:
+                        raise LLMError(message)
+                    print(f"❌ {message}; raw response saved at {raw_path}")
+                    return None
             elif self.raise_llm_errors:
                 raise LLMError("Editor response is missing [REVISED_CHAPTER]")
             else:
-                print("⚠️  Editor response is missing [REVISED_CHAPTER]; saving sanitized response.")
+                print(f"❌ Editor response is missing [REVISED_CHAPTER]; raw response saved at {raw_path}")
+                return None
 
         # Only contract-valid responses may mutate persistent story state.
-        if chapter_number is not None:
+        if chapter_number is not None and resolved_mode == "legacy_apply":
             changes = ingest_agent_output(
                 self.state, chapter_number, agent_name, normalized_result
             )
@@ -125,7 +202,7 @@ class NovelOrchestrator:
         if agent_name in ("scribe", "editor") and output_path.suffix == ".md":
             clean, meta = sanitize_manuscript(manuscript_result)
             saved = clean
-            if chapter_number is not None:
+            if chapter_number is not None and resolved_mode == "legacy_apply":
                 chapter = self.state.get_chapter(chapter_number)
                 apply_header_to_chapter(chapter, meta)
                 if chapter and clean:
@@ -136,7 +213,14 @@ class NovelOrchestrator:
         output_path.write_text(saved, encoding='utf-8')
         print(f"✅ Output saved: {output_path}")
 
-        if chapter_number is not None:
+        if resolved_mode == "proposal_only":
+            self._persist_canon_proposal(
+                chapter_number=chapter_number,
+                agent_name=agent_name,
+                normalized_response=normalized_result,
+                source_path=output_path,
+            )
+        elif chapter_number is not None:
             self.state.save_state()
 
         return saved
@@ -423,6 +507,20 @@ Before the Markdown analysis, emit exactly one JSON object inside these tags:
       "type": "main", "priority": 5, "resolution_chapter": {num_chapters}
     }}
   ],
+  "ending_contract": {{
+    "schema_version": 1, "enforce": true,
+    "finale_window": {{"start_chapter": {max(1, num_chapters - 4)}, "end_chapter": {num_chapters}}},
+    "main_conflict": {{"thread_id": "plot_001", "required_status": "resolved",
+      "protagonist_choice": "...", "consequence": "..."}},
+    "character_arcs": [{{"character_id": "char_001",
+      "required_arc_stage": "resolution", "required_outcome": "...",
+      "outcome_match_mode": "auto", "required_outcome_aliases": [],
+      "required_choice": "..."}}],
+    "plot_payoffs": [{{"id": "payoff_001", "setup_ids": ["ch1:fs1"],
+      "required_payoff": "...", "deadline": {num_chapters}, "allow_intentional_open": false}}],
+    "antagonist_outcome": {{"required": false}},
+    "emotional_contract": {{"reader_emotion": "...", "afterglow_state": "..."}}
+  }},
   "style": {{"tone": "...", "pov": "third_limited", "tense": "past", "prose_style": "balanced"}},
   "chapters": [
     {{
@@ -433,6 +531,19 @@ Before the Markdown analysis, emit exactly one JSON object inside these tags:
 }}
 [/STORY_FOUNDATION_JSON]
 ```
+
+The ending_contract is authoritative for the final 3-5 chapters. Every
+required payoff must reference a stable setup id such as ch3:fs2. Use an empty
+plot_payoffs list only when the story has no tracked long-range setup. Set
+allow_intentional_open=true only for a deliberate, documented open thread.
+
+For character outcomes, prefer short stable identifiers (for example
+`independence`). When `outcome_match_mode` is omitted or set to `auto`, short
+ASCII identifiers remain exact while natural-language outcomes tolerate
+formatting and appended detail. Use `exact` to enforce a complete value,
+`normalized` for formatting-only differences, and `contains` when an explicitly
+richer state is intended. For legitimate paraphrases, list approved
+alternatives in `required_outcome_aliases`; do not rely on fuzzy similarity.
 
 Use exactly {num_chapters} chapter objects with unique numbers 1 through
 {num_chapters}. After the closing tag, provide the human-readable blueprint.
@@ -457,7 +568,16 @@ genre-appropriate assumptions rather than asking questions.
                     json.dumps(foundation, indent=2, ensure_ascii=False) + "\n",
                     encoding="utf-8",
                 )
-                self._apply_story_foundation(foundation, target_words)
+                from ending_quality import ensure_quality_ledgers
+
+                ensure_quality_ledgers(
+                    self.project_path,
+                    foundation.get("ending_contract")
+                    if isinstance(foundation.get("ending_contract"), dict)
+                    else None,
+                )
+                if self.state_update_mode == "legacy_apply":
+                    self._apply_story_foundation(foundation, target_words)
             except (ValueError, json.JSONDecodeError) as exc:
                 message = f"Architect output contract failed: {exc}"
                 if self.raise_llm_errors:
@@ -491,94 +611,147 @@ genre-appropriate assumptions rather than asking questions.
             raise ValueError("story foundation must define at least one character")
         if not isinstance(data.get("plot_threads"), list) or not data["plot_threads"]:
             raise ValueError("story foundation must define at least one plot thread")
+        ending = data.get("ending_contract")
+        if ending is not None:
+            if not isinstance(ending, dict):
+                raise ValueError("ending_contract must be a JSON object")
+            if ending.get("enforce", False):
+                required = {
+                    "finale_window",
+                    "main_conflict",
+                    "character_arcs",
+                    "plot_payoffs",
+                    "antagonist_outcome",
+                    "emotional_contract",
+                }
+                missing = sorted(key for key in required if key not in ending)
+                if missing:
+                    raise ValueError(
+                        "enforced ending_contract is missing: " + ", ".join(missing)
+                    )
         return data
 
-    def _apply_story_foundation(self, foundation: Dict[str, Any], target_words: int) -> None:
+    def _apply_story_foundation(
+        self,
+        foundation: Dict[str, Any],
+        target_words: int,
+        *,
+        persist: bool = True,
+    ) -> None:
         """Hydrate StoryState so context packs and continuity checks have canon."""
-        if foundation.get("title") and self.state.metadata.get("title") in (None, "", "Untitled"):
-            self.state.set_metadata("title", str(foundation["title"]))
-        if foundation.get("premise"):
-            self.state.set_metadata("premise", str(foundation["premise"]))
-            self.state.update_story_bible("premise", str(foundation["premise"]))
-        self.state.update_story_bible("themes", list(foundation.get("themes") or []))
-        self.state.update_story_bible("setting", dict(foundation.get("setting") or {}))
+        apply_story_foundation(
+            self.state,
+            foundation,
+            target_words,
+            preserve_completed_chapters=not persist,
+        )
+        if persist:
+            self._write_foundation_story_bible(foundation)
+            self.state.save_state()
 
-        for index, raw in enumerate(foundation.get("characters") or [], start=1):
-            if not isinstance(raw, dict) or not str(raw.get("name") or "").strip():
-                continue
-            char_id = str(raw.get("id") or f"char_{index:03d}")
-            age = raw.get("age")
-            try:
-                age = int(age) if age is not None else None
-            except (TypeError, ValueError):
-                age = None
-            character = Character(
-                id=char_id,
-                full_name=str(raw["name"]).strip(),
-                role=str(raw.get("role") or "supporting"),
-                age=age,
-                physical_description=str(raw.get("physical_description") or ""),
-                internal_desire=str(raw.get("internal_desire") or ""),
-                external_goal=str(raw.get("external_goal") or ""),
-                fear=str(raw.get("fear") or ""),
-                weakness=str(raw.get("weakness") or ""),
-                strength=str(raw.get("strength") or ""),
-                secret=str(raw.get("secret") or ""),
-                notes=str(raw.get("arc") or raw.get("notes") or ""),
-            )
-            self.state.characters[char_id] = character
-
-        for index, raw in enumerate(foundation.get("plot_threads") or [], start=1):
-            if not isinstance(raw, dict) or not str(raw.get("name") or "").strip():
-                continue
-            thread_id = str(raw.get("id") or f"plot_{index:03d}")
-            try:
-                priority = max(1, min(5, int(raw.get("priority", 3))))
-            except (TypeError, ValueError):
-                priority = 3
-            resolution = raw.get("resolution_chapter")
-            try:
-                resolution = int(resolution) if resolution is not None else None
-            except (TypeError, ValueError):
-                resolution = None
-            self.state.plot_threads[thread_id] = PlotThread(
-                id=thread_id,
-                name=str(raw["name"]).strip(),
-                description=str(raw.get("description") or ""),
-                thread_type=str(raw.get("type") or "main"),
-                priority=priority,
-                start_chapter=int(raw.get("start_chapter") or 1),
-                target_resolution_chapter=resolution,
-            )
-
+    def build_proposal_runtime_state(self) -> StoryState:
+        """Build non-canonical planning context from the persisted foundation."""
+        foundation_path = self.outputs_dir / "input" / "foundation.json"
+        if not foundation_path.is_file():
+            raise ValueError("proposal runtime state requires foundation.json")
+        foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
         chapters = foundation.get("chapters") or []
-        default_target = max(1, target_words // max(1, len(chapters)))
-        for raw in chapters:
-            number = int(raw["number"])
-            chapter = self.state.get_chapter(number) or self.state.create_chapter(number)
-            chapter.title = str(raw.get("title") or f"Chapter {number}")
-            chapter.pov_character = str(raw.get("pov") or "")
-            summary = str(raw.get("summary") or "").strip()
-            if summary and summary not in chapter.plot_advances:
-                chapter.plot_advances.append(summary)
-            try:
-                chapter.target_word_count = max(1, int(raw.get("target_words") or default_target))
-            except (TypeError, ValueError):
-                chapter.target_word_count = default_target
-            chapter.status = "planned"
+        target_words = sum(
+            max(0, int(item.get("target_words") or 0))
+            for item in chapters
+            if isinstance(item, dict)
+        )
+        canonical_state = self.state
+        runtime_state = StoryState(str(self.project_path))
+        try:
+            self.state = runtime_state
+            self._apply_story_foundation(
+                foundation,
+                target_words or max(1, len(chapters)),
+                persist=False,
+            )
+        finally:
+            self.state = canonical_state
+        self._rebuild_proposal_runtime_tracking(runtime_state)
+        return runtime_state
 
-        style = foundation.get("style") or {}
-        if isinstance(style, dict):
-            for source, target in (
-                ("tone", "tone"),
-                ("pov", "point_of_view"),
-                ("tense", "tense"),
-                ("prose_style", "prose_style"),
-            ):
-                if style.get(source):
-                    setattr(self.state.style_profile, target, str(style[source]))
-        self._write_foundation_story_bible(foundation)
-        self.state.save_state()
+    def _rebuild_proposal_runtime_tracking(self, runtime_state: StoryState) -> None:
+        """Restore derived tracking that foundation hydration intentionally replaces."""
+        replay_state = copy.deepcopy(runtime_state)
+        proposal_store = ProposalStore(self.project_path)
+        for entry in CanonLedger(self.project_path).history():
+            if isinstance(entry, CanonReconciliationEntry):
+                for character_id, outcome in entry.outcomes.items():
+                    character = replay_state.characters.get(character_id)
+                    if character is not None:
+                        character.outcome_state = outcome["outcome_state"]
+                        character.outcome_evidence = outcome["outcome_evidence"]
+                continue
+            if not isinstance(entry, CanonLedgerEntry):
+                continue
+            proposal = proposal_store.load(
+                entry.proposal_id,
+                expected_source_artifact_sha=entry.source_artifact_sha,
+            )
+            apply_canon_proposal(
+                replay_state,
+                proposal,
+                entry.source_artifact_sha,
+            )
+
+        # Proposal replay mutates chapter fact lists as well. The canonical
+        # chapter projection is already loaded, so retain it and copy only the
+        # indexes that foundation hydration replaced with fresh objects.
+        runtime_state.characters = copy.deepcopy(replay_state.characters)
+        runtime_state.plot_threads = copy.deepcopy(replay_state.plot_threads)
+
+        for chapter_number in sorted(runtime_state.chapters):
+            chapter = runtime_state.chapters[chapter_number]
+            draft_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_draft.md"
+            revised_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_revised.md"
+            final_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_final.md"
+            written = draft_path.is_file() or revised_path.is_file() or final_path.is_file()
+
+            if chapter.status != "complete":
+                if revised_path.is_file():
+                    chapter.status = "edited"
+                elif draft_path.is_file():
+                    chapter.status = "drafted"
+
+            appearances = list(chapter.characters_present)
+            if written and chapter.pov_character:
+                appearances.append(chapter.pov_character)
+            for name in appearances:
+                character = runtime_state.get_character_by_name(str(name).strip())
+                if character is not None:
+                    character.last_appearance_chapter = max(
+                        character.last_appearance_chapter,
+                        chapter_number,
+                    )
+
+            for reference in chapter.character_references:
+                if not isinstance(reference, dict):
+                    continue
+                character = runtime_state.get_character(
+                    str(reference.get("character_id") or "")
+                )
+                if character is not None:
+                    character.last_reference_chapter = max(
+                        character.last_reference_chapter,
+                        int(reference.get("chapter") or chapter_number),
+                    )
+
+            for update in chapter.plot_thread_updates:
+                if not isinstance(update, dict):
+                    continue
+                thread = runtime_state.get_plot_thread(
+                    str(update.get("thread_id") or "")
+                )
+                if thread is not None:
+                    thread.last_updated_chapter = max(
+                        thread.last_updated_chapter,
+                        int(update.get("chapter") or chapter_number),
+                    )
 
     def _write_foundation_story_bible(self, foundation: Dict[str, Any]) -> None:
         """Render Architect canon into the human-readable story bible."""
@@ -625,6 +798,18 @@ genre-appropriate assumptions rather than asking questions.
                 f"- **{raw.get('name', 'Unnamed')}** ({raw.get('type', 'main')}): "
                 f"{raw.get('description') or '[Not specified]'}"
             )
+
+        ending = foundation.get("ending_contract")
+        if isinstance(ending, dict):
+            window = ending.get("finale_window") or {}
+            lines.extend([
+                "",
+                "## Ending Contract",
+                f"- Enforced: {bool(ending.get('enforce', False))}",
+                f"- Finale window: chapters {window.get('start_chapter', '?')}-{window.get('end_chapter', '?')}",
+                f"- Main conflict: {(ending.get('main_conflict') or {}).get('thread_id') or '[Not specified]'}",
+                f"- Required payoffs: {len(ending.get('plot_payoffs') or [])}",
+            ])
 
         style = foundation.get("style") or {}
         lines.extend([
@@ -707,30 +892,43 @@ genre-appropriate assumptions rather than asking questions.
         """Plan a specific chapter in detail (Architect agent expands the outline)."""
         print(f"\n📋 Planning Chapter {chapter_number}...")
 
-        chapter = self.state.get_chapter(chapter_number)
-        if not chapter:
-            chapter = self.state.create_chapter(chapter_number)
+        canonical_state = self.state
+        if self.state_update_mode == "proposal_only":
+            self.state = self.build_proposal_runtime_state()
 
-        if summary:
-            chapter.plot_advances.append(summary)
-        if pov:
-            chapter.pov_character = pov
+        try:
+            chapter = self.state.get_chapter(chapter_number)
+            if not chapter:
+                chapter = self.state.create_chapter(chapter_number)
 
-        chapter.status = 'planned'
-        self.state.save_state()
+            if summary:
+                chapter.plot_advances.append(summary)
+            if pov:
+                chapter.pov_character = pov
 
-        prompt = self._generate_chapter_outline_prompt(chapter)
-        prompt_path = self.outputs_dir / f"chapter_{chapter_number:03d}_prompt.md"
-        outline_path = self.outputs_dir / f"chapter_{chapter_number:03d}_outline.md"
+            chapter.status = 'planned'
+            if self.state_update_mode == "legacy_apply":
+                self.state.save_state()
 
-        self._run_agent_or_save_prompt(
-            agent_name="architect",
-            user_prompt=prompt,
-            prompt_path=prompt_path,
-            output_path=outline_path,
-            dry_run=dry_run,
-            label="Architect expanding chapter outline",
-        )
+            prompt = self._generate_chapter_outline_prompt(chapter)
+            prompt_path = self.outputs_dir / f"chapter_{chapter_number:03d}_prompt.md"
+            outline_path = self.outputs_dir / f"chapter_{chapter_number:03d}_outline.md"
+
+            self._run_agent_or_save_prompt(
+                agent_name="architect",
+                user_prompt=prompt,
+                prompt_path=prompt_path,
+                output_path=outline_path,
+                dry_run=dry_run,
+                label="Architect expanding chapter outline",
+                chapter_number=(
+                    chapter_number
+                    if self.state_update_mode == "proposal_only"
+                    else None
+                ),
+            )
+        finally:
+            self.state = canonical_state
 
     def _generate_chapter_outline_prompt(self, chapter: ChapterState) -> str:
         """Prompt the Architect to produce a STRUCTURED BEAT-SHEET (not prose).
@@ -746,6 +944,7 @@ genre-appropriate assumptions rather than asking questions.
             else "[No full-book outline available]"
         )
 
+        ending_context = self._ending_contract_context(chapter.number)
         prompt = f"""# ARCHITECT TASK: Outline Chapter {chapter.number}
 
 Produce a structured **beat-sheet outline** for this chapter that the Scribe will
@@ -765,6 +964,7 @@ later expand into prose. This is a PLANNING artifact.
 {master_outline}
 
 {pack_md}
+{ending_context}
 ## Required Output Format
 
 Return ONLY the outline, in this Markdown structure do NOT write any prose,
@@ -793,12 +993,40 @@ dialogue, or narrative paragraphs:
 
 Write the beat-sheet now. Outline only no prose.
 """
+        if self.quality_policy == "evidence_v1":
+            prompt += f"""
+
+## Machine-Readable Chapter Contract
+
+After the Markdown outline, emit exactly one JSON object inside these tags:
+
+```text
+[CHAPTER_CONTRACT]
+{{
+  "chapter": {chapter.number},
+  "goal": "...",
+  "obstacle": "...",
+  "active_choice": "...",
+  "cost": "...",
+  "irreversible_change": "...",
+  "local_payoff": "...",
+  "ending_pressure": "...",
+  "preserve_facts": ["..."],
+  "allowed_knowledge": ["..."],
+  "world_event_ids": ["..."]
+}}
+[/CHAPTER_CONTRACT]
+```
+"""
         return prompt
 
     # ===== Style Curation =====
 
     def curate_chapter(self, chapter_number: int, dry_run: bool = False):
         """Run the Style Curator and write a clean candidate-final manuscript."""
+        self.last_canon_proposal_ids = []
+        resolved_mode = self.state_update_mode
+        self._validate_state_update_mode(resolved_mode)
         print(f"\n🎨 CURATING Chapter {chapter_number}...")
         chapter = self.state.get_chapter(chapter_number)
         if not chapter:
@@ -807,13 +1035,13 @@ Write the beat-sheet now. Outline only no prose.
                 raise ValueError(message)
             print(f"❌ {message}")
             return None
-        if chapter.status not in ("validated", "complete"):
+        if resolved_mode == "legacy_apply" and chapter.status not in ("validated", "complete"):
             message = f"Chapter {chapter_number} must be validated before style curation"
             if self.raise_llm_errors:
                 raise ValueError(message)
             print(f"❌ {message}")
             return None
-        if chapter.continuity_checks.get("status") == "FAIL":
+        if resolved_mode == "legacy_apply" and chapter.continuity_checks.get("status") == "FAIL":
             message = f"Chapter {chapter_number} failed continuity validation"
             if self.raise_llm_errors:
                 raise ValueError(message)
@@ -846,6 +1074,8 @@ change story outcomes.
 - POV: {self.state.style_profile.point_of_view}
 - Prose style: {self.state.style_profile.prose_style}
 
+{self._ending_contract_context(chapter_number)}
+
 ## Validated Chapter
 ```markdown
 {chapter_text}
@@ -867,7 +1097,7 @@ or recommendations.
             return None
 
         try:
-            llm = self._get_llm()
+            llm = self._get_llm("style_curator")
             print(f"   Style Curator polishing ({llm.provider}:{llm.model})...")
             result = llm.run_agent("style_curator", prompt)
         except LLMError as exc:
@@ -876,38 +1106,49 @@ or recommendations.
             if self.raise_llm_errors:
                 raise
             return None
-        match = re.search(
-            r"\[REVISED_CHAPTER\](.*?)\[/REVISED_CHAPTER\]",
-            result,
-            re.IGNORECASE | re.DOTALL,
-        )
-        if not match:
+        if resolved_mode == "proposal_only":
+            raw_path = report_path.with_suffix(report_path.suffix + ".raw")
+            raw_path.write_text(result, encoding="utf-8")
+        normalized_result = normalize_agent_output(result)
+        response = normalized_result if resolved_mode == "proposal_only" else result
+        manuscript_block = extract_manuscript_block(response)
+        if manuscript_block is None:
             message = "Style Curator response is missing [REVISED_CHAPTER]"
             if self.raise_llm_errors:
                 raise LLMError(message)
             print(f"❌ {message}; raw response saved at {report_path}")
-            report_path.write_text(strip_em_dashes(result), encoding="utf-8")
+            report_path.write_text(strip_em_dashes(response), encoding="utf-8")
             return None
-        clean, meta = sanitize_manuscript(match.group(1).strip())
+        clean, meta = sanitize_manuscript(manuscript_block)
         if not clean:
             message = "Style Curator returned an empty revised chapter"
             if self.raise_llm_errors:
                 raise LLMError(message)
-            report_path.write_text(strip_em_dashes(result), encoding="utf-8")
+            report_path.write_text(strip_em_dashes(response), encoding="utf-8")
             print(f"❌ {message}; raw response saved at {report_path}")
             return None
-        report_path.write_text(strip_em_dashes(result), encoding="utf-8")
-        ingest_agent_output(self.state, chapter_number, "style_curator", result)
-        apply_header_to_chapter(chapter, meta)
-        chapter.word_count = len(clean.split())
+        report_path.write_text(strip_em_dashes(response), encoding="utf-8")
+        if resolved_mode == "legacy_apply":
+            ingest_agent_output(self.state, chapter_number, "style_curator", result)
+            apply_header_to_chapter(chapter, meta)
+            chapter.word_count = len(clean.split())
         candidate_path.write_text(clean, encoding="utf-8")
-        self.state.save_state()
+        if resolved_mode == "proposal_only":
+            self._persist_canon_proposal(
+                chapter_number=chapter_number,
+                agent_name="style_curator",
+                normalized_response=normalized_result,
+                source_path=candidate_path,
+            )
+        else:
+            self.state.save_state()
         print(f"✅ Candidate final saved: {candidate_path}")
         return clean
 
     def _generate_chapter_prompt(self, chapter: ChapterState) -> str:
         """Generate a detailed prompt for the Scribe agent."""
         pack_md = format_context_pack(build_context_pack(self.state, chapter.number, purpose="scribe"))
+        ending_context = self._ending_contract_context(chapter.number)
 
         prompt = f"""# SCRIBE PROMPT: Chapter {chapter.number}
 
@@ -922,6 +1163,7 @@ or recommendations.
 - **Premise**: {self.state.metadata.get('premise') or self.state.story_bible.get('premise') or '[Not provided]'}
 
 {pack_md}
+{ending_context}
 ## Chapter Goals
 - [Primary plot advancement]
 - [Character development moment]
@@ -938,6 +1180,9 @@ End the response with the required state block. In addition to prose facts,
 record only evidence-backed metadata changes using these exact fields:
 - Plot_Thread_Updates: `<thread_id> | status=<active|resolved|abandoned|foreshadowed> | milestone=<change> | chapter=<number>`; resolved/abandoned threads are terminal unless `reopen=true` is explicit
 - Character_References: `<character_id or full name> | chapter=<number> | note=<reference or documented absence>`
+- Payoff_Events: `<payoff_id> | status=<recalled|paid|intentional_open> | evidence=<what changed> | chapter=<number>`
+- Arc_State_Updates: `<character_id or full name> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<canonical outcome value from ending_contract> | evidence=<choice or observable state>`; `stage` is lifecycle position, while `outcome` is the contract result such as independence or accountability. Keep narrative explanation in `evidence`.
+- Ending_Evidence: `irreversible_change=<observable final state>` and `emotional_payoff=<reader-facing closure>` in the finale window
 Do not list a referenced/off-page character in Characters_Present.
 
 ## Style Profile
@@ -950,11 +1195,44 @@ Do not list a referenced/off-page character in Characters_Present.
 **Write the complete chapter now. Follow all protocols in your system instructions.**
 """
         return prompt
+
+    def _ending_contract_context(self, chapter_number: int) -> str:
+        """Inject the book-level ending contract only near the finale."""
+        contract_path = self.outputs_dir / "input" / "ending_contract.json"
+        if not contract_path.is_file():
+            return ""
+        try:
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return ""
+        if not isinstance(contract, dict) or not contract.get("enforce"):
+            return ""
+        window = contract.get("finale_window") or {}
+        try:
+            start = int(window.get("start_chapter") or 0)
+            end = int(window.get("end_chapter") or 0)
+        except (TypeError, ValueError):
+            return ""
+        if not start or not end or not (start <= chapter_number <= end):
+            return ""
+        return (
+            "## Book Ending Contract (authoritative)\n"
+            "This chapter is inside the finale window. Advance or pay off the\n"
+            "listed commitments; do not introduce a new core promise. Emit\n"
+            "structured payoff, arc, and ending evidence in the state block.\n"
+            "Keep narrative lifecycle stage separate from semantic character outcome.\n\n"
+            "```json\n"
+            + json.dumps(contract, ensure_ascii=False, sort_keys=True, indent=2)
+            + "\n```\n"
+        )
     
     # ===== Writing Phase =====
     
     def write_chapter(self, chapter_number: int, draft_text: str = "", dry_run: bool = False):
         """Call the Scribe agent to draft the chapter, or accept supplied draft text."""
+        self.last_canon_proposal_ids = []
+        resolved_mode = self.state_update_mode
+        self._validate_state_update_mode(resolved_mode)
         print(f"\n✍️  Writing Chapter {chapter_number}...")
 
         chapter = self.state.get_chapter(chapter_number)
@@ -965,13 +1243,23 @@ Do not list a referenced/off-page character in Characters_Present.
         draft_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_draft.md"
 
         if draft_text:
-            clean, meta = sanitize_manuscript(draft_text)
-            apply_header_to_chapter(chapter, meta)
-            chapter.status = 'drafted'
-            chapter.word_count = len(clean.split())
+            normalized_draft = normalize_agent_output(draft_text)
+            clean, meta = sanitize_manuscript(normalized_draft)
+            if resolved_mode == "legacy_apply":
+                apply_header_to_chapter(chapter, meta)
+                chapter.status = 'drafted'
+                chapter.word_count = len(clean.split())
             draft_path.write_text(clean, encoding='utf-8')
             print(f"   Draft saved: {draft_path}")
-            self.state.save_state()
+            if resolved_mode == "proposal_only":
+                self._persist_canon_proposal(
+                    chapter_number=chapter_number,
+                    agent_name="scribe",
+                    normalized_response=normalized_draft,
+                    source_path=draft_path,
+                )
+            else:
+                self.state.save_state()
             return
 
         # Build Scribe user prompt: prefer expanded outline if present, else fall back.
@@ -981,6 +1269,22 @@ Do not list a referenced/off-page character in Characters_Present.
             user_prompt = outline_path.read_text(encoding='utf-8') + "\n\n" + pack_md
         else:
             user_prompt = self._generate_chapter_prompt(chapter)
+        if self.quality_policy == "evidence_v1":
+            from artifacts import ArtifactStore
+
+            artifacts = ArtifactStore(self.project_path)
+            contract_head = artifacts.get_head(chapter_number, "chapter_contract")
+            if contract_head is None:
+                raise ValueError(
+                    f"Chapter {chapter_number} has no current chapter contract revision"
+                )
+            contract = json.loads(artifacts.read_text(contract_head.revision_id))
+            user_prompt += (
+                "\n\n## Current Chapter Contract\n\n"
+                "```json\n"
+                + json.dumps(contract, ensure_ascii=False, sort_keys=True, indent=2)
+                + "\n```\n"
+            )
 
         prompt_path = self.outputs_dir / f"chapter_{chapter_number:03d}_scribe_prompt.md"
         result = self._run_agent_or_save_prompt(
@@ -993,19 +1297,38 @@ Do not list a referenced/off-page character in Characters_Present.
             chapter_number=chapter_number,
         )
 
-        if result is not None:
+        if result is not None and resolved_mode == "legacy_apply":
             chapter.status = 'drafted'
             chapter.word_count = len(result.split())
-        self.state.save_state()
+        if resolved_mode == "legacy_apply":
+            self.state.save_state()
     
     def submit_draft(self, chapter_number: int, draft_path: str):
         """Submit a draft file for a chapter (also ingests embedded state-update blocks)."""
+        self.last_canon_proposal_ids = []
+        resolved_mode = self.state_update_mode
+        self._validate_state_update_mode(resolved_mode)
         draft_file = Path(draft_path)
         if not draft_file.exists():
             print(f"❌ Draft file not found: {draft_path}")
             return
 
         draft_text = draft_file.read_text(encoding='utf-8')
+        if resolved_mode == "proposal_only":
+            normalized_draft = normalize_agent_output(draft_text)
+            clean, _meta = sanitize_manuscript(normalized_draft)
+            saved_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_draft.md"
+            saved_path.write_text(clean, encoding="utf-8")
+            self._persist_canon_proposal(
+                chapter_number=chapter_number,
+                agent_name="scribe",
+                normalized_response=normalized_draft,
+                source_path=saved_path,
+            )
+            print(f"✅ Draft submitted for Chapter {chapter_number}")
+            print(f"   Next: Run 'edit chapter --number {chapter_number}'")
+            return
+
         self.write_chapter(chapter_number, draft_text)
 
         changes = ingest_agent_output(self.state, chapter_number, "scribe", draft_text)
@@ -1022,13 +1345,19 @@ Do not list a referenced/off-page character in Characters_Present.
     
     def edit_chapter(self, chapter_number: int, mode: str = "line", dry_run: bool = False):
         """Call the Editor agent to revise the chapter."""
+        self.last_canon_proposal_ids = []
+        resolved_mode = self.state_update_mode
+        self._validate_state_update_mode(resolved_mode)
         print(f"\n🔍 EDITING Chapter {chapter_number} (Mode: {mode})")
 
         chapter = self.state.get_chapter(chapter_number)
         if not chapter:
             print(f"❌ Chapter {chapter_number} not found.")
             return
-        if chapter.status not in ['drafted', 'editing', 'edited']:
+        if (
+            resolved_mode == "legacy_apply"
+            and chapter.status not in ['drafted', 'editing', 'edited']
+        ):
             print(f"❌ Chapter {chapter_number} has no draft to edit.")
             return
 
@@ -1039,11 +1368,28 @@ Do not list a referenced/off-page character in Characters_Present.
 
         draft_text = draft_path.read_text(encoding='utf-8')
         edit_prompt = self._generate_edit_prompt(chapter, draft_text, mode)
+        critical_findings = [
+            finding
+            for finding in run_continuity_checks(
+                self.state, self.project_path, as_of_chapter=chapter_number
+            )
+            if finding.severity == "critical"
+        ]
+        if critical_findings:
+            edit_prompt = (
+                "# BLOCKING CONTINUITY FINDINGS\n\n"
+                "Resolve these findings during the edit. Preserve the chapter contract "
+                "and return the complete revised chapter.\n\n"
+                + to_context_block(critical_findings)
+                + "\n"
+                + edit_prompt
+            )
         edit_prompt_path = self.feedback_dir / f"chapter_{chapter_number:03d}_edit_prompt.md"
         revised_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_revised.md"
 
-        chapter.status = 'editing'
-        self.state.save_state()
+        if resolved_mode == "legacy_apply":
+            chapter.status = 'editing'
+            self.state.save_state()
 
         result = self._run_agent_or_save_prompt(
             agent_name="editor",
@@ -1055,9 +1401,84 @@ Do not list a referenced/off-page character in Characters_Present.
             chapter_number=chapter_number,
         )
 
-        if result is not None:
+        if result is not None and resolved_mode == "legacy_apply":
             chapter.status = 'edited'
             self.state.save_state()
+
+    def repair_chapter(
+        self,
+        chapter_number: int,
+        feedback: str,
+        attempt: int,
+        dry_run: bool = False,
+    ):
+        """Repair a revised chapter against blocking continuity feedback."""
+        self.last_canon_proposal_ids = []
+        resolved_mode = self.state_update_mode
+        self._validate_state_update_mode(resolved_mode)
+
+        chapter = self.state.get_chapter(chapter_number)
+        if not chapter:
+            raise ValueError(f"Chapter {chapter_number} not found")
+
+        revised_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_revised.md"
+        source_path = revised_path
+        if not source_path.is_file():
+            source_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_draft.md"
+        if not source_path.is_file():
+            raise ValueError(f"Chapter {chapter_number} has no manuscript to repair")
+
+        chapter_text = source_path.read_text(encoding="utf-8")
+        findings = run_continuity_checks(
+            self.state, self.project_path, as_of_chapter=chapter_number
+        )
+        blocking = [finding for finding in findings if finding.severity == "critical"]
+        repair_prompt = f"""# EDITOR CONTINUITY REPAIR: Chapter {chapter_number}
+
+This is automatic repair attempt {attempt}. Repair the current revised chapter so
+it satisfies the chapter contract and continuity gates. Address every verified
+critical issue. Treat warnings as guidance only. Preserve established names,
+timeline, causality, POV, legal/business facts, and the intended chapter outcome.
+Do not replace the story with a summary or commentary.
+
+## Blocking Feedback
+
+{feedback}
+
+## Deterministic Findings
+
+{to_context_block(blocking)}
+
+## Current Revised Chapter
+
+```markdown
+{chapter_text}
+```
+
+## Required Output
+
+Return a short `[EDITOR_ANALYSIS]` block, the complete repaired manuscript inside
+`[REVISED_CHAPTER]...[/REVISED_CHAPTER]`, and an `[EDITOR_STATE_UPDATE]` block.
+State updates must accurately record any repaired plot-thread, character,
+foreshadowing, timeline, or status facts.
+"""
+        prompt_path = (
+            self.feedback_dir
+            / f"chapter_{chapter_number:03d}_repair_{attempt:02d}_prompt.md"
+        )
+        result = self._run_agent_or_save_prompt(
+            agent_name="editor",
+            user_prompt=repair_prompt,
+            prompt_path=prompt_path,
+            output_path=revised_path,
+            dry_run=dry_run,
+            label=f"Editor repairing continuity (attempt {attempt})",
+            chapter_number=chapter_number,
+        )
+        if result is not None and resolved_mode == "legacy_apply":
+            chapter.status = "edited"
+            self.state.save_state()
+        return result
     
     def _generate_edit_prompt(self, chapter: ChapterState, draft_text: str, mode: str) -> str:
         """Generate an editing prompt."""
@@ -1076,6 +1497,8 @@ Do not list a referenced/off-page character in Characters_Present.
 ```markdown
 {draft_text}
 ```
+
+{self._ending_contract_context(chapter.number)}
 
 ## Editing Instructions
 
@@ -1136,21 +1559,69 @@ Provide:
     
     def submit_edit(self, chapter_number: int, edited_path: str):
         """Submit an edited chapter (also ingests embedded editor state-updates)."""
+        self.last_canon_proposal_ids = []
+        resolved_mode = self.state_update_mode
+        self._validate_state_update_mode(resolved_mode)
         edit_file = Path(edited_path)
         if not edit_file.exists():
             print(f"❌ Edit file not found: {edited_path}")
             return
 
         revised_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_revised.md"
-        import shutil
-        shutil.copy(edit_file, revised_path)
-
         text = edit_file.read_text(encoding='utf-8')
-        changes = ingest_agent_output(self.state, chapter_number, "editor", text)
+        if resolved_mode == "proposal_only":
+            normalized_text = normalize_agent_output(text)
+            manuscript_text = extract_manuscript_block(normalized_text)
+            if manuscript_text is None:
+                message = "Editor response is missing [REVISED_CHAPTER]"
+                if self.raise_llm_errors:
+                    raise LLMError(message)
+                print(f"❌ {message}; preserving submitted response at {edit_file}")
+                return
+            clean, _meta = sanitize_manuscript(manuscript_text)
+            if not clean:
+                message = "Editor returned an empty revised chapter"
+                if self.raise_llm_errors:
+                    raise LLMError(message)
+                print(f"❌ {message}; preserving submitted response at {edit_file}")
+                return
+            revised_path.write_text(clean, encoding="utf-8")
+            self._persist_canon_proposal(
+                chapter_number=chapter_number,
+                agent_name="editor",
+                normalized_response=normalized_text,
+                source_path=revised_path,
+            )
+            print(f"✅ Edit submitted for Chapter {chapter_number}")
+            print(f"   Next: Run 'validate chapter --number {chapter_number}'")
+            return
+
+        normalized_text = normalize_agent_output(text)
+        manuscript_text = extract_manuscript_block(normalized_text)
+        if manuscript_text is None:
+            message = "Editor response is missing [REVISED_CHAPTER]"
+            if self.raise_llm_errors:
+                raise LLMError(message)
+            print(f"❌ {message}; preserving submitted response at {edit_file}")
+            return
+        clean, meta = sanitize_manuscript(manuscript_text)
+        if not clean:
+            message = "Editor returned an empty revised chapter"
+            if self.raise_llm_errors:
+                raise LLMError(message)
+            print(f"❌ {message}; preserving submitted response at {edit_file}")
+            return
+        revised_path.write_text(clean, encoding="utf-8")
+
+        changes = ingest_agent_output(
+            self.state, chapter_number, "editor", normalized_text
+        )
 
         chapter = self.state.get_chapter(chapter_number)
         if chapter:
             chapter.status = 'edited'
+            apply_header_to_chapter(chapter, meta)
+            chapter.word_count = len(clean.split())
 
         if changes:
             print(f"   📝 State updates ({len(changes)}):")
@@ -1165,6 +1636,9 @@ Provide:
     
     def validate_chapter(self, chapter_number: int, dry_run: bool = False):
         """Call the Continuity Guardian agent to validate the chapter."""
+        self.last_canon_proposal_ids = []
+        resolved_mode = self.state_update_mode
+        self._validate_state_update_mode(resolved_mode)
         print(f"\n🛡️  VALIDATING Chapter {chapter_number}...")
 
         chapter = self.state.get_chapter(chapter_number)
@@ -1183,10 +1657,12 @@ Provide:
 
         # Deterministic pre-check runs free, gives the Guardian a head start.
         findings = run_continuity_checks(self.state, self.project_path, as_of_chapter=chapter_number)
+        self.last_continuity_findings = findings
         if findings:
             print(f"   🔬 Pre-check: {len(findings)} deterministic finding(s)")
             # Persist into chapter state and surface to the Guardian via the prompt.
-            chapter.continuity_checks['pre_check_findings'] = [f.to_dict() for f in findings]
+            if resolved_mode == "legacy_apply":
+                chapter.continuity_checks['pre_check_findings'] = [f.to_dict() for f in findings]
 
         validation_prompt = self._generate_validation_prompt(chapter_number, chapter_text)
         if findings:
@@ -1204,7 +1680,7 @@ Provide:
             chapter_number=chapter_number,
         )
 
-        if result is not None:
+        if result is not None and resolved_mode == "legacy_apply":
             chapter.status = 'validated'
             self.state.save_state()
     
@@ -1229,6 +1705,7 @@ Provide:
 ## Current Story State
 
 {pack_md}
+{self._ending_contract_context(chapter_number)}
 
 ### Character Positions
 """
@@ -1282,6 +1759,11 @@ Provide:
 - [ ] No dropped plot threads (unless intentional)
 - [ ] Cause-effect chains intact
 
+### Book Ending (when this chapter is inside the finale window)
+- [ ] Apply the authoritative ending contract and record each payoff as recalled or paid
+- [ ] Record lifecycle `stage` and semantic `outcome` separately, with observable evidence
+- [ ] In the final chapter, record `Ending_Evidence` for irreversible change and emotional payoff
+
 ## Output Format
 
 ```
@@ -1298,6 +1780,13 @@ Character_References:
   - <character_id or full name> | chapter=<number> | note=<reference or documented off-page absence>
 Foreshadowing_Resolved:
   - id=chN:fsM | note=<payoff>
+Payoff_Events:
+  - <payoff_id> | status=<recalled|paid|intentional_open> | evidence=<what changed> | chapter=<number>
+Arc_State_Updates:
+  - <character_id> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<canonical outcome value from ending_contract> | evidence=<choice or state>
+Ending_Evidence:
+  - irreversible_change=<observable final state>
+  - emotional_payoff=<reader-facing closure>
 [CONTINUITY_REPORT]
 ```
 
@@ -1571,11 +2060,16 @@ Examples:
     run_parser.add_argument('--approval', default='review_required',
                             choices=['review_required', 'auto'],
                             help='Pause for review, or explicitly auto-promote candidate finals')
-    run_parser.add_argument('--max-retries', type=int, default=2)
+    run_parser.add_argument('--quality-policy', default='legacy',
+                            choices=['legacy', 'evidence_v1'],
+                            help='Select legacy projection or evidence-backed promotion')
+    run_parser.add_argument('--max-retries', type=int, default=5)
     run_parser.add_argument('--retry-backoff', type=float, default=2.0,
                             help='Initial retry delay in seconds (exponential, capped at 30s)')
+    run_parser.add_argument('--max-quality-repairs', type=int, default=2,
+                            help='Automatic continuity repair passes per chapter under --approval auto')
     run_parser.add_argument('--output', nargs='+', default=['markdown'],
-                            choices=['markdown', 'html', 'docx', 'epub'])
+                            choices=['markdown', 'html', 'docx', 'epub', 'pdf'])
     run_parser.add_argument('--model', default='', help='Override NOVEL_OS_MODEL for this process')
     run_parser.add_argument('--dry-run', action='store_true',
                             help='Persist prompt and brief only; do not call an LLM')
@@ -1643,7 +2137,9 @@ Examples:
                     pov=args.pov,
                     edit_mode=args.edit_mode,
                     approval_policy=args.approval,
+                    quality_policy=args.quality_policy,
                     max_retries=args.max_retries,
+                    max_quality_repairs=args.max_quality_repairs,
                     retry_backoff_seconds=args.retry_backoff,
                     output_formats=tuple(args.output),
                     dry_run=args.dry_run,

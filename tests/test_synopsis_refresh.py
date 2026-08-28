@@ -54,17 +54,22 @@ def test_refresh_synopsis_falls_back_to_outline_goal(tmp_path, monkeypatch):
 
 def test_refresh_synopsis_uses_architect_when_llm_works(tmp_path, monkeypatch):
     import api.services as services
+    requested_roles = []
 
     class FakeLlm:
         def run_agent(self, _agent, _prompt):
             return "Lena tracks a rogue signal to the red quay lantern."
 
     class FakeOrch:
-        def _get_llm(self):
+        def _get_llm(self, role):
+            requested_roles.append(role)
             return FakeLlm()
 
+        def runtime_provenance_for(self, role):
+            assert role == "architect"
+            return "role-provider", "architect-model"
+
     monkeypatch.setattr(services, "build_orchestrator", lambda *_a, **_k: FakeOrch())
-    monkeypatch.setattr(services, "_current_model_label", lambda: "claude:test")
 
     client = _client(tmp_path)
     resp = client.post("/api/projects/book/chapters/1/synopsis/refresh")
@@ -72,4 +77,5 @@ def test_refresh_synopsis_uses_architect_when_llm_works(tmp_path, monkeypatch):
     body = resp.json()
     assert body["source"] == "architect"
     assert "rogue signal" in body["synopsis"].lower()
-    assert body["model"] == "claude:test"
+    assert body["model"] == "role-provider:architect-model"
+    assert requested_roles == ["architect"]

@@ -329,6 +329,80 @@ class StageReviewResult(BaseModel):
     message: str = ""
 
 
+class ArtifactRevisionOut(BaseModel):
+    revision_id: str
+    chapter: int
+    kind: str
+    sha256: str
+    byte_length: int
+    parent_revision_id: str | None = None
+    source: str
+    provider: str | None = None
+    model: str | None = None
+    prompt_sha256: str | None = None
+    story_contract_revision_id: str | None = None
+    chapter_contract_revision_id: str | None = None
+    timestamp: str
+
+
+class QualityFindingOut(BaseModel):
+    finding_id: str
+    artifact_sha256: str
+    category: str
+    severity: str
+    message: str
+    evidence: list[dict] = []
+    suggested_action: str
+    repair_class: str
+    evidence_verification_result: bool
+
+
+class EvaluationReportOut(BaseModel):
+    report_id: str
+    chapter: int
+    artifact_revision_id: str
+    artifact_sha256: str
+    evaluation_id: str
+    rubric_version: str
+    prompt_sha256: str
+    evaluator_provider: str
+    evaluator_model: str
+    hard_gates: dict[str, bool]
+    semantic_dimensions: dict[str, float]
+    findings: list[QualityFindingOut] = []
+    status: str
+    created_at: str
+
+
+class PromotionReceiptOut(BaseModel):
+    receipt_id: str
+    chapter: int
+    request_id: str
+    idempotency_key: str
+    old_artifact_revision_id: str | None = None
+    old_artifact_sha256: str | None = None
+    new_artifact_revision_id: str
+    new_artifact_sha256: str
+    old_canon_sha: str
+    new_canon_sha: str
+    canon_proposal_id: str
+    evaluation_report_id: str
+    actor: str
+    reason: str
+    decision_metadata: dict = {}
+    committed_at: str
+
+
+class ChapterQualityOut(BaseModel):
+    chapter: int
+    final_revision_id: str | None = None
+    final_sha256: str | None = None
+    artifact_revisions: list[ArtifactRevisionOut] = []
+    evaluation_reports: list[EvaluationReportOut] = []
+    findings: list[QualityFindingOut] = []
+    promotion_receipts: list[PromotionReceiptOut] = []
+
+
 class BinderMoveRequest(BaseModel):
     """Reorder or reparent a binder node (PLAN.md P4)."""
     node_id: str

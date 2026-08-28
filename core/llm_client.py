@@ -37,11 +37,14 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Optional, Tuple
 
 
 DEFAULT_MAX_TOKENS = 8192
+DEFAULT_OPENAI_TIMEOUT_SECONDS = 1800.0
+DEFAULT_OPENAI_SDK_MAX_RETRIES = 0
 
 # Convenience aliases -> (base_url, default_model, env_var_name for key)
 OPENAI_COMPAT_ALIASES = {
@@ -86,6 +89,30 @@ def _load_dotenv_if_present() -> None:
 
 
 _load_dotenv_if_present()
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _openai_compatible_options() -> dict:
+    return {
+        "timeout": float(
+            os.environ.get(
+                "NOVEL_OS_LLM_TIMEOUT_SECONDS",
+                DEFAULT_OPENAI_TIMEOUT_SECONDS,
+            )
+        ),
+        "max_retries": int(
+            os.environ.get(
+                "NOVEL_OS_SDK_MAX_RETRIES",
+                DEFAULT_OPENAI_SDK_MAX_RETRIES,
+            )
+        ),
+    }
 
 
 class LLMError(RuntimeError):
@@ -222,7 +249,11 @@ class LLMClient:
             from openai import OpenAI  # type: ignore
         except ImportError as e:
             raise LLMError("Install: pip install openai") from e
-        return OpenAI(api_key=api_key, base_url=base_url)
+        return OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            **_openai_compatible_options(),
+        )
 
     def _build_azure(self, deployment: Optional[str]):
         try:
@@ -346,15 +377,44 @@ class LLMClient:
         return "".join(getattr(b, "text", "") or "" for b in resp.content)
 
     def _complete_openai_shape(self, system: str, user: str) -> str:
-        resp = self._backend.chat.completions.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            messages=[
+        request = {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-        )
-        return resp.choices[0].message.content or ""
+        }
+        if not _env_flag("NOVEL_OS_LLM_STREAMING", True):
+            resp = self._backend.chat.completions.create(**request)
+            return resp.choices[0].message.content or ""
+
+        stream = self._backend.chat.completions.create(stream=True, **request)
+        parts = []
+        print("   Response stream started", end="", flush=True)
+        progress_started = True
+        last_progress = time.monotonic()
+        try:
+            for chunk in stream:
+                now = time.monotonic()
+                if now - last_progress >= 5:
+                    print(".", end="", flush=True)
+                    last_progress = now
+                choices = getattr(chunk, "choices", None) or []
+                if not choices:
+                    continue
+                delta = getattr(choices[0], "delta", None)
+                content = getattr(delta, "content", None)
+                if not content:
+                    continue
+                parts.append(content)
+        except Exception:
+            if progress_started:
+                print(" interrupted", flush=True)
+            raise
+        if progress_started:
+            print(" done", flush=True)
+        return "".join(parts)
 
     def _complete_gemini(self, system: str, user: str) -> str:
         from google.genai import types  # type: ignore

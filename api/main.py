@@ -4,11 +4,17 @@ from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from . import db
 from .media import LocalMediaStore
 from .routes import router, get_media_store, get_service
-from .services import ProjectService
+from .services import (
+    ProjectService,
+    PromotionConflict,
+    PromotionIntegrityFailure,
+    PromotionUnavailable,
+)
 from .version import __version__
 
 
@@ -20,6 +26,24 @@ DEFAULT_CORS_ORIGINS = (
     "http://127.0.0.1:5173",
     "http://127.0.0.1:5174",
 )
+
+
+async def _promotion_error_response(_request, error: Exception) -> JSONResponse:
+    if isinstance(error, PromotionUnavailable):
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": (
+                    "Promotion outcome needs reconciliation; refresh chapter "
+                    "quality before another mutation."
+                )
+            },
+        )
+    if isinstance(error, PromotionIntegrityFailure):
+        detail = f"Promotion integrity conflict: {error}"
+    else:
+        detail = f"Promotion conflict: {error}"
+    return JSONResponse(status_code=409, content={"detail": detail})
 
 
 def _cors_origins() -> list[str]:
@@ -47,6 +71,12 @@ def create_app(projects_root: Optional[Path] = None, db_url: Optional[str] = Non
         pass
 
     app = FastAPI(title="Novel OS API", version=__version__)
+    for error_type in (
+        PromotionConflict,
+        PromotionIntegrityFailure,
+        PromotionUnavailable,
+    ):
+        app.add_exception_handler(error_type, _promotion_error_response)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),

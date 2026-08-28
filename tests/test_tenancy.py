@@ -36,7 +36,7 @@ def configured_db(tmp_path):
 # ----------------------------------------------------------------- id validation
 
 @pytest.mark.parametrize("bad", [
-    "", "..", "../evil", "../../etc/passwd", "a/b", "a\\b", "/abs", "C:\\win",
+    "", "..", "../evil", "../../etc/passwd", "a/b", "a\\b", "/abs", "C:\\win", "C:relative",
     ".hidden", "-leading",
 ])
 def test_invalid_project_ids_are_rejected(bad):

@@ -41,6 +41,57 @@ def test_stage_result_rejects_unknown_status():
         StageResult(phase="write", status="finished")
 
 
+def test_run_spec_rejects_unknown_quality_policy():
+    with pytest.raises(ValueError, match="Unknown quality policy"):
+        RunSpec(project_path="project", quality_policy="best_effort")
+
+
+def test_stage_result_round_trip_preserves_revision_and_input_hashes():
+    result = StageResult(
+        phase="chapter.write",
+        chapter=3,
+        status="done",
+        input_hashes={"outline": "a" * 64},
+        revision_id="b" * 64,
+        story_contract_revision_id="c" * 64,
+        chapter_contract_revision_id="d" * 64,
+        canon_proposal_ids=["proposal-" + "e" * 64],
+        evaluation_report_ids=["report-" + "f" * 64],
+        promotion_receipt_id="promotion-receipt-" + "1" * 64,
+    )
+
+    decoded = StageResult.from_dict(result.to_dict())
+
+    assert decoded == result
+
+
+def test_legacy_manifest_without_quality_fields_resumes():
+    legacy = RunManifest.new(
+        RunSpec(project_path="project", prompt_path="prompt.md"),
+        run_id="legacy-run",
+    ).to_dict()
+    legacy["spec"].pop("quality_policy", None)
+    legacy["stages"] = {
+        "chapter.write:1": {
+            "phase": "chapter.write",
+            "status": "retryable",
+            "chapter": 1,
+            "attempt": 2,
+        }
+    }
+
+    decoded = RunManifest.from_dict(legacy)
+
+    assert decoded.spec.quality_policy == "legacy"
+    result = decoded.get("chapter.write", 1)
+    assert result.status == "retryable"
+    assert result.attempt == 2
+    assert result.input_hashes == {}
+    assert result.revision_id == ""
+    assert result.canon_proposal_ids == []
+    assert result.promotion_receipt_id == ""
+
+
 def test_manifest_store_writes_valid_json_atomically(tmp_path: Path):
     spec = RunSpec(project_path=str(tmp_path), prompt_path="prompt.md")
     manifest = RunManifest.new(spec, run_id="run-atomic")
