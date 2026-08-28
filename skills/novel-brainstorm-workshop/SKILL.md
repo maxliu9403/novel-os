@@ -10,6 +10,7 @@ Turn an incomplete novel idea into a deliberate story engine, a reviewed design,
 ## Operating contract
 
 - Use the user's requested output language and target-market register. Chinese and English are first-class paths; preserve each market's idiom, social context, and localization decisions in separate research branches when needed.
+- Use fictional setting names by default. Story-facing locations, cities, districts, institutions, and landmarks use invented names or abstract regional labels; real place names belong only in the separate market-research metadata and source records.
 - Treat the user's rough idea as the source of intent, not as a finished outline. Preserve explicit decisions and label low-impact additions as assumptions.
 - Keep the interaction focused. Ask at most five high-impact questions, one question per message. Ask only when an answer could change the story identity, audience, causal engine, protagonist arc, or ending.
 - Treat the target audience as a required user decision. When the conversation and confirmed project scope do not identify the primary reader segment, ask who the novel is for before market research or creative branching; never fill this field as an assumption. Confirm at least the audience's age or life stage and primary genre expectation, reading motivation, or emotional need. Ask about gender tendency, platform, or purchasing context only when it materially changes the design.
@@ -48,6 +49,7 @@ Before asking a question, inspect the current workspace when it is available:
    - relationship dilemma and opposing force;
    - external objective, deadline, failure cost, and ending direction;
    - world rules or realism constraints;
+   - setting mode, fictional place-name policy, and any real-world references that need fictionalization;
    - chapter range, per-chapter length, and free-to-paid constraints;
    - reader promise, primary satisfaction source, opening window, and desired retention profile when relevant;
    - explicit must-have, must-avoid, and existing canon.
@@ -211,7 +213,7 @@ Give supporting characters independent goals. A helper contributes a constrained
 
 ### Section C: world, rules, secrets, and timeline
 
-For realistic fiction, track money, work, family, law, health, logistics, and social pressure. For speculative fiction, track rule triggers, observable effects, limits, costs, exceptions, social consequences, and who knows each rule.
+For realistic fiction, track money, work, family, law, health, logistics, and social pressure. For speculative fiction, track rule triggers, observable effects, limits, costs, exceptions, social consequences, and who knows each rule. Keep story-facing places, cities, districts, institutions, and landmarks fictional or abstract; retain real geography only as audience-research metadata or an explicit source citation.
 
 For every major secret or mystery record its truth, knowledge distribution, first observable clue, fair misreading, escalation, payoff window, reveal, and changed action. Build a dated timeline with locations, travel or process duration, resource changes, and character knowledge at each milestone.
 
@@ -262,7 +264,7 @@ After design approval, generate a complete prompt rather than a short summary. L
 4. Include a `## Assumptions` section in the prompt for details the user did not decide.
 5. Keep the prompt authoritative: repeat the locked title, language, genre, audience, tone, POV, chapter count, and word target in parseable `Key: Value` fields near the top.
 
-The prompt must instruct Novel OS to plan before drafting, preserve the structured `audience_research` record and its market branches, preserve the confirmed `workshop_trace` and decision history, maintain character/relationship/secret/timeline/resource ledgers, emit and preserve a machine-readable `ending_contract`, update a payoff ledger after every chapter, use a per-chapter causal contract, preserve POV and knowledge boundaries, rotate conflict and hook types, reserve the final 3-5 chapters for payoff, and produce a final reader-facing manuscript without agent commentary. When `retention_first` is active, it must also preserve the opening contract, first-screen evidence, conflict braid, satisfaction loop, atmosphere and identification decisions, first-three-chapter value map, and paid bridge.
+The prompt must instruct Novel OS to plan before drafting, preserve the structured `audience_research` record and its market branches, preserve the confirmed `workshop_trace` and decision history, maintain character/relationship/secret/timeline/resource ledgers, emit and preserve a machine-readable `ending_contract`, update a payoff ledger after every chapter, use a per-chapter causal contract, preserve POV and knowledge boundaries, rotate conflict and hook types, reserve the final 3-5 chapters for payoff, and produce a final reader-facing manuscript without agent commentary. It must also preserve `setting_policy.mode: fictionalized`, use invented or abstract story-facing place names, and keep real market/source locations inside audience-research metadata. When `retention_first` is active, it must also preserve the opening contract, first-screen evidence, conflict braid, satisfaction loop, atmosphere and identification decisions, first-three-chapter value map, and paid bridge.
 
 Every Scribe, Editor, and Continuity Guardian state block must include these
 fields when applicable:
@@ -305,13 +307,65 @@ When `core/prompt_intake.py` exists, validate before handing off:
 PYTHONPATH=core ./venv/bin/python -c "from pathlib import Path; from prompt_intake import ingest_prompt; r=ingest_prompt(Path('PROMPT_VALIDATION_PROJECT'), Path('PROMPT_PATH')); print(r.brief)"
 ```
 
-Replace `PROMPT_VALIDATION_PROJECT` and `PROMPT_PATH` with the actual paths. Confirm that the parsed brief contains the locked title, genre, language, chapter count, word target, audience, tone, and premise. Also confirm that the prompt contains a market-scoped `audience_research` section with country, region, language, source records, evidence types, confidence, and creative implications, a `workshop_trace` with Section A-E decisions and open assumptions, plus personality fields for every principal character. Use a temporary validation project when no project has been selected; keep a real project untouched until the user runs the command.
+Replace `PROMPT_VALIDATION_PROJECT` and `PROMPT_PATH` with the actual paths. Confirm that the parsed brief contains the locked title, genre, language, chapter count, word target, audience, tone, and premise. Also confirm that the prompt contains a market-scoped `audience_research` section with country, region, language, source records, evidence types, confidence, and creative implications, a `setting_policy` with `mode: fictionalized`, a `workshop_trace` with Section A-E decisions and open assumptions, plus personality fields for every principal character. Use a temporary validation project when no project has been selected; keep a real project untouched until the user runs the command.
 
 Also run `git diff --check -- <prompt path>` when the file is inside a Git workspace. For a `retention_first` Prompt, verify the opening contract, the first-screen signal list, at least two conflict dimensions, local value for chapters 1-3, and the paid bridge are present and internally consistent. Report parser output and any corrected field; do not claim validation from file existence alone.
 
 ## Phase 6: hand off the run command
 
-Only after validation, provide a command built from the actual artifact and approved design. In a Novel OS workspace, use the venv interpreter so the command does not depend on a global `python` executable:
+Only after validation, provide a command built from the actual artifact and approved design. Detect the repository's supported launcher before choosing the command:
+
+1. When executable `./deploy.sh` exists and `./deploy.sh novel --help` succeeds, use the Docker launcher as the primary path.
+2. Use the native venv/orchestrator path only when the Docker launcher is absent or the user explicitly selects native execution.
+
+### Docker launcher (preferred when available)
+
+For a known Prompt, print the direct interactive command with actual paths:
+
+```bash
+cd /path/to/Novel-OS
+./deploy.sh novel './prompt/TITLE.md'
+```
+
+The launcher displays the approved values for confirmation, reuses a healthy
+backend container, starts only the backend when needed, and leaves the frontend
+and existing containers in place. A separate `./deploy.sh up` or
+`./deploy.sh restart` step is not part of a normal novel run.
+
+When exact approved values must survive non-default environment settings, print
+them with the command rather than relying on the operator to re-enter them:
+
+```bash
+cd /path/to/Novel-OS
+NOVEL_OS_PROJECT_NAME='PROJECT_SLUG' \
+NOVEL_OS_CHAPTERS='CHAPTERS' \
+NOVEL_OS_WORDS='WORDS' \
+NOVEL_OS_APPROVAL='auto' \
+NOVEL_OS_QUALITY_POLICY='evidence_v1' \
+NOVEL_OS_OUTPUT='markdown epub' \
+./deploy.sh novel './prompt/TITLE.md'
+```
+
+Replace every uppercase token with the approved value before showing the user.
+For automation rather than an interactive terminal, add
+`NOVEL_OS_NONINTERACTIVE=1`; include all required values explicitly. Report the
+Docker artifact path as `docker-data/projects/PROJECT_SLUG/outputs/`.
+
+Use the launcher's persisted-run commands for recovery:
+
+```bash
+./deploy.sh novel-status 'PROJECT_SLUG' 'RUN_ID'
+./deploy.sh novel-resume 'PROJECT_SLUG' 'RUN_ID'
+./deploy.sh novel-retry 'PROJECT_SLUG' 'RUN_ID'
+```
+
+Omit `PROJECT_SLUG` and `RUN_ID` only when the user explicitly wants the most
+recent persisted run.
+
+### Native fallback
+
+In native mode, use the repository venv interpreter so the command does not
+depend on a global `python` executable:
 
 ```bash
 cd /path/to/Novel-OS
@@ -330,9 +384,9 @@ PYTHONPATH=core ./venv/bin/python core/orchestrator.py run \
   --output markdown
 ```
 
-Replace every uppercase token with the actual values before showing the user the command. Explain that `approval auto` enables bounded quality repair and that evidence-backed promotion preserves committed chapters across recovery. The command is a handoff, not an invitation to run the model in the current turn.
+Replace every uppercase token with the actual values before showing the user the command. In both modes, explain that `approval auto` enables bounded quality repair and that evidence-backed promotion preserves committed chapters across recovery. The command is a handoff, not an invitation to run the model in the current turn.
 
-If the user asks to run it, first verify the configured provider endpoint and the project path, then execute the command. A recoverable failure should use the persisted manifest's resume/retry path; a durable evidence or canon-integrity issue remains a visible blocked result.
+If the user asks to run it, first verify the configured provider endpoint, Prompt path, and selected launcher, then execute the command. In Docker mode, go directly through `./deploy.sh novel`; keep a healthy service running. A recoverable failure should use the selected launcher's persisted resume/retry path; a durable evidence or canon-integrity issue remains a visible blocked result.
 
 ## Existing canon branch
 

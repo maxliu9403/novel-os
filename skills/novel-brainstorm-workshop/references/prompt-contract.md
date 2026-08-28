@@ -25,7 +25,7 @@ Use actual values in the final artifact. `Audience` must come from a user-confir
 4. **Audience research and regional adaptation**: market scope for every country or region, language and register, audience segment, platform and genre signals, cultural context, emotional drivers, source records, evidence type, confidence, and creative implications. Keep market branches separate for multi-market releases.
 5. **Character ledger**: public identity, desire, need, capability, limitation, fear, boundary, secret, resources, knowledge, pressure response, personality core, visible behaviours, decision style, speech habits, emotional expression, strengths, flaws, change evidence, and personality conflicts or complements.
 6. **Relationship ledger**: power, leverage, trust evidence, suspicion evidence, shared risk, boundaries, and next relationship-changing behaviour.
-7. **World/rules ledger**: realistic constraints or speculative triggers, limits, costs, exceptions, and social consequences.
+7. **World/rules ledger**: realistic constraints or speculative triggers, limits, costs, exceptions, social consequences, and the fictional setting/place-name policy.
 8. **Secret and timeline ledger**: truth, knowledge distribution, clues, fair misreading, payoff window, dates, locations, duration, and state changes.
 9. **Ending contract and payoff ledger**: finale window, main conflict resolution, protagonist final choice and state, antagonist consequence, emotional afterglow, stable payoff ids, target chapters, evidence requirements, and explicitly declared intentional open threads.
 10. **Structure**: acts or volumes, goals, midpoint shifts, irreversible choices, stage payoffs, and carry-forward consequences. Reserve the final 3-5 chapters for the ending contract.
@@ -52,6 +52,7 @@ retention_profile:
   language: <output language>
   market_scope: <country, region, and release markets>
   target_audience: <user-confirmed primary reader segment, age/life stage, and reading motivation>
+  setting_mode: fictionalized
   reader_promise: <repeatable reader experience>
   primary_satisfaction: <competence, revenge, romance, mystery, power, belonging, or other>
   opening_window:
@@ -128,6 +129,27 @@ audience_research:
 Each creative implication cites the source ids that caused it. Missing or
 conflicting public evidence is recorded as `partial` or `pending` with an
 explicit assumption and a list of queries for later retrieval.
+
+## Fictional setting and place-name policy
+
+Every generated Prompt must carry this setting policy unless the project has an
+explicit system-level requirement that supersedes it:
+
+```yaml
+setting_policy:
+  mode: fictionalized
+  story_place_names: invented_or_abstract
+  real_place_names_in_story: false
+  market_metadata_may_name_real_places: true
+```
+
+Use invented names for cities, districts, towns, institutions, landmarks, and
+neighbourhoods in the story-facing setting, outline, chapter files, and
+manuscript. Abstract labels such as `the northern port`, `the capital district`,
+or `a coastal university town` are valid when a proper name adds no narrative
+value. Audience research may retain the real country, region, platform, or
+source location needed to explain market evidence; keep that metadata separate
+from the fictional world ledger.
 
 ## Workshop decision trace
 
