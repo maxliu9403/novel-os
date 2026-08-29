@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 # Keys we are willing to set from the Studio UI into the process env.
 _ENV_KEYS = (
@@ -14,11 +15,136 @@ _ENV_KEYS = (
     "NOVEL_OS_API_KEY",
     "NOVEL_OS_BASE_URL",
     "NOVEL_OS_MAX_TOKENS",
+    "NOVEL_OS_COVER_BASE_URL",
+    "NOVEL_OS_COVER_API_KEY",
+    "NOVEL_OS_COVER_MODEL",
+    "NOVEL_OS_COVER_SIZE",
+    "NOVEL_OS_COVER_QUALITY",
+    "NOVEL_OS_COVER_FORMAT",
+    "NOVEL_OS_COVER_COUNT",
+    "NOVEL_OS_COVER_TIMEOUT_SECONDS",
     "OPENROUTER_API_KEY",
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
     "DEEPSEEK_API_KEY",
 )
+
+_COVER_SIZE = "2048x3072"
+_COVER_QUALITIES = {"low", "medium", "high", "auto"}
+_COVER_FORMATS = {"png", "jpeg", "webp"}
+
+
+@dataclass(frozen=True)
+class CoverSettings:
+    base_url: str
+    api_key: str
+    model: str = "gpt-image-2"
+    size: str = _COVER_SIZE
+    quality: str = "high"
+    output_format: str = "webp"
+    count: int = 4
+    timeout_seconds: float = 180.0
+    inherits_base_url: bool = False
+    inherits_api_key: bool = False
+
+
+def resolve_cover_settings(source: Mapping[str, Any] | None = None) -> CoverSettings:
+    """Resolve image settings without mutating writing-model configuration."""
+    if source is None:
+        values: dict[str, Any] = dict(os.environ)
+        values.update(load_settings())
+    else:
+        values = dict(source)
+
+    cover_base_url = str(values.get("NOVEL_OS_COVER_BASE_URL") or "").strip()
+    writing_base_url = str(values.get("NOVEL_OS_BASE_URL") or "").strip()
+    cover_api_key = str(values.get("NOVEL_OS_COVER_API_KEY") or "").strip()
+    writing_api_key = str(
+        values.get("NOVEL_OS_API_KEY") or values.get("OPENAI_API_KEY") or ""
+    ).strip()
+
+    size = str(values.get("NOVEL_OS_COVER_SIZE") or _COVER_SIZE).strip()
+    if size != _COVER_SIZE:
+        raise ValueError(f"Cover size must be {_COVER_SIZE}")
+
+    quality = str(values.get("NOVEL_OS_COVER_QUALITY") or "high").strip().lower()
+    if quality not in _COVER_QUALITIES:
+        raise ValueError(
+            f"Unknown cover quality '{quality}'; choose {', '.join(sorted(_COVER_QUALITIES))}"
+        )
+
+    output_format = str(values.get("NOVEL_OS_COVER_FORMAT") or "webp").strip().lower()
+    if output_format not in _COVER_FORMATS:
+        raise ValueError(
+            f"Unknown cover format '{output_format}'; choose {', '.join(sorted(_COVER_FORMATS))}"
+        )
+
+    try:
+        count = int(values.get("NOVEL_OS_COVER_COUNT") or 4)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Cover count must be an integer between 3 and 5") from exc
+    if count < 3 or count > 5:
+        raise ValueError("Cover count must be between 3 and 5")
+
+    try:
+        timeout = float(values.get("NOVEL_OS_COVER_TIMEOUT_SECONDS") or 180)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Cover timeout must be a positive number") from exc
+    if timeout <= 0:
+        raise ValueError("Cover timeout must be a positive number")
+
+    model = str(values.get("NOVEL_OS_COVER_MODEL") or "gpt-image-2").strip()
+    if not model:
+        raise ValueError("Cover model is required")
+
+    return CoverSettings(
+        base_url=(cover_base_url or writing_base_url or "https://api.openai.com/v1").rstrip("/"),
+        api_key=cover_api_key or writing_api_key,
+        model=model,
+        size=size,
+        quality=quality,
+        output_format=output_format,
+        count=count,
+        timeout_seconds=timeout,
+        inherits_base_url=not bool(cover_base_url) and bool(writing_base_url),
+        inherits_api_key=not bool(cover_api_key) and bool(writing_api_key),
+    )
+
+
+def cover_status(source: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Return the safe, UI-facing cover configuration projection."""
+    try:
+        settings = resolve_cover_settings(source)
+    except ValueError as exc:
+        return {
+            "configured": False,
+            "has_api_key": False,
+            "base_url": "",
+            "model": "gpt-image-2",
+            "size": _COVER_SIZE,
+            "quality": "high",
+            "output_format": "webp",
+            "count": 4,
+            "timeout_seconds": 180.0,
+            "inherits_base_url": False,
+            "inherits_api_key": False,
+            "error": str(exc),
+        }
+    has_key = bool(settings.api_key)
+    return {
+        "configured": has_key and bool(settings.base_url),
+        "has_api_key": has_key,
+        "base_url": settings.base_url,
+        "model": settings.model,
+        "size": settings.size,
+        "quality": settings.quality,
+        "output_format": settings.output_format,
+        "count": settings.count,
+        "timeout_seconds": settings.timeout_seconds,
+        "inherits_base_url": settings.inherits_base_url,
+        "inherits_api_key": settings.inherits_api_key,
+        "error": None if has_key else "Add a cover API key or configure the shared Sub2API key.",
+    }
 
 PRESETS: dict[str, dict[str, str]] = {
     "quality": {

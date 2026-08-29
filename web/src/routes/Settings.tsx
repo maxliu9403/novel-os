@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "motion/react";
-import { api, type StudioLlmStatus, type StudioPreset } from "../api/client";
+import {
+  api,
+  type StudioCoverStatus,
+  type StudioLlmStatus,
+  type StudioPreset,
+} from "../api/client";
 import Scene from "../components/Scene";
 import Icon from "../components/Icon";
 import { useToast } from "../components/toastContext";
@@ -10,16 +15,34 @@ import { Field, fieldClass } from "../components/Modal";
 export default function Settings() {
   const toast = useToast();
   const [status, setStatus] = useState<StudioLlmStatus | null>(null);
+  const [coverStatus, setCoverStatus] = useState<StudioCoverStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [busy, setBusy] = useState(false);
+  const [coverBusy, setCoverBusy] = useState(false);
+  const [coverApiKey, setCoverApiKey] = useState("");
+  const [coverModel, setCoverModel] = useState("gpt-image-2");
+  const [coverBaseUrl, setCoverBaseUrl] = useState("");
+  const [coverCount, setCoverCount] = useState(4);
+  const [coverTimeout, setCoverTimeout] = useState(180);
+  const [coverQuality, setCoverQuality] = useState<StudioCoverStatus["quality"]>("high");
+  const [coverFormat, setCoverFormat] = useState<StudioCoverStatus["output_format"]>("webp");
 
   function load() {
     api.studioLlm().then((s) => {
       setStatus(s);
       setModel(s.model || "");
+    }).catch((e) => setError(String(e)));
+    api.studioCover().then((s) => {
+      setCoverStatus(s);
+      setCoverModel(s.model);
+      setCoverBaseUrl(s.base_url);
+      setCoverCount(s.count);
+      setCoverTimeout(s.timeout_seconds);
+      setCoverQuality(s.quality);
+      setCoverFormat(s.output_format);
     }).catch((e) => setError(String(e)));
   }
 
@@ -61,6 +84,29 @@ export default function Settings() {
       toast(e instanceof Error ? e.message : String(e), "error");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function saveCover() {
+    setCoverBusy(true);
+    try {
+      const next = await api.updateStudioCover({
+        model: coverModel.trim(),
+        base_url: coverBaseUrl.trim(),
+        api_key: coverApiKey.trim() || undefined,
+        size: "2048x3072",
+        quality: coverQuality,
+        output_format: coverFormat,
+        count: coverCount,
+        timeout_seconds: coverTimeout,
+      });
+      setCoverStatus(next);
+      setCoverApiKey("");
+      toast("Cover settings saved", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    } finally {
+      setCoverBusy(false);
     }
   }
 
@@ -158,6 +204,113 @@ export default function Settings() {
                   {busy ? "Saving…" : "Save credentials"}
                 </button>
               </>
+            )}
+
+            {coverStatus && (
+              <section className="mt-12 border-t border-[rgba(74,91,133,0.12)] pt-10">
+                <p className="eyebrow">Images</p>
+                <h2 className="font-display text-[24px] font-semibold text-ink-text">
+                  Cover generation
+                </h2>
+
+                <div className={`mt-5 border-l-2 px-4 py-2.5 text-[13px] ${
+                  coverStatus.configured
+                    ? "border-[var(--color-violet)] text-ink-text"
+                    : "border-[#c87a1b] text-ink-text"
+                }`}>
+                  <div className="flex items-center gap-2 font-medium">
+                    <Icon name={coverStatus.configured ? "circle-check" : "triangle-alert"} className="h-4 w-4" />
+                    {coverStatus.configured ? "Cover model ready" : "Cover model not configured"}
+                  </div>
+                  <p className="mt-1 text-ink-muted">
+                    {coverStatus.model} · {coverStatus.size} · {coverStatus.quality}
+                  </p>
+                  {coverStatus.error && !coverStatus.configured ? (
+                    <p className="mt-1 text-ink-muted">{coverStatus.error}</p>
+                  ) : null}
+                </div>
+
+                <div className="mt-7 grid gap-x-4 sm:grid-cols-2">
+                  <Field label="Cover model">
+                    <input
+                      className={fieldClass}
+                      value={coverModel}
+                      onChange={(e) => setCoverModel(e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Output size">
+                    <input className={fieldClass} value="2048x3072" readOnly />
+                  </Field>
+                  <Field label="Quality">
+                    <select
+                      className={fieldClass}
+                      value={coverQuality}
+                      onChange={(e) => setCoverQuality(e.target.value as StudioCoverStatus["quality"])}
+                    >
+                      <option value="high">High</option>
+                      <option value="medium">Medium</option>
+                      <option value="low">Low</option>
+                      <option value="auto">Auto</option>
+                    </select>
+                  </Field>
+                  <Field label="Format">
+                    <select
+                      className={fieldClass}
+                      value={coverFormat}
+                      onChange={(e) => setCoverFormat(e.target.value as StudioCoverStatus["output_format"])}
+                    >
+                      <option value="webp">WebP</option>
+                      <option value="png">PNG</option>
+                      <option value="jpeg">JPEG</option>
+                    </select>
+                  </Field>
+                  <Field label="Candidates">
+                    <input
+                      className={fieldClass}
+                      type="number"
+                      min={3}
+                      max={5}
+                      value={coverCount}
+                      onChange={(e) => setCoverCount(Number(e.target.value))}
+                    />
+                  </Field>
+                  <Field label="Timeout seconds">
+                    <input
+                      className={fieldClass}
+                      type="number"
+                      min={1}
+                      value={coverTimeout}
+                      onChange={(e) => setCoverTimeout(Number(e.target.value))}
+                    />
+                  </Field>
+                </div>
+                <Field label="Cover API base URL">
+                  <input
+                    className={fieldClass}
+                    value={coverBaseUrl}
+                    onChange={(e) => setCoverBaseUrl(e.target.value)}
+                    placeholder="https://sub2api.example/v1"
+                  />
+                </Field>
+                <Field label="Cover API key">
+                  <input
+                    className={fieldClass}
+                    type="password"
+                    value={coverApiKey}
+                    onChange={(e) => setCoverApiKey(e.target.value)}
+                    placeholder={coverStatus.has_api_key ? "Configured" : "Sub2API key"}
+                    autoComplete="off"
+                  />
+                </Field>
+                <button
+                  type="button"
+                  disabled={coverBusy}
+                  onClick={saveCover}
+                  className="btn-primary mt-2 disabled:opacity-40"
+                >
+                  {coverBusy ? "Saving…" : "Save cover settings"}
+                </button>
+              </section>
             )}
           </div>
         </motion.div>

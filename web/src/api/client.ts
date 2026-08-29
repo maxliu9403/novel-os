@@ -38,6 +38,21 @@ export interface StudioLlmStatus {
   onboarding_completed: boolean;
 }
 
+export interface StudioCoverStatus {
+  configured: boolean;
+  has_api_key: boolean;
+  base_url: string;
+  model: string;
+  size: string;
+  quality: "low" | "medium" | "high" | "auto";
+  output_format: "png" | "jpeg" | "webp";
+  count: number;
+  timeout_seconds: number;
+  inherits_base_url: boolean;
+  inherits_api_key: boolean;
+  error: string | null;
+}
+
 export interface ContinuityFinding {
   severity: string;
   category: string;
@@ -368,6 +383,12 @@ export const api = {
     preset?: string; provider?: string; model?: string;
     api_key?: string; base_url?: string; onboarding_completed?: boolean;
   }) => send<StudioLlmStatus>("/api/studio/llm", "PUT", body),
+  studioCover: () => get<StudioCoverStatus>("/api/studio/cover"),
+  updateStudioCover: (body: {
+    base_url?: string; api_key?: string; model?: string; size?: string;
+    quality?: string; output_format?: string; count?: number;
+    timeout_seconds?: number;
+  }) => send<StudioCoverStatus>("/api/studio/cover", "PUT", body),
   continuity: (id: string) => get<ContinuityReport>(`/api/projects/${id}/continuity`),
   /** Edit an entry. Send only what changed - absent fields are left alone. */
   updateCodexEntry: (

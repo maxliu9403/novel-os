@@ -17,7 +17,8 @@ from .models import (
     ContinueParagraph, ContinueResult, CreateProject, CreateSnapshot, FinalDoc, FinalDocSave,
     FinalResult, FinalSave, Job, MediaOut, ProjectDetail, ProjectSummary, RelationshipOut,
     RunPhase, SearchHit, CollectionOut, CreateCollection, SetPortrait, SnapshotMeta, SnapshotText, StageDiff, StageReviewRequest,
-    StageReviewResult, StudioLlmStatus, StudioLlmUpdate, UpdateComment, UpdateProject,
+    StageReviewResult, StudioCoverStatus, StudioCoverUpdate, StudioLlmStatus,
+    StudioLlmUpdate, UpdateComment, UpdateProject,
     BinderMoveRequest, BinderPatchRequest, SynopsisRefreshResult, UpdateMedia,
     ProjectStatistics, OutlinerMetricsRefreshResult, UpdateCodexEntry,
     ArtifactRevisionOut, ChapterQualityOut, EvaluationReportOut, PromotionReceiptOut,
@@ -116,6 +117,49 @@ def put_studio_llm(body: StudioLlmUpdate):
         patch["onboarding_completed"] = body.onboarding_completed
     studio_settings.save_settings(patch)
     return studio_settings.llm_status()
+
+
+@router.get("/studio/cover", response_model=StudioCoverStatus)
+def get_studio_cover():
+    from core import studio_settings
+    return studio_settings.cover_status()
+
+
+@router.put("/studio/cover", response_model=StudioCoverStatus)
+def put_studio_cover(body: StudioCoverUpdate):
+    from core import studio_settings
+
+    field_keys = {
+        "base_url": "NOVEL_OS_COVER_BASE_URL",
+        "api_key": "NOVEL_OS_COVER_API_KEY",
+        "model": "NOVEL_OS_COVER_MODEL",
+        "size": "NOVEL_OS_COVER_SIZE",
+        "quality": "NOVEL_OS_COVER_QUALITY",
+        "output_format": "NOVEL_OS_COVER_FORMAT",
+        "count": "NOVEL_OS_COVER_COUNT",
+        "timeout_seconds": "NOVEL_OS_COVER_TIMEOUT_SECONDS",
+    }
+    patch: dict[str, object | None] = {}
+    for field, key in field_keys.items():
+        value = getattr(body, field)
+        if value is None:
+            continue
+        patch[key] = value.strip() if isinstance(value, str) else value
+        if isinstance(patch[key], str) and not patch[key]:
+            patch[key] = None
+
+    candidate = studio_settings.load_settings()
+    for key, value in patch.items():
+        if value is None:
+            candidate.pop(key, None)
+        else:
+            candidate[key] = value
+    try:
+        studio_settings.resolve_cover_settings(candidate)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    studio_settings.save_settings(patch)
+    return studio_settings.cover_status()
 
 
 @router.get("/projects", response_model=list[ProjectSummary])

@@ -66,6 +66,32 @@ class StudioLlmStatus(BaseModel):
     onboarding_completed: bool = False
 
 
+class StudioCoverUpdate(BaseModel):
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+    size: str | None = None
+    quality: str | None = None
+    output_format: str | None = None
+    count: int | None = None
+    timeout_seconds: float | None = None
+
+
+class StudioCoverStatus(BaseModel):
+    configured: bool
+    has_api_key: bool
+    base_url: str
+    model: str
+    size: str
+    quality: str
+    output_format: str
+    count: int
+    timeout_seconds: float
+    inherits_base_url: bool = False
+    inherits_api_key: bool = False
+    error: str | None = None
+
+
 class ContinuityFinding(BaseModel):
     severity: str
     category: str
