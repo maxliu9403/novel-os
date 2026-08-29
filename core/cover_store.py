@@ -9,7 +9,10 @@ import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .cover_models import CoverCandidate, CoverSet
+try:
+    from .cover_models import CoverCandidate, CoverSet
+except ImportError:  # pragma: no cover - legacy top-level core imports
+    from cover_models import CoverCandidate, CoverSet
 
 
 _ID = re.compile(r"^cover-[0-9a-f]{32}$")

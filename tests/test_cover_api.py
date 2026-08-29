@@ -172,6 +172,17 @@ def test_generate_validates_concept_count_before_starting_job(tmp_path, monkeypa
     assert image_client.calls == 0
 
 
+def test_cover_reads_return_not_found_for_missing_project(tmp_path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, monkeypatch)
+
+    listing = client.get("/api/projects/missing/covers")
+    package = client.get("/api/projects/missing/deliverables/package")
+
+    assert listing.status_code == 404
+    assert listing.json()["detail"] == "Project 'missing' not found"
+    assert package.status_code == 404
+
+
 def test_generate_can_derive_brief_and_concepts_from_persisted_prompt(
     tmp_path, monkeypatch,
 ) -> None:

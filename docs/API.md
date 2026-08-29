@@ -12,7 +12,12 @@ core/
 ├── state_manager.py         StoryState, Character, PlotThread, ChapterState, ...
 ├── llm_client.py            LLMClient (13+ providers), LLMError
 ├── state_parser.py          ingest_agent_output, parse_*, apply_to_state
-└── continuity_engine.py     run_all, Finding, individual check_* fns
+├── continuity_engine.py     run_all, Finding, individual check_* fns
+├── cover_handoff.py         strict approved-Prompt parser + concept builder
+├── cover_models.py          cover brief, concept, candidate, and set contracts
+├── cover_store.py           atomic cover-set and active-pointer CAS persistence
+├── image_client.py          Sub2API/OpenAI-compatible image request adapter
+└── delivery_package.py      deterministic manifest and ZIP builder
 ```
 
 ---
@@ -191,9 +196,119 @@ orch._llm = my_fake_llm_client       # bypass real LLM calls
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / etc. | Provider-native keys |
 | `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_VERSION` | Azure-specific |
 | `KIMI_BASE_URL`, `<PROVIDER>_BASE_URL` | Override an alias's endpoint |
+| `NOVEL_OS_COVER_BASE_URL` | Optional cover endpoint; falls back to `NOVEL_OS_BASE_URL` |
+| `NOVEL_OS_COVER_API_KEY` | Optional cover key; falls back to `NOVEL_OS_API_KEY` |
+| `NOVEL_OS_COVER_MODEL` | Cover model, default `gpt-image-2` |
+| `NOVEL_OS_COVER_SIZE` | Fixed cover canvas, `2048x3072` |
+| `NOVEL_OS_COVER_QUALITY` | `low`, `medium`, `high`, or `auto`; default `high` |
+| `NOVEL_OS_COVER_FORMAT` | `png`, `jpeg`, or `webp`; default `webp` |
+| `NOVEL_OS_COVER_COUNT` | Default candidate count, 3-5; default 4 |
+| `NOVEL_OS_COVER_TIMEOUT_SECONDS` | Per-image provider timeout; default 180 |
 
 `.env` files in the project root are auto-loaded (with or without `python-dotenv`).
 
 ---
 
-*API v1.1*
+## Cover HTTP API
+
+All routes are project-scoped under `/api`. Image generation runs through the
+in-memory `JobRunner`; poll `GET /api/jobs/{job_id}` until `status` is `done` or
+`error`. Job errors and metadata never include provider credentials.
+
+### Cover model settings
+
+```http
+GET /api/studio/cover
+PUT /api/studio/cover
+```
+
+`PUT` accepts `base_url`, `api_key`, `model`, `size`, `quality`,
+`output_format`, `count`, and `timeout_seconds`. The response reports
+`configured` and `has_api_key` but never returns the key.
+
+### Generate from the persisted Prompt
+
+```http
+POST /api/projects/{project_id}/covers/generate
+Content-Type: application/json
+
+{"count": 4}
+```
+
+The server reads `outputs/input/prompt.md`, requires exactly one approved
+`COVER_HANDOFF_BEGIN` / `COVER_HANDOFF_END` block, creates distinct concepts,
+then issues one `n=1` request per concept. `count` must be 3-5. An advanced
+caller may instead send both `brief` and `concepts`; neither may be supplied
+without the other.
+
+The response is HTTP 202 with a job object:
+
+```json
+{
+  "job_id": "JOB_ID",
+  "kind": "cover.generate",
+  "status": "running",
+  "error": null,
+  "meta": {"project_id": "PROJECT"}
+}
+```
+
+### Read candidate sets
+
+```http
+GET /api/projects/{project_id}/covers
+GET /api/projects/{project_id}/covers/{cover_set_id}
+```
+
+Sets are newest first. Each set contains the approved brief, concepts,
+candidates, source hashes, set `revision`, and the project-wide
+`active_revision`. Ready candidate responses expose a project-scoped media URL,
+SHA-256, dimensions, content type, provider/model provenance, and safe request
+parameters. API keys are absent.
+
+### Select, reject, and retry
+
+```http
+POST /api/projects/{project_id}/covers/{cover_set_id}/candidates/{candidate_id}/select
+{"expected_revision": 5, "expected_active_revision": 1, "confirm_stale": false}
+
+POST /api/projects/{project_id}/covers/{cover_set_id}/candidates/{candidate_id}/reject
+{"expected_revision": 5}
+
+POST /api/projects/{project_id}/covers/{cover_set_id}/candidates/{candidate_id}/retry
+{"expected_revision": 5}
+```
+
+Selection and rejection require an explicit UI/client decision. Selection uses
+two compare-and-swap guards, projects the content-addressed original into
+`selected-cover.*`, and atomically rebuilds the delivery package. Retry returns
+HTTP 202 and calls the provider only for the named failed candidate. Selecting
+or rejecting an existing candidate does not resolve image-provider settings or
+require an API key.
+
+Status codes:
+
+| Code | Meaning |
+|---|---|
+| 202 | generation or retry job accepted |
+| 400 | invalid handoff, count, transition, or stale selection without confirmation |
+| 404 | project, cover set, candidate media, or package missing |
+| 409 | set revision or active-pointer revision changed |
+| 502 | image provider returned an unusable response |
+| 503 | cover provider configuration is incomplete |
+
+### Media and delivery
+
+```http
+GET /api/projects/{project_id}/media/{media_id}/raw
+GET /api/projects/{project_id}/deliverables/package
+```
+
+The package endpoint downloads `book-package.zip`. The ZIP contains available
+book exports, ready/rejected/selected candidate projections, selected cover when
+present, `cover-set.json`, and `package-manifest.json`. The manifest records the
+path, media type, byte size, SHA-256, file role, and cover selection state.
+
+---
+
+*API v1.2*

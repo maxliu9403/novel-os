@@ -12,8 +12,12 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Callable
 
-from .image_binary import content_type, dimensions
-from .studio_settings import CoverSettings
+try:
+    from .image_binary import content_type, dimensions
+    from .studio_settings import CoverSettings
+except ImportError:  # pragma: no cover - legacy top-level core imports
+    from image_binary import content_type, dimensions
+    from studio_settings import CoverSettings
 
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 MAX_IMAGE_BYTES = 40 * 1024 * 1024
@@ -152,4 +156,3 @@ class ImageGenerationClient:
             request_id=request_id,
             model=self.settings.model,
         )
-

@@ -703,10 +703,19 @@ def patch_media(
 
 # -------------------------------------------------------------------------- covers
 
+def _cover_project(svc: ProjectService, project_id: str) -> Path:
+    try:
+        return svc.project_path(project_id)
+    except ProjectNotFound as exc:
+        raise HTTPException(
+            status_code=404, detail=f"Project '{project_id}' not found"
+        ) from exc
+
+
 def _cover_store(svc: ProjectService, project_id: str):
     from core.cover_store import CoverStore
 
-    return CoverStore(svc.project_path(project_id))
+    return CoverStore(_cover_project(svc, project_id))
 
 
 def _cover_out(project_id: str, cover_set, *, active_revision: int = 0) -> dict:
@@ -751,7 +760,7 @@ def generate_covers(
     from core.cover_models import CoverBrief, CoverConcept
     from core.cover_handoff import build_cover_concepts, parse_cover_handoff
 
-    project = svc.project_path(project_id)
+    project = _cover_project(svc, project_id)
     try:
         if (body.brief is None) != (body.concepts is None):
             raise ValueError("Cover brief and concepts must be supplied together")
@@ -827,7 +836,7 @@ def select_cover_candidate(
     svc: ProjectService = Depends(get_service),
     covers: CoverService = Depends(get_cover_mutation_service),
 ):
-    project = svc.project_path(project_id)
+    project = _cover_project(svc, project_id)
     try:
         cover_set = _cover_store(svc, project_id).load(cover_set_id)
         if cover_set.project_id != project_id:
@@ -857,7 +866,7 @@ def reject_cover_candidate(
     svc: ProjectService = Depends(get_service),
     covers: CoverService = Depends(get_cover_mutation_service),
 ):
-    project = svc.project_path(project_id)
+    project = _cover_project(svc, project_id)
     try:
         rejected = covers.reject_candidate(
             project,
@@ -884,8 +893,11 @@ def retry_cover_candidate(
     svc: ProjectService = Depends(get_service),
     covers: CoverService = Depends(get_cover_service),
 ):
-    project = svc.project_path(project_id)
-    current = _cover_store(svc, project_id).load(cover_set_id)
+    project = _cover_project(svc, project_id)
+    try:
+        current = _cover_store(svc, project_id).load(cover_set_id)
+    except (FileNotFoundError, ValueError) as exc:
+        raise _cover_error(exc) from exc
     if current.project_id != project_id:
         raise HTTPException(status_code=404, detail="Cover set not found")
     job_id = runner.submit(
@@ -907,7 +919,7 @@ def download_delivery_package(
     project_id: str,
     svc: ProjectService = Depends(get_service),
 ):
-    path = svc.project_path(project_id) / "outputs/deliverables/book-package.zip"
+    path = _cover_project(svc, project_id) / "outputs/deliverables/book-package.zip"
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Delivery package not found")
     return Response(
