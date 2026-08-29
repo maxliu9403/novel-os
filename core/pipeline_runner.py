@@ -401,6 +401,9 @@ class PipelineRunner:
             result.artifact_paths = [
                 f"outputs/deliverables/book.{self._format_extension(fmt)}"
                 for fmt in manifest.spec.output_formats
+            ] + [
+                "outputs/deliverables/package-manifest.json",
+                "outputs/deliverables/book-package.zip",
             ]
             self._require_files(project, result.artifact_paths)
             result.artifact_hashes = {
@@ -591,6 +594,9 @@ class PipelineRunner:
                 [
                     f"outputs/deliverables/book.{self._format_extension(fmt)}"
                     for fmt in manifest.spec.output_formats
+                ] + [
+                    "outputs/deliverables/package-manifest.json",
+                    "outputs/deliverables/book-package.zip",
                 ],
             )
             manifest.status = "completed"
@@ -2317,6 +2323,9 @@ class PipelineRunner:
             extension = self._format_extension(fmt)
             output = output_dir / f"book.{extension}"
             output.write_bytes(render_bytes(book, sheet, fmt))
+        from delivery_package import build_delivery_package
+
+        build_delivery_package(project)
         return True
 
     def _runtime_model(self, phase: str) -> tuple[str, str]:

@@ -1,4 +1,5 @@
 import json
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -339,6 +340,10 @@ def test_real_orchestrator_pipeline_completes_two_chapters(tmp_path: Path):
     book = (project / "outputs/deliverables/book.md").read_text(encoding="utf-8")
     assert "# One Prompt Book" in book
     assert "Morning light claimed" in book
+    assert (project / "outputs/deliverables/package-manifest.json").is_file()
+    with zipfile.ZipFile(project / "outputs/deliverables/book-package.zip") as package:
+        assert "book.md" in package.namelist()
+        assert "package-manifest.json" in package.namelist()
 
 
 def test_evidence_pipeline_enforces_semantic_ending_contract(tmp_path: Path):

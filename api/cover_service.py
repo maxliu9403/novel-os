@@ -16,6 +16,7 @@ from core.cover_models import (
     CoverSet,
 )
 from core.cover_store import CoverConflict, CoverStore
+from core.delivery_package import build_delivery_package
 from core.image_binary import content_type, dimensions
 from core.image_client import GeneratedImage, ImageClientError, ImageGenerationClient
 
@@ -55,7 +56,9 @@ class CoverService:
             current = self._attempt_candidate(
                 project_id, project, store, current, candidate.candidate_id
             )
-        return self._finalize(store, current)
+        current = self._finalize(store, current)
+        build_delivery_package(project, cover_set=current)
+        return current
 
     def retry_candidate(
         self,
@@ -75,7 +78,9 @@ class CoverService:
         if candidate.status != "failed":
             raise CoverServiceError("Only a failed cover candidate can be retried")
         current = self._attempt_candidate(project_id, project, store, current, candidate_id)
-        return self._finalize(store, current)
+        current = self._finalize(store, current)
+        build_delivery_package(project, cover_set=current)
+        return current
 
     def reject_candidate(
         self,
@@ -101,7 +106,9 @@ class CoverService:
             updated_at=self._now(),
         )
         updated = replace(updated, status=self._status(updated.candidates))
-        return store.save(updated, expected_revision=expected_revision)
+        saved = store.save(updated, expected_revision=expected_revision)
+        build_delivery_package(project_path, cover_set=saved)
+        return saved
 
     def select_candidate(
         self,
@@ -143,6 +150,7 @@ class CoverService:
         saved = store.save(updated, expected_revision=expected_revision)
         store.set_active(cover_set_id, expected_revision=expected_active_revision)
         self._project_selected(Path(project_path).resolve(), selected)
+        build_delivery_package(project_path, cover_set=saved)
         return saved
 
     def mark_stale(
@@ -157,7 +165,9 @@ class CoverService:
         updated = current.with_source_hashes(source_prompt_sha256, foundation_sha256)
         if updated == current:
             return current
-        return store.save(updated, expected_revision=current.revision)
+        saved = store.save(updated, expected_revision=current.revision)
+        build_delivery_package(project_path, cover_set=saved)
+        return saved
 
     def _attempt_candidate(
         self,

@@ -2068,7 +2068,7 @@ Examples:
                             help='Initial retry delay in seconds (exponential, capped at 30s)')
     run_parser.add_argument('--max-quality-repairs', type=int, default=2,
                             help='Automatic continuity repair passes per chapter under --approval auto')
-    run_parser.add_argument('--output', nargs='+', default=['markdown'],
+    run_parser.add_argument('--output', nargs='+', default=['markdown', 'epub', 'pdf', 'docx'],
                             choices=['markdown', 'html', 'docx', 'epub', 'pdf'])
     run_parser.add_argument('--model', default='', help='Override NOVEL_OS_MODEL for this process')
     run_parser.add_argument('--dry-run', action='store_true',
