@@ -19,11 +19,11 @@ Commands:
   config   Validate and print the resolved Compose configuration
   novel [PROMPT]
            Start the full-book runner with an interactive setup
-  novel-status [PROJECT] [RUN_ID]
+  novel-status [RUN_ID]
            Show a run; without arguments, use the most recent run
-  novel-resume [PROJECT] [RUN_ID]
+  novel-resume [RUN_ID]
            Resume a run; without arguments, use the most recent run
-  novel-retry [PROJECT] [RUN_ID]
+  novel-retry [RUN_ID]
            Retry the current stage of a failed or blocked run
 EOF
 }
@@ -42,17 +42,21 @@ Create a complete novel:
       ./deploy.sh novel './prompt/my-novel.md'
 
 Manage persisted runs:
-  ./deploy.sh novel-status [PROJECT] [RUN_ID]
+  ./deploy.sh novel-status [RUN_ID]
       Show status, current phase, chapter, and error. Without arguments, uses
-      the most recently updated run across all persistent projects.
+      the most recently updated run across all persistent projects. With a
+      RUN_ID, searches all persistent projects, so PROJECT is not required.
 
-  ./deploy.sh novel-resume [PROJECT] [RUN_ID]
+  ./deploy.sh novel-resume [RUN_ID]
       Resume a paused or interrupted run from its durable checkpoints. Without
-      arguments, uses the most recent run.
+      arguments, uses the most recent run. With a RUN_ID, searches all projects.
 
-  ./deploy.sh novel-retry [PROJECT] [RUN_ID]
+  ./deploy.sh novel-retry [RUN_ID]
       Retry the current failed or blocked stage. Without arguments, uses the
-      most recent run and reads its phase and chapter automatically.
+      most recent run and reads its phase and chapter automatically. With a
+      RUN_ID, searches all projects.
+
+  The legacy form [PROJECT] [RUN_ID] remains accepted for existing scripts.
 
   ./deploy.sh novel --help
       Show this complete command reference. Also accepts -h or help.
@@ -92,8 +96,11 @@ Defaults used by novel:
 
 Optional environment overrides:
   NOVEL_OS_PROJECT_NAME       Project directory name
+  NOVEL_OS_TITLE              Explicit title override (otherwise infer from prompt)
+  NOVEL_OS_GENRE              Explicit genre override (otherwise infer from prompt)
   NOVEL_OS_CHAPTERS           Positive integer chapter count
   NOVEL_OS_WORDS              Positive integer target word count
+  NOVEL_OS_EDIT_MODE          line, developmental, pacing, dialogue, or tension
   NOVEL_OS_APPROVAL           auto or review_required
   NOVEL_OS_QUALITY_POLICY     legacy or evidence_v1
   NOVEL_OS_OUTPUT             Space-separated formats: markdown html docx epub pdf
@@ -108,7 +115,7 @@ Examples:
   ./deploy.sh novel './prompt/my-novel.md'
   NOVEL_OS_OUTPUT='epub pdf' ./deploy.sh novel './prompt/my-novel.md'
   NOVEL_OS_APPROVAL=auto ./deploy.sh novel-resume
-  ./deploy.sh novel-status my-novel RUN_ID
+  ./deploy.sh novel-status RUN_ID
   ./deploy.sh logs backend
 
 Runtime behavior:
@@ -202,16 +209,27 @@ validate_project_name() {
   fi
 }
 
+validate_run_id() {
+  local value="$1"
+  if [[ -z "$value" || ! "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+    echo "Run ID must contain only letters, numbers, dots, underscores, or hyphens." >&2
+    return 1
+  fi
+}
+
 run_novel() {
-  local prompt_file project_name chapters words approval quality output dry_run answer
+  local prompt_file project_name title genre chapters words edit_mode approval quality output dry_run answer
   local -a command_args output_formats
 
   prompt_file="$(choose_prompt "${1:-}")"
   prompt_file="$(cd "$(dirname "$prompt_file")" && pwd)/$(basename "$prompt_file")"
   project_name="${NOVEL_OS_PROJECT_NAME:-$(basename "$prompt_file")}"
   project_name="${project_name%.*}"
+  title="${NOVEL_OS_TITLE:-}"
+  genre="${NOVEL_OS_GENRE:-}"
   chapters="${NOVEL_OS_CHAPTERS:-}"
   words="${NOVEL_OS_WORDS:-}"
+  edit_mode="${NOVEL_OS_EDIT_MODE:-line}"
   approval="${NOVEL_OS_APPROVAL:-auto}"
   quality="${NOVEL_OS_QUALITY_POLICY:-evidence_v1}"
   output="${NOVEL_OS_OUTPUT:-markdown epub}"
@@ -248,6 +266,10 @@ run_novel() {
     echo "Target words must be a positive integer." >&2
     return 1
   fi
+  if [[ "$edit_mode" != "line" && "$edit_mode" != "developmental" && "$edit_mode" != "pacing" && "$edit_mode" != "dialogue" && "$edit_mode" != "tension" ]]; then
+    echo "Edit mode must be line, developmental, pacing, dialogue, or tension." >&2
+    return 1
+  fi
   read -r -a output_formats <<< "$output"
   if [[ ${#output_formats[@]} -eq 0 ]]; then
     echo "Choose at least one output format." >&2
@@ -257,8 +279,11 @@ run_novel() {
   printf '\nNovel run\n'
   printf '  Prompt:  %s\n' "$prompt_file"
   printf '  Project: %s\n' "$project_name"
+  [[ -n "$title" ]] && printf '  Title:   %s\n' "$title"
+  [[ -n "$genre" ]] && printf '  Genre:   %s\n' "$genre"
   printf '  Chapters: %s\n' "${chapters:-infer}"
   printf '  Words:    %s\n' "${words:-infer}"
+  printf '  Edit:     %s\n' "$edit_mode"
   printf '  Approval: %s\n' "$approval"
   printf '  Output:   %s\n' "$output"
 
@@ -277,11 +302,14 @@ run_novel() {
     python core/orchestrator.py run
     --project "/data/projects/$project_name"
     --prompt -
+    --edit-mode "$edit_mode"
     --approval "$approval"
     --quality-policy "$quality"
     --max-retries "${NOVEL_OS_MAX_RETRIES:-5}"
     --max-quality-repairs "${NOVEL_OS_MAX_QUALITY_REPAIRS:-2}"
   )
+  [[ -n "$title" ]] && command_args+=(--title "$title")
+  [[ -n "$genre" ]] && command_args+=(--genre "$genre")
   [[ -n "$chapters" ]] && command_args+=(--chapters "$chapters")
   [[ -n "$words" ]] && command_args+=(--words "$words")
   [[ "$dry_run" == "1" ]] && command_args+=(--dry-run)
@@ -309,16 +337,43 @@ latest_run_manifest() {
 }
 
 resolve_run_target() {
-  local requested_project="${1:-}" requested_run="${2:-}" manifest relative
+  local requested_project="${1:-}" requested_run="${2:-}" manifest relative file
+  local -a matches=()
   if [[ -n "$requested_run" ]]; then
+    # Backward-compatible form: PROJECT RUN_ID.
     validate_project_name "$requested_project" || return 1
+    validate_run_id "$requested_run" || return 1
     manifest="$DATA_DIR/projects/$requested_project/outputs/runs/$requested_run/run.json"
     if [[ ! -f "$manifest" ]]; then
       echo "Run not found: $requested_project / $requested_run" >&2
       return 1
     fi
+  elif [[ -n "$requested_project" ]]; then
+    # Preferred form: RUN_ID. Run IDs are generated independently of projects,
+    # so locate the matching manifest across the persistent project root.
+    validate_run_id "$requested_project" || return 1
+    while IFS= read -r file; do
+      matches+=("$file")
+    done < <(find "$DATA_DIR/projects" -type f -path "*/outputs/runs/$requested_project/run.json" -print 2>/dev/null)
+    if [[ ${#matches[@]} -eq 0 ]]; then
+      # Keep the old one-argument PROJECT form useful while it is not advertised.
+      if [[ -d "$DATA_DIR/projects/$requested_project" ]]; then
+        manifest="$(latest_run_manifest "$requested_project")" || return 1
+      else
+        echo "Run not found: $requested_project" >&2
+        return 1
+      fi
+    elif [[ ${#matches[@]} -gt 1 ]]; then
+      echo "Run ID is ambiguous across projects: $requested_project" >&2
+      printf 'Matching manifests:\n' >&2
+      printf '  %s\n' "${matches[@]}" >&2
+      echo "Use the legacy form: ./deploy.sh novel-status PROJECT RUN_ID" >&2
+      return 1
+    else
+      manifest="${matches[0]}"
+    fi
   else
-    if ! manifest="$(latest_run_manifest "$requested_project")"; then
+    if ! manifest="$(latest_run_manifest)"; then
       echo "No persisted novel runs found." >&2
       return 1
     fi

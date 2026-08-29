@@ -11,6 +11,7 @@ Turn an incomplete novel idea into a deliberate story engine, a reviewed design,
 
 - Use the user's requested output language and target-market register. Chinese and English are first-class paths; preserve each market's idiom, social context, and localization decisions in separate research branches when needed.
 - Use fictional setting names by default. Story-facing locations, cities, districts, institutions, and landmarks use invented names or abstract regional labels; real place names belong only in the separate market-research metadata and source records.
+- Give every novel a short reader-facing story lead before chapter one. It previews the core conflict and an earned satisfaction path in the output language, but it does not replace chapter one's own hook or reveal the full ending.
 - Treat the user's rough idea as the source of intent, not as a finished outline. Preserve explicit decisions and label low-impact additions as assumptions.
 - Keep the interaction focused. Ask at most five high-impact questions, one question per message. Ask only when an answer could change the story identity, audience, causal engine, protagonist arc, or ending.
 - Treat the target audience as a required user decision. When the conversation and confirmed project scope do not identify the primary reader segment, ask who the novel is for before market research or creative branching; never fill this field as an assumption. Confirm at least the audience's age or life stage and primary genre expectation, reading motivation, or emotional need. Ask about gender tendency, platform, or purchasing context only when it materially changes the design.
@@ -52,6 +53,7 @@ Before asking a question, inspect the current workspace when it is available:
    - setting mode, fictional place-name policy, and any real-world references that need fictionalization;
    - chapter range, per-chapter length, and free-to-paid constraints;
    - reader promise, primary satisfaction source, opening window, and desired retention profile when relevant;
+   - story-lead conflict, identification trigger, emotional target, satisfaction promise, unanswered question, and language-adjusted length;
    - explicit must-have, must-avoid, and existing canon.
 
 Do not repeat facts already supplied. If a low-impact field is absent, write a conservative assumption and continue.
@@ -197,6 +199,11 @@ Define:
   reader promise, immediate event and stakes, first-screen signals, conflict
   braid, satisfaction loop, atmosphere pressure, identification anchor, chapter 1-3 value map,
   irreversible chapter-three step, and paid bridge.
+- for every novel, a machine-readable `story_lead_contract` that fixes its
+  placement before chapter one, output language, reader-facing heading,
+  language-adjusted length range, core conflict, identification trigger,
+  emotional target, earned satisfaction promise, unanswered question, and
+  spoiler boundary.
 
 ### Section B: characters and relationships
 
@@ -236,6 +243,17 @@ Choose a chapter count within the user's range and explain the choice. Map acts 
 2. strategy test, relationship pressure, and first earned resource;
 3. local payoff, costly protagonist choice, visible irreversible consequence, and a concrete next objective.
 
+Before chapter one, design the required reader-facing story lead. Use roughly
+`180-260` Chinese characters or `120-180` English words by default; for other
+languages, choose and record a comparable platform-first-screen range based on
+language density. The lead is compact packaging prose, not an author note or a
+scene summary. It must name a concrete conflict or injustice, attach it to an
+immediate loss, desire, fear, or boundary, expose a relationship/status/power
+contrast, promise an earned counteraction or reversal, and leave one specific
+question open. Preserve the main ending and the mechanism of the largest payoff.
+Do not reuse the first paragraphs of chapter one; chapter one still begins with
+its own event, choice, and local value delivery.
+
 For `retention_first`, make the first sentence or opening window show at least two concrete signals, braid two or three conflict dimensions into a causal chain, and give every one of the first three chapters a local value delivery. Show atmosphere through details that affect pressure, choice, evidence, or relationship, and anchor identification in a specific desire, fear, habit, object, or boundary. Rotate the source of satisfaction across competence, evidence, status, relationship, moral courage, fair revelation, or survival rather than repeating one confrontation pattern.
 
 If the user has a free-reading window, make the first paid chapter immediately deliver the direct consequence of chapter three. A chapter ending earns its hook by changing knowledge, power, relationship, resources, identity, rules, moral cost, or time. The retention reference supplies the review rubric and anti-pattern replacements.
@@ -264,7 +282,25 @@ After design approval, generate a complete prompt rather than a short summary. L
 4. Include a `## Assumptions` section in the prompt for details the user did not decide.
 5. Keep the prompt authoritative: repeat the locked title, language, genre, audience, tone, POV, chapter count, and word target in parseable `Key: Value` fields near the top.
 
-The prompt must instruct Novel OS to plan before drafting, preserve the structured `audience_research` record and its market branches, preserve the confirmed `workshop_trace` and decision history, maintain character/relationship/secret/timeline/resource ledgers, emit and preserve a machine-readable `ending_contract`, update a payoff ledger after every chapter, use a per-chapter causal contract, preserve POV and knowledge boundaries, rotate conflict and hook types, reserve the final 3-5 chapters for payoff, and produce a final reader-facing manuscript without agent commentary. It must also preserve `setting_policy.mode: fictionalized`, use invented or abstract story-facing place names, and keep real market/source locations inside audience-research metadata. When `retention_first` is active, it must also preserve the opening contract, first-screen evidence, conflict braid, satisfaction loop, atmosphere and identification decisions, first-three-chapter value map, and paid bridge.
+The prompt must instruct Novel OS to plan before drafting, preserve the structured `audience_research` record and its market branches, preserve the confirmed `workshop_trace` and decision history, maintain character/relationship/secret/timeline/resource ledgers, emit and preserve machine-readable `story_lead_contract` and `ending_contract` records, update a payoff ledger after every chapter, use a per-chapter causal contract, preserve POV and knowledge boundaries, rotate conflict and hook types, reserve the final 3-5 chapters for payoff, and produce a final reader-facing manuscript without agent commentary. It must also preserve `setting_policy.mode: fictionalized`, use invented or abstract story-facing place names, and keep real market/source locations inside audience-research metadata. The Scribe writes the story lead once at the start of chapter one's artifact, the Editor sharpens it without inventing unsupported promises, the Continuity Guardian checks its claims against the planned story, and the Style Curator preserves the output-language register. When `retention_first` is active, the prompt must also preserve the opening contract, first-screen evidence, conflict braid, satisfaction loop, atmosphere and identification decisions, first-three-chapter value map, and paid bridge.
+
+Use this exact machine-readable Markdown boundary in the chapter-one artifact so
+Novel OS can compile the lead without replacing chapter-one navigation:
+
+```markdown
+## STORY_LEAD: 序
+
+<Chinese reader-facing lead, normally 180-260 characters>
+
+# 第一章 <chapter title>
+
+<chapter-one prose with its own opening hook>
+```
+
+For English, use `## STORY_LEAD: Story Lead` and the approved English chapter
+heading. For other languages, keep the ASCII `STORY_LEAD:` marker and localize
+only the reader-facing label after the colon. The compiled Markdown, EPUB,
+HTML, PDF, and DOCX display the localized label and omit the machine marker.
 
 Every Scribe, Editor, and Continuity Guardian state block must include these
 fields when applicable:
@@ -309,7 +345,7 @@ PYTHONPATH=core ./venv/bin/python -c "from pathlib import Path; from prompt_inta
 
 Replace `PROMPT_VALIDATION_PROJECT` and `PROMPT_PATH` with the actual paths. Confirm that the parsed brief contains the locked title, genre, language, chapter count, word target, audience, tone, and premise. Also confirm that the prompt contains a market-scoped `audience_research` section with country, region, language, source records, evidence types, confidence, and creative implications, a `setting_policy` with `mode: fictionalized`, a `workshop_trace` with Section A-E decisions and open assumptions, plus personality fields for every principal character. Use a temporary validation project when no project has been selected; keep a real project untouched until the user runs the command.
 
-Also run `git diff --check -- <prompt path>` when the file is inside a Git workspace. For a `retention_first` Prompt, verify the opening contract, the first-screen signal list, at least two conflict dimensions, local value for chapters 1-3, and the paid bridge are present and internally consistent. Report parser output and any corrected field; do not claim validation from file existence alone.
+Also run `git diff --check -- <prompt path>` when the file is inside a Git workspace. For every Prompt, verify that `story_lead_contract.required` is true, its language and length unit agree, its conflict/payoff/question fields are concrete, and the chapter-one output protocol uses the `STORY_LEAD:` marker before the real chapter heading. For a `retention_first` Prompt, also verify the opening contract, the first-screen signal list, at least two conflict dimensions, local value for chapters 1-3, and the paid bridge are present and internally consistent. Report parser output and any corrected field; do not claim validation from file existence alone.
 
 ## Phase 6: hand off the run command
 
@@ -338,8 +374,11 @@ them with the command rather than relying on the operator to re-enter them:
 ```bash
 cd /path/to/Novel-OS
 NOVEL_OS_PROJECT_NAME='PROJECT_SLUG' \
+NOVEL_OS_TITLE='TITLE' \
+NOVEL_OS_GENRE='GENRE' \
 NOVEL_OS_CHAPTERS='CHAPTERS' \
 NOVEL_OS_WORDS='WORDS' \
+NOVEL_OS_EDIT_MODE='developmental' \
 NOVEL_OS_APPROVAL='auto' \
 NOVEL_OS_QUALITY_POLICY='evidence_v1' \
 NOVEL_OS_OUTPUT='markdown epub' \
@@ -354,13 +393,15 @@ Docker artifact path as `docker-data/projects/PROJECT_SLUG/outputs/`.
 Use the launcher's persisted-run commands for recovery:
 
 ```bash
-./deploy.sh novel-status 'PROJECT_SLUG' 'RUN_ID'
-./deploy.sh novel-resume 'PROJECT_SLUG' 'RUN_ID'
-./deploy.sh novel-retry 'PROJECT_SLUG' 'RUN_ID'
+./deploy.sh novel-status 'RUN_ID'
+./deploy.sh novel-resume 'RUN_ID'
+./deploy.sh novel-retry 'RUN_ID'
 ```
 
-Omit `PROJECT_SLUG` and `RUN_ID` only when the user explicitly wants the most
-recent persisted run.
+Use only `RUN_ID` for a specific persisted run; the launcher resolves it across
+all projects. Omit `RUN_ID` when the user explicitly wants the most recent run.
+If a legacy deployment contains a duplicate RUN_ID, the launcher reports the
+matches and accepts the compatibility form `PROJECT RUN_ID` to disambiguate.
 
 ### Native fallback
 
@@ -405,6 +446,7 @@ Finish with a compact report containing:
 - active title and project path;
 - locked design decisions and assumptions;
 - prompt path and parser result;
+- story-lead language, target length, and quality-gate result;
 - exact start command;
 - what was verified locally;
 - whether a model run was started.

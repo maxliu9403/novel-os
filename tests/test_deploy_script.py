@@ -128,6 +128,59 @@ def test_novel_status_uses_latest_persisted_run_without_manual_run_id(tmp_path: 
     assert "run-status --project /data/projects/status-smoke --run-id RUN123" in calls
 
 
+def test_novel_status_resolves_run_id_without_project(tmp_path: Path):
+    data_dir = tmp_path / "data"
+    run = data_dir / "projects" / "status-by-id" / "outputs" / "runs" / "RUN123"
+    run.mkdir(parents=True, exist_ok=True)
+    (run / "run.json").write_text("{}\n", encoding="utf-8")
+    bin_dir, log, capture = _fake_docker(tmp_path)
+    env = os.environ.copy()
+    env["PATH"] = f"{bin_dir}:{env['PATH']}"
+    env["FAKE_DOCKER_LOG"] = str(log)
+    env["FAKE_PROMPT_CAPTURE"] = str(capture)
+    env["NOVEL_OS_DATA_DIR"] = str(data_dir)
+
+    result = subprocess.run(
+        [str(SCRIPT), "novel-status", "RUN123"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = log.read_text(encoding="utf-8")
+    assert "run-status --project /data/projects/status-by-id --run-id RUN123" in calls
+
+
+def test_novel_status_rejects_duplicate_run_id_without_project(tmp_path: Path):
+    data_dir = tmp_path / "data"
+    for project in ("duplicate-a", "duplicate-b"):
+        run = data_dir / "projects" / project / "outputs" / "runs" / "RUN999"
+        run.mkdir(parents=True, exist_ok=True)
+        (run / "run.json").write_text("{}\n", encoding="utf-8")
+    bin_dir, log, capture = _fake_docker(tmp_path)
+    env = os.environ.copy()
+    env["PATH"] = f"{bin_dir}:{env['PATH']}"
+    env["FAKE_DOCKER_LOG"] = str(log)
+    env["FAKE_PROMPT_CAPTURE"] = str(capture)
+    env["NOVEL_OS_DATA_DIR"] = str(data_dir)
+
+    result = subprocess.run(
+        [str(SCRIPT), "novel-status", "RUN999"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "Run ID is ambiguous across projects: RUN999" in result.stderr
+    assert "compose exec" not in log.read_text(encoding="utf-8")
+
+
 def test_novel_resume_uses_latest_run_and_optional_approval(tmp_path: Path):
     data_dir = tmp_path / "data"
     run = data_dir / "projects" / "resume-smoke" / "outputs" / "runs" / "RUN456"

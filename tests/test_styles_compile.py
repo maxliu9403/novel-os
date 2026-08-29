@@ -120,6 +120,20 @@ def test_a_heading_becomes_a_chapter_title():
     assert out[0].text == "The Pier"
 
 
+@pytest.mark.parametrize("label", ["序", "Story Lead"])
+def test_a_story_lead_marker_becomes_a_reader_facing_lead(label):
+    out = parse_chapter(
+        f"## STORY_LEAD: {label}\n\nThe promise.\n\n# Chapter 1: Arrival\n\nShe waited.",
+        chapter=1,
+    )
+
+    assert kinds(out) == [
+        "story_lead_title", "story_lead", "chapter_title", "first_paragraph",
+    ]
+    assert out[0].text == label
+    assert out[1].text == "The promise."
+
+
 def test_the_paragraph_after_a_scene_break_is_not_indented():
     out = parse_chapter("One.\n\n---\n\nTwo.\n\nThree.")
     assert kinds(out) == ["first_paragraph", "scene_break", "first_paragraph", "body"]
@@ -170,6 +184,25 @@ def test_a_chapter_that_names_itself_is_not_titled_twice():
     ])
     assert kinds(book.blocks).count("chapter_title") == 1
     assert book.chapters[0]["title"] == "Arrival"
+
+
+def test_story_lead_does_not_replace_the_first_chapter_title():
+    book = gather(title="T", author="", genre="", chapters=[
+        {
+            "number": 1,
+            "title": "Arrival",
+            "text": (
+                "## STORY_LEAD: Story Lead\n\n"
+                "She had one promise left.\n\n"
+                "# Chapter 1: Arrival\n\nShe waited."
+            ),
+        },
+    ])
+
+    assert kinds(book.blocks)[:4] == [
+        "story_lead_title", "story_lead", "chapter_title", "first_paragraph",
+    ]
+    assert book.chapters[0]["title"] == "Chapter 1: Arrival"
 
 
 def test_an_untitled_chapter_gets_a_number():
@@ -244,6 +277,20 @@ def test_markdown_render_has_no_styling():
     assert md.startswith("# The Pier")
     assert "font-size" not in md
     assert "## Arrival" in md
+
+
+def test_markdown_renders_story_lead_without_the_machine_marker():
+    book = gather(title="T", author="", genre="", chapters=[
+        {
+            "number": 1,
+            "title": "第一章 抉择",
+            "text": "## STORY_LEAD: 序\n\n她决定拿回一切。\n\n# 第一章 抉择\n\n门开了。",
+        },
+    ])
+
+    md = render_markdown(book, StyleSheet())
+    assert md.index("## 序") < md.index("## 第一章 抉择")
+    assert "STORY_LEAD" not in md
 
 
 def test_render_dispatches_by_format():

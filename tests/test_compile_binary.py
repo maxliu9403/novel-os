@@ -192,6 +192,25 @@ def test_epub_navigation_lists_every_chapter_title():
     assert "Arrival" in nav and "Departure" in nav
 
 
+def test_epub_keeps_story_lead_before_chapter_one_without_renaming_navigation():
+    book = gather(title="T", author="", genre="", chapters=[
+        {
+            "number": 1,
+            "title": "第一章 抉择",
+            "text": "## STORY_LEAD: 序\n\n她决定拿回一切。\n\n# 第一章 抉择\n\n门开了。",
+        },
+    ])
+
+    z = _zip(render_epub(book, StyleSheet()))
+    page = z.read("OEBPS/chap001.xhtml").decode("utf-8")
+    nav = z.read("OEBPS/nav.xhtml").decode("utf-8")
+    body = page.split("<body>", 1)[1]
+    assert body.index("序") < body.index("第一章 抉择")
+    assert "STORY_LEAD" not in page
+    assert "第一章 抉择" in nav
+    assert ">序</a>" not in nav
+
+
 def test_epub_styles_come_from_the_sheet():
     sheet = StyleSheet()
     sheet.styles["body"] = Style(size_pt=17)

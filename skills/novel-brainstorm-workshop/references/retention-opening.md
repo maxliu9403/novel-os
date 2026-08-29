@@ -31,6 +31,69 @@ retention_profile:
 genre, POV, register, and cultural setting while making the first meaningful
 choice arrive early.
 
+## Reader-facing story lead
+
+Every novel carries a short story lead before chapter one, including projects
+that use `balanced` or `literary_first`. The lead is reader-facing packaging
+prose: it compresses the story's core conflict, identification trigger, and
+earned satisfaction promise into a reason to begin chapter one. It is not an
+author note, a neutral synopsis, a substitute for chapter one's opening scene,
+or a guarantee of commercial conversion.
+
+Use this contract in the approved design and generated Prompt:
+
+```yaml
+story_lead_contract:
+  required: true
+  placement: before_chapter_1
+  language: <output language>
+  reader_heading: <localized short label, such as 序 or Story Lead>
+  length:
+    unit: characters|words
+    target_range: [<minimum>, <maximum>]
+  core_conflict: <specific collision, injustice, betrayal, threat, or impossible demand>
+  identification_trigger: <immediate desire, loss, fear, humiliation, or boundary>
+  emotional_target: resonance|anger|anticipation|mixed
+  satisfaction_promise: <earned counteraction, exposure, reversal, escape, or rise>
+  unanswered_question: <specific reason to enter chapter one>
+  spoiler_limit: <ending or payoff mechanism that remains unrevealed>
+  manuscript_marker: "## STORY_LEAD: <reader_heading>"
+```
+
+Default to `180-260` characters for Chinese and `120-180` words for English.
+For another language, record a comparable range based on language density,
+platform layout, and the target market's reading pattern. These are target
+ranges for editorial control, not performance claims.
+
+Build the lead in this order:
+
+1. Open on a concrete conflict, unfair demand, betrayal, threat, or loss.
+2. Show why it strikes this protagonist's desire, fear, dignity, or boundary.
+3. Reveal a relationship, identity, status, or power contrast that intensifies it.
+4. Promise a specific form of earned agency: evidence, competence, leverage,
+   counterattack, relationship reversal, visible consequence, or rise.
+5. End on one unanswered question while withholding the full outcome and its
+   decisive mechanism.
+
+Anger comes from recognizable unfairness and consequence, not stacked insults.
+Satisfaction comes from the protagonist's choices, preparation, competence,
+evidence, or changing leverage, not promotional adjectives. The lead may use
+one or two short paragraphs, but it must not copy chapter one's opening lines.
+Chapter one starts afterward with its own concrete event and causal hook.
+
+Use this exact chapter-one boundary so the compiler can distinguish the lead
+from navigation. Keep `STORY_LEAD:` in ASCII and localize only the visible label:
+
+```markdown
+## STORY_LEAD: <reader_heading>
+
+<reader-facing lead>
+
+# <localized chapter-one heading and title>
+
+<chapter-one prose>
+```
+
 ## Opening contract
 
 Before drafting, emit one stable contract. Keep explanations and market
@@ -178,6 +241,10 @@ draft evidence:
 
 ```yaml
 retention_review:
+  story_lead_present_before_chapter_1: pass|revise
+  story_lead_length_matches_language: pass|revise
+  story_lead_conflict_identification_and_payoff: pass|revise
+  story_lead_withholds_ending_and_differs_from_chapter_1: pass|revise
   first_sentence_direction: pass|revise
   first_screen_has_two_signals: pass|revise
   protagonist_agency_in_chapter_1: pass|revise

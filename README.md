@@ -548,14 +548,24 @@ Skill 的发布源是仓库目录：
 skills/novel-brainstorm-workshop/
 ```
 
-`CODEX_HOME` 未设置时默认使用 `~/.codex`。从已经检出的仓库安装：
+Codex 默认从 `~/.codex/skills/` 加载 Skill。从已经检出的仓库安装：
+
+```bash
+mkdir -p "$HOME/.codex/skills/novel-brainstorm-workshop"
+rsync -a --delete \
+  skills/novel-brainstorm-workshop/ \
+  "$HOME/.codex/skills/novel-brainstorm-workshop/"
+test -f "$HOME/.codex/skills/novel-brainstorm-workshop/SKILL.md"
+```
+
+如果使用自定义 `CODEX_HOME`，将目标目录替换为：
 
 ```bash
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
-SKILL_DEST="$CODEX_HOME/skills/novel-brainstorm-workshop"
-mkdir -p "$SKILL_DEST"
-cp -R skills/novel-brainstorm-workshop/. "$SKILL_DEST/"
-test -f "$SKILL_DEST/SKILL.md"
+mkdir -p "$CODEX_HOME/skills/novel-brainstorm-workshop"
+rsync -a --delete \
+  skills/novel-brainstorm-workshop/ \
+  "$CODEX_HOME/skills/novel-brainstorm-workshop/"
 ```
 
 也可以在未克隆完整仓库时，通过 Codex 自带安装器直接从 GitHub 安装：
@@ -568,15 +578,8 @@ python3 "$CODEX_HOME/skills/.system/skill-installer/scripts/install-skill-from-g
   --path skills/novel-brainstorm-workshop
 ```
 
-如果该 Skill 已存在，安装器会停止而不是覆盖。更新已有副本时，在仓库根目录
-执行：
-
-```bash
-CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
-rsync -a --delete \
-  skills/novel-brainstorm-workshop/ \
-  "$CODEX_HOME/skills/novel-brainstorm-workshop/"
-```
+如果该 Skill 已存在，安装器会停止而不是覆盖；已有副本直接使用上面的 `rsync`
+命令更新。在仓库根目录执行同步，避免相对路径指向错误目录。
 
 安装或更新后重新打开 Codex，或开始一个新对话。调用方式：
 
@@ -633,16 +636,43 @@ NOVEL_OS_OUTPUT='markdown epub' \
   ./deploy.sh novel './prompt/my-novel.md'
 ```
 
+从旧版 Skill 迁移时，将原先直接传给 `orchestrator.py` 的参数映射为
+`deploy.sh novel` 环境变量。下面的命令保持原命令的标题、题材、章节数、字数、
+编辑模式、质量策略和 Markdown 输出不变：
+
+```bash
+NOVEL_OS_NONINTERACTIVE=1 \
+NOVEL_OS_PROJECT_NAME='PROJECT_SLUG' \
+NOVEL_OS_TITLE='TITLE' \
+NOVEL_OS_GENRE='GENRE' \
+NOVEL_OS_CHAPTERS='CHAPTERS' \
+NOVEL_OS_WORDS='WORDS' \
+NOVEL_OS_EDIT_MODE='developmental' \
+NOVEL_OS_APPROVAL='auto' \
+NOVEL_OS_QUALITY_POLICY='evidence_v1' \
+NOVEL_OS_MAX_RETRIES='5' \
+NOVEL_OS_MAX_QUALITY_REPAIRS='2' \
+NOVEL_OS_OUTPUT='markdown' \
+./deploy.sh novel './prompt/TITLE.md'
+```
+
+`NOVEL_OS_TITLE`、`NOVEL_OS_GENRE` 和 `NOVEL_OS_EDIT_MODE` 用于保留旧命令中
+显式覆盖的参数；不设置时分别从 Prompt 推断标题、题材，并使用 `line` 编辑模式。
+
 运行管理命令：
 
 ```bash
 ./deploy.sh novel-status                         # 查看最近一次运行
 ./deploy.sh novel-resume                         # 从持久化检查点继续
 ./deploy.sh novel-retry                          # 重试当前阻塞阶段
-./deploy.sh novel-status PROJECT RUN_ID          # 查看指定运行
-./deploy.sh novel-resume PROJECT RUN_ID          # 恢复指定运行
-./deploy.sh novel-retry PROJECT RUN_ID           # 重试指定运行
+./deploy.sh novel-status RUN_ID                  # 按唯一 RUN_ID 查看指定运行
+./deploy.sh novel-resume RUN_ID                  # 按唯一 RUN_ID 恢复指定运行
+./deploy.sh novel-retry RUN_ID                   # 按唯一 RUN_ID 重试指定运行
 ```
+
+`RUN_ID` 默认由 UUID 生成，可跨项目检索，因此状态、恢复和重试命令不再需要
+`PROJECT`。脚本会检查匹配数量；如果历史数据出现重复 RUN_ID，会停止并列出匹配项，
+此时可临时使用兼容格式 `./deploy.sh novel-status PROJECT RUN_ID` 明确目标。
 
 生成内容保存在新设备本地：
 
