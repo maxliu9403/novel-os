@@ -26,10 +26,13 @@ from typing import Any, Callable, Dict, List, Optional
 
 from styles import StyleSheet, Style
 
-BlockKind = str  # "chapter_title" | "body" | "first_paragraph" | "block_quote" | "scene_break"
+BlockKind = str  # chapter title, story lead, prose, quote, or scene break
 
 _SCENE_BREAK = re.compile(r"^\s*(?:(?:[-*_]\s*){3,}|\*\s*\*\s*\*)\s*$")
 _HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
+_STORY_LEAD_HEADING = re.compile(
+    r"^(#{1,6})\s+STORY_LEAD\s*:\s*(.+?)\s*$", re.IGNORECASE,
+)
 _QUOTE = re.compile(r"^>\s?(.*)$")
 
 
@@ -57,7 +60,7 @@ class CompiledBook:
     def word_count(self) -> int:
         return sum(
             len(b.text.split()) for b in self.blocks
-            if b.kind not in ("scene_break", "chapter_title")
+            if b.kind not in ("scene_break", "chapter_title", "story_lead_title")
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -80,6 +83,7 @@ def parse_chapter(text: str, chapter: Optional[int] = None) -> List[Block]:
     """
     blocks: List[Block] = []
     at_paragraph_start = True  # true after a heading or break
+    in_story_lead = False
 
     for raw in re.split(r"\n\s*\n", text or ""):
         chunk = raw.strip()
@@ -91,12 +95,24 @@ def parse_chapter(text: str, chapter: Optional[int] = None) -> List[Block]:
             at_paragraph_start = True
             continue
 
+        story_lead_heading = _STORY_LEAD_HEADING.match(chunk)
+        if story_lead_heading:
+            blocks.append(Block(
+                kind="story_lead_title",
+                text=story_lead_heading.group(2).strip(),
+                chapter=chapter,
+            ))
+            at_paragraph_start = True
+            in_story_lead = True
+            continue
+
         heading = _HEADING.match(chunk)
         if heading:
             blocks.append(Block(
                 kind="chapter_title", text=heading.group(2).strip(), chapter=chapter,
             ))
             at_paragraph_start = True
+            in_story_lead = False
             continue
 
         lines = chunk.split("\n")
@@ -109,7 +125,11 @@ def parse_chapter(text: str, chapter: Optional[int] = None) -> List[Block]:
             continue
 
         blocks.append(Block(
-            kind="first_paragraph" if at_paragraph_start else "body",
+            kind=(
+                "story_lead"
+                if in_story_lead
+                else ("first_paragraph" if at_paragraph_start else "body")
+            ),
             text=" ".join(line.strip() for line in lines).strip(),
             chapter=chapter,
         ))
@@ -140,15 +160,26 @@ def gather(
             continue
 
         parsed = parse_chapter(text, chapter=number)
-        # Only supply a title when the prose did not already open with one, so
-        # a chapter that names itself is not labelled twice.
-        if not parsed or parsed[0].kind != "chapter_title":
+        # A story lead may precede chapter one, so find the actual chapter title
+        # instead of assuming the first heading owns navigation.
+        chapter_title = next(
+            (block for block in parsed if block.kind == "chapter_title"), None,
+        )
+        if chapter_title is None:
             heading = (entry.get("title") or "").strip() or f"Chapter {number}"
-            parsed.insert(0, Block(kind="chapter_title", text=heading, chapter=number))
+            insert_at = next(
+                (
+                    index for index, block in enumerate(parsed)
+                    if block.kind not in ("story_lead_title", "story_lead")
+                ),
+                len(parsed),
+            )
+            chapter_title = Block(kind="chapter_title", text=heading, chapter=number)
+            parsed.insert(insert_at, chapter_title)
 
         book.chapters.append({
             "number": number,
-            "title": parsed[0].text,
+            "title": chapter_title.text,
         })
         book.blocks.extend(parsed)
 
@@ -266,7 +297,7 @@ def render_html(book: CompiledBook, sheet: StyleSheet) -> str:
                 f'<p style="{css}" role="separator">'
                 f"{html.escape(sheet.scene_break_marker)}</p>"
             )
-        elif block.kind == "chapter_title":
+        elif block.kind in ("chapter_title", "story_lead_title"):
             out.append(f'<h2 style="{css}">{_inline(block.text)}</h2>')
         elif block.kind == "block_quote":
             out.append(f'<blockquote style="{css}">{_inline(block.text)}</blockquote>')
@@ -286,7 +317,7 @@ def render_markdown(book: CompiledBook, sheet: StyleSheet) -> str:
     for block in book.blocks:
         if block.kind == "scene_break":
             out += [sheet.scene_break_marker, ""]
-        elif block.kind == "chapter_title":
+        elif block.kind in ("chapter_title", "story_lead_title"):
             out += [f"## {block.text}", ""]
         elif block.kind == "block_quote":
             out += [f"> {block.text}", ""]

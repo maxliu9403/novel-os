@@ -29,15 +29,61 @@ Use actual values in the final artifact. `Audience` must come from a user-confir
 8. **Secret and timeline ledger**: truth, knowledge distribution, clues, fair misreading, payoff window, dates, locations, duration, and state changes.
 9. **Ending contract and payoff ledger**: finale window, main conflict resolution, protagonist final choice and state, antagonist consequence, emotional afterglow, stable payoff ids, target chapters, evidence requirements, and explicitly declared intentional open threads.
 10. **Structure**: acts or volumes, goals, midpoint shifts, irreversible choices, stage payoffs, and carry-forward consequences. Reserve the final 3-5 chapters for the ending contract.
-11. **Retention-first opening and first three chapters**: when selected, the opening contract, first-screen signals, conflict braid, atmosphere pressure, identification anchor, chapter value map, and irreversible threshold; otherwise retain the normal opening collision and micro-arc requirements.
-12. **First paid chapter** when relevant: direct consequence of the free-window choice and immediate substantive delivery.
-13. **Chapter contract**: objective -> obstacle -> action -> feedback -> choice -> cost -> payoff -> irreversible change -> next pressure.
-14. **Pacing and rotation**: vary conflict, emotional result, setting, strategy, payoff, and hook type.
-15. **Realism and originality boundaries**: make professional, legal, technical, cultural, and causal assumptions explicit.
-16. **Agent output protocol**: exact state blocks and handoff expectations for each Novel OS agent.
-17. **Quality gates**: continuity, knowledge boundaries, payoff, agency, timeline, resource, style, and ending checks.
-18. **Assumptions**: only details the user did not decide.
-19. **Final delivery**: story bible, market research and source ledger, machine-readable `workshop_trace` for intake, questions, alternatives, and Section A-E decisions, outline, complete chapters, reports, `book_completion_report.json`, and reader-facing manuscript.
+11. **Reader-facing story lead**: required placement before chapter one, output language, localized heading, language-adjusted length, core conflict, identification trigger, emotional target, earned satisfaction promise, unanswered question, spoiler boundary, and exact chapter-one marker protocol.
+12. **Retention-first opening and first three chapters**: when selected, the opening contract, first-screen signals, conflict braid, atmosphere pressure, identification anchor, chapter value map, and irreversible threshold; otherwise retain the normal opening collision and micro-arc requirements.
+13. **First paid chapter** when relevant: direct consequence of the free-window choice and immediate substantive delivery.
+14. **Chapter contract**: objective -> obstacle -> action -> feedback -> choice -> cost -> payoff -> irreversible change -> next pressure.
+15. **Pacing and rotation**: vary conflict, emotional result, setting, strategy, payoff, and hook type.
+16. **Realism and originality boundaries**: make professional, legal, technical, cultural, and causal assumptions explicit.
+17. **Agent output protocol**: exact state blocks and handoff expectations for each Novel OS agent.
+18. **Quality gates**: continuity, knowledge boundaries, payoff, agency, timeline, resource, style, and ending checks.
+19. **Assumptions**: only details the user did not decide.
+20. **Final delivery**: story bible, market research and source ledger, machine-readable `workshop_trace` for intake, questions, alternatives, and Section A-E decisions, outline, complete chapters, reports, `book_completion_report.json`, and reader-facing manuscript.
+
+## Required story lead contract
+
+Every generated Prompt includes this contract, regardless of retention profile:
+
+```yaml
+story_lead_contract:
+  required: true
+  placement: before_chapter_1
+  language: <output language>
+  reader_heading: <localized short label, such as 序 or Story Lead>
+  length:
+    unit: characters|words
+    target_range: [<minimum>, <maximum>]
+  core_conflict: <concrete conflict or injustice>
+  identification_trigger: <desire, loss, fear, humiliation, or boundary>
+  emotional_target: resonance|anger|anticipation|mixed
+  satisfaction_promise: <earned payoff promised to the reader>
+  unanswered_question: <specific question that leads into chapter one>
+  spoiler_limit: <ending or major payoff mechanism kept unrevealed>
+  manuscript_marker: "## STORY_LEAD: <reader_heading>"
+```
+
+Use `180-260` characters for Chinese and `120-180` words for English by
+default. For other languages, set an explicit range based on language density,
+platform layout, and market register. The lead must contain a concrete conflict,
+a recognizable identification trigger, a relationship/status/power contrast,
+and an earned counteraction or reversal promise. End with a specific open
+question, preserve the full ending, and do not copy chapter one's opening prose.
+
+Chapter one's manuscript artifact uses this exact boundary:
+
+```markdown
+## STORY_LEAD: <localized reader heading>
+
+<story lead>
+
+# <localized chapter-one heading and title>
+
+<chapter-one prose with an independent opening hook>
+```
+
+Keep `STORY_LEAD:` in ASCII. The compiler removes it from reader-facing output,
+renders only the localized heading, and keeps the real chapter-one heading in
+Markdown, EPUB, HTML, PDF, and DOCX navigation and reading order.
 
 ## Retention-first opening contract
 
@@ -219,7 +265,8 @@ Ending_Evidence: irreversible_change=<observable final state>; emotional_payoff=
 [/SCRIBE_STATE_UPDATE]
 ```
 
-Keep those blocks, the market-scoped `audience_research`, the `workshop_trace`,
+Keep those blocks, the `story_lead_contract`, the market-scoped
+`audience_research`, the `workshop_trace`,
 and the confirmed Section A-E decisions in working artifacts and reports. The
-final reader-facing Markdown contains only the title, chapter headings, and
-prose.
+final reader-facing Markdown contains only the title, localized story-lead
+heading and prose, chapter headings, and chapter prose.

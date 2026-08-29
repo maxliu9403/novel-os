@@ -17,6 +17,20 @@ Use these checks during design review and again before handing off the Prompt. T
 - A free-window ending completes a stage payoff before creating the next target; the first paid chapter opens on its direct consequence.
 - Recent chapters vary opening situation, setting, conflict, strategy, emotional result, and hook type.
 
+### Reader-facing story lead gate
+
+Apply to every Prompt and completed novel:
+
+- `story_lead_contract.required` is true and placement is `before_chapter_1`.
+- The chapter-one artifact begins with `## STORY_LEAD: <localized reader heading>`, then the lead, then the real chapter-one heading and prose.
+- Chinese leads normally contain `180-260` characters; English leads normally contain `120-180` words; another language uses its recorded market- and platform-adjusted range.
+- The lead names a concrete conflict or injustice and connects it to a recognizable desire, loss, fear, humiliation, or boundary.
+- A relationship, identity, status, or power contrast intensifies the conflict instead of relying on abstract promotional claims.
+- The satisfaction promise is earned through agency, competence, evidence, leverage, relationship change, or visible consequence.
+- The ending leaves one specific question open while preserving the full outcome and the mechanism of the largest payoff.
+- The lead does not copy chapter one's opening paragraphs, and chapter one retains its own event, choice, and local value delivery.
+- Reader-facing Markdown, EPUB, HTML, PDF, and DOCX show only the localized lead heading; `STORY_LEAD:` is absent and chapter-one navigation remains correct.
+
 ### Retention-first opening gate
 
 Apply when the Prompt contains `retention_profile.mode: retention_first`:
@@ -80,6 +94,7 @@ threshold.
 
 - The target audience is explicitly confirmed by the user and records the primary reader segment, age or life stage, and main reading motivation; it is not an inferred assumption.
 - The Prompt carries `setting_policy.mode: fictionalized` and keeps real market/source locations inside `audience_research` rather than the story-facing world ledger.
+- The Prompt carries a complete `story_lead_contract` and assigns drafting, editing, continuity validation, and style preservation responsibilities for the lead.
 - Top-level fields contain one fixed title, chapter count, and total word target.
 - All approved decisions appear in the Prompt; assumptions are labeled in one section.
 - Architect, Scribe, Editor, Continuity Guardian, and Style Curator have distinct responsibilities and shared state fields.
