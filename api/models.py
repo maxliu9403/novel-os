@@ -558,6 +558,19 @@ class RunPhase(BaseModel):
     params: dict = {}
 
 
+class CoverGenerateRequest(BaseModel):
+    brief: dict
+    concepts: list[dict]
+    source_prompt_sha256: str = ""
+    foundation_sha256: str = ""
+
+
+class CoverCandidateMutation(BaseModel):
+    expected_revision: int
+    expected_active_revision: int = 0
+    confirm_stale: bool = False
+
+
 class Job(BaseModel):
     job_id: str
     kind: str
@@ -565,6 +578,7 @@ class Job(BaseModel):
     error: str | None = None
     started_at: str | None = None
     finished_at: str | None = None
+    meta: dict = {}
 
 
 class SnapshotMeta(BaseModel):

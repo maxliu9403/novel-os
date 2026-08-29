@@ -199,6 +199,10 @@ class ProjectService:
             raise ProjectNotFound(project_id)
         return d
 
+    def project_path(self, project_id: str) -> Path:
+        """Return a validated project root for project-scoped domain services."""
+        return self._project_dir(project_id)
+
     def _load(self, project_id: str) -> StoryState:
         return StoryState(str(self._project_dir(project_id)))
 

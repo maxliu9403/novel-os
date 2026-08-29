@@ -32,13 +32,15 @@ class JobRunner:
                 "error": None,
                 "started_at": _now(),
                 "finished_at": None,
+                "meta": dict(meta or {}),
                 **(meta or {}),
             }
 
         def run() -> None:
             try:
-                fn()
-                self._update(job_id, status="done")
+                result = fn()
+                result_meta = self._safe_result_meta(result)
+                self._update(job_id, status="done", meta=result_meta)
             except Exception as e:  # noqa: BLE001 - surface any agent failure to the UI
                 self._update(job_id, status="error", error=f"{type(e).__name__}: {e}")
 
@@ -49,8 +51,27 @@ class JobRunner:
         with self._lock:
             job = self._jobs.get(job_id)
             if job:
+                if "meta" in fields:
+                    merged = dict(job.get("meta") or {})
+                    merged.update(fields.pop("meta") or {})
+                    fields["meta"] = merged
                 job.update(fields)
                 job["finished_at"] = _now()
+
+    @staticmethod
+    def _safe_result_meta(result: object) -> dict:
+        cover_set_id = str(getattr(result, "cover_set_id", "") or "")
+        if not cover_set_id:
+            return {}
+        candidates = tuple(getattr(result, "candidates", ()) or ())
+        return {
+            "cover_set_id": cover_set_id,
+            "cover_status": str(getattr(result, "status", "") or ""),
+            "ready_candidates": sum(
+                getattr(candidate, "status", "") in {"ready", "selected"}
+                for candidate in candidates
+            ),
+        }
 
     def get(self, job_id: str) -> Optional[dict]:
         with self._lock:

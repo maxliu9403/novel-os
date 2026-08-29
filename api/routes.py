@@ -1,4 +1,6 @@
 import os
+import hashlib
+import json
 from pathlib import Path
 from urllib.parse import quote
 
@@ -8,6 +10,7 @@ from fastapi import Response
 from fastapi.responses import PlainTextResponse
 
 from . import db, media as media_lib, richtext
+from .cover_service import CoverService, CoverServiceError
 from .jobs import runner
 from .models import (
     AddCharacter, AddCodexEntry, AddComment, AddRelationship, ChapterDetail, ChapterStages,
@@ -16,7 +19,8 @@ from .models import (
     ConsequenceAcceptResult, ConsequencePreview, ConsequencePreviewRequest, ContinuityReport,
     ContinueParagraph, ContinueResult, CreateProject, CreateSnapshot, FinalDoc, FinalDocSave,
     FinalResult, FinalSave, Job, MediaOut, ProjectDetail, ProjectSummary, RelationshipOut,
-    RunPhase, SearchHit, CollectionOut, CreateCollection, SetPortrait, SnapshotMeta, SnapshotText, StageDiff, StageReviewRequest,
+    RunPhase, CoverGenerateRequest, CoverCandidateMutation, SearchHit, CollectionOut,
+    CreateCollection, SetPortrait, SnapshotMeta, SnapshotText, StageDiff, StageReviewRequest,
     StageReviewResult, StudioCoverStatus, StudioCoverUpdate, StudioLlmStatus,
     StudioLlmUpdate, UpdateComment, UpdateProject,
     BinderMoveRequest, BinderPatchRequest, SynopsisRefreshResult, UpdateMedia,
@@ -57,6 +61,23 @@ def _promotion_http_error(error: Exception) -> HTTPException:
 def get_media_store() -> media_lib.MediaStore:
     root = Path(os.environ.get("NOVEL_OS_MEDIA_DIR", "./media"))
     return media_lib.LocalMediaStore(root)
+
+
+def get_cover_service(
+    store: media_lib.MediaStore = Depends(get_media_store),
+) -> CoverService:
+    from core.image_client import ImageClientError, ImageGenerationClient
+    from core.studio_settings import resolve_cover_settings
+
+    try:
+        client = ImageGenerationClient(resolve_cover_settings())
+    except (ValueError, ImageClientError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return CoverService(
+        image_client=client,
+        media_store=store,
+        media_add=db.media_add,
+    )
 
 
 def _content_disposition(project_id: str, extension: str) -> str:
@@ -671,6 +692,197 @@ def patch_media(
     if m is None:
         raise HTTPException(status_code=404, detail="Media not found")
     return _media_out(m)
+
+
+# -------------------------------------------------------------------------- covers
+
+def _cover_store(svc: ProjectService, project_id: str):
+    from core.cover_store import CoverStore
+
+    return CoverStore(svc.project_path(project_id))
+
+
+def _cover_out(project_id: str, cover_set) -> dict:
+    body = cover_set.to_dict()
+    candidates = []
+    for candidate in body["candidates"]:
+        item = dict(candidate)
+        media_id = item.get("media_id")
+        item["url"] = (
+            f"/api/projects/{project_id}/media/{media_id}/raw" if media_id else None
+        )
+        candidates.append(item)
+    body["candidates"] = candidates
+    return body
+
+
+def _cover_error(exc: Exception) -> HTTPException:
+    from core.cover_store import CoverConflict
+    from core.image_client import ImageClientError
+
+    if isinstance(exc, FileNotFoundError):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, CoverConflict):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, ImageClientError):
+        return HTTPException(status_code=502, detail=str(exc))
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post(
+    "/projects/{project_id}/covers/generate",
+    response_model=Job,
+    status_code=202,
+)
+def generate_covers(
+    project_id: str,
+    body: CoverGenerateRequest,
+    svc: ProjectService = Depends(get_service),
+    covers: CoverService = Depends(get_cover_service),
+):
+    from core.cover_models import CoverBrief, CoverConcept
+
+    project = svc.project_path(project_id)
+    source_sha = body.source_prompt_sha256 or hashlib.sha256(
+        json.dumps(body.brief, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    try:
+        brief = CoverBrief.from_dict(
+            body.brief,
+            source_prompt_sha256=source_sha,
+            foundation_sha256=body.foundation_sha256,
+        )
+        concepts = [CoverConcept.from_dict(item) for item in body.concepts]
+        brief.validate_concepts(concepts)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    job_id = runner.submit(
+        "cover.generate",
+        lambda: covers.generate(project_id, project, brief, concepts),
+        meta={"project_id": project_id},
+    )
+    return runner.get(job_id)
+
+
+@router.get("/projects/{project_id}/covers")
+def list_covers(project_id: str, svc: ProjectService = Depends(get_service)):
+    store = _cover_store(svc, project_id)
+    return [_cover_out(project_id, item) for item in reversed(store.list())]
+
+
+@router.get("/projects/{project_id}/covers/{cover_set_id}")
+def get_cover(
+    project_id: str,
+    cover_set_id: str,
+    svc: ProjectService = Depends(get_service),
+):
+    try:
+        cover_set = _cover_store(svc, project_id).load(cover_set_id)
+    except (FileNotFoundError, ValueError) as exc:
+        raise _cover_error(exc) from exc
+    if cover_set.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Cover set not found")
+    return _cover_out(project_id, cover_set)
+
+
+@router.post(
+    "/projects/{project_id}/covers/{cover_set_id}/candidates/{candidate_id}/select"
+)
+def select_cover_candidate(
+    project_id: str,
+    cover_set_id: str,
+    candidate_id: str,
+    body: CoverCandidateMutation,
+    svc: ProjectService = Depends(get_service),
+    covers: CoverService = Depends(get_cover_service),
+):
+    project = svc.project_path(project_id)
+    try:
+        cover_set = _cover_store(svc, project_id).load(cover_set_id)
+        if cover_set.project_id != project_id:
+            raise FileNotFoundError("Cover set not found")
+        selected = covers.select_candidate(
+            project,
+            cover_set_id,
+            candidate_id,
+            expected_revision=body.expected_revision,
+            expected_active_revision=body.expected_active_revision,
+            confirm_stale=body.confirm_stale,
+        )
+    except (FileNotFoundError, ValueError, CoverServiceError) as exc:
+        raise _cover_error(exc) from exc
+    return _cover_out(project_id, selected)
+
+
+@router.post(
+    "/projects/{project_id}/covers/{cover_set_id}/candidates/{candidate_id}/reject"
+)
+def reject_cover_candidate(
+    project_id: str,
+    cover_set_id: str,
+    candidate_id: str,
+    body: CoverCandidateMutation,
+    svc: ProjectService = Depends(get_service),
+    covers: CoverService = Depends(get_cover_service),
+):
+    project = svc.project_path(project_id)
+    try:
+        rejected = covers.reject_candidate(
+            project,
+            cover_set_id,
+            candidate_id,
+            expected_revision=body.expected_revision,
+        )
+    except (FileNotFoundError, ValueError, CoverServiceError) as exc:
+        raise _cover_error(exc) from exc
+    return _cover_out(project_id, rejected)
+
+
+@router.post(
+    "/projects/{project_id}/covers/{cover_set_id}/candidates/{candidate_id}/retry",
+    response_model=Job,
+    status_code=202,
+)
+def retry_cover_candidate(
+    project_id: str,
+    cover_set_id: str,
+    candidate_id: str,
+    body: CoverCandidateMutation,
+    svc: ProjectService = Depends(get_service),
+    covers: CoverService = Depends(get_cover_service),
+):
+    project = svc.project_path(project_id)
+    current = _cover_store(svc, project_id).load(cover_set_id)
+    if current.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Cover set not found")
+    job_id = runner.submit(
+        "cover.retry",
+        lambda: covers.retry_candidate(
+            project_id,
+            project,
+            cover_set_id,
+            candidate_id,
+            expected_revision=body.expected_revision,
+        ),
+        meta={"project_id": project_id, "cover_set_id": cover_set_id},
+    )
+    return runner.get(job_id)
+
+
+@router.get("/projects/{project_id}/deliverables/package")
+def download_delivery_package(
+    project_id: str,
+    svc: ProjectService = Depends(get_service),
+):
+    path = svc.project_path(project_id) / "outputs/deliverables/book-package.zip"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Delivery package not found")
+    return Response(
+        content=path.read_bytes(),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="book-package.zip"'},
+    )
 
 
 @router.get("/projects/{project_id}", response_model=ProjectDetail)
