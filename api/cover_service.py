@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 from dataclasses import replace
 from pathlib import Path
@@ -32,9 +33,9 @@ class CoverService:
     def __init__(
         self,
         *,
-        image_client: ImageGenerationClient,
-        media_store: media_lib.MediaStore,
-        media_add: Callable[..., object],
+        image_client: ImageGenerationClient | None = None,
+        media_store: media_lib.MediaStore | None = None,
+        media_add: Callable[..., object] | None = None,
         provider: str = "openai_compatible",
     ) -> None:
         self.image_client = image_client
@@ -50,6 +51,8 @@ class CoverService:
         concepts: Sequence[CoverConcept],
     ) -> CoverSet:
         project = Path(project_path).resolve()
+        self._require_generation_dependencies()
+        self._reset_pending_projection(project)
         store = CoverStore(project)
         current = store.create(CoverSet.new(project_id, brief, concepts))
         for candidate in current.candidates:
@@ -70,6 +73,7 @@ class CoverService:
         expected_revision: int,
     ) -> CoverSet:
         project = Path(project_path).resolve()
+        self._require_generation_dependencies()
         store = CoverStore(project)
         current = store.load(cover_set_id)
         if current.revision != expected_revision:
@@ -182,6 +186,7 @@ class CoverService:
             item for item in current.concepts if item.concept_id == candidate.concept_id
         )
         try:
+            assert self.image_client is not None
             generated = self.image_client.generate(concept.generation_prompt)
             ready = self._persist_generated(
                 project_id, project, current, candidate, concept, generated
@@ -219,6 +224,8 @@ class CoverService:
             raise CoverServiceError("Generated cover uses an unsupported image type")
 
         sha = media_lib.digest(generated.data)
+        assert self.media_store is not None
+        assert self.media_add is not None
         self.media_store.put(project_id, sha, extension, generated.data)
         index = next(
             number for number, item in enumerate(cover_set.candidates, start=1)
@@ -305,6 +312,21 @@ class CoverService:
             project / f"outputs/deliverables/covers/selected-cover{source.suffix}",
             source.read_bytes(),
         )
+
+    def _require_generation_dependencies(self) -> None:
+        if self.image_client is None:
+            raise CoverServiceError("Cover image generation client is not configured")
+        if self.media_store is None or self.media_add is None:
+            raise CoverServiceError("Cover media persistence is not configured")
+
+    @staticmethod
+    def _reset_pending_projection(project: Path) -> None:
+        pending = project / "outputs" / "deliverables" / "covers" / "pending"
+        if pending.is_symlink():
+            pending.unlink()
+        elif pending.exists():
+            shutil.rmtree(pending)
+        pending.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
     def _safe_error(exc: Exception) -> str:

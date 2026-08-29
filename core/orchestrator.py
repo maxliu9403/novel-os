@@ -2092,6 +2092,12 @@ Examples:
     retry_parser.add_argument('--chapter', type=int, default=None)
     retry_parser.add_argument('--approval', choices=['review_required', 'auto'], default=None)
 
+    try:
+        from .cover_cli import configure_cover_parser
+    except ImportError:  # `python core/orchestrator.py`
+        from cover_cli import configure_cover_parser
+    configure_cover_parser(subparsers)
+
     args = parser.parse_args(argv)
 
     if not args.command:
@@ -2102,6 +2108,13 @@ Examples:
     if args.command == 'setup':
         from setup_wizard import run_wizard
         sys.exit(run_wizard())
+
+    if args.command == 'cover':
+        try:
+            from .cover_cli import run_cover_command
+        except ImportError:  # `python core/orchestrator.py`
+            from cover_cli import run_cover_command
+        return run_cover_command(args)
 
     # Commands that need a working LLM. If none resolves, offer the wizard first.
     _LLM_COMMANDS = {'plan', 'write', 'edit', 'validate', 'curate', 'run'}

@@ -80,6 +80,13 @@ def get_cover_service(
     )
 
 
+def get_cover_mutation_service(
+    store: media_lib.MediaStore = Depends(get_media_store),
+) -> CoverService:
+    """Build cover management operations without resolving billable provider settings."""
+    return CoverService(media_store=store, media_add=db.media_add)
+
+
 def _content_disposition(project_id: str, extension: str) -> str:
     """Build a browser-compatible attachment name for any project id.
 
@@ -795,7 +802,7 @@ def select_cover_candidate(
     candidate_id: str,
     body: CoverCandidateMutation,
     svc: ProjectService = Depends(get_service),
-    covers: CoverService = Depends(get_cover_service),
+    covers: CoverService = Depends(get_cover_mutation_service),
 ):
     project = svc.project_path(project_id)
     try:
@@ -824,7 +831,7 @@ def reject_cover_candidate(
     candidate_id: str,
     body: CoverCandidateMutation,
     svc: ProjectService = Depends(get_service),
-    covers: CoverService = Depends(get_cover_service),
+    covers: CoverService = Depends(get_cover_mutation_service),
 ):
     project = svc.project_path(project_id)
     try:

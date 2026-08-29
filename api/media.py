@@ -112,13 +112,28 @@ class LocalMediaStore(MediaStore):
         self.root = Path(root)
 
     def _path(self, project_id: str, sha: str, ext: str) -> Path:
-        # Both components are validated: project ids are slugs and sha is hex,
-        # so neither can escape the root.
-        if not re.fullmatch(r"[A-Za-z0-9._-]+", project_id or ""):
+        # Project folders are user-facing identifiers and may contain Unicode.
+        # Match tenancy.valid_project_id's path-shape rules while keeping this
+        # storage module independent from the API tenancy layer.
+        if (
+            not isinstance(project_id, str)
+            or not project_id
+            or not project_id[0].isalnum()
+            or project_id in {".", ".."}
+            or "/" in project_id
+            or "\\" in project_id
+            or ":" in project_id
+            or any(ord(char) < 32 or ord(char) == 127 for char in project_id)
+            or Path(project_id).name != project_id
+        ):
             raise MediaError("Invalid project id.", status=404)
         if not re.fullmatch(r"[0-9a-f]{64}", sha or ""):
             raise MediaError("Invalid media digest.", status=404)
-        return self.root / project_id / sha[:2] / f"{sha}{ext}"
+        root = self.root.resolve()
+        path = (root / project_id / sha[:2] / f"{sha}{ext}").resolve()
+        if root not in path.parents:
+            raise MediaError("Invalid project id.", status=404)
+        return path
 
     def put(self, project_id: str, sha: str, ext: str, data: bytes) -> None:
         path = self._path(project_id, sha, ext)

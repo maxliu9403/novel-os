@@ -123,6 +123,17 @@ def test_generate_persists_four_independent_ready_candidates(tmp_path) -> None:
         assert (tmp_path / "project" / candidate.relative_path).is_file()
 
 
+def test_generate_supports_unicode_project_id(tmp_path) -> None:
+    service, _, _ = _service(
+        tmp_path, [_webp(marker=bytes([index])) for index in range(1, 5)]
+    )
+
+    cover_set = service.generate("中文小说", tmp_path / "中文小说", _brief(), _concepts())
+
+    assert cover_set.status == "ready"
+    assert len(list((tmp_path / "media" / "中文小说").glob("**/*.webp"))) == 4
+
+
 def test_generate_preserves_partial_success_and_candidate_errors(tmp_path) -> None:
     failed = ImageClientError("provider unavailable", retryable=True, status_code=503)
     service, _, _ = _service(
@@ -135,6 +146,24 @@ def test_generate_preserves_partial_success_and_candidate_errors(tmp_path) -> No
     assert [item.status for item in cover_set.candidates] == ["ready", "failed", "ready", "failed"]
     assert cover_set.candidates[1].error == "provider unavailable"
     assert len(list((tmp_path / "project" / "outputs/deliverables/covers/pending").glob("*"))) == 2
+
+
+def test_new_generation_removes_pending_images_from_previous_cover_set(tmp_path) -> None:
+    project = tmp_path / "project"
+    first, _, _ = _service(
+        tmp_path, [_webp(marker=bytes([index])) for index in range(1, 5)]
+    )
+    first.generate("project-one", project, _brief(), _concepts())
+
+    failed = ImageClientError("provider unavailable", retryable=True)
+    second, _, _ = _service(
+        tmp_path, [_webp(marker=b"new"), failed, failed, failed]
+    )
+    partial = second.generate("project-one", project, _brief(), _concepts())
+
+    pending = project / "outputs/deliverables/covers/pending"
+    assert partial.status == "partial"
+    assert [path.name for path in pending.iterdir()] == ["cover-01.webp"]
 
 
 def test_invalid_image_bytes_create_no_deliverable_projection(tmp_path) -> None:

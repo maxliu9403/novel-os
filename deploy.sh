@@ -25,6 +25,8 @@ Commands:
            Resume a run; without arguments, use the most recent run
   novel-retry [RUN_ID]
            Retry the current stage of a failed or blocked run
+  novel-cover [PROMPT]
+           Generate or manage 2048x3072 cover candidates without restarting services
 EOF
 }
 
@@ -123,6 +125,56 @@ Runtime behavior:
   frontend. Existing containers are never recreated by novel commands. Project
   artifacts are stored at docker-data/projects/PROJECT/outputs/.
 EOF
+}
+
+cover_usage() {
+  cat <<'EOF'
+Novel OS cover commands
+
+Generate 2048x3072 cover candidates:
+  ./deploy.sh novel-cover PROMPT
+  ./deploy.sh novel-cover generate PROMPT [PROJECT]
+      Parse the approved COVER_HANDOFF block, create 3-5 distinct concepts,
+      and generate one image per concept. PROJECT defaults to the Prompt filename.
+
+Manage persisted candidates:
+  ./deploy.sh novel-cover list PROJECT
+  ./deploy.sh novel-cover select PROJECT COVER_SET CANDIDATE REVISION ACTIVE_REVISION
+  ./deploy.sh novel-cover reject PROJECT COVER_SET CANDIDATE REVISION
+  ./deploy.sh novel-cover retry PROJECT COVER_SET CANDIDATE REVISION
+
+  Add --confirm-stale to the select form only when intentionally selecting a
+  cover derived from an older Prompt or story foundation.
+
+Optional environment overrides:
+  NOVEL_OS_PROJECT_NAME          Project name for direct Prompt generation
+  NOVEL_OS_COVER_COUNT           Candidate count from 3 through 5; default 4
+  NOVEL_OS_COVER_MODEL           Image model; default gpt-image-2
+  NOVEL_OS_COVER_SIZE            Fixed at 2048x3072
+  NOVEL_OS_COVER_QUALITY         low, medium, high, or auto; default high
+  NOVEL_OS_COVER_FORMAT          png, jpeg, or webp; default webp
+  NOVEL_OS_COVER_TIMEOUT_SECONDS Provider timeout; default 180
+
+Provider URL and key are configured in ignored .env values or Studio Settings.
+Cover commands reuse a healthy backend, never restart services, and write to:
+  docker-data/projects/PROJECT/outputs/deliverables/covers/
+  docker-data/projects/PROJECT/outputs/deliverables/book-package.zip
+
+The selection workspace is:
+  http://localhost:5174/projects/PROJECT/covers
+EOF
+}
+
+require_docker() {
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "Docker is not installed or is not on PATH." >&2
+    return 1
+  fi
+  if ! docker compose version >/dev/null 2>&1; then
+    echo "Docker Compose is unavailable. Install the Docker Compose plugin." >&2
+    return 1
+  fi
+  mkdir -p "$DATA_DIR/projects" "$DATA_DIR/media"
 }
 
 show_url() {
@@ -319,6 +371,93 @@ run_novel() {
   printf '\nProject files: %s/projects/%s/outputs\n' "$DATA_DIR" "$project_name"
 }
 
+run_novel_cover_generate() {
+  local prompt_file project_name count
+  local -a args
+  prompt_file="$(choose_prompt "${1:-}")"
+  prompt_file="$(cd "$(dirname "$prompt_file")" && pwd)/$(basename "$prompt_file")"
+  project_name="${2:-${NOVEL_OS_PROJECT_NAME:-$(basename "$prompt_file")}}"
+  project_name="${project_name%.*}"
+  count="${NOVEL_OS_COVER_COUNT:-4}"
+
+  validate_project_name "$project_name"
+  if [[ ! "$count" =~ ^[3-5]$ ]]; then
+    echo "Cover candidate count must be between 3 and 5." >&2
+    return 1
+  fi
+
+  require_docker
+  ensure_backend
+  args=(
+    docker compose exec -T backend novel-os-entrypoint
+    python core/orchestrator.py cover generate
+    --project "/data/projects/$project_name"
+    --prompt - --count "$count"
+  )
+  "${args[@]}" < "$prompt_file"
+  printf '\nCover candidates: %s/projects/%s/outputs/deliverables/covers/pending\n' "$DATA_DIR" "$project_name"
+  printf 'Delivery package: %s/projects/%s/outputs/deliverables/book-package.zip\n' "$DATA_DIR" "$project_name"
+  printf 'Cover Studio: http://localhost:%s/projects/%s/covers\n' "${NOVEL_OS_WEB_PORT:-5174}" "$project_name"
+}
+
+run_novel_cover_manage() {
+  local action="$1" project_name="${2:-}" cover_set="${3:-}" candidate="${4:-}"
+  local revision="${5:-}" active_revision="${6:-}" confirm="${7:-}"
+  local -a args
+
+  if [[ -z "$project_name" ]]; then
+    echo "Project is required. Run ./deploy.sh novel-cover --help for command forms." >&2
+    return 1
+  fi
+  validate_project_name "$project_name"
+  args=(
+    docker compose exec -T backend novel-os-entrypoint
+    python core/orchestrator.py cover "$action"
+    --project "/data/projects/$project_name"
+  )
+  case "$action" in
+    list) ;;
+    select)
+      if [[ -z "$cover_set" || -z "$candidate" || ! "$revision" =~ ^[0-9]+$ || ! "$active_revision" =~ ^[0-9]+$ ]]; then
+        echo "Select requires PROJECT COVER_SET CANDIDATE REVISION ACTIVE_REVISION." >&2
+        return 1
+      fi
+      args+=(--cover-set "$cover_set" --candidate "$candidate" --expected-revision "$revision" --expected-active-revision "$active_revision")
+      if [[ -n "$confirm" && "$confirm" != "--confirm-stale" ]]; then
+        echo "Unknown select option: $confirm" >&2
+        return 1
+      fi
+      [[ "$confirm" == "--confirm-stale" ]] && args+=(--confirm-stale)
+      ;;
+    reject|retry)
+      if [[ -z "$cover_set" || -z "$candidate" || ! "$revision" =~ ^[0-9]+$ ]]; then
+        echo "$action requires PROJECT COVER_SET CANDIDATE REVISION." >&2
+        return 1
+      fi
+      args+=(--cover-set "$cover_set" --candidate "$candidate" --expected-revision "$revision")
+      ;;
+  esac
+
+  require_docker
+  ensure_backend
+  "${args[@]}"
+  printf '\nDelivery package: %s/projects/%s/outputs/deliverables/book-package.zip\n' "$DATA_DIR" "$project_name"
+  printf 'Cover Studio: http://localhost:%s/projects/%s/covers\n' "${NOVEL_OS_WEB_PORT:-5174}" "$project_name"
+}
+
+run_novel_cover() {
+  case "${1:-}" in
+    help|-h|--help) cover_usage ;;
+    generate) run_novel_cover_generate "${2:-}" "${3:-}" ;;
+    list|select|reject|retry) run_novel_cover_manage "$@" ;;
+    "")
+      echo "Pass a Prompt file: ./deploy.sh novel-cover ./prompt/your-novel.md" >&2
+      return 1
+      ;;
+    *) run_novel_cover_generate "$1" "${2:-}" ;;
+  esac
+}
+
 latest_run_manifest() {
   local requested_project="${1:-}" search_root file latest=""
   search_root="$DATA_DIR/projects"
@@ -439,15 +578,9 @@ novel_retry() {
 command="${1:-up}"
 if [[ "$command" != "help" && "$command" != "-h" && "$command" != "--help" \
       && !( "$command" == "novel" && ( "${2:-}" == "help" || "${2:-}" == "-h" || "${2:-}" == "--help" ) ) ]]; then
-  if ! command -v docker >/dev/null 2>&1; then
-    echo "Docker is not installed or is not on PATH." >&2
-    exit 1
+  if [[ "$command" != "novel-cover" ]]; then
+    require_docker
   fi
-  if ! docker compose version >/dev/null 2>&1; then
-    echo "Docker Compose is unavailable. Install the Docker Compose plugin." >&2
-    exit 1
-  fi
-  mkdir -p "$DATA_DIR/projects" "$DATA_DIR/media"
 fi
 
 case "$command" in
@@ -492,6 +625,9 @@ case "$command" in
     ;;
   novel-retry)
     novel_retry "${2:-}" "${3:-}"
+    ;;
+  novel-cover)
+    run_novel_cover "${@:2}"
     ;;
   -h|--help|help)
     usage

@@ -5,9 +5,12 @@ import time
 from fastapi.testclient import TestClient
 
 from api.cover_service import CoverService
+from api import db
 from api.main import create_app
 from api.media import LocalMediaStore
+from api import routes
 from api.routes import get_cover_service
+from core.cover_models import CoverBrief, CoverConcept
 from core.image_client import GeneratedImage, ImageClientError
 
 
@@ -191,3 +194,56 @@ def test_retry_endpoint_replaces_only_the_failed_candidate(tmp_path, monkeypatch
     ).json()
     assert ready["status"] == "ready"
     assert {item["status"] for item in ready["candidates"]} == {"ready"}
+
+
+def test_selecting_existing_cover_does_not_require_image_api_key(tmp_path, monkeypatch) -> None:
+    for key in (
+        "NOVEL_OS_COVER_API_KEY", "NOVEL_OS_API_KEY", "OPENAI_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("NOVEL_OS_SETTINGS_PATH", str(tmp_path / "settings.json"))
+    projects = tmp_path / "projects"
+    media = tmp_path / "media"
+    app = create_app(
+        projects_root=projects,
+        media_root=media,
+        db_url=f"sqlite:///{tmp_path / 'db.sqlite'}",
+    )
+    client = TestClient(app)
+    project = client.post(
+        "/api/projects", json={"title": "Existing Cover", "genre": "Drama"}
+    ).json()
+    image_client = ImageClient()
+    covers = CoverService(
+        image_client=image_client,
+        media_store=LocalMediaStore(media),
+        media_add=db.media_add,
+    )
+    cover_set = covers.generate(
+        project["id"], projects / project["id"],
+        CoverBrief.from_dict(_brief(), source_prompt_sha256="a" * 64),
+        [CoverConcept.from_dict(item) for item in _concepts()],
+    )
+
+    response = client.post(
+        f"/api/projects/{project['id']}/covers/{cover_set.cover_set_id}"
+        f"/candidates/{cover_set.candidates[0].candidate_id}/select",
+        json={"expected_revision": cover_set.revision, "expected_active_revision": 0},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["selected_candidate_id"] == cover_set.candidates[0].candidate_id
+
+
+def test_cover_mutation_service_is_available_without_provider_configuration(
+    tmp_path, monkeypatch,
+) -> None:
+    for key in (
+        "NOVEL_OS_COVER_API_KEY", "NOVEL_OS_API_KEY", "OPENAI_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("NOVEL_OS_SETTINGS_PATH", str(tmp_path / "settings.json"))
+
+    service = routes.get_cover_mutation_service(LocalMediaStore(tmp_path / "media"))
+
+    assert service.image_client is None
