@@ -90,7 +90,7 @@ def run_cover_command(args) -> int:
                 expected_revision=args.expected_revision,
             )
         elif command == "select":
-            result = CoverService().select_candidate(
+            result = _mutation_service().select_candidate(
                 project,
                 args.cover_set,
                 args.candidate,
@@ -99,7 +99,7 @@ def run_cover_command(args) -> int:
                 confirm_stale=args.confirm_stale,
             )
         else:
-            result = CoverService().reject_candidate(
+            result = _mutation_service().reject_candidate(
                 project,
                 args.cover_set,
                 args.candidate,
@@ -127,6 +127,11 @@ def _generation_service(settings) -> CoverService:
         media_store=LocalMediaStore(media_root),
         media_add=db.media_add,
     )
+
+
+def _mutation_service() -> CoverService:
+    media_root = Path(os.environ.get("NOVEL_OS_MEDIA_DIR", "./media"))
+    return CoverService(media_store=LocalMediaStore(media_root))
 
 
 def _read_prompt(value: str) -> str:

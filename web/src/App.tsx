@@ -15,6 +15,7 @@ const ChapterView = lazy(() => import("./routes/ChapterView"));
 const Settings = lazy(() => import("./routes/Settings"));
 const RelationshipChart = lazy(() => import("./routes/RelationshipChart"));
 const ResearchMoodboard = lazy(() => import("./routes/ResearchMoodboard"));
+const CoverStudio = lazy(() => import("./routes/CoverStudio"));
 
 function AnimatedRoutes() {
   const location = useLocation();
@@ -35,6 +36,7 @@ function AnimatedRoutes() {
             <Route path="/projects/:id" element={<ProjectDashboard />} />
             <Route path="/projects/:id/chart" element={<RelationshipChart />} />
             <Route path="/projects/:id/research" element={<ResearchMoodboard />} />
+            <Route path="/projects/:id/covers" element={<CoverStudio />} />
             <Route path="/projects/:id/chapters/:n" element={<ChapterView />} />
           </Routes>
         </Suspense>

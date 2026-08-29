@@ -559,10 +559,11 @@ class RunPhase(BaseModel):
 
 
 class CoverGenerateRequest(BaseModel):
-    brief: dict
-    concepts: list[dict]
+    brief: dict | None = None
+    concepts: list[dict] | None = None
     source_prompt_sha256: str = ""
     foundation_sha256: str = ""
+    count: int | None = None
 
 
 class CoverCandidateMutation(BaseModel):

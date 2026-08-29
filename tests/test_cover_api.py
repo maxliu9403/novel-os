@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 
 from fastapi.testclient import TestClient
@@ -137,6 +138,7 @@ def test_cover_routes_enforce_project_isolation_and_revision_conflicts(tmp_path,
     _wait(client, job_id)
     cover_set = client.get(f"/api/projects/{first['id']}/covers").json()[0]
     candidate = cover_set["candidates"][0]
+    assert cover_set["active_revision"] == 0
 
     assert client.get(
         f"/api/projects/{second['id']}/covers/{cover_set['cover_set_id']}"
@@ -153,6 +155,8 @@ def test_cover_routes_enforce_project_isolation_and_revision_conflicts(tmp_path,
     )
     assert selected.status_code == 200
     assert selected.json()["selected_candidate_id"] == candidate["candidate_id"]
+    assert selected.json()["active_revision"] == 1
+    assert client.get(f"/api/projects/{first['id']}/covers").json()[0]["active_revision"] == 1
 
 
 def test_generate_validates_concept_count_before_starting_job(tmp_path, monkeypatch) -> None:
@@ -166,6 +170,35 @@ def test_generate_validates_concept_count_before_starting_job(tmp_path, monkeypa
     assert response.status_code == 400
     assert "between 3 and 5" in response.json()["detail"]
     assert image_client.calls == 0
+
+
+def test_generate_can_derive_brief_and_concepts_from_persisted_prompt(
+    tmp_path, monkeypatch,
+) -> None:
+    client, image_client = _client(tmp_path, monkeypatch)
+    project = client.post(
+        "/api/projects", json={"title": "Prompt Cover", "genre": "Drama"}
+    ).json()
+    prompt = tmp_path / "projects" / project["id"] / "outputs" / "input" / "prompt.md"
+    prompt.parent.mkdir(parents=True, exist_ok=True)
+    prompt.write_text(
+        "COVER_HANDOFF_BEGIN\n```json\n"
+        + json.dumps(_brief(), ensure_ascii=False)
+        + "\n```\nCOVER_HANDOFF_END\n",
+        encoding="utf-8",
+    )
+
+    response = client.post(
+        f"/api/projects/{project['id']}/covers/generate", json={"count": 4}
+    )
+
+    assert response.status_code == 202
+    job = _wait(client, response.json()["job_id"])
+    assert job["status"] == "done"
+    assert image_client.calls == 4
+    cover_set = client.get(f"/api/projects/{project['id']}/covers").json()[0]
+    assert cover_set["brief"]["title"] == "The Door Is Mine"
+    assert len({item["visual_strategy"] for item in cover_set["concepts"]}) == 4
 
 
 def test_retry_endpoint_replaces_only_the_failed_candidate(tmp_path, monkeypatch) -> None:

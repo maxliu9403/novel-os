@@ -128,7 +128,15 @@ class CoverService:
         current = store.load(cover_set_id)
         if current.revision != expected_revision:
             raise CoverConflict("Cover set revision changed")
+        active = store.active()
         if current.selected_candidate_id == candidate_id:
+            selected = self._candidate(current, candidate_id)
+            if active.cover_set_id != cover_set_id:
+                store.set_active(
+                    cover_set_id, expected_revision=expected_active_revision
+                )
+            self._project_selected(Path(project_path).resolve(), current, selected)
+            build_delivery_package(project_path, cover_set=current)
             return current
         if current.status == "stale" and not confirm_stale:
             raise CoverServiceError("The cover set is stale; explicit confirmation is required")
@@ -152,8 +160,17 @@ class CoverService:
             updated_at=self._now(),
         )
         saved = store.save(updated, expected_revision=expected_revision)
-        store.set_active(cover_set_id, expected_revision=expected_active_revision)
-        self._project_selected(Path(project_path).resolve(), selected)
+        try:
+            store.set_active(cover_set_id, expected_revision=expected_active_revision)
+        except CoverConflict:
+            try:
+                store.save(current, expected_revision=saved.revision)
+            except CoverConflict as rollback_error:
+                raise CoverConflict(
+                    "Active cover selection conflicted and candidate rollback failed"
+                ) from rollback_error
+            raise
+        self._project_selected(Path(project_path).resolve(), saved, selected)
         build_delivery_package(project_path, cover_set=saved)
         return saved
 
@@ -306,12 +323,39 @@ class CoverService:
             for item in cover_set.candidates
         )
 
-    def _project_selected(self, project: Path, candidate: CoverCandidate) -> None:
-        source = project / candidate.relative_path
-        self._atomic_write(
-            project / f"outputs/deliverables/covers/selected-cover{source.suffix}",
-            source.read_bytes(),
-        )
+    def _project_selected(
+        self,
+        project: Path,
+        cover_set: CoverSet,
+        candidate: CoverCandidate,
+    ) -> None:
+        extension = _EXTENSIONS.get(candidate.content_type)
+        if extension is None:
+            raise CoverServiceError("Selected cover uses an unsupported image type")
+
+        data = None
+        if self.media_store is not None:
+            data = self.media_store.read(
+                cover_set.project_id, candidate.sha256, extension
+            )
+        if data is None:
+            source = project / candidate.relative_path
+            if source.is_file() and not source.is_symlink():
+                data = source.read_bytes()
+        if data is None:
+            raise CoverServiceError("Selected cover media is missing")
+        if (
+            media_lib.digest(data) != candidate.sha256
+            or content_type(data) != candidate.content_type
+            or dimensions(data) != (2048, 3072)
+        ):
+            raise CoverServiceError("Selected cover media failed provenance validation")
+
+        target = project / f"outputs/deliverables/covers/selected-cover{extension}"
+        self._atomic_write(target, data)
+        for old_target in target.parent.glob("selected-cover.*"):
+            if old_target != target and (old_target.is_file() or old_target.is_symlink()):
+                old_target.unlink()
 
     def _require_generation_dependencies(self) -> None:
         if self.image_client is None:

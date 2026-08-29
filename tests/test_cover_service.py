@@ -8,6 +8,7 @@ import pytest
 from api.cover_service import CoverService, CoverServiceError
 from api.media import LocalMediaStore
 from core.cover_models import CoverBrief, CoverConcept
+from core.cover_store import CoverConflict, CoverStore
 from core.image_client import GeneratedImage, ImageClientError
 
 
@@ -240,6 +241,67 @@ def test_reject_and_select_are_explicit_and_idempotent(tmp_path) -> None:
     assert selected.selected_candidate_id == selected.candidates[0].candidate_id
     assert same.selected_candidate_id == selected.selected_candidate_id
     assert same.revision == selected.revision
+
+
+def test_selecting_historical_set_restores_its_content_addressed_image(tmp_path) -> None:
+    project = tmp_path / "project"
+    first_images = [_webp(marker=f"first-{index}".encode()) for index in range(1, 5)]
+    second_images = [_webp(marker=f"second-{index}".encode()) for index in range(1, 5)]
+    service, _, _ = _service(tmp_path, [*first_images, *second_images])
+    first = service.generate("project-one", project, _brief(), _concepts())
+    service.generate("project-one", project, _brief(), _concepts())
+
+    service.select_candidate(
+        project, first.cover_set_id, first.candidates[0].candidate_id,
+        expected_revision=first.revision, expected_active_revision=0,
+    )
+
+    assert (
+        project / "outputs/deliverables/covers/selected-cover.webp"
+    ).read_bytes() == first_images[0]
+
+
+def test_active_revision_conflict_rolls_back_selected_candidate_state(tmp_path) -> None:
+    project = tmp_path / "project"
+    service, _, _ = _service(
+        tmp_path, [_webp(marker=bytes([index])) for index in range(1, 5)]
+    )
+    ready = service.generate("project-one", project, _brief(), _concepts())
+
+    with pytest.raises(CoverConflict, match="active cover revision changed"):
+        service.select_candidate(
+            project, ready.cover_set_id, ready.candidates[0].candidate_id,
+            expected_revision=ready.revision, expected_active_revision=1,
+        )
+
+    persisted = CoverStore(project).load(ready.cover_set_id)
+    assert persisted.selected_candidate_id == ""
+    assert {candidate.status for candidate in persisted.candidates} == {"ready"}
+
+
+def test_selected_historical_set_can_be_reactivated(tmp_path) -> None:
+    project = tmp_path / "project"
+    images = [_webp(marker=bytes([index])) for index in range(1, 9)]
+    service, _, _ = _service(tmp_path, images)
+    first = service.generate("project-one", project, _brief(), _concepts())
+    second = service.generate("project-one", project, _brief(), _concepts())
+    selected_first = service.select_candidate(
+        project, first.cover_set_id, first.candidates[0].candidate_id,
+        expected_revision=first.revision, expected_active_revision=0,
+    )
+    service.select_candidate(
+        project, second.cover_set_id, second.candidates[0].candidate_id,
+        expected_revision=second.revision, expected_active_revision=1,
+    )
+
+    same = service.select_candidate(
+        project, selected_first.cover_set_id, selected_first.candidates[0].candidate_id,
+        expected_revision=selected_first.revision, expected_active_revision=2,
+    )
+
+    assert same.revision == selected_first.revision
+    assert CoverStore(project).active().cover_set_id == first.cover_set_id
+    assert CoverStore(project).active().revision == 3
 
 
 def test_stale_set_selection_requires_explicit_confirmation(tmp_path) -> None:

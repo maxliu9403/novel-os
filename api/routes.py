@@ -709,8 +709,9 @@ def _cover_store(svc: ProjectService, project_id: str):
     return CoverStore(svc.project_path(project_id))
 
 
-def _cover_out(project_id: str, cover_set) -> dict:
+def _cover_out(project_id: str, cover_set, *, active_revision: int = 0) -> dict:
     body = cover_set.to_dict()
+    body["active_revision"] = active_revision
     candidates = []
     for candidate in body["candidates"]:
         item = dict(candidate)
@@ -748,18 +749,35 @@ def generate_covers(
     covers: CoverService = Depends(get_cover_service),
 ):
     from core.cover_models import CoverBrief, CoverConcept
+    from core.cover_handoff import build_cover_concepts, parse_cover_handoff
 
     project = svc.project_path(project_id)
-    source_sha = body.source_prompt_sha256 or hashlib.sha256(
-        json.dumps(body.brief, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    ).hexdigest()
     try:
-        brief = CoverBrief.from_dict(
-            body.brief,
-            source_prompt_sha256=source_sha,
-            foundation_sha256=body.foundation_sha256,
-        )
-        concepts = [CoverConcept.from_dict(item) for item in body.concepts]
+        if (body.brief is None) != (body.concepts is None):
+            raise ValueError("Cover brief and concepts must be supplied together")
+        if body.brief is not None and body.concepts is not None:
+            source_sha = body.source_prompt_sha256 or hashlib.sha256(
+                json.dumps(body.brief, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            ).hexdigest()
+            brief = CoverBrief.from_dict(
+                body.brief,
+                source_prompt_sha256=source_sha,
+                foundation_sha256=body.foundation_sha256,
+            )
+            concepts = [CoverConcept.from_dict(item) for item in body.concepts]
+        else:
+            prompt_path = project / "outputs" / "input" / "prompt.md"
+            if not prompt_path.is_file():
+                raise ValueError(
+                    "Project Prompt is missing; generate covers with ./deploy.sh novel-cover PROMPT"
+                )
+            brief = parse_cover_handoff(prompt_path.read_text(encoding="utf-8"))
+            count = body.count
+            if count is None:
+                from core.studio_settings import resolve_cover_settings
+
+                count = resolve_cover_settings().count
+            concepts = build_cover_concepts(brief, count=count)
         brief.validate_concepts(concepts)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -775,7 +793,11 @@ def generate_covers(
 @router.get("/projects/{project_id}/covers")
 def list_covers(project_id: str, svc: ProjectService = Depends(get_service)):
     store = _cover_store(svc, project_id)
-    return [_cover_out(project_id, item) for item in reversed(store.list())]
+    active_revision = store.active().revision
+    return [
+        _cover_out(project_id, item, active_revision=active_revision)
+        for item in reversed(store.list())
+    ]
 
 
 @router.get("/projects/{project_id}/covers/{cover_set_id}")
@@ -790,7 +812,8 @@ def get_cover(
         raise _cover_error(exc) from exc
     if cover_set.project_id != project_id:
         raise HTTPException(status_code=404, detail="Cover set not found")
-    return _cover_out(project_id, cover_set)
+    active_revision = _cover_store(svc, project_id).active().revision
+    return _cover_out(project_id, cover_set, active_revision=active_revision)
 
 
 @router.post(
@@ -819,7 +842,8 @@ def select_cover_candidate(
         )
     except (FileNotFoundError, ValueError, CoverServiceError) as exc:
         raise _cover_error(exc) from exc
-    return _cover_out(project_id, selected)
+    active_revision = _cover_store(svc, project_id).active().revision
+    return _cover_out(project_id, selected, active_revision=active_revision)
 
 
 @router.post(
@@ -843,7 +867,8 @@ def reject_cover_candidate(
         )
     except (FileNotFoundError, ValueError, CoverServiceError) as exc:
         raise _cover_error(exc) from exc
-    return _cover_out(project_id, rejected)
+    active_revision = _cover_store(svc, project_id).active().revision
+    return _cover_out(project_id, rejected, active_revision=active_revision)
 
 
 @router.post(

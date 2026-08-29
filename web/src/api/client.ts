@@ -53,6 +53,53 @@ export interface StudioCoverStatus {
   error: string | null;
 }
 
+export interface CoverConcept {
+  concept_id: string;
+  visual_strategy: string;
+  focal_scene: string;
+  composition: string;
+  palette: string;
+  secondary_signal: string;
+  title_treatment: string;
+  generation_prompt?: string;
+}
+
+export interface CoverCandidate {
+  candidate_id: string;
+  concept_id: string;
+  status: "pending" | "ready" | "failed" | "rejected" | "selected";
+  url: string | null;
+  relative_path: string;
+  media_id: string;
+  sha256: string;
+  width: number;
+  height: number;
+  content_type: string;
+  error: string;
+}
+
+export interface CoverSet {
+  cover_set_id: string;
+  project_id: string;
+  brief: Record<string, unknown> & {
+    title?: string;
+    target_audience?: string;
+    core_conflict?: string;
+    decisive_story_node?: string;
+  };
+  concepts: CoverConcept[];
+  candidates: CoverCandidate[];
+  source_prompt_sha256: string;
+  foundation_sha256: string;
+  status: "generating" | "partial" | "ready" | "selected" | "failed" | "stale";
+  requested_count: number;
+  selected_candidate_id: string;
+  revision: number;
+  active_revision: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ContinuityFinding {
   severity: string;
   category: string;
@@ -220,6 +267,7 @@ export interface FinalResult {
 export interface JobStatus {
   job_id: string; kind: string;
   status: "running" | "done" | "error"; error: string | null;
+  meta?: Record<string, unknown>;
 }
 export interface SnapshotMeta {
   id: string; label: string; created_at: string; word_count: number; source: string;
@@ -389,6 +437,38 @@ export const api = {
     quality?: string; output_format?: string; count?: number;
     timeout_seconds?: number;
   }) => send<StudioCoverStatus>("/api/studio/cover", "PUT", body),
+  covers: (id: string) => get<CoverSet[]>(`/api/projects/${id}/covers`),
+  cover: (id: string, coverSetId: string) =>
+    get<CoverSet>(`/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}`),
+  generateCovers: (id: string, count?: number) =>
+    send<JobStatus>(`/api/projects/${id}/covers/generate`, "POST", { count }),
+  selectCover: (
+    id: string, coverSetId: string, candidateId: string,
+    expectedRevision: number, expectedActiveRevision: number, confirmStale = false,
+  ) => send<CoverSet>(
+    `/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}/candidates/${encodeURIComponent(candidateId)}/select`,
+    "POST",
+    {
+      expected_revision: expectedRevision,
+      expected_active_revision: expectedActiveRevision,
+      confirm_stale: confirmStale,
+    },
+  ),
+  rejectCover: (
+    id: string, coverSetId: string, candidateId: string, expectedRevision: number,
+  ) => send<CoverSet>(
+    `/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}/candidates/${encodeURIComponent(candidateId)}/reject`,
+    "POST",
+    { expected_revision: expectedRevision },
+  ),
+  retryCover: (
+    id: string, coverSetId: string, candidateId: string, expectedRevision: number,
+  ) => send<JobStatus>(
+    `/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}/candidates/${encodeURIComponent(candidateId)}/retry`,
+    "POST",
+    { expected_revision: expectedRevision },
+  ),
+  deliveryPackageUrl: (id: string) => `${BASE}/api/projects/${id}/deliverables/package`,
   continuity: (id: string) => get<ContinuityReport>(`/api/projects/${id}/continuity`),
   /** Edit an entry. Send only what changed - absent fields are left alone. */
   updateCodexEntry: (

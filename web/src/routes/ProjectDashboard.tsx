@@ -207,6 +207,9 @@ export default function ProjectDashboard() {
                 <a href={api.exportUrl(id)} download={`${id}.md`} className="btn-secondary">
                   Export
                 </a>
+                <Link to={`/projects/${id}/covers`} className="btn-secondary inline-flex items-center gap-1.5">
+                  <Icon name="image" className="h-4 w-4" /> Cover Studio
+                </Link>
                 <ChoiceGroup
                   label="Content rating"
                   variant="segmented"
