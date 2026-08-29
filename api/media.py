@@ -20,10 +20,11 @@ from __future__ import annotations
 
 import hashlib
 import re
-import struct
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
+
+from core.image_binary import dimensions as image_dimensions
 
 # SVG is deliberately absent: it can carry script and would execute if served
 # inline. If vector art is needed later it must be sanitised first.
@@ -84,57 +85,9 @@ def dimensions(data: bytes) -> tuple[int, int]:
     header bytes keeps Pillow out of the dependency list; an unrecognised or
     truncated header simply yields (0, 0) and the caller lays out fluidly.
     """
-    try:
-        if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
-            w, h = struct.unpack(">II", data[16:24])
-            return int(w), int(h)
-
-        if data[:6] in (b"GIF87a", b"GIF89a"):
-            w, h = struct.unpack("<HH", data[6:10])
-            return int(w), int(h)
-
-        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-            return _webp_dimensions(data)
-
-        if data[:2] == b"\xff\xd8":
-            return _jpeg_dimensions(data)
-    except (struct.error, IndexError, ValueError):
-        pass
-    return 0, 0
-
-
-def _webp_dimensions(data: bytes) -> tuple[int, int]:
-    fourcc = data[12:16]
-    if fourcc == b"VP8X":
-        w = int.from_bytes(data[24:27], "little") + 1
-        h = int.from_bytes(data[27:30], "little") + 1
-        return w, h
-    if fourcc == b"VP8 ":
-        w, h = struct.unpack("<HH", data[26:30])
-        return w & 0x3FFF, h & 0x3FFF
-    if fourcc == b"VP8L":
-        bits = int.from_bytes(data[21:25], "little")
-        return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
-    return 0, 0
-
-
-def _jpeg_dimensions(data: bytes) -> tuple[int, int]:
-    i = 2
-    n = len(data)
-    while i + 9 < n:
-        if data[i] != 0xFF:
-            i += 1
-            continue
-        marker = data[i + 1]
-        # SOF0-SOF15, excluding the non-frame markers DHT/JPG/DAC.
-        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
-            h, w = struct.unpack(">HH", data[i + 5:i + 9])
-            return int(w), int(h)
-        if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
-            i += 2
-            continue
-        i += 2 + struct.unpack(">H", data[i + 2:i + 4])[0]
-    return 0, 0
+    if data[:6] in (b"GIF87a", b"GIF89a") and len(data) >= 10:
+        return int.from_bytes(data[6:8], "little"), int.from_bytes(data[8:10], "little")
+    return image_dimensions(data)
 
 
 # ------------------------------------------------------------------------ stores
