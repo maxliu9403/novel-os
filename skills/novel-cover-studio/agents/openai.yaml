@@ -1,0 +1,7 @@
+interface:
+  display_name: "Novel Cover Studio"
+  short_description: "Design and generate story-specific 2K novel covers"
+  default_prompt: "Use $novel-cover-studio to turn my approved novel Prompt into distinct cover concepts and candidate images."
+
+policy:
+  allow_implicit_invocation: true

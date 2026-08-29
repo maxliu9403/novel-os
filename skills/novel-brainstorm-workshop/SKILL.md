@@ -20,6 +20,7 @@ Turn an incomplete novel idea into a deliberate story engine, a reviewed design,
 - Present the design in reviewable sections. Wait for confirmation after each section before writing the final prompt.
 - Use positive quality targets. A prohibition belongs only beside a concrete replacement behaviour.
 - The default deliverable is a prompt file plus a start command. The user decides when to run the model.
+- Every approved Prompt includes a strict JSON cover handoff. After Sections A-E are approved and the Prompt validates, route cover requests to `novel-cover-studio`; do not call the image model while story direction is changing.
 - Keep existing canon separate from a new concept. A new prompt never silently changes an existing project.
 
 ## Route the request
@@ -282,7 +283,7 @@ After design approval, generate a complete prompt rather than a short summary. L
 4. Include a `## Assumptions` section in the prompt for details the user did not decide.
 5. Keep the prompt authoritative: repeat the locked title, language, genre, audience, tone, POV, chapter count, and word target in parseable `Key: Value` fields near the top.
 
-The prompt must instruct Novel OS to plan before drafting, preserve the structured `audience_research` record and its market branches, preserve the confirmed `workshop_trace` and decision history, maintain character/relationship/secret/timeline/resource ledgers, emit and preserve machine-readable `story_lead_contract` and `ending_contract` records, update a payoff ledger after every chapter, use a per-chapter causal contract, preserve POV and knowledge boundaries, rotate conflict and hook types, reserve the final 3-5 chapters for payoff, and produce a final reader-facing manuscript without agent commentary. It must also preserve `setting_policy.mode: fictionalized`, use invented or abstract story-facing place names, and keep real market/source locations inside audience-research metadata. The Scribe writes the story lead once at the start of chapter one's artifact, the Editor sharpens it without inventing unsupported promises, the Continuity Guardian checks its claims against the planned story, and the Style Curator preserves the output-language register. When `retention_first` is active, the prompt must also preserve the opening contract, first-screen evidence, conflict braid, satisfaction loop, atmosphere and identification decisions, first-three-chapter value map, and paid bridge.
+The prompt must instruct Novel OS to plan before drafting, preserve the structured `audience_research` record and its market branches, preserve the confirmed `workshop_trace` and decision history, maintain character/relationship/secret/timeline/resource ledgers, emit and preserve machine-readable `story_lead_contract` and `ending_contract` records, update a payoff ledger after every chapter, use a per-chapter causal contract, preserve POV and knowledge boundaries, rotate conflict and hook types, reserve the final 3-5 chapters for payoff, and produce a final reader-facing manuscript without agent commentary. It must also preserve `setting_policy.mode: fictionalized`, use invented or abstract story-facing place names, and keep real market/source locations inside audience-research metadata. Add exactly one strict JSON cover block using the `COVER_HANDOFF_BEGIN` and `COVER_HANDOFF_END` boundaries from `references/prompt-contract.md`; its title, audience, conflict, protagonist, decisive node, secondary task, and world signals come only from confirmed Sections A-E. The Scribe writes the story lead once at the start of chapter one's artifact, the Editor sharpens it without inventing unsupported promises, the Continuity Guardian checks its claims against the planned story, and the Style Curator preserves the output-language register. When `retention_first` is active, the prompt must also preserve the opening contract, first-screen evidence, conflict braid, satisfaction loop, atmosphere and identification decisions, first-three-chapter value map, and paid bridge.
 
 Use this exact machine-readable Markdown boundary in the chapter-one artifact so
 Novel OS can compile the lead without replacing chapter-one navigation:
@@ -343,7 +344,7 @@ When `core/prompt_intake.py` exists, validate before handing off:
 PYTHONPATH=core ./venv/bin/python -c "from pathlib import Path; from prompt_intake import ingest_prompt; r=ingest_prompt(Path('PROMPT_VALIDATION_PROJECT'), Path('PROMPT_PATH')); print(r.brief)"
 ```
 
-Replace `PROMPT_VALIDATION_PROJECT` and `PROMPT_PATH` with the actual paths. Confirm that the parsed brief contains the locked title, genre, language, chapter count, word target, audience, tone, and premise. Also confirm that the prompt contains a market-scoped `audience_research` section with country, region, language, source records, evidence types, confidence, and creative implications, a `setting_policy` with `mode: fictionalized`, a `workshop_trace` with Section A-E decisions and open assumptions, plus personality fields for every principal character. Use a temporary validation project when no project has been selected; keep a real project untouched until the user runs the command.
+Replace `PROMPT_VALIDATION_PROJECT` and `PROMPT_PATH` with the actual paths. Confirm that the parsed brief contains the locked title, genre, language, chapter count, word target, audience, tone, and premise. Also confirm that the prompt contains a market-scoped `audience_research` section with country, region, language, source records, evidence types, confidence, and creative implications, a `setting_policy` with `mode: fictionalized`, a `workshop_trace` with Section A-E decisions and open assumptions, plus personality fields for every principal character. Parse the cover block with `core.cover_handoff.parse_cover_handoff`; verify the exact title, user-confirmed audience, core conflict, decisive node, secondary task, fictional world signals, and forbidden elements. Use a temporary validation project when no project has been selected; keep a real project untouched until the user runs the command.
 
 Also run `git diff --check -- <prompt path>` when the file is inside a Git workspace. For every Prompt, verify that `story_lead_contract.required` is true, its language and length unit agree, its conflict/payoff/question fields are concrete, and the chapter-one output protocol uses the `STORY_LEAD:` marker before the real chapter heading. For a `retention_first` Prompt, also verify the opening contract, the first-screen signal list, at least two conflict dimensions, local value for chapters 1-3, and the paid bridge are present and internally consistent. Report parser output and any corrected field; do not claim validation from file existence alone.
 
@@ -429,6 +430,8 @@ Replace every uppercase token with the actual values before showing the user the
 
 If the user asks to run it, first verify the configured provider endpoint, Prompt path, and selected launcher, then execute the command. In Docker mode, go directly through `./deploy.sh novel`; keep a healthy service running. A recoverable failure should use the selected launcher's persisted resume/retry path; a durable evidence or canon-integrity issue remains a visible blocked result.
 
+When cover creation is in scope, hand the validated Prompt to `novel-cover-studio` only after Sections A-E are approved. That Skill presents 3-5 distinct concepts before image generation, then prefers `./deploy.sh novel-cover` and returns the candidate paths plus Studio selection URL. Cover generation is independent of the novel run and never requires a service restart.
+
 ## Existing canon branch
 
 When an existing manuscript or run is present:
@@ -447,6 +450,7 @@ Finish with a compact report containing:
 - locked design decisions and assumptions;
 - prompt path and parser result;
 - story-lead language, target length, and quality-gate result;
+- cover-handoff validation and whether cover concepts or images were requested;
 - exact start command;
 - what was verified locally;
 - whether a model run was started.

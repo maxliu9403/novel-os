@@ -38,7 +38,55 @@ Use actual values in the final artifact. `Audience` must come from a user-confir
 17. **Agent output protocol**: exact state blocks and handoff expectations for each Novel OS agent.
 18. **Quality gates**: continuity, knowledge boundaries, payoff, agency, timeline, resource, style, and ending checks.
 19. **Assumptions**: only details the user did not decide.
-20. **Final delivery**: story bible, market research and source ledger, machine-readable `workshop_trace` for intake, questions, alternatives, and Section A-E decisions, outline, complete chapters, reports, `book_completion_report.json`, and reader-facing manuscript.
+20. **Cover handoff**: strict JSON derived from the approved story, audience, conflict, protagonist, decisive node, secondary task, and fictional world signals.
+21. **Final delivery**: story bible, market research and source ledger, machine-readable `workshop_trace` for intake, questions, alternatives, and Section A-E decisions, outline, complete chapters, reports, `book_completion_report.json`, and reader-facing manuscript.
+
+## Required cover handoff
+
+Every generated Prompt includes exactly one JSON object inside these literal boundaries:
+
+````text
+COVER_HANDOFF_BEGIN
+```json
+{
+  "schema_version": 1,
+  "title": "<exact approved title>",
+  "author": "<approved author or empty>",
+  "language": "<title and output language>",
+  "genre": "<primary and secondary genre>",
+  "target_audience": "<user-confirmed primary audience>",
+  "market_scope": "<release market branch>",
+  "core_task": "<reader-facing premise and protagonist objective>",
+  "core_conflict": "<specific opposition and stakes>",
+  "emotional_promise": "<dominant emotion and earned payoff>",
+  "protagonist": {
+    "role": "<story role>",
+    "visual_identity": "<confirmed visual identity>",
+    "agency_signal": "<visible action or decision>"
+  },
+  "relationship_or_power_contrast": "<visualizable contrast>",
+  "decisive_story_node": "<major irreversible event suitable for a cover>",
+  "secondary_task": {
+    "story_function": "<supporting pressure or promise>",
+    "visual_signal": "<one person, setting feature, or symbolic object>"
+  },
+  "world_signals": ["<fictional setting, institution, era, technology, or social rule>"],
+  "title_direction": {
+    "hierarchy": "<title hierarchy>",
+    "preferred_zone": "<top, center, or lower third>",
+    "readability": "mobile_thumbnail"
+  },
+  "forbidden_elements": ["real places", "logos", "watermarks", "unsupported spoilers"]
+}
+```
+COVER_HANDOFF_END
+````
+
+The contents must be valid JSON after replacing every placeholder. Title,
+target audience, conflict, protagonist identity, decisive node, and world
+signals come from confirmed Sections A-E rather than new assumptions. Keep real
+market geography only in `audience_research`; cover-facing places are fictional
+or abstract. This block is production metadata and does not enter reader prose.
 
 ## Required story lead contract
 
