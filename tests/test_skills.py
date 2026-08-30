@@ -46,6 +46,11 @@ def test_cover_skill_requires_confirmed_design_and_distinct_concepts() -> None:
     assert "exact title" in body.lower()
     assert "real place" in body.lower()
     assert "watermark" in body.lower()
+    assert "Do not infer or invent ethnicity" in body
+    assert "American white casting" not in body
+    assert "premium US commercial fiction magazine cover" in body
+    assert "visible action, reaction, and stakes" in body
+    assert "Western editorial typography" in body
 
 
 def test_cover_skill_detects_launcher_and_documents_host_sync() -> None:

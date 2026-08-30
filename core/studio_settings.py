@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Optional
+
+try:
+    from .image_binary import aspect_ratio_matches
+except ImportError:  # pragma: no cover - legacy top-level core imports
+    from image_binary import aspect_ratio_matches
 
 # Keys we are willing to set from the Studio UI into the process env.
 _ENV_KEYS = (
@@ -30,8 +36,20 @@ _ENV_KEYS = (
 )
 
 _COVER_SIZE = "2048x3072"
+_COVER_MODEL = "gpt-image-2"
 _COVER_QUALITIES = {"low", "medium", "high", "auto"}
-_COVER_FORMATS = {"png", "jpeg", "webp"}
+_COVER_FORMATS = {"png", "jpeg"}
+_COVER_SIZE_PATTERN = re.compile(r"^(\d+)x(\d+)$", re.IGNORECASE)
+
+
+def _validate_cover_size(size: str) -> str:
+    match = _COVER_SIZE_PATTERN.fullmatch(size.strip())
+    if match is None:
+        raise ValueError("Cover size must be widthxheight with a portrait 2:3 ratio")
+    width, height = (int(value) for value in match.groups())
+    if not aspect_ratio_matches(width, height):
+        raise ValueError("Cover size must preserve portrait 2:3 aspect ratio")
+    return f"{width}x{height}"
 
 
 @dataclass(frozen=True)
@@ -41,7 +59,7 @@ class CoverSettings:
     model: str = "gpt-image-2"
     size: str = _COVER_SIZE
     quality: str = "high"
-    output_format: str = "webp"
+    output_format: str = "jpeg"
     count: int = 4
     timeout_seconds: float = 180.0
     inherits_base_url: bool = False
@@ -63,9 +81,7 @@ def resolve_cover_settings(source: Mapping[str, Any] | None = None) -> CoverSett
         values.get("NOVEL_OS_API_KEY") or values.get("OPENAI_API_KEY") or ""
     ).strip()
 
-    size = str(values.get("NOVEL_OS_COVER_SIZE") or _COVER_SIZE).strip()
-    if size != _COVER_SIZE:
-        raise ValueError(f"Cover size must be {_COVER_SIZE}")
+    size = _validate_cover_size(str(values.get("NOVEL_OS_COVER_SIZE") or _COVER_SIZE))
 
     quality = str(values.get("NOVEL_OS_COVER_QUALITY") or "high").strip().lower()
     if quality not in _COVER_QUALITIES:
@@ -73,7 +89,9 @@ def resolve_cover_settings(source: Mapping[str, Any] | None = None) -> CoverSett
             f"Unknown cover quality '{quality}'; choose {', '.join(sorted(_COVER_QUALITIES))}"
         )
 
-    output_format = str(values.get("NOVEL_OS_COVER_FORMAT") or "webp").strip().lower()
+    output_format = str(values.get("NOVEL_OS_COVER_FORMAT") or "jpeg").strip().lower()
+    if output_format == "webp":
+        output_format = "jpeg"
     if output_format not in _COVER_FORMATS:
         raise ValueError(
             f"Unknown cover format '{output_format}'; choose {', '.join(sorted(_COVER_FORMATS))}"
@@ -93,9 +111,9 @@ def resolve_cover_settings(source: Mapping[str, Any] | None = None) -> CoverSett
     if timeout <= 0:
         raise ValueError("Cover timeout must be a positive number")
 
-    model = str(values.get("NOVEL_OS_COVER_MODEL") or "gpt-image-2").strip()
-    if not model:
-        raise ValueError("Cover model is required")
+    model = str(values.get("NOVEL_OS_COVER_MODEL") or _COVER_MODEL).strip()
+    if model != _COVER_MODEL:
+        raise ValueError(f"Cover model must be {_COVER_MODEL}")
 
     return CoverSettings(
         base_url=(cover_base_url or writing_base_url or "https://api.openai.com/v1").rstrip("/"),
@@ -123,7 +141,7 @@ def cover_status(source: Mapping[str, Any] | None = None) -> dict[str, Any]:
             "model": "gpt-image-2",
             "size": _COVER_SIZE,
             "quality": "high",
-            "output_format": "webp",
+            "output_format": "jpeg",
             "count": 4,
             "timeout_seconds": 180.0,
             "inherits_base_url": False,

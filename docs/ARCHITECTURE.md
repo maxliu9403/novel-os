@@ -128,9 +128,9 @@ Ownership is split deliberately:
 `outputs/deliverables/covers/pending/` filenames are only the current customer
 projection and may be replaced by a newer generation. Selection therefore
 reads the candidate's content-addressed media by `(project_id, sha256,
-extension)`, revalidates the digest/type/exact `2048x3072` dimensions, and only
+extension)`, revalidates the digest/type/portrait `2:3` dimensions, and only
 then writes `selected-cover.*`. This prevents a historical set from selecting a
-newer image that reused `cover-01.webp`.
+newer image that reused `cover-01.jpg`.
 
 Selection has two compare-and-swap boundaries:
 

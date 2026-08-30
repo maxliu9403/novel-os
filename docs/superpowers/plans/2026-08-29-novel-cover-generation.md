@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Generate four story-specific `2048x3072` covers through Sub2API `gpt-image-2`, let customers select a candidate in Studio, and ship covers with common novel exports in a deterministic package.
+**Goal:** Generate four story-specific portrait `2:3` covers through Sub2API `gpt-image-2`, preserve provider-native resolution, let customers select a candidate in Studio, and ship covers with common novel exports in a deterministic package.
 
 **Architecture:** Add an independent cover settings resolver and image client under `core`, then place cover lifecycle and project persistence behind a focused `CoverService`. Reuse the existing content-addressed media store for Studio delivery and project `outputs/deliverables` for customer-facing projections. The brainstorm Skill emits a structured handoff; a new cover Skill turns that handoff into distinct concepts before the API spends image calls.
 
@@ -14,7 +14,7 @@
 
 - Use `gpt-image-2` independently from all writing-agent model assignments.
 - Default to four candidates; accept only three through five.
-- Require exact portrait `2048x3072` output and `high` quality WebP by default.
+- Request portrait `2048x3072` and `high` quality JPEG by default, while accepting provider-native portrait resolutions.
 - Send each concept as an independent `n=1` request to permit candidate-level retry.
 - Persist no API key in manifests, errors, job metadata, logs, or API responses.
 - Story-facing prompts and images use fictional locations, never real city or place names.
@@ -50,7 +50,7 @@ def test_cover_settings_default_to_image2_and_2k(monkeypatch):
     assert settings.model == "gpt-image-2"
     assert settings.size == "2048x3072"
     assert settings.quality == "high"
-    assert settings.output_format == "webp"
+    assert settings.output_format == "jpeg"
     assert settings.count == 4
 
 def test_cover_settings_reuse_writing_endpoint_and_key(monkeypatch):
@@ -111,11 +111,11 @@ Use an in-process HTTP server to assert `POST /v1/images/generations` receives:
   "n": 1,
   "size": "2048x3072",
   "quality": "high",
-  "output_format": "webp"
+  "output_format": "jpeg"
 }
 ```
 
-Return a base64 fixture with a valid WebP `VP8X` header and assert exact dimensions, request ID propagation, retry classification for 429/5xx/timeouts, rejection of malformed base64 and wrong dimensions, and absence of the key from every error string.
+Return base64 fixtures with valid JPEG and PNG headers and assert portrait `2:3` ratio validation, request ID propagation, retry classification for 429/5xx/timeouts, rejection of malformed base64 and wrong ratios, and absence of the key from every error string.
 
 - [ ] **Step 2: Verify RED**
 
@@ -199,7 +199,7 @@ Expected: FAIL with missing `api.cover_service`.
 
 - [ ] **Step 3: Implement service orchestration**
 
-Raise the media byte limit for generated 2K cover WebP only through a separate validated limit, register each image as `kind="cover"`, persist safe provider metadata, preserve successful candidates across failures, and update sets after each independent request so process interruption loses at most one in-flight candidate.
+Raise the media byte limit for generated cover JPEG/PNG only through a separate validated limit, register each image as `kind="cover"`, persist safe provider metadata, preserve successful candidates across failures, and update sets after each independent request so process interruption loses at most one in-flight candidate.
 
 - [ ] **Step 4: Verify GREEN**
 
@@ -229,7 +229,7 @@ git commit -m "feat: generate and recover cover candidates"
 
 - [ ] **Step 1: Write failing package tests**
 
-Test inclusion of selected user formats, ready pending covers, `selected-cover.webp` after selection, exclusion of HTML by default, exclusion of symlinks/temp/archive recursion, sorted manifest entries, normalized ZIP timestamps, stable archive bytes, and atomic preservation of a prior package on failure.
+Test inclusion of selected user formats, ready pending covers, `selected-cover.jpg` after selection, exclusion of HTML by default, exclusion of symlinks/temp/archive recursion, sorted manifest entries, normalized ZIP timestamps, stable archive bytes, and atomic preservation of a prior package on failure.
 
 - [ ] **Step 2: Verify RED**
 
@@ -466,7 +466,7 @@ Build without restarting an already healthy writing run, start on an unused port
 
 - [ ] **Step 6: Optional live Sub2API probe**
 
-Only when a key is configured and the user approves billable execution: generate one candidate first, verify its format and exact `2048x3072` dimensions, then generate the default set. Report safe request ID/model/timing metadata without key or raw unpublished Prompt logs.
+Only when a key is configured and the user approves billable execution: generate one candidate first, verify its format and portrait `2:3` ratio, then generate the default set. Report safe request ID/model/native dimensions metadata without key or raw unpublished Prompt logs.
 
 - [ ] **Step 7: Commit**
 

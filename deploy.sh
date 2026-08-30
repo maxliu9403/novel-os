@@ -26,7 +26,7 @@ Commands:
   novel-retry [RUN_ID]
            Retry the current stage of a failed or blocked run
   novel-cover [PROMPT]
-           Generate or manage 2048x3072 cover candidates without restarting services
+           Generate or manage portrait 2:3 cover candidates without restarting services
 EOF
 }
 
@@ -131,7 +131,7 @@ cover_usage() {
   cat <<'EOF'
 Novel OS cover commands
 
-Generate 2048x3072 cover candidates:
+Generate portrait 2:3 cover candidates (the provider's native resolution is preserved):
   ./deploy.sh novel-cover PROMPT
   ./deploy.sh novel-cover generate PROMPT [PROJECT]
       Parse the approved COVER_HANDOFF block, create 3-5 distinct concepts,
@@ -150,9 +150,9 @@ Optional environment overrides:
   NOVEL_OS_PROJECT_NAME          Project name for direct Prompt generation
   NOVEL_OS_COVER_COUNT           Candidate count from 3 through 5; default 4
   NOVEL_OS_COVER_MODEL           Image model; default gpt-image-2
-  NOVEL_OS_COVER_SIZE            Fixed at 2048x3072
+  NOVEL_OS_COVER_SIZE            Preferred request size (default 2048x3072); must be portrait 2:3
   NOVEL_OS_COVER_QUALITY         low, medium, high, or auto; default high
-  NOVEL_OS_COVER_FORMAT          png, jpeg, or webp; default webp
+  NOVEL_OS_COVER_FORMAT          jpeg or png; default jpeg
   NOVEL_OS_COVER_TIMEOUT_SECONDS Provider timeout; default 180
 
 Provider URL and key are configured in ignored .env values or Studio Settings.

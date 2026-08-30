@@ -318,7 +318,7 @@ NOVEL_OS_COVER_API_KEY=your-key
 NOVEL_OS_COVER_MODEL=gpt-image-2
 NOVEL_OS_COVER_SIZE=2048x3072
 NOVEL_OS_COVER_QUALITY=high
-NOVEL_OS_COVER_FORMAT=webp
+NOVEL_OS_COVER_FORMAT=jpeg
 NOVEL_OS_COVER_COUNT=4
 ```
 
@@ -467,7 +467,7 @@ NOVEL_OS_PROJECT_NAME='my-novel' NOVEL_OS_COVER_COUNT=4 \
 
 The Prompt must contain the approved `COVER_HANDOFF_BEGIN` / `COVER_HANDOFF_END`
 JSON emitted by `novel-brainstorm-workshop`. Generation creates 3-5 independent
-`2048x3072` candidates. Review and select them at
+portrait `2:3` candidates at the provider's native resolution. Review and select them at
 `http://localhost:5174/projects/PROJECT/covers`; only failed candidates consume
 an image call when retried. `novel-cover` reuses a healthy backend and never
 runs `up`, `restart`, or `down` on its behalf.
@@ -569,7 +569,7 @@ NOVEL_OS_COVER_API_KEY=YOUR_API_KEY
 NOVEL_OS_COVER_MODEL=gpt-image-2
 NOVEL_OS_COVER_SIZE=2048x3072
 NOVEL_OS_COVER_QUALITY=high
-NOVEL_OS_COVER_FORMAT=webp
+NOVEL_OS_COVER_FORMAT=jpeg
 NOVEL_OS_COVER_COUNT=4
 ```
 
@@ -765,8 +765,8 @@ docker-data/projects/PROJECT/outputs/deliverables/
 ```text
 outputs/deliverables/
 |-- book.md / book.epub / book.pdf / book.docx
-|-- covers/pending/cover-01.webp ... cover-05.webp
-|-- covers/selected-cover.webp
+|-- covers/pending/cover-01.jpg ... cover-05.jpg
+|-- covers/selected-cover.jpg
 |-- covers/cover-set.json
 |-- package-manifest.json
 `-- book-package.zip
@@ -833,7 +833,7 @@ git pull --ff-only
 | 📐 **Shape of the book** | Per-chapter movement, with sagging runs flagged |
 | ↯ **Consequence preview** | Rewrite a passage and see what it breaks *before* accepting |
 | 📤 **Compile** | DOCX · EPUB · PDF · HTML · Markdown, driven by named styles |
-| 🎨 **Cover Studio** | Story-derived 2K candidates, full-resolution review, explicit selection, and delivery ZIP |
+| 🎨 **Cover Studio** | Story-derived portrait candidates, native-resolution review, explicit selection, and delivery ZIP |
 | ⌨️ **Keyboard-first** | `⌘K` palette · `⌘1/2/3` modes · `⌘.` quick note without leaving the page |
 
 ---

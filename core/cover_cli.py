@@ -16,12 +16,12 @@ from api.cover_service import CoverService, CoverServiceError
 from api.media import LocalMediaStore
 
 try:
-    from .cover_handoff import build_cover_concepts, parse_cover_handoff
+    from .cover_handoff import build_cover_concepts, resolve_cover_brief
     from .cover_store import CoverConflict, CoverStore
     from .image_client import ImageClientError, ImageGenerationClient
     from .studio_settings import resolve_cover_settings
 except ImportError:  # pragma: no cover - used by `python core/orchestrator.py`
-    from cover_handoff import build_cover_concepts, parse_cover_handoff
+    from cover_handoff import build_cover_concepts, resolve_cover_brief
     from cover_store import CoverConflict, CoverStore
     from image_client import ImageClientError, ImageGenerationClient
     from studio_settings import resolve_cover_settings
@@ -29,7 +29,7 @@ except ImportError:  # pragma: no cover - used by `python core/orchestrator.py`
 
 def configure_cover_parser(subparsers) -> None:
     cover = subparsers.add_parser(
-        "cover", help="Generate and manage 2048x3072 novel cover candidates"
+        "cover", help="Generate and manage portrait 2:3 novel cover candidates"
     )
     commands = cover.add_subparsers(dest="cover_command", required=True)
 
@@ -75,7 +75,7 @@ def run_cover_command(args) -> int:
             if not 3 <= count <= 5:
                 raise ValueError("Cover candidate count must be between 3 and 5")
             text = _read_prompt(args.prompt)
-            brief = parse_cover_handoff(text)
+            brief = resolve_cover_brief(project, prompt_text=text)
             concepts = build_cover_concepts(brief, count=count)
             result = _generation_service(settings).generate(
                 project.name, project, brief, concepts

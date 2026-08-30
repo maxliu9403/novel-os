@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import threading
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -11,15 +12,25 @@ from core.image_client import ImageClientError, ImageGenerationClient
 from core.studio_settings import CoverSettings
 
 
-def _webp(width: int = 2048, height: int = 3072) -> bytes:
-    payload = (
-        b"VP8X"
-        + (10).to_bytes(4, "little")
-        + b"\x00\x00\x00\x00"
-        + (width - 1).to_bytes(3, "little")
-        + (height - 1).to_bytes(3, "little")
+def _jpeg(width: int = 2048, height: int = 3072) -> bytes:
+    # Minimal SOF0 header; image clients only need type and dimensions here.
+    return (
+        b"\xff\xd8\xff\xc0\x00\x11\x08"
+        + height.to_bytes(2, "big")
+        + width.to_bytes(2, "big")
+        + b"\x03\x01\x11\x00\x02\x11\x00\x03\x11\x00\xff\xd9"
     )
-    return b"RIFF" + (len(payload) + 4).to_bytes(4, "little") + b"WEBP" + payload
+
+
+def _png(width: int = 2048, height: int = 3072) -> bytes:
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + b"\x00\x00\x00\x0dIHDR"
+        + width.to_bytes(4, "big")
+        + height.to_bytes(4, "big")
+        + b"\x08\x02\x00\x00\x00"
+        + b"\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
 
 
 def _settings(base_url: str, api_key: str = "cover-secret") -> CoverSettings:
@@ -29,7 +40,7 @@ def _settings(base_url: str, api_key: str = "cover-secret") -> CoverSettings:
         model="gpt-image-2",
         size="2048x3072",
         quality="high",
-        output_format="webp",
+        output_format="jpeg",
         count=4,
         timeout_seconds=2,
     )
@@ -80,11 +91,11 @@ class _Server:
 
 
 def _success(data: bytes | None = None) -> dict:
-    encoded = base64.b64encode(data or _webp()).decode("ascii")
+    encoded = base64.b64encode(data or _jpeg()).decode("ascii")
     return {"created": 1, "data": [{"b64_json": encoded}]}
 
 
-def test_generate_posts_exact_image2_contract_and_decodes_webp() -> None:
+def test_generate_posts_exact_image2_contract_and_decodes_jpeg() -> None:
     with _Server([(200, _success())]) as server:
         result = ImageGenerationClient(_settings(server.url)).generate("COVER PROMPT")
 
@@ -97,14 +108,33 @@ def test_generate_posts_exact_image2_contract_and_decodes_webp() -> None:
             "n": 1,
             "size": "2048x3072",
             "quality": "high",
-            "output_format": "webp",
+            "output_format": "jpeg",
         },
     }]
-    assert result.data == _webp()
-    assert result.content_type == "image/webp"
+    assert result.data == _jpeg()
+    assert result.content_type == "image/jpeg"
     assert (result.width, result.height) == (2048, 3072)
     assert result.request_id == "req-cover-123"
     assert result.model == "gpt-image-2"
+    assert result.request_size == "2048x3072"
+
+
+def test_generate_posts_png_when_configured() -> None:
+    with _Server([(200, _success(_png()))]) as server:
+        result = ImageGenerationClient(
+            replace(_settings(server.url), output_format="png")
+        ).generate("PNG COVER PROMPT")
+
+    assert server.requests[0]["body"]["output_format"] == "png"
+    assert result.data == _png()
+    assert result.content_type == "image/png"
+
+
+def test_generate_rejects_webp_response() -> None:
+    webp_header = b"RIFF\x04\x00\x00\x00WEBP"
+    with _Server([(200, _success(webp_header))]) as server:
+        with pytest.raises(ImageClientError, match="unsupported image type"):
+            ImageGenerationClient(_settings(server.url)).generate("PROMPT")
 
 
 def test_generate_retries_rate_limit_then_succeeds() -> None:
@@ -134,16 +164,42 @@ def test_generate_does_not_retry_authentication_or_leak_secret() -> None:
     assert "cover-secret" not in str(raised.value)
 
 
+def test_generate_accepts_upstream_portrait_resolution() -> None:
+    with _Server([(200, _success(_jpeg(1024, 1536)))]) as server:
+        result = ImageGenerationClient(_settings(server.url)).generate("PROMPT")
+
+    assert (result.width, result.height) == (1024, 1536)
+
+
+def test_generate_accepts_minor_portrait_raster_rounding() -> None:
+    with _Server([(200, _success(_jpeg(1023, 1537)))]) as server:
+        result = ImageGenerationClient(_settings(server.url)).generate("PROMPT")
+
+    assert (result.width, result.height) == (1023, 1537)
+
+
+def test_generate_surfaces_provider_permission_detail_without_api_key() -> None:
+    with _Server([(
+        403,
+        {"error": {"type": "permission_error", "message": "Image generation is not enabled for this group"}},
+    )]) as server:
+        with pytest.raises(ImageClientError, match="not enabled for this group") as raised:
+            ImageGenerationClient(_settings(server.url)).generate("PROMPT")
+
+    assert raised.value.status_code == 403
+    assert raised.value.retryable is False
+    assert "cover-secret" not in str(raised.value)
+
+
 @pytest.mark.parametrize(
     ("body", "message"),
     [
         ({"data": [{"b64_json": "not-base64"}]}, "base64"),
-        (_success(_webp(1024, 1536)), "2048x3072"),
+        (_success(_jpeg(1024, 1024)), "2:3"),
         ({"data": []}, "image data"),
     ],
 )
-def test_generate_rejects_malformed_or_wrong_size_images(body: dict, message: str) -> None:
+def test_generate_rejects_malformed_or_wrong_ratio_images(body: dict, message: str) -> None:
     with _Server([(200, body)]) as server:
         with pytest.raises(ImageClientError, match=message):
             ImageGenerationClient(_settings(server.url)).generate("PROMPT")
-

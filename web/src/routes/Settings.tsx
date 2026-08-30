@@ -24,11 +24,12 @@ export default function Settings() {
   const [coverBusy, setCoverBusy] = useState(false);
   const [coverApiKey, setCoverApiKey] = useState("");
   const [coverModel, setCoverModel] = useState("gpt-image-2");
+  const [coverSize, setCoverSize] = useState("2048x3072");
   const [coverBaseUrl, setCoverBaseUrl] = useState("");
   const [coverCount, setCoverCount] = useState(4);
   const [coverTimeout, setCoverTimeout] = useState(180);
   const [coverQuality, setCoverQuality] = useState<StudioCoverStatus["quality"]>("high");
-  const [coverFormat, setCoverFormat] = useState<StudioCoverStatus["output_format"]>("webp");
+  const [coverFormat, setCoverFormat] = useState<StudioCoverStatus["output_format"]>("jpeg");
 
   function load() {
     api.studioLlm().then((s) => {
@@ -38,6 +39,7 @@ export default function Settings() {
     api.studioCover().then((s) => {
       setCoverStatus(s);
       setCoverModel(s.model);
+      setCoverSize(s.size);
       setCoverBaseUrl(s.base_url);
       setCoverCount(s.count);
       setCoverTimeout(s.timeout_seconds);
@@ -94,7 +96,7 @@ export default function Settings() {
         model: coverModel.trim(),
         base_url: coverBaseUrl.trim(),
         api_key: coverApiKey.trim() || undefined,
-        size: "2048x3072",
+        size: coverSize.trim(),
         quality: coverQuality,
         output_format: coverFormat,
         count: coverCount,
@@ -235,11 +237,17 @@ export default function Settings() {
                     <input
                       className={fieldClass}
                       value={coverModel}
-                      onChange={(e) => setCoverModel(e.target.value)}
+                      readOnly
                     />
                   </Field>
                   <Field label="Output size">
-                    <input className={fieldClass} value="2048x3072" readOnly />
+                    <input
+                      className={fieldClass}
+                      value={coverSize}
+                      onChange={(e) => setCoverSize(e.target.value)}
+                      placeholder="1024x1536"
+                      aria-describedby="cover-size-hint"
+                    />
                   </Field>
                   <Field label="Quality">
                     <select
@@ -259,9 +267,8 @@ export default function Settings() {
                       value={coverFormat}
                       onChange={(e) => setCoverFormat(e.target.value as StudioCoverStatus["output_format"])}
                     >
-                      <option value="webp">WebP</option>
-                      <option value="png">PNG</option>
                       <option value="jpeg">JPEG</option>
+                      <option value="png">PNG</option>
                     </select>
                   </Field>
                   <Field label="Candidates">
@@ -284,6 +291,9 @@ export default function Settings() {
                     />
                   </Field>
                 </div>
+                <p id="cover-size-hint" className="mt-2 text-[12px] text-ink-muted">
+                  Use a portrait 2:3 ratio; the provider may return a different resolution.
+                </p>
                 <Field label="Cover API base URL">
                   <input
                     className={fieldClass}

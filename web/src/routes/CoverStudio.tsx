@@ -10,6 +10,18 @@ import { useConfirm } from "../components/confirmContext";
 
 const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+type CoverProgress = {
+  mode: "generate" | "retry";
+  completed: number;
+  total: number;
+  phase: "preparing" | "rendering";
+  candidateNumber?: number;
+};
+
+type JobProgressContext =
+  | { mode: "generate"; total: number; knownSetIds: Set<string> }
+  | { mode: "retry"; candidateNumber: number };
+
 export default function CoverStudio() {
   const { id = "" } = useParams();
   const toast = useToast();
@@ -20,13 +32,16 @@ export default function CoverStudio() {
   const [selectedSetId, setSelectedSetId] = useState("");
   const [loadedProjectId, setLoadedProjectId] = useState("");
   const [busy, setBusy] = useState("");
+  const [progress, setProgress] = useState<CoverProgress | null>(null);
   const [error, setError] = useState("");
 
-  const applySets = useCallback((next: CoverSet[]) => {
+  const applySets = useCallback((next: CoverSet[], preferredSetId?: string) => {
     setSets(next);
     setSelectedSetId((current) => (
-      current && next.some((item) => item.cover_set_id === current)
-        ? current
+      preferredSetId && next.some((item) => item.cover_set_id === preferredSetId)
+        ? preferredSetId
+        : current && next.some((item) => item.cover_set_id === current)
+          ? current
         : next[0]?.cover_set_id || ""
     ));
   }, []);
@@ -57,13 +72,43 @@ export default function CoverStudio() {
     [selectedSetId, sets],
   );
 
-  const waitForJob = async (initial: JobStatus) => {
+  const updateProgress = (nextSets: CoverSet[], context: JobProgressContext) => {
+    if (context.mode === "retry") {
+      setProgress((currentProgress) => currentProgress?.mode === "retry"
+        ? { ...currentProgress, phase: "rendering" }
+        : currentProgress);
+      return undefined;
+    }
+
+    // A generation job creates its CoverSet asynchronously. Until that new set
+    // appears, keep the user in a preparation state instead of counting an old set.
+    const generatedSet = nextSets.find((item) => !context.knownSetIds.has(item.cover_set_id));
+    if (!generatedSet) {
+      setProgress((currentProgress) => currentProgress?.mode === "generate"
+        ? { ...currentProgress, phase: "preparing" }
+        : currentProgress);
+      return undefined;
+    }
+    const completed = generatedSet.candidates.filter((candidate) => candidate.status !== "pending").length;
+    setProgress((currentProgress) => currentProgress?.mode === "generate"
+      ? {
+          ...currentProgress,
+          completed: Math.min(completed, currentProgress.total),
+          total: generatedSet.requested_count || currentProgress.total,
+          phase: "rendering",
+        }
+      : currentProgress);
+    return generatedSet.cover_set_id;
+  };
+
+  const waitForJob = async (initial: JobStatus, context: JobProgressContext) => {
     let job = initial;
     while (job.status === "running") {
       await wait(700);
       const [nextJob, nextSets] = await Promise.all([api.getJob(job.job_id), api.covers(id)]);
       job = nextJob;
-      applySets(nextSets);
+      const preferredSetId = updateProgress(nextSets, context);
+      applySets(nextSets, preferredSetId);
     }
     if (job.status === "error") throw new Error(job.error || "Cover job failed");
   };
@@ -79,25 +124,41 @@ export default function CoverStudio() {
   const generate = async () => {
     if (!settings?.configured) return;
     setBusy("generate");
+    setProgress({
+      mode: "generate", completed: 0, total: settings.count, phase: "preparing",
+    });
+    setError("");
     try {
-      await waitForJob(await api.generateCovers(id, settings.count));
+      await waitForJob(
+        await api.generateCovers(id, settings.count),
+        { mode: "generate", total: settings.count, knownSetIds: new Set(sets.map((item) => item.cover_set_id)) },
+      );
       applySets(await api.covers(id));
       toast("Cover candidates ready", "success");
     } catch (cause) {
       await reconcileSets();
-      toast(cause instanceof Error ? cause.message : String(cause), "error");
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      toast(message, "error");
     } finally {
       setBusy("");
+      setProgress(null);
     }
   };
 
   const retry = async (candidate: CoverCandidate) => {
     if (!current) return;
+    const candidateNumber = current.candidates.findIndex((item) => item.candidate_id === candidate.candidate_id) + 1;
     setBusy(candidate.candidate_id);
+    setProgress({
+      mode: "retry", completed: 0, total: 1, phase: "preparing",
+      candidateNumber,
+    });
     try {
-      await waitForJob(await api.retryCover(
-        id, current.cover_set_id, candidate.candidate_id, current.revision,
-      ));
+      await waitForJob(
+        await api.retryCover(id, current.cover_set_id, candidate.candidate_id, current.revision),
+        { mode: "retry", candidateNumber },
+      );
       applySets(await api.covers(id));
       toast("Candidate regenerated", "success");
     } catch (cause) {
@@ -105,6 +166,7 @@ export default function CoverStudio() {
       toast(cause instanceof Error ? cause.message : String(cause), "error");
     } finally {
       setBusy("");
+      setProgress(null);
     }
   };
 
@@ -206,7 +268,10 @@ export default function CoverStudio() {
         </header>
 
         {error && (
-          <div className="mt-6 rounded-[8px] border border-[#df93a7] bg-[#fff1f4] px-4 py-3 text-[13px] text-[#96354e]">
+          <div
+            role="alert"
+            className="mt-6 rounded-[8px] border border-[#df93a7] bg-[#fff1f4] px-4 py-3 text-[13px] text-[#96354e]"
+          >
             {error}
           </div>
         )}
@@ -219,6 +284,8 @@ export default function CoverStudio() {
             </Link>
           </div>
         )}
+
+        {progress && <GenerationProgress progress={progress} />}
 
         <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -255,6 +322,13 @@ export default function CoverStudio() {
               concept={current?.concepts.find((item) => item.concept_id === candidate.concept_id)}
               index={index}
               busy={busy === candidate.candidate_id}
+              disabled={Boolean(busy)}
+              generating={Boolean(
+                progress && (
+                  (progress.mode === "generate" && candidate.status === "pending")
+                  || (progress.mode === "retry" && progress.candidateNumber === index + 1)
+                )
+              )}
               onRetry={() => retry(candidate)}
               onSelect={() => select(candidate)}
               onReject={() => reject(candidate)}
@@ -266,13 +340,71 @@ export default function CoverStudio() {
   );
 }
 
+function GenerationProgress({ progress }: { progress: CoverProgress }) {
+  const isRetry = progress.mode === "retry";
+  const isPreparing = progress.phase === "preparing";
+  const nextCover = Math.min(progress.completed + 1, progress.total);
+  const title = isRetry
+    ? `Regenerating candidate ${progress.candidateNumber}`
+    : isPreparing
+      ? "Preparing cover generation"
+      : progress.completed >= progress.total
+        ? "Finishing cover set"
+        : `Generating cover ${nextCover} of ${progress.total}`;
+  const completedLabel = isRetry
+    ? "One candidate is being rendered"
+    : `${progress.completed} of ${progress.total} complete`;
+  const percentage = progress.total > 0
+    ? Math.round((progress.completed / progress.total) * 100)
+    : 0;
+
+  return (
+    <section
+      role="status"
+      aria-live="polite"
+      aria-label="Cover generation progress"
+      className="mt-6 rounded-[8px] border border-[rgba(104,86,168,0.22)] bg-[#f8f6ff] px-4 py-3.5 text-ink-text shadow-[0_8px_22px_rgba(83,67,137,0.07)]"
+    >
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#e8e2ff] text-[#6552a6]">
+          <Icon name="sparkles" className="h-4 w-4 animate-pulse" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <p className="text-[13px] font-semibold">{title}</p>
+            <span className="nums text-[11px] font-medium text-ink-muted">{completedLabel}</span>
+          </div>
+          <div
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={progress.total}
+            aria-valuenow={progress.completed}
+            aria-label={title}
+            className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#e5e0f3]"
+          >
+            <span
+              className="block h-full rounded-full bg-[#7864c2] transition-[width] duration-500 ease-out"
+              style={{ width: `${percentage}%` }}
+            />
+          </div>
+          <p className="mt-2 text-[11.5px] text-ink-muted">
+            {isPreparing ? "The preview will update as each image is returned." : "The preview is updating with the latest result."}
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function CandidateCard({
-  candidate, concept, index, busy, onRetry, onSelect, onReject,
+  candidate, concept, index, busy, disabled, generating, onRetry, onSelect, onReject,
 }: {
   candidate: CoverCandidate;
   concept?: CoverSet["concepts"][number];
   index: number;
   busy: boolean;
+  disabled: boolean;
+  generating: boolean;
   onRetry: () => void;
   onSelect: () => void;
   onReject: () => void;
@@ -282,6 +414,7 @@ function CandidateCard({
   return (
     <motion.article
       data-testid="cover-slot"
+      aria-busy={generating || busy}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.04, duration: 0.28 }}
@@ -298,12 +431,18 @@ function CandidateCard({
               <Icon name={candidate.status === "failed" ? "circle-alert" : "image"} className="h-5 w-5" />
             </span>
             <span className="text-[12px] font-medium">
-              {busy ? "Regenerating" : candidate.status === "failed" ? "Generation failed" : `Candidate ${index + 1}`}
+              {generating
+                ? "Generating image..."
+                : busy
+                  ? "Regenerating"
+                  : candidate.status === "failed"
+                    ? "Generation failed"
+                    : `Candidate ${index + 1}`}
             </span>
           </div>
         )}
         <span className={`absolute left-2 top-2 rounded-full border px-2 py-1 text-[10px] font-semibold capitalize backdrop-blur-md ${statusClass(candidate.status)}`}>
-          {candidate.status}
+          {generating ? "generating" : candidate.status}
         </span>
         {imageUrl && (
           <a
@@ -327,16 +466,16 @@ function CandidateCard({
         </p>
         <div className="mt-3 flex min-h-9 flex-wrap items-center gap-1.5">
           {candidate.status === "failed" && (
-            <button type="button" className="btn-secondary px-3 py-2 text-[11.5px]" onClick={onRetry} disabled={busy} aria-label={`Retry ${label}`}>
+            <button type="button" className="btn-secondary px-3 py-2 text-[11.5px]" onClick={onRetry} disabled={disabled} aria-label={`Retry ${label}`}>
               <Icon name="history" className="h-3.5 w-3.5" /> Retry
             </button>
           )}
           {candidate.status === "ready" && (
             <>
-              <button type="button" className="btn-primary px-3 py-2 text-[11.5px]" onClick={onSelect} disabled={busy} aria-label={`Select ${label}`}>
+              <button type="button" className="btn-primary px-3 py-2 text-[11.5px]" onClick={onSelect} disabled={disabled} aria-label={`Select ${label}`}>
                 <Icon name="circle-check" className="h-3.5 w-3.5" /> Select
               </button>
-              <button type="button" className="btn-ghost px-2.5 py-2 text-[11.5px]" onClick={onReject} disabled={busy} aria-label={`Reject ${label}`}>
+              <button type="button" className="btn-ghost px-2.5 py-2 text-[11.5px]" onClick={onReject} disabled={disabled} aria-label={`Reject ${label}`}>
                 Reject
               </button>
             </>

@@ -5,7 +5,7 @@ description: Use when an approved novel design or Prompt needs story-specific co
 
 # Novel Cover Studio
 
-Turn the approved story design into 3-5 distinct commercial cover candidates. Preserve the exact title, target audience, core conflict, protagonist agency, decisive story node, and fictional-world policy; do not infer canon from arbitrary manuscript fragments.
+Turn the approved story design into 3-5 distinct commercial cover candidates. Preserve the exact title, target audience, core conflict, protagonist agency, decisive story node, and fictional-world policy; do not infer canon from arbitrary manuscript fragments. Cover exports use JPEG or PNG, with JPEG as the default. For English or United States / North American markets, apply the premium Western profile in [references/commercial-direction.md](references/commercial-direction.md): preserve only explicitly established identity traits, use a magazine/key-art finish, stage a visible plot moment, and reserve Western editorial typography.
 
 ## Entry gate
 
@@ -15,7 +15,7 @@ Turn the approved story design into 3-5 distinct commercial cover candidates. Pr
 
 ## Concept review
 
-Create 3-5 concepts with distinct focal scenes and visual strategies. Each concept states the protagonist action, power contrast, one secondary signal, composition, palette, and exact title treatment. Quote the exact title once; add no subtitle, author copy, logo, watermark, real place name, or unsupported spoiler.
+Create 3-5 concepts with distinct focal scenes and visual strategies. Each concept states the protagonist action, power contrast, one secondary signal, composition, palette, and exact title treatment. Quote the exact title once; add no subtitle, author copy, logo, watermark, real place name, or unsupported spoiler. For the English / US profile, make the focal scene a consequential frozen action with visible reaction and stakes, and keep faces and the decisive prop clear of the title-safe zone.
 
 Show the concepts before billable image generation. Identify any inferred visual detail. Continue only after the user approves the set or explicitly asks for immediate generation from already approved concepts.
 
@@ -34,7 +34,7 @@ NOVEL_OS_PROJECT_NAME='PROJECT' NOVEL_OS_COVER_COUNT='4' \
   ./deploy.sh novel-cover './prompt/TITLE.md'
 ```
 
-Use actual values, never placeholders. The launcher reuses a healthy backend and writes exact `2048x3072` candidates plus the delivery ZIP. Native fallback:
+Use actual values, never placeholders. The launcher reuses a healthy backend and writes portrait `2:3` candidates at the provider's native resolution (the preferred request is `2048x3072`) plus the delivery ZIP. Native fallback:
 
 ```bash
 PYTHONPATH=core ./venv/bin/python core/orchestrator.py cover generate \

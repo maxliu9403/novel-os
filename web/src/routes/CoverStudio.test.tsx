@@ -16,7 +16,7 @@ const project = {
 const coverStatus = {
   configured: true, has_api_key: true, base_url: "https://sub2api.example/v1",
   model: "gpt-image-2", size: "2048x3072", quality: "high" as const,
-  output_format: "webp" as const, count: 4, timeout_seconds: 180,
+  output_format: "jpeg" as const, count: 4, timeout_seconds: 180,
   inherits_base_url: false, inherits_api_key: false, error: null,
 };
 
@@ -47,12 +47,12 @@ function coverSet(status: CoverSet["status"] = "partial"): CoverSet {
       status: candidateStatus, url: candidateStatus === "pending" || candidateStatus === "failed"
         ? null : `/api/projects/${project.id}/media/media-${index + 1}/raw`,
       relative_path: candidateStatus === "pending" || candidateStatus === "failed"
-        ? "" : `outputs/deliverables/covers/pending/cover-0${index + 1}.webp`,
+        ? "" : `outputs/deliverables/covers/pending/cover-0${index + 1}.jpg`,
       media_id: candidateStatus === "pending" || candidateStatus === "failed" ? "" : `media-${index + 1}`,
       sha256: candidateStatus === "pending" || candidateStatus === "failed" ? "" : "b".repeat(64),
       width: candidateStatus === "pending" || candidateStatus === "failed" ? 0 : 2048,
       height: candidateStatus === "pending" || candidateStatus === "failed" ? 0 : 3072,
-      content_type: candidateStatus === "pending" || candidateStatus === "failed" ? "" : "image/webp",
+      content_type: candidateStatus === "pending" || candidateStatus === "failed" ? "" : "image/jpeg",
       error: candidateStatus === "failed" ? "Provider timeout" : "",
     })),
   };
@@ -160,6 +160,75 @@ test("generates the configured candidate count from the persisted story handoff"
 
   await waitFor(() => expect(generate).toHaveBeenCalledWith(project.id, 4));
   expect(await screen.findByText("2 of 4 rendered")).toBeInTheDocument();
+});
+
+test("shows generation progress in the preview while candidates are rendering", async () => {
+  const existing = coverSet("selected");
+  const generatingBase = { ...coverSet("generating"), cover_set_id: "cover-new" };
+  const generating = {
+    ...generatingBase,
+    candidates: generatingBase.candidates.map((candidate, index) => (
+      index === 0
+        ? candidate
+        : {
+            ...candidate,
+            status: "pending" as const,
+            url: null,
+            relative_path: "",
+            media_id: "",
+            sha256: "",
+            width: 0,
+            height: 0,
+            content_type: "",
+            error: "",
+          }
+    )),
+  };
+  const ready = { ...coverSet("ready"), cover_set_id: "cover-new" };
+  vi.spyOn(api, "project").mockResolvedValue(project);
+  vi.spyOn(api, "studioCover").mockResolvedValue(coverStatus);
+  vi.spyOn(api, "covers")
+    .mockResolvedValueOnce([existing])
+    .mockResolvedValueOnce([generating, existing])
+    .mockResolvedValueOnce([ready, existing]);
+  vi.spyOn(api, "generateCovers").mockResolvedValue({
+    job_id: "job-generate", kind: "cover.generate", status: "running", error: null, meta: {},
+  });
+  vi.spyOn(api, "getJob")
+    .mockResolvedValueOnce({
+      job_id: "job-generate", kind: "cover.generate", status: "running", error: null, meta: {},
+    })
+    .mockResolvedValueOnce({
+      job_id: "job-generate", kind: "cover.generate", status: "done", error: null, meta: {},
+    });
+  const user = userEvent.setup();
+
+  renderStudio();
+  await screen.findByRole("heading", { name: "Cover Studio" });
+  await user.click(screen.getByRole("button", { name: "Generate 4 covers" }));
+
+  expect(screen.getByText("Preparing cover generation")).toBeInTheDocument();
+  expect(await screen.findByText("Generating cover 2 of 4")).toBeInTheDocument();
+  expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
+  expect(screen.getAllByText("Generating image...")).toHaveLength(3);
+});
+
+test("keeps a generation failure visible in the cover workspace", async () => {
+  vi.spyOn(api, "project").mockResolvedValue(project);
+  vi.spyOn(api, "studioCover").mockResolvedValue(coverStatus);
+  vi.spyOn(api, "covers").mockResolvedValue([]);
+  vi.spyOn(api, "generateCovers").mockRejectedValue(
+    new Error("Legacy cover story data is incomplete"),
+  );
+  const user = userEvent.setup();
+
+  renderStudio();
+  await screen.findByRole("heading", { name: "Cover Studio" });
+  await user.click(screen.getByRole("button", { name: "Generate 4 covers" }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Legacy cover story data is incomplete",
+  );
 });
 
 test("requires confirmation before rejecting a ready candidate", async () => {

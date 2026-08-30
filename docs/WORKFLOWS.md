@@ -157,7 +157,7 @@ outputs/quality/evaluation_reports/<id>.json
 
 ---
 
-## Story design to 2K cover delivery
+## Story design to cover delivery
 
 Use the cover workflow after the audience, exact title, core conflict,
 protagonist agency, decisive story node, and fictional world are approved.
@@ -174,7 +174,7 @@ NOVEL_OS_COVER_API_KEY=your-key
 NOVEL_OS_COVER_MODEL=gpt-image-2
 NOVEL_OS_COVER_SIZE=2048x3072
 NOVEL_OS_COVER_QUALITY=high
-NOVEL_OS_COVER_FORMAT=webp
+NOVEL_OS_COVER_FORMAT=jpeg
 NOVEL_OS_COVER_COUNT=4
 NOVEL_OS_COVER_TIMEOUT_SECONDS=180
 ```
@@ -194,7 +194,7 @@ separately so successful images remain reviewable.
 
 Open `http://localhost:5174/projects/my-novel/covers` to:
 
-1. inspect the exact `2048x3072` source image;
+1. inspect the source image and its recorded native resolution (all accepted covers preserve portrait `2:3`);
 2. retry only a failed candidate;
 3. reject an unsuitable direction after confirmation;
 4. select one ready image as the delivery cover after confirmation;
@@ -227,7 +227,7 @@ Delivery artifacts:
 outputs/covers/sets/cover-<id>.json       durable candidate state
 outputs/covers/index.json                 active-cover pointer and revision
 outputs/deliverables/covers/pending/      current candidate projection
-outputs/deliverables/covers/selected-cover.webp
+outputs/deliverables/covers/selected-cover.jpg
 outputs/deliverables/covers/cover-set.json
 outputs/deliverables/package-manifest.json
 outputs/deliverables/book-package.zip

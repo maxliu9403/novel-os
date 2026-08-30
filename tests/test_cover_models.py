@@ -106,12 +106,12 @@ def test_ready_candidate_requires_complete_immutable_provenance() -> None:
         candidate_id="candidate-1",
         concept_id="concept-1",
         status="ready",
-        relative_path="outputs/deliverables/covers/pending/cover-01.webp",
+        relative_path="outputs/deliverables/covers/pending/cover-01.jpg",
         media_id="media-1",
         sha256=SHA_A,
         width=2048,
         height=3072,
-        content_type="image/webp",
+        content_type="image/jpeg",
         provider="openai_compatible",
         model="gpt-image-2",
         request_id="req-1",
@@ -119,4 +119,3 @@ def test_ready_candidate_requires_complete_immutable_provenance() -> None:
         safe_request_parameters={"size": "2048x3072"},
     )
     assert CoverCandidate.from_dict(candidate.to_dict()) == candidate
-

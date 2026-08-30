@@ -16,13 +16,15 @@ from core.cover_models import (
     CoverConcept,
     CoverSet,
 )
+from core.cover_handoff import refresh_cover_concept_prompt
 from core.cover_store import CoverConflict, CoverStore
 from core.delivery_package import build_delivery_package
-from core.image_binary import content_type, dimensions
+from core.image_binary import aspect_ratio_matches, content_type, dimensions
 from core.image_client import GeneratedImage, ImageClientError, ImageGenerationClient
 
 
-_EXTENSIONS = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+_GENERATION_EXTENSIONS = {"image/png": ".png", "image/jpeg": ".jpg"}
+_STORED_EXTENSIONS = {**_GENERATION_EXTENSIONS, "image/webp": ".webp"}
 
 
 class CoverServiceError(ValueError):
@@ -81,6 +83,15 @@ class CoverService:
         candidate = self._candidate(current, candidate_id)
         if candidate.status != "failed":
             raise CoverServiceError("Only a failed cover candidate can be retried")
+        refreshed_concepts = tuple(
+            replace(
+                concept,
+                generation_prompt=refresh_cover_concept_prompt(current.brief, concept),
+            )
+            if concept.concept_id == candidate.concept_id else concept
+            for concept in current.concepts
+        )
+        current = replace(current, concepts=refreshed_concepts)
         current = self._attempt_candidate(project_id, project, store, current, candidate_id)
         current = self._finalize(store, current)
         build_delivery_package(project, cover_set=current)
@@ -234,11 +245,18 @@ class CoverService:
     ) -> CoverCandidate:
         mime = content_type(generated.data)
         width, height = dimensions(generated.data)
-        if mime != generated.content_type or (width, height) != (2048, 3072):
-            raise CoverServiceError("Generated cover bytes failed 2048x3072 validation")
-        extension = _EXTENSIONS.get(mime)
+        if mime != generated.content_type or not aspect_ratio_matches(width, height):
+            raise CoverServiceError(
+                "Generated cover bytes failed portrait 2:3 aspect-ratio validation"
+            )
+        extension = _GENERATION_EXTENSIONS.get(mime)
         if extension is None:
             raise CoverServiceError("Generated cover uses an unsupported image type")
+
+        requested_size = generated.request_size
+        if not requested_size and self.image_client is not None:
+            requested_size = str(getattr(getattr(self.image_client, "settings", None), "size", "") or "")
+        requested_size = requested_size or "2048x3072"
 
         sha = media_lib.digest(generated.data)
         assert self.media_store is not None
@@ -280,7 +298,7 @@ class CoverService:
             generation_prompt=concept.generation_prompt,
             safe_request_parameters={
                 "n": 1,
-                "size": "2048x3072",
+                "size": requested_size,
                 "model": generated.model,
                 "output_format": extension.lstrip(".").replace("jpg", "jpeg"),
             },
@@ -329,7 +347,7 @@ class CoverService:
         cover_set: CoverSet,
         candidate: CoverCandidate,
     ) -> None:
-        extension = _EXTENSIONS.get(candidate.content_type)
+        extension = _STORED_EXTENSIONS.get(candidate.content_type)
         if extension is None:
             raise CoverServiceError("Selected cover uses an unsupported image type")
 
@@ -347,9 +365,11 @@ class CoverService:
         if (
             media_lib.digest(data) != candidate.sha256
             or content_type(data) != candidate.content_type
-            or dimensions(data) != (2048, 3072)
+            or not aspect_ratio_matches(*dimensions(data))
         ):
-            raise CoverServiceError("Selected cover media failed provenance validation")
+            raise CoverServiceError(
+                "Selected cover media failed portrait 2:3 provenance validation"
+            )
 
         target = project / f"outputs/deliverables/covers/selected-cover{extension}"
         self._atomic_write(target, data)

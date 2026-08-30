@@ -32,7 +32,7 @@ beforeEach(() => {
         model: body.model || "gpt-image-2",
         size: body.size || "2048x3072",
         quality: body.quality || "high",
-        output_format: body.output_format || "webp",
+        output_format: body.output_format || "jpeg",
         count: body.count || 4,
         timeout_seconds: body.timeout_seconds || 180,
         inherits_base_url: false,
@@ -56,8 +56,12 @@ describe("Studio cover settings", () => {
 
     expect(await screen.findByRole("heading", { name: "Cover generation" })).toBeInTheDocument();
     expect(screen.getByDisplayValue("gpt-image-2")).toBeInTheDocument();
+    expect(screen.getByLabelText("Cover model")).toHaveAttribute("readonly");
     expect(screen.getByDisplayValue("2048x3072")).toBeInTheDocument();
     expect(screen.getByText("Cover model ready")).toBeInTheDocument();
+    const format = screen.getByLabelText("Format") as HTMLSelectElement;
+    expect(format.value).toBe("jpeg");
+    expect(Array.from(format.options).map((option) => option.value)).toEqual(["jpeg", "png"]);
   });
 
   it("saves a cover key without putting it back in the input", async () => {
@@ -73,5 +77,20 @@ describe("Studio cover settings", () => {
       String(call[0]).endsWith("/api/studio/cover") && call[1]?.method === "PUT"
     ));
     expect(JSON.parse(String(put?.[1]?.body))).toMatchObject({ api_key: "new-cover-secret" });
+  });
+
+  it("persists a provider-supported portrait request size", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><ToastProvider><Settings /></ToastProvider></MemoryRouter>);
+
+    const size = await screen.findByLabelText("Output size");
+    await user.clear(size);
+    await user.type(size, "1024x1536");
+    await user.click(screen.getByRole("button", { name: "Save cover settings" }));
+
+    const put = fetchMock.mock.calls.find((call) => (
+      String(call[0]).endsWith("/api/studio/cover") && call[1]?.method === "PUT"
+    ));
+    expect(JSON.parse(String(put?.[1]?.body))).toMatchObject({ size: "1024x1536" });
   });
 });

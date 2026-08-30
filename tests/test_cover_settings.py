@@ -11,7 +11,7 @@ def test_cover_settings_default_to_image2_and_exact_2k() -> None:
     assert settings.model == "gpt-image-2"
     assert settings.size == "2048x3072"
     assert settings.quality == "high"
-    assert settings.output_format == "webp"
+    assert settings.output_format == "jpeg"
     assert settings.count == 4
     assert settings.timeout_seconds == 180.0
 
@@ -26,6 +26,15 @@ def test_cover_settings_reuse_writing_endpoint_and_key() -> None:
     assert settings.api_key == "shared-secret"
     assert settings.inherits_base_url is True
     assert settings.inherits_api_key is True
+
+
+@pytest.mark.parametrize("output_format", ["jpeg", "png"])
+def test_cover_settings_allow_jpeg_and_png(output_format: str) -> None:
+    settings = studio_settings.resolve_cover_settings({
+        "NOVEL_OS_COVER_FORMAT": output_format,
+    })
+
+    assert settings.output_format == output_format
 
 
 def test_cover_settings_allow_independent_overrides() -> None:
@@ -46,13 +55,26 @@ def test_cover_settings_allow_independent_overrides() -> None:
     assert settings.inherits_api_key is False
 
 
+def test_legacy_webp_setting_migrates_to_jpeg_without_losing_endpoint() -> None:
+    settings = studio_settings.resolve_cover_settings({
+        "NOVEL_OS_COVER_BASE_URL": "https://images.example/v1/",
+        "NOVEL_OS_COVER_API_KEY": "cover-secret",
+        "NOVEL_OS_COVER_FORMAT": "webp",
+    })
+
+    assert settings.output_format == "jpeg"
+    assert settings.base_url == "https://images.example/v1"
+    assert settings.api_key == "cover-secret"
+
+
 @pytest.mark.parametrize(
     ("key", "value", "message"),
     [
         ("NOVEL_OS_COVER_COUNT", "2", "between 3 and 5"),
-        ("NOVEL_OS_COVER_SIZE", "1024x1536", "2048x3072"),
+        ("NOVEL_OS_COVER_SIZE", "1024x1024", "2:3"),
         ("NOVEL_OS_COVER_QUALITY", "ultra", "quality"),
         ("NOVEL_OS_COVER_FORMAT", "gif", "format"),
+        ("NOVEL_OS_COVER_MODEL", "dall-e-3", "gpt-image-2"),
         ("NOVEL_OS_COVER_TIMEOUT_SECONDS", "0", "timeout"),
     ],
 )
@@ -76,3 +98,10 @@ def test_cover_status_redacts_key() -> None:
     assert status["model"] == "gpt-image-2"
     assert "cover-secret" not in repr(status)
 
+
+def test_cover_settings_allow_provider_native_portrait_resolution() -> None:
+    settings = studio_settings.resolve_cover_settings({
+        "NOVEL_OS_COVER_SIZE": "1024x1536",
+    })
+
+    assert settings.size == "1024x1536"

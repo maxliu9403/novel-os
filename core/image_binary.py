@@ -5,6 +5,9 @@ from __future__ import annotations
 import struct
 
 
+ASPECT_RATIO_TOLERANCE = 0.005
+
+
 def content_type(data: bytes) -> str:
     if data[:8] == b"\x89PNG\r\n\x1a\n":
         return "image/png"
@@ -27,6 +30,28 @@ def dimensions(data: bytes) -> tuple[int, int]:
     except (IndexError, struct.error, ValueError):
         pass
     return 0, 0
+
+
+def aspect_ratio_matches(
+    width: int,
+    height: int,
+    *,
+    ratio: tuple[int, int] = (2, 3),
+    tolerance: float = ASPECT_RATIO_TOLERANCE,
+) -> bool:
+    """Return whether dimensions preserve the requested width:height ratio.
+
+    A small relative tolerance handles providers that round one raster edge by
+    a pixel while still rejecting materially distorted or landscape images.
+    """
+    if width <= 0 or height <= 0:
+        return False
+    ratio_width, ratio_height = ratio
+    if ratio_width <= 0 or ratio_height <= 0 or tolerance < 0:
+        return False
+    expected = width * ratio_height
+    actual = height * ratio_width
+    return abs(expected - actual) <= max(expected, actual) * tolerance
 
 
 def _webp_dimensions(data: bytes) -> tuple[int, int]:
@@ -59,4 +84,3 @@ def _jpeg_dimensions(data: bytes) -> tuple[int, int]:
             continue
         index += 2 + struct.unpack(">H", data[index + 2:index + 4])[0]
     return 0, 0
-

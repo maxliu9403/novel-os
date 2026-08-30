@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import re
 import socket
 import time
 import urllib.error
@@ -13,15 +14,14 @@ from dataclasses import dataclass
 from typing import Callable
 
 try:
-    from .image_binary import content_type, dimensions
+    from .image_binary import aspect_ratio_matches, content_type, dimensions
     from .studio_settings import CoverSettings
 except ImportError:  # pragma: no cover - legacy top-level core imports
-    from image_binary import content_type, dimensions
+    from image_binary import aspect_ratio_matches, content_type, dimensions
     from studio_settings import CoverSettings
 
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 MAX_IMAGE_BYTES = 40 * 1024 * 1024
-_EXPECTED_DIMENSIONS = (2048, 3072)
 
 
 class ImageClientError(RuntimeError):
@@ -45,6 +45,7 @@ class GeneratedImage:
     height: int
     request_id: str
     model: str
+    request_size: str = ""
 
 
 class ImageGenerationClient:
@@ -109,8 +110,12 @@ class ImageGenerationClient:
                 headers = response.headers  # type: ignore[attr-defined]
         except urllib.error.HTTPError as exc:
             retryable = exc.code == 429 or 500 <= exc.code <= 599
+            detail = self._provider_error_detail(exc)
+            message = f"Image provider returned HTTP {exc.code}"
+            if detail:
+                message = f"{message}: {detail}"
             raise ImageClientError(
-                f"Image provider returned HTTP {exc.code}",
+                message,
                 retryable=retryable,
                 status_code=exc.code,
             ) from None
@@ -140,12 +145,13 @@ class ImageGenerationClient:
             raise ImageClientError("Generated image exceeds the allowed size")
 
         mime = content_type(data)
-        if not mime:
+        if mime not in {"image/png", "image/jpeg"}:
             raise ImageClientError("Image provider returned an unsupported image type")
         width, height = dimensions(data)
-        if (width, height) != _EXPECTED_DIMENSIONS:
+        if not aspect_ratio_matches(width, height):
             raise ImageClientError(
-                f"Generated image must be 2048x3072; received {width}x{height}"
+                "Generated image must preserve portrait 2:3 aspect ratio; "
+                f"received {width}x{height}"
             )
         request_id = str(headers.get("x-request-id") or headers.get("request-id") or "")
         return GeneratedImage(
@@ -155,4 +161,37 @@ class ImageGenerationClient:
             height=height,
             request_id=request_id,
             model=self.settings.model,
+            request_size=self.settings.size,
         )
+
+    def _provider_error_detail(self, error: urllib.error.HTTPError) -> str:
+        try:
+            raw = error.read(8192)
+        except OSError:
+            return ""
+        if not raw:
+            return ""
+
+        detail = ""
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            detail = raw.decode("utf-8", "replace").strip()
+        else:
+            if isinstance(payload, dict):
+                provider_error = payload.get("error")
+                if isinstance(provider_error, dict):
+                    detail = str(
+                        provider_error.get("message")
+                        or provider_error.get("detail")
+                        or provider_error.get("code")
+                        or ""
+                    ).strip()
+                elif isinstance(provider_error, str):
+                    detail = provider_error.strip()
+                else:
+                    detail = str(payload.get("message") or payload.get("detail") or "").strip()
+        if self.settings.api_key:
+            detail = detail.replace(self.settings.api_key, "[redacted]")
+        detail = re.sub(r"(?i)bearer\s+\S+", "Bearer [redacted]", detail)
+        return detail[:300]

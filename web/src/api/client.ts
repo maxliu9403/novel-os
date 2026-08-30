@@ -45,7 +45,7 @@ export interface StudioCoverStatus {
   model: string;
   size: string;
   quality: "low" | "medium" | "high" | "auto";
-  output_format: "png" | "jpeg" | "webp";
+  output_format: "png" | "jpeg";
   count: number;
   timeout_seconds: number;
   inherits_base_url: boolean;

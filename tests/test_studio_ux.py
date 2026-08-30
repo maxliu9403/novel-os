@@ -16,6 +16,8 @@ def _client(tmp_path, monkeypatch):
         "OPENAI_API_KEY",
         "NOVEL_OS_COVER_BASE_URL",
         "NOVEL_OS_BASE_URL",
+        "NOVEL_OS_COVER_MODEL",
+        "NOVEL_OS_COVER_FORMAT",
     ):
         monkeypatch.delenv(key, raising=False)
     settings = tmp_path / "studio_settings.json"
@@ -76,13 +78,62 @@ def test_cover_status_and_put_keep_key_write_only(tmp_path, monkeypatch):
     assert persisted["NOVEL_OS_COVER_BASE_URL"] == "https://sub2api.example/v1/"
 
 
-def test_cover_put_rejects_non_2k_size(tmp_path, monkeypatch):
+def test_cover_put_accepts_provider_native_portrait_size(tmp_path, monkeypatch):
     client, _ = _client(tmp_path, monkeypatch)
 
     response = client.put("/api/studio/cover", json={"size": "1024x1536"})
 
+    assert response.status_code == 200
+    assert response.json()["size"] == "1024x1536"
+
+
+def test_cover_put_rejects_non_portrait_ratio(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path, monkeypatch)
+
+    response = client.put("/api/studio/cover", json={"size": "1024x1024"})
+
     assert response.status_code == 400
-    assert "2048x3072" in response.json()["detail"]
+    assert "2:3" in response.json()["detail"]
+
+
+def test_cover_put_rejects_models_other_than_gpt_image_2(tmp_path, monkeypatch):
+    client, settings = _client(tmp_path, monkeypatch)
+
+    response = client.put("/api/studio/cover", json={"model": "dall-e-3"})
+
+    assert response.status_code == 400
+    assert "gpt-image-2" in response.json()["detail"]
+    assert not settings.exists()
+
+
+def test_legacy_webp_settings_keep_independent_endpoint_during_save(
+    tmp_path, monkeypatch,
+):
+    client, settings = _client(tmp_path, monkeypatch)
+    settings.write_text(json.dumps({
+        "NOVEL_OS_COVER_BASE_URL": "https://images.example/v1",
+        "NOVEL_OS_COVER_API_KEY": "cover-secret",
+        "NOVEL_OS_COVER_FORMAT": "webp",
+    }), encoding="utf-8")
+
+    initial = client.get("/api/studio/cover").json()
+    response = client.put("/api/studio/cover", json={
+        "base_url": initial["base_url"],
+        "model": initial["model"],
+        "size": initial["size"],
+        "quality": initial["quality"],
+        "output_format": initial["output_format"],
+        "count": initial["count"],
+        "timeout_seconds": initial["timeout_seconds"],
+    })
+
+    assert response.status_code == 200
+    assert response.json()["configured"] is True
+    assert response.json()["output_format"] == "jpeg"
+    persisted = json.loads(settings.read_text(encoding="utf-8"))
+    assert persisted["NOVEL_OS_COVER_BASE_URL"] == "https://images.example/v1"
+    assert persisted["NOVEL_OS_COVER_API_KEY"] == "cover-secret"
+    assert persisted["NOVEL_OS_COVER_FORMAT"] == "jpeg"
 
 
 def test_project_summary_includes_words_and_rating(tmp_path, monkeypatch):

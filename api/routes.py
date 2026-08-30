@@ -758,7 +758,7 @@ def generate_covers(
     covers: CoverService = Depends(get_cover_service),
 ):
     from core.cover_models import CoverBrief, CoverConcept
-    from core.cover_handoff import build_cover_concepts, parse_cover_handoff
+    from core.cover_handoff import build_cover_concepts, resolve_cover_brief
 
     project = _cover_project(svc, project_id)
     try:
@@ -780,7 +780,7 @@ def generate_covers(
                 raise ValueError(
                     "Project Prompt is missing; generate covers with ./deploy.sh novel-cover PROMPT"
                 )
-            brief = parse_cover_handoff(prompt_path.read_text(encoding="utf-8"))
+            brief = resolve_cover_brief(project)
             count = body.count
             if count is None:
                 from core.studio_settings import resolve_cover_settings

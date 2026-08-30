@@ -8,7 +8,11 @@ import pytest
 from core.cover_handoff import build_cover_concepts, parse_cover_handoff
 
 
-def _handoff(title: str = "The Door Is Mine", language: str = "English") -> dict:
+def _handoff(
+    title: str = "The Door Is Mine",
+    language: str = "English",
+    market_scope: str = "English serialized fiction",
+) -> dict:
     return {
         "schema_version": 1,
         "title": title,
@@ -16,7 +20,7 @@ def _handoff(title: str = "The Door Is Mine", language: str = "English") -> dict
         "language": language,
         "genre": "domestic revenge",
         "target_audience": "women 30-50 rebuilding after betrayal",
-        "market_scope": "English serialized fiction",
+        "market_scope": market_scope,
         "core_task": "A caregiver claims an independent home.",
         "core_conflict": "Two families demand her labor and income.",
         "emotional_promise": "anger followed by earned independence",
@@ -93,6 +97,31 @@ def test_build_cover_concepts_extracts_precise_story_signals() -> None:
     assert any(brief.decisive_story_node in item.generation_prompt for item in concepts)
     assert any(brief.secondary_task["visual_signal"] in item.generation_prompt for item in concepts)
     assert len({item.focal_scene for item in concepts}) == 4
+
+
+def test_english_market_prompts_use_premium_western_story_cover_direction() -> None:
+    brief = parse_cover_handoff(_prompt(_handoff()))
+
+    prompt = build_cover_concepts(brief, count=4)[0].generation_prompt
+
+    assert "Do not infer or invent ethnicity" in prompt
+    assert "American white casting" not in prompt
+    assert "premium US commercial fiction magazine cover" in prompt
+    assert "one frozen cinematic story moment" in prompt
+    assert "visible action, reaction, and stakes" in prompt
+    assert "Western editorial typography" in prompt
+
+
+def test_non_western_market_prompts_keep_market_neutral_casting() -> None:
+    brief = parse_cover_handoff(
+        _prompt(_handoff(language="Chinese", market_scope="Chinese serialized fiction"))
+    )
+
+    prompt = build_cover_concepts(brief, count=4)[0].generation_prompt
+
+    assert "American white casting" not in prompt
+    assert "premium US commercial fiction magazine cover" not in prompt
+    assert "Western editorial typography" not in prompt
 
 
 def test_build_cover_concepts_enforces_three_to_five() -> None:

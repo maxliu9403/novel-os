@@ -68,12 +68,12 @@ def test_store_rejects_changes_to_ready_image_provenance(tmp_path) -> None:
         candidate_id=created.candidates[0].candidate_id,
         concept_id=created.candidates[0].concept_id,
         status="ready",
-        relative_path="outputs/deliverables/covers/pending/cover-01.webp",
+        relative_path="outputs/deliverables/covers/pending/cover-01.jpg",
         media_id="media-1",
         sha256=SHA,
         width=2048,
         height=3072,
-        content_type="image/webp",
+        content_type="image/jpeg",
         provider="openai_compatible",
         model="gpt-image-2",
         request_id="request-1",
@@ -106,4 +106,3 @@ def test_active_pointer_is_revision_checked(tmp_path) -> None:
     updated = store.set_active(second.cover_set_id, expected_revision=1)
     assert updated.cover_set_id == second.cover_set_id
     assert updated.revision == 2
-

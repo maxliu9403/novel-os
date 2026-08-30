@@ -21,9 +21,9 @@ delivered with the common book exports.
 - Image model: `gpt-image-2` through a configurable Sub2API base URL.
 - Rendering strategy: the image model generates the complete cover, including
   title typography. Novel OS does not add a deterministic title overlay.
-- Resolution: `2048x3072` pixels, portrait `2:3`, with the short edge at 2K.
+- Composition: portrait `2:3`; request `2048x3072` by default, while accepting the provider's native resolution when it returns another size.
 - Default candidate count: four; accepted request range is three to five.
-- Default output: high-quality WebP.
+- Default output: high-quality JPEG.
 - Cover source: a structured handoff extracted from the approved brainstorm
   Prompt, not the entire raw Prompt copied into an image request.
 - Delivery: pending candidates, selection metadata, and book export files live
@@ -167,7 +167,7 @@ NOVEL_OS_COVER_API_KEY=
 NOVEL_OS_COVER_MODEL=gpt-image-2
 NOVEL_OS_COVER_SIZE=2048x3072
 NOVEL_OS_COVER_QUALITY=high
-NOVEL_OS_COVER_FORMAT=webp
+NOVEL_OS_COVER_FORMAT=jpeg
 NOVEL_OS_COVER_COUNT=4
 NOVEL_OS_COVER_TIMEOUT_SECONDS=180
 ```
@@ -200,8 +200,8 @@ provider metadata such as model and request ID.
 The client validates:
 
 - successful HTTP status and bounded response size;
-- a supported decoded PNG, JPEG, or WebP payload;
-- exact `2048x3072` dimensions;
+- a supported decoded PNG or JPEG payload;
+- portrait `2:3` dimensions (with a small raster-rounding tolerance);
 - non-empty, decodable image pixels;
 - configured timeout and cancellation;
 - no secret values in raised errors.
@@ -264,11 +264,11 @@ outputs/deliverables/
 |-- book.docx
 |-- covers/
 |   |-- pending/
-|   |   |-- cover-01.webp
-|   |   |-- cover-02.webp
-|   |   |-- cover-03.webp
-|   |   `-- cover-04.webp
-|   |-- selected-cover.webp       # present after selection
+|   |   |-- cover-01.jpg
+|   |   |-- cover-02.jpg
+|   |   |-- cover-03.jpg
+|   |   `-- cover-04.jpg
+|   |-- selected-cover.jpg        # present after selection
 |   `-- cover-set.json
 |-- package-manifest.json
 `-- book-package.zip
@@ -292,7 +292,7 @@ endpoint but is not packaged by default.
 
 Before customer selection, book exports and all ready candidates are packaged
 without claiming an active cover. After selection, the package is rebuilt and
-includes `selected-cover.webp`. Embedding the selected cover into EPUB, PDF,
+includes `selected-cover.jpg`. Embedding the selected cover into EPUB, PDF,
 DOCX, and Markdown is a separate follow-up capability; the first release keeps
 the cover as an explicit adjacent asset to avoid changing manuscript renderer
 semantics silently.
@@ -431,7 +431,7 @@ smoke run occurs only after the one-image probe succeeds.
    `cover_handoff` with no invented real place names.
 2. Cover settings can reuse the existing Sub2API URL and key while selecting
    `gpt-image-2` independently from writing models.
-3. A default request produces four distinct, valid `2048x3072` WebP candidates
+3. A default request produces four distinct, valid portrait `2:3` JPEG candidates
    or a recoverable partial set with precise candidate errors.
 4. Every ready candidate is traceable to its brief, concept, source Prompt hash,
    generation prompt, safe parameters, model, request ID, and image hash.

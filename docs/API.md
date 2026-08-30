@@ -199,9 +199,9 @@ orch._llm = my_fake_llm_client       # bypass real LLM calls
 | `NOVEL_OS_COVER_BASE_URL` | Optional cover endpoint; falls back to `NOVEL_OS_BASE_URL` |
 | `NOVEL_OS_COVER_API_KEY` | Optional cover key; falls back to `NOVEL_OS_API_KEY` |
 | `NOVEL_OS_COVER_MODEL` | Cover model, default `gpt-image-2` |
-| `NOVEL_OS_COVER_SIZE` | Fixed cover canvas, `2048x3072` |
+| `NOVEL_OS_COVER_SIZE` | Preferred request size (default `2048x3072`); must preserve portrait `2:3` |
 | `NOVEL_OS_COVER_QUALITY` | `low`, `medium`, `high`, or `auto`; default `high` |
-| `NOVEL_OS_COVER_FORMAT` | `png`, `jpeg`, or `webp`; default `webp` |
+| `NOVEL_OS_COVER_FORMAT` | `jpeg` or `png`; default `jpeg` |
 | `NOVEL_OS_COVER_COUNT` | Default candidate count, 3-5; default 4 |
 | `NOVEL_OS_COVER_TIMEOUT_SECONDS` | Per-image provider timeout; default 180 |
 

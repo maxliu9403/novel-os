@@ -15,12 +15,13 @@ from core.cover_models import CoverBrief, CoverConcept
 from core.image_client import GeneratedImage, ImageClientError
 
 
-def _webp(marker: bytes) -> bytes:
-    payload = (
-        b"VP8X" + (10 + len(marker)).to_bytes(4, "little") + b"\x00\x00\x00\x00"
-        + (2047).to_bytes(3, "little") + (3071).to_bytes(3, "little") + marker
+def _jpeg(marker: bytes) -> bytes:
+    return (
+        b"\xff\xd8\xff\xc0\x00\x11\x08\x0c\x00\x08\x00"
+        + b"\x03\x01\x11\x00\x02\x11\x00\x03\x11\x00"
+        + marker
+        + b"\xff\xd9"
     )
-    return b"RIFF" + (len(payload) + 4).to_bytes(4, "little") + b"WEBP" + payload
 
 
 class ImageClient:
@@ -33,7 +34,7 @@ class ImageClient:
         if self.calls in self.fail_calls:
             raise ImageClientError("temporary image failure", retryable=True)
         return GeneratedImage(
-            data=_webp(bytes([self.calls])), content_type="image/webp",
+            data=_jpeg(bytes([self.calls])), content_type="image/jpeg",
             width=2048, height=3072, request_id=f"request-{self.calls}",
             model="gpt-image-2",
         )
@@ -210,6 +211,100 @@ def test_generate_can_derive_brief_and_concepts_from_persisted_prompt(
     cover_set = client.get(f"/api/projects/{project['id']}/covers").json()[0]
     assert cover_set["brief"]["title"] == "The Door Is Mine"
     assert len({item["visual_strategy"] for item in cover_set["concepts"]}) == 4
+
+
+def test_generate_legacy_project_derives_brief_from_durable_story_artifacts(
+    tmp_path, monkeypatch,
+) -> None:
+    client, image_client = _client(tmp_path, monkeypatch)
+    project = client.post(
+        "/api/projects", json={"title": "The Care Ledger", "genre": "Domestic drama"}
+    ).json()
+    inputs = tmp_path / "projects" / project["id"] / "outputs" / "input"
+    inputs.mkdir(parents=True, exist_ok=True)
+    inputs.joinpath("prompt.md").write_text(
+        "# Legacy approved prompt\n\nA caregiver uncovers a hidden rehabilitation plan.",
+        encoding="utf-8",
+    )
+    inputs.joinpath("brief.json").write_text(json.dumps({
+        "title": "The Care Ledger",
+        "author": "",
+        "genre": "domestic revenge",
+        "audience": "women rebuilding after unequal caregiving",
+        "language": "English",
+    }), encoding="utf-8")
+    inputs.joinpath("foundation.json").write_text(json.dumps({
+        "title": "The Care Ledger",
+        "premise": "Her husband demands that she abandon her mother and carry both households alone.",
+        "characters": [
+            {
+                "id": "char_001",
+                "name": "Mara Vale",
+                "role": "protagonist",
+                "physical_description": "a composed caregiver carrying a document wallet",
+                "external_goal": "protect her mother, child, income, and right to choose",
+                "strength": "reconstruct the truth from schedules, receipts, and original messages",
+            },
+            {
+                "id": "char_002",
+                "name": "Evan Vale",
+                "role": "antagonist",
+                "external_goal": "preserve his public image by transferring care work to his wife",
+            },
+        ],
+        "plot_threads": [
+            {
+                "name": "care work and self-determination",
+                "description": "Mara replaces coerced care with written boundaries and independent housing.",
+                "type": "main",
+                "priority": 5,
+            },
+            {
+                "name": "the hidden referral",
+                "description": "A concealed referral proves that professional rehabilitation was available.",
+                "type": "mystery",
+                "priority": 5,
+            },
+        ],
+        "setting": {
+            "time_period": "present day",
+            "primary_location": "a fictional commuter district with hospitals and a modest apartment",
+        },
+        "ending_contract": {
+            "main_conflict": {
+                "protagonist_choice": "Mara refuses to trade silence for the marriage.",
+            },
+            "plot_payoffs": [{
+                "required_payoff": "The complete care ledger exposes the missing shifts and payments.",
+            }],
+            "emotional_contract": {
+                "reader_emotion": "anger resolved through evidence, boundaries, and earned independence",
+            },
+        },
+    }), encoding="utf-8")
+
+    response = client.post(
+        f"/api/projects/{project['id']}/covers/generate", json={"count": 4}
+    )
+
+    assert response.status_code == 202
+    job = _wait(client, response.json()["job_id"])
+    assert job["status"] == "done"
+    cover_set = client.get(f"/api/projects/{project['id']}/covers").json()[0]
+    assert image_client.calls == 4
+    assert cover_set["brief"]["title"] == "The Care Ledger"
+    assert cover_set["brief"]["target_audience"] == (
+        "women rebuilding after unequal caregiving"
+    )
+    assert cover_set["brief"]["protagonist"]["visual_identity"] == (
+        "a composed caregiver carrying a document wallet"
+    )
+    assert cover_set["brief"]["decisive_story_node"] == (
+        "A concealed referral proves that professional rehabilitation was available."
+    )
+    assert cover_set["brief"]["secondary_task"]["visual_signal"] == (
+        "The complete care ledger exposes the missing shifts and payments."
+    )
 
 
 def test_retry_endpoint_replaces_only_the_failed_candidate(tmp_path, monkeypatch) -> None:

@@ -45,9 +45,9 @@ def _cover_set(selected: bool = False) -> CoverSet:
         candidate_id=item.candidate_id,
         concept_id=item.concept_id,
         status="selected" if selected and index == 1 else "ready",
-        relative_path=f"outputs/deliverables/covers/pending/cover-{index:02d}.webp",
+        relative_path=f"outputs/deliverables/covers/pending/cover-{index:02d}.jpg",
         media_id=f"media-{index}", sha256=SHA, width=2048, height=3072,
-        content_type="image/webp", provider="openai_compatible", model="gpt-image-2",
+        content_type="image/jpeg", provider="openai_compatible", model="gpt-image-2",
         request_id=f"req-{index}", generation_prompt=concepts[index - 1].generation_prompt,
         safe_request_parameters={"size": "2048x3072"},
     ) for index, item in enumerate(base.candidates, start=1))
@@ -69,11 +69,11 @@ def _payloads(project: Path, selected: bool = False) -> None:
     for name in ("book.md", "book.epub", "book.pdf", "book.docx", "book.html"):
         (deliverables / name).write_bytes(f"payload:{name}".encode())
     for index in range(1, 5):
-        (deliverables / f"covers/pending/cover-{index:02d}.webp").write_bytes(
+        (deliverables / f"covers/pending/cover-{index:02d}.jpg").write_bytes(
             f"cover:{index}".encode()
         )
     if selected:
-        (deliverables / "covers/selected-cover.webp").write_bytes(b"cover:1")
+        (deliverables / "covers/selected-cover.jpg").write_bytes(b"cover:1")
 
 
 def test_package_contains_common_exports_pending_covers_and_metadata(tmp_path) -> None:
@@ -111,7 +111,7 @@ def test_selected_cover_is_declared_without_removing_pending_candidates(tmp_path
 
     assert manifest["cover"]["status"] == "selected"
     assert manifest["cover"]["selected_candidate_id"]
-    assert any(entry["path"] == "covers/selected-cover.webp" for entry in manifest["files"])
+    assert any(entry["path"] == "covers/selected-cover.jpg" for entry in manifest["files"])
     assert len([entry for entry in manifest["files"] if entry["role"] == "cover_candidate"]) == 4
 
 

@@ -8,6 +8,11 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
+try:
+    from .image_binary import aspect_ratio_matches
+except ImportError:  # pragma: no cover - legacy top-level core imports
+    from image_binary import aspect_ratio_matches
+
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _REAL_PLACE_MARKERS = {
@@ -199,8 +204,8 @@ class CoverCandidate:
                 self.relative_path, self.media_id, self.sha256, self.content_type,
                 self.provider, self.model, self.generation_prompt,
             )
-            if not all(required) or self.width != 2048 or self.height != 3072:
-                raise ValueError("A ready candidate requires complete 2048x3072 provenance")
+            if not all(required) or not aspect_ratio_matches(self.width, self.height):
+                raise ValueError("A ready candidate requires complete portrait 2:3 provenance")
             _validate_sha(self.sha256, "candidate.sha256")
 
     def to_dict(self) -> dict[str, Any]:
@@ -317,4 +322,3 @@ class CoverSet:
             created_at=str(data.get("created_at") or ""),
             updated_at=str(data.get("updated_at") or ""),
         )
-
