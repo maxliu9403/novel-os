@@ -13,6 +13,8 @@ from api import routes
 from api.routes import get_cover_service
 from core.cover_models import CoverBrief, CoverConcept
 from core.image_client import GeneratedImage, ImageClientError
+from tests.test_cover_director import director_fixture
+from tests.test_cover_models_v2 import two_character_fixture
 
 
 def _jpeg(marker: bytes) -> bytes:
@@ -386,3 +388,45 @@ def test_cover_mutation_service_is_available_without_provider_configuration(
     service = routes.get_cover_mutation_service(LocalMediaStore(tmp_path / "media"))
 
     assert service.image_client is None
+
+
+def test_direction_api_persists_and_approves_exact_direction_hash(tmp_path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, monkeypatch)
+    project = client.post("/api/projects", json={"title": "Direction API", "genre": "Drama"}).json()
+
+    created = client.post(
+        f"/api/projects/{project['id']}/covers/directions",
+        json={"brief": two_character_fixture(), "direction": director_fixture()},
+    )
+
+    assert created.status_code == 201
+    pending = created.json()
+    assert pending["status"] == "awaiting_approval"
+    approved = client.post(
+        f"/api/projects/{project['id']}/covers/directions/{pending['direction_id']}/approve",
+        json={
+            "expected_brief_sha256": pending["brief_sha256"],
+            "approved_direction_sha256": pending["direction_sha256"],
+        },
+    )
+
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "approved"
+
+
+def test_v2_generation_requires_an_approved_direction_before_image_call(tmp_path, monkeypatch) -> None:
+    client, image_client = _client(tmp_path, monkeypatch)
+    project = client.post("/api/projects", json={"title": "Direction Gate", "genre": "Drama"}).json()
+    created = client.post(
+        f"/api/projects/{project['id']}/covers/directions",
+        json={"brief": two_character_fixture(), "direction": director_fixture()},
+    ).json()
+
+    response = client.post(
+        f"/api/projects/{project['id']}/covers/generate",
+        json={"brief": two_character_fixture(), "direction_id": created["direction_id"]},
+    )
+
+    assert response.status_code == 409
+    assert "approved" in response.json()["detail"]
+    assert image_client.calls == 0

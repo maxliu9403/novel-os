@@ -11,6 +11,7 @@ from .cover_models_v2 import (
     CoverScenePlan,
     PrincipalCharacter,
 )
+from .cover_models import CoverConcept
 from .cover_profiles import resolve_genre_profile
 
 
@@ -167,6 +168,25 @@ def compile_cover_prompt(
     text = _render(modules)
     _validate_prompt(text)
     return CompiledCoverPrompt(text=text, compiler_version=compiler_version, modules=modules)
+
+
+def scene_to_cover_concept(
+    brief: CoverBriefV2,
+    scene: CoverScenePlan,
+    *,
+    compiler_version: str = COMPILER_VERSION,
+) -> CoverConcept:
+    compiled = compile_cover_prompt(brief, scene, compiler_version=compiler_version)
+    return CoverConcept(
+        concept_id=scene.concept_id,
+        visual_strategy=scene.visual_strategy,
+        focal_scene=scene.frozen_action,
+        composition=scene.blocking,
+        palette=scene.color_script,
+        secondary_signal=scene.primary_prop,
+        title_treatment=scene.title_safe_zone,
+        generation_prompt=compiled.text,
+    )
 
 
 _REPAIR_MODULES = {

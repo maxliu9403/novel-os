@@ -314,7 +314,25 @@ class CoverSet:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "CoverSet":
-        brief = CoverBrief.from_dict(dict(data.get("brief") or {}))
+        raw_brief = dict(data.get("brief") or {})
+        if int(raw_brief.get("schema_version") or 1) == 2:
+            from .cover_models_v2 import CoverBriefV2
+            brief = CoverBriefV2.from_dict(
+                raw_brief,
+                source_prompt_sha256=str(
+                    raw_brief.get("source_prompt_sha256")
+                    or data.get("source_prompt_sha256")
+                    or ""
+                ),
+                foundation_sha256=str(
+                    raw_brief.get("foundation_sha256")
+                    or data.get("foundation_sha256")
+                    or ""
+                ),
+                allow_pending_required_facts=True,
+            )
+        else:
+            brief = CoverBrief.from_dict(raw_brief)
         return cls(
             cover_set_id=str(data.get("cover_set_id") or ""),
             project_id=str(data.get("project_id") or ""),

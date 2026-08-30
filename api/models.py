@@ -564,6 +564,20 @@ class CoverGenerateRequest(BaseModel):
     source_prompt_sha256: str = ""
     foundation_sha256: str = ""
     count: int | None = None
+    direction_id: str = ""
+    approved_direction_sha256: str = ""
+
+
+class CoverDirectionCreate(BaseModel):
+    brief: dict
+    direction: dict
+    source_prompt_sha256: str = ""
+    foundation_sha256: str = ""
+
+
+class CoverDirectionApproval(BaseModel):
+    expected_brief_sha256: str
+    approved_direction_sha256: str
 
 
 class CoverCandidateMutation(BaseModel):

@@ -512,6 +512,17 @@ class CoverBriefV2:
             if item.critical and item.status == "pending_confirmation"
         )
 
+    def validate_concepts(self, concepts: Any) -> bool:
+        if not isinstance(concepts, (list, tuple)) or not 3 <= len(concepts) <= 5:
+            raise ValueError("Cover concept count must be between 3 and 5")
+        strategies = {str(item.visual_strategy).casefold() for item in concepts}
+        if len(strategies) != len(concepts):
+            raise ValueError("Cover concepts must use distinct visual strategies")
+        for concept in concepts:
+            if self.title not in str(concept.generation_prompt):
+                raise ValueError("Every cover prompt must contain the exact title")
+        return True
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": self.schema_version,
@@ -551,6 +562,42 @@ class VisualHook:
     misleading_risk: str
     expected_thumbnail_read: str
 
+    def __post_init__(self) -> None:
+        for name in (
+            "hook_type", "first_glance_subject", "open_question", "identity_anchor",
+            "genre_signal", "reader_promise", "target_emotion", "misleading_risk",
+            "expected_thumbnail_read",
+        ):
+            if not str(getattr(self, name) or "").strip():
+                raise ValueError(f"VisualHook.{name} is required")
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "VisualHook":
+        return cls(
+            hook_type=_text(data.get("hook_type"), "visual_hook.hook_type"),
+            first_glance_subject=_text(data.get("first_glance_subject"), "visual_hook.first_glance_subject"),
+            open_question=_text(data.get("open_question"), "visual_hook.open_question"),
+            identity_anchor=_text(data.get("identity_anchor"), "visual_hook.identity_anchor"),
+            genre_signal=_text(data.get("genre_signal"), "visual_hook.genre_signal"),
+            reader_promise=_text(data.get("reader_promise"), "visual_hook.reader_promise"),
+            target_emotion=_text(data.get("target_emotion"), "visual_hook.target_emotion"),
+            misleading_risk=_text(data.get("misleading_risk"), "visual_hook.misleading_risk"),
+            expected_thumbnail_read=_text(data.get("expected_thumbnail_read"), "visual_hook.expected_thumbnail_read"),
+        )
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "hook_type": self.hook_type,
+            "first_glance_subject": self.first_glance_subject,
+            "open_question": self.open_question,
+            "identity_anchor": self.identity_anchor,
+            "genre_signal": self.genre_signal,
+            "reader_promise": self.reader_promise,
+            "target_emotion": self.target_emotion,
+            "misleading_risk": self.misleading_risk,
+            "expected_thumbnail_read": self.expected_thumbnail_read,
+        }
+
 
 @dataclass(frozen=True)
 class CoverScenePlan:
@@ -575,6 +622,78 @@ class CoverScenePlan:
     title_safe_zone: str
     visual_hook: VisualHook
 
+    def __post_init__(self) -> None:
+        for name in (
+            "concept_id", "visual_strategy", "focal_character_id", "moment_before",
+            "frozen_action", "moment_after", "blocking", "primary_prop", "shot_scale",
+            "camera_height", "lens", "depth_plan", "motivated_lighting", "color_script",
+            "title_safe_zone",
+        ):
+            if not str(getattr(self, name) or "").strip():
+                raise ValueError(f"CoverScenePlan.{name} is required")
+        if not self.cast:
+            raise ValueError("CoverScenePlan.cast is required")
+        if not self.story_evidence_refs:
+            raise ValueError("CoverScenePlan.story_evidence_refs is required")
+        if not self.gaze_graph:
+            raise ValueError("CoverScenePlan.gaze_graph is required")
+        if not self.environment_anchors:
+            raise ValueError("CoverScenePlan.environment_anchors is required")
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any], *, index: int = 0) -> "CoverScenePlan":
+        prefix = f"plans[{index}]"
+        def values(name: str) -> tuple[str, ...]:
+            return _texts(data.get(name), f"{prefix}.{name}")
+        return cls(
+            concept_id=_text(data.get("concept_id"), f"{prefix}.concept_id"),
+            visual_strategy=_text(data.get("visual_strategy"), f"{prefix}.visual_strategy"),
+            story_evidence_refs=values("story_evidence_refs"),
+            cast=values("cast"),
+            focal_character_id=_text(data.get("focal_character_id"), f"{prefix}.focal_character_id"),
+            moment_before=_text(data.get("moment_before"), f"{prefix}.moment_before"),
+            frozen_action=_text(data.get("frozen_action"), f"{prefix}.frozen_action"),
+            moment_after=_text(data.get("moment_after"), f"{prefix}.moment_after"),
+            gaze_graph=values("gaze_graph"),
+            blocking=_text(data.get("blocking"), f"{prefix}.blocking"),
+            environment_anchors=values("environment_anchors"),
+            primary_prop=_text(data.get("primary_prop"), f"{prefix}.primary_prop"),
+            shot_scale=_text(data.get("shot_scale"), f"{prefix}.shot_scale"),
+            camera_height=_text(data.get("camera_height"), f"{prefix}.camera_height"),
+            lens=_text(data.get("lens"), f"{prefix}.lens"),
+            depth_plan=_text(data.get("depth_plan"), f"{prefix}.depth_plan"),
+            motivated_lighting=_text(data.get("motivated_lighting"), f"{prefix}.motivated_lighting"),
+            color_script=_text(data.get("color_script"), f"{prefix}.color_script"),
+            title_safe_zone=_text(data.get("title_safe_zone"), f"{prefix}.title_safe_zone"),
+            visual_hook=VisualHook.from_dict(
+                _mapping(data.get("visual_hook"), f"{prefix}.visual_hook")
+            ),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "concept_id": self.concept_id,
+            "visual_strategy": self.visual_strategy,
+            "story_evidence_refs": list(self.story_evidence_refs),
+            "cast": list(self.cast),
+            "focal_character_id": self.focal_character_id,
+            "moment_before": self.moment_before,
+            "frozen_action": self.frozen_action,
+            "moment_after": self.moment_after,
+            "gaze_graph": list(self.gaze_graph),
+            "blocking": self.blocking,
+            "environment_anchors": list(self.environment_anchors),
+            "primary_prop": self.primary_prop,
+            "shot_scale": self.shot_scale,
+            "camera_height": self.camera_height,
+            "lens": self.lens,
+            "depth_plan": self.depth_plan,
+            "motivated_lighting": self.motivated_lighting,
+            "color_script": self.color_script,
+            "title_safe_zone": self.title_safe_zone,
+            "visual_hook": self.visual_hook.to_dict(),
+        }
+
 
 @dataclass(frozen=True)
 class ArtDirectionSet:
@@ -587,6 +706,69 @@ class ArtDirectionSet:
     status: str = "awaiting_approval"
     direction_id: str = ""
     direction_sha256: str = ""
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 1:
+            raise ValueError("ArtDirectionSet.schema_version must be 1")
+        if not _SHA256.fullmatch(self.brief_sha256):
+            raise ValueError("ArtDirectionSet.brief_sha256 must be a lowercase SHA-256 digest")
+        if not 3 <= len(self.plans) <= 5:
+            raise ValueError("ArtDirectionSet plans must contain between 3 and 5 items")
+        if self.status not in {"awaiting_approval", "approved", "stale", "rejected"}:
+            raise ValueError(f"Unknown ArtDirectionSet status '{self.status}'")
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any], *, brief_sha256: str | None = None) -> "ArtDirectionSet":
+        raw_plans = data.get("plans") or []
+        if not isinstance(raw_plans, (list, tuple)):
+            raise ValueError("ArtDirectionSet.plans must be a list")
+        raw_assumptions = data.get("visual_assumptions") or []
+        if not isinstance(raw_assumptions, (list, tuple)):
+            raise ValueError("ArtDirectionSet.visual_assumptions must be a list")
+        return cls(
+            schema_version=int(data.get("schema_version") or 1),
+            director_model=_text(data.get("director_model"), "art_direction.director_model"),
+            brief_sha256=_sha(
+                brief_sha256 or data.get("brief_sha256"), "ArtDirectionSet.brief_sha256"
+            ),
+            profile_version=_text(data.get("profile_version"), "art_direction.profile_version"),
+            plans=tuple(
+                CoverScenePlan.from_dict(_mapping(item, "plans"), index=index)
+                for index, item in enumerate(raw_plans)
+            ),
+            visual_assumptions=tuple(
+                VisualAssumption.from_dict(_mapping(item, "visual_assumptions"), index=index)
+                for index, item in enumerate(raw_assumptions)
+            ),
+            status=str(data.get("status") or "awaiting_approval"),
+            direction_id=str(data.get("direction_id") or "").strip(),
+            direction_sha256=str(data.get("direction_sha256") or "").strip(),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "director_model": self.director_model,
+            "brief_sha256": self.brief_sha256,
+            "profile_version": self.profile_version,
+            "plans": [item.to_dict() for item in self.plans],
+            "visual_assumptions": [item.to_dict() for item in self.visual_assumptions],
+            "status": self.status,
+            "direction_id": self.direction_id,
+            "direction_sha256": self.direction_sha256,
+        }
+
+    def content_hash(self) -> str:
+        import hashlib
+        import json
+
+        payload = dict(self.to_dict())
+        payload.pop("direction_sha256", None)
+        payload.pop("direction_id", None)
+        payload.pop("status", None)
+        return hashlib.sha256(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
 
 
 @dataclass(frozen=True)

@@ -26,6 +26,7 @@ from .models import (
     BinderMoveRequest, BinderPatchRequest, SynopsisRefreshResult, UpdateMedia,
     ProjectStatistics, OutlinerMetricsRefreshResult, UpdateCodexEntry,
     ArtifactRevisionOut, ChapterQualityOut, EvaluationReportOut, PromotionReceiptOut,
+    CoverDirectionCreate, CoverDirectionApproval,
 )
 from .version import __version__
 from .services import (
@@ -734,7 +735,7 @@ def _cover_out(project_id: str, cover_set, *, active_revision: int = 0) -> dict:
 
 
 def _cover_error(exc: Exception) -> HTTPException:
-    from core.cover_store import CoverConflict
+    from core.cover_store import CoverConflict, CoverStore
     from core.image_client import ImageClientError
 
     if isinstance(exc, FileNotFoundError):
@@ -744,6 +745,68 @@ def _cover_error(exc: Exception) -> HTTPException:
     if isinstance(exc, ImageClientError):
         return HTTPException(status_code=502, detail=str(exc))
     return HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post(
+    "/projects/{project_id}/covers/directions",
+    status_code=201,
+)
+def create_cover_direction(
+    project_id: str,
+    body: CoverDirectionCreate,
+    svc: ProjectService = Depends(get_service),
+):
+    from core.cover_models_v2 import ArtDirectionSet, CoverBriefV2
+    from core.cover_validator import validate_direction
+    from core.cover_store import CoverStore
+
+    project = _cover_project(svc, project_id)
+    source_sha = body.source_prompt_sha256 or hashlib.sha256(
+        json.dumps(body.brief, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    try:
+        brief = CoverBriefV2.from_dict(
+            body.brief,
+            source_prompt_sha256=source_sha,
+            foundation_sha256=body.foundation_sha256,
+        )
+        direction = ArtDirectionSet.from_dict(
+            body.direction,
+            brief_sha256=brief.source_prompt_sha256,
+        )
+        findings = validate_direction(brief, direction)
+        if findings:
+            raise ValueError(
+                "Cover direction validation failed: "
+                + "; ".join(item.code for item in findings)
+            )
+        created = CoverStore(project).create_direction(direction)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return created.to_dict()
+
+
+@router.post(
+    "/projects/{project_id}/covers/directions/{direction_id}/approve",
+)
+def approve_cover_direction(
+    project_id: str,
+    direction_id: str,
+    body: CoverDirectionApproval,
+    svc: ProjectService = Depends(get_service),
+):
+    from core.cover_store import CoverConflict, CoverStore
+
+    project = _cover_project(svc, project_id)
+    try:
+        approved = CoverStore(project).approve_direction(
+            direction_id,
+            expected_brief_sha256=body.expected_brief_sha256,
+            approved_direction_sha256=body.approved_direction_sha256,
+        )
+    except (FileNotFoundError, ValueError, CoverConflict) as exc:
+        raise _cover_error(exc) from exc
+    return approved.to_dict()
 
 
 @router.post(
@@ -758,43 +821,83 @@ def generate_covers(
     covers: CoverService = Depends(get_cover_service),
 ):
     from core.cover_models import CoverBrief, CoverConcept
+    from core.cover_models_v2 import CoverBriefV2
     from core.cover_handoff import build_cover_concepts, resolve_cover_brief
+    from core.cover_prompt_compiler import scene_to_cover_concept
+    from core.cover_store import CoverConflict, CoverStore
+    from core.cover_validator import validate_direction
 
     project = _cover_project(svc, project_id)
+    compiler_version = ""
     try:
-        if (body.brief is None) != (body.concepts is None):
-            raise ValueError("Cover brief and concepts must be supplied together")
-        if body.brief is not None and body.concepts is not None:
+        if body.direction_id:
+            if body.brief is None or body.concepts is not None:
+                raise ValueError(
+                    "v2 cover generation requires a brief and direction_id without concepts"
+                )
             source_sha = body.source_prompt_sha256 or hashlib.sha256(
                 json.dumps(body.brief, ensure_ascii=False, sort_keys=True).encode("utf-8")
             ).hexdigest()
-            brief = CoverBrief.from_dict(
+            brief = CoverBriefV2.from_dict(
                 body.brief,
                 source_prompt_sha256=source_sha,
                 foundation_sha256=body.foundation_sha256,
             )
-            concepts = [CoverConcept.from_dict(item) for item in body.concepts]
-        else:
-            prompt_path = project / "outputs" / "input" / "prompt.md"
-            if not prompt_path.is_file():
-                raise ValueError(
-                    "Project Prompt is missing; generate covers with ./deploy.sh novel-cover PROMPT"
+            direction = CoverStore(project).load_direction(body.direction_id)
+            if direction.status != "approved":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cover direction must be approved before generation",
                 )
-            brief = resolve_cover_brief(project)
-            count = body.count
-            if count is None:
-                from core.studio_settings import resolve_cover_settings
+            if not body.approved_direction_sha256:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cover direction approval hash is required",
+                )
+            if body.approved_direction_sha256 != direction.direction_sha256:
+                raise HTTPException(status_code=409, detail="Cover direction approval hash mismatch")
+            findings = validate_direction(brief, direction)
+            if findings:
+                raise HTTPException(status_code=409, detail="Cover direction is stale or invalid")
+            concepts = [scene_to_cover_concept(brief, plan) for plan in direction.plans]
+            brief.validate_concepts(concepts)
+            compiler_version = "cover-compiler.v2"
+        else:
+            if (body.brief is None) != (body.concepts is None):
+                raise ValueError("Cover brief and concepts must be supplied together")
+            if body.brief is not None and body.concepts is not None:
+                source_sha = body.source_prompt_sha256 or hashlib.sha256(
+                    json.dumps(body.brief, ensure_ascii=False, sort_keys=True).encode("utf-8")
+                ).hexdigest()
+                brief = CoverBrief.from_dict(
+                    body.brief,
+                    source_prompt_sha256=source_sha,
+                    foundation_sha256=body.foundation_sha256,
+                )
+                concepts = [CoverConcept.from_dict(item) for item in body.concepts]
+            else:
+                prompt_path = project / "outputs" / "input" / "prompt.md"
+                if not prompt_path.is_file():
+                    raise ValueError(
+                        "Project Prompt is missing; generate covers with ./deploy.sh novel-cover PROMPT"
+                    )
+                brief = resolve_cover_brief(project)
+                count = body.count
+                if count is None:
+                    from core.studio_settings import resolve_cover_settings
 
-                count = resolve_cover_settings().count
-            concepts = build_cover_concepts(brief, count=count)
-        brief.validate_concepts(concepts)
+                    count = resolve_cover_settings().count
+                concepts = build_cover_concepts(brief, count=count)
+            brief.validate_concepts(concepts)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     job_id = runner.submit(
         "cover.generate",
-        lambda: covers.generate(project_id, project, brief, concepts),
-        meta={"project_id": project_id},
+        lambda: covers.generate(
+            project_id, project, brief, concepts, compiler_version=compiler_version,
+        ),
+        meta={"project_id": project_id, "direction_id": body.direction_id},
     )
     return runner.get(job_id)
 

@@ -16,6 +16,7 @@ from core.cover_models import (
     CoverConcept,
     CoverSet,
 )
+from core.cover_models_v2 import CoverBriefV2
 from core.cover_handoff import refresh_cover_concept_prompt
 from core.cover_store import CoverConflict, CoverStore
 from core.delivery_package import build_delivery_package
@@ -49,7 +50,7 @@ class CoverService:
         self,
         project_id: str,
         project_path: str | Path,
-        brief: CoverBrief,
+        brief: CoverBrief | CoverBriefV2,
         concepts: Sequence[CoverConcept],
         *,
         compiler_version: str = "",
