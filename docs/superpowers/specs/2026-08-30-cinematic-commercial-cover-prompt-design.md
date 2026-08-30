@@ -1,4 +1,4 @@
-# 电影感与广告转化封面提示词系统设计
+# 电影感与商业吸引力封面提示词系统设计
 
 日期：2026-08-30
 状态：待用户书面审阅
@@ -16,12 +16,12 @@
   -> Prompt Compiler 确定性编译最终图片提示词
   -> gpt-image-2 独立生成每张候选图
   -> Visual Quality Gate 检查写实、人物、电影感、类型与缩略图质量
-  -> Cover Studio 人工审批、单张重试与投放反馈
+  -> Cover Studio 人工审批、单张重试与最终选择
 ```
 
 Art Director 只做结构化创意决策，不直接输出图片。所有最终封面图片必须由
-`gpt-image-2` 生成。系统优化的不是孤立 CTR，而是每次曝光产生的有效阅读或
-付费转化，同时保持封面承诺与小说内容一致。
+`gpt-image-2` 生成。系统通过故事张力、类型识别、人物关系和缩略图层级提高封面的
+商业吸引力，同时保持封面承诺与小说内容一致。本期不采集、计算或学习广告转化数据。
 
 ## 2. 现有问题
 
@@ -31,10 +31,9 @@ Cover Studio 选择和交付包，但提示词构建仍有以下缺口：
 1. `CoverBrief` 只有一个自由文本 `protagonist`，无法严格表示多主角。
 2. 人物年龄、职业、社会身份、日常服装和生活环境没有独立必填字段。
 3. 概念由固定模板生成，类型情绪、人物调度和镜头语言不足。
-4. `high-conversion` 只是描述性词语，没有对应的广告创意假设与故事证据。
+4. `high-conversion` 只是描述性词语，没有被转换成可执行的视觉钩子与故事证据。
 5. 写实要求集中在少量形容词，不能系统约束皮肤、人体、镜头、光源和空间。
-6. 候选只记录最终提示词，没有记录创意为何可能获得点击和转化。
-7. 没有把真实投放结果按受众、版位和封面版本回收到视觉策略中。
+6. 候选只记录最终提示词，没有记录第一眼应该看到什么以及为何与故事匹配。
 
 ## 3. 目标
 
@@ -42,36 +41,32 @@ Cover Studio 选择和交付包，但提示词构建仍有以下缺口：
 2. 人物年龄、身份、服装、生活环境和关系严格来自小说合同。
 3. 多主角小说必须生成多人物主题封面，并优先使用同一故事场景。
 4. 类型情绪通过人物行为、摄影、布光、空间和色彩实现，而非抽象标签。
-5. 每个候选对应一个可解释、可测试的广告点击与转化假设。
+5. 每个候选对应一个可解释、可测试的商业视觉钩子。
 6. 图片渲染模型强制为 `gpt-image-2`，候选仍以独立 `n=1` 调用生成。
 7. 保持封面失败不影响小说、章节、Canon 或生产运行状态。
 8. 保持已有 CoverSet 的不可变来源、部分成功和单候选恢复能力。
 
 ## 4. 非目标
 
-1. 不承诺离线模型评分能够预测真实 CTR 或付费转化。
+1. 不采集、导入、归因、计算或预测广告 CTR、阅读转化、付费转化和收入数据。
 2. 不复制已出版封面、在世艺术家风格、演员或公众人物肖像。
-3. 不让广告点击目标覆盖小说事实或制造正文不兑现的情节。
-4. 不在第一阶段自动连接具体广告平台或自动调整投放预算。
+3. 不让商业吸引力覆盖小说事实或制造正文不兑现的情节。
+4. 不连接广告平台，不进行 A/B 实验、投放归因、策略学习或预算调整。
 5. 不在本次设计中把选中封面嵌入 EPUB、PDF 或 DOCX 正文。
 6. 不用确定性文字叠加替换当前由图片模型生成标题的产品决策。
 
 ## 5. 核心产品决策
 
-### 5.1 优化目标
+### 5.1 设计目标
 
-主优化指标为：
+封面设计同时满足四个定性目标：
 
-```text
-qualified_conversion_per_impression
-  = impressions_to_click_rate
-  * click_to_qualified_read_rate
-  * qualified_read_to_target_conversion_rate
-```
+1. **第一眼清晰**：在移动缩略图中快速识别主要人物、关系和类型。
+2. **情绪吸引**：用一个未完成动作、关系张力或关键证物产生继续了解的欲望。
+3. **审美完成度**：真人写实、电影感、标题清晰，达到商业成品质量。
+4. **故事一致**：画面承诺能够由小说事实支撑，不依赖夸张或虚构情节。
 
-`target_conversion` 可按项目配置为第一章完成、第三章完成、订阅、付费或购买。
-CTR 是必要诊断指标，但不单独决定胜出封面。高 CTR、低后续转化的候选被标记为
-`promise_mismatch`，不能进入同类视觉策略的正向样本。
+这些目标通过设计审阅和视觉质量门判断，不转换成 CTR、转化率或收入预测。
 
 ### 5.2 图片模型
 
@@ -105,12 +100,12 @@ CTR 是必要诊断指标，但不单独决定胜出封面。高 CTR、低后续
 ### 5.5 身份来源
 
 人物身份只来自已确认的故事事实。市场配置可以改变构图、摄影、标题排版和商业
-审美，但不能根据投放国家推断人物族裔、年龄或阶层。缺失的关键身份信息进入
+审美，但不能根据目标市场推断人物族裔、年龄或阶层。缺失的关键身份信息进入
 `visual_assumptions` 并在付费图片生成前确认。
 
 ### 5.6 参考封面提炼边界
 
-本轮 8 张参考图只用于提炼视觉机制，不作为复制目标，也不证明真实投放效果。进入
+本轮 8 张参考图只用于提炼视觉机制，不作为复制目标，也不证明广告效果。进入
 类型配置的有效机制为：
 
 - 用一个冻结故事瞬间代替静态人物海报；
@@ -136,7 +131,6 @@ CTR 是必要诊断指标，但不单独决定胜出封面。高 CTR、低后续
 | `CoverService` | 生命周期 | 上述模块 | CoverSet、retry、selection |
 | `CoverStore` | 持久化 | CoverSet revisions | 原子 JSON |
 | `CoverStudio` | 人工决策 | concepts、images、reports | approve/reject/retry/select |
-| `CoverPerformanceStore` | 投放反馈 | cover id、segment、metrics | 聚合策略证据 |
 
 模块边界保持如下原则：Art Director 不能调用图片模型；Prompt Compiler 不调用 LLM；
 Visual Evaluator 不能改变故事事实或自动产生付费重试；CoverService 是唯一协调者。
@@ -163,7 +157,7 @@ Visual Evaluator 不能改变故事事实或自动产生付费重试；CoverServ
   "decisive_story_nodes": [],
   "secondary_signals": [],
   "genre_emotion_profile": {},
-  "ad_context": {},
+  "commercial_visual_goal": {},
   "title_direction": {},
   "forbidden_elements": [],
   "visual_assumptions": []
@@ -240,22 +234,23 @@ Visual Evaluator 不能改变故事事实或自动产生付费重试；CoverServ
 }
 ```
 
-### 7.6 广告上下文
+### 7.6 商业视觉目标
 
 ```json
 {
   "market": "United States",
-  "platform": "configured_platform",
-  "placement": "mobile_feed",
   "audience_segment": "women 30-45 interested in relationship and family drama",
-  "campaign_goal": "qualified_read",
-  "thumbnail_width": 120,
-  "thumbnail_height": 180,
-  "conversion_event": "chapter_3_complete"
+  "display_context": "mobile_thumbnail",
+  "thumbnail_reference_width": 120,
+  "thumbnail_reference_height": 180,
+  "first_glance_priority": "relationship rupture",
+  "reader_identification": "a partner protecting herself and her child",
+  "truthful_story_promise": "the protagonist recognizes the betrayal and acts"
 }
 ```
 
-平台未知时允许使用 `generic_mobile_feed`，但不得伪造平台特定结论。
+该合同只指导封面视觉，不包含 campaign、placement、impressions、clicks 或任何转化
+字段。`market` 和 `audience_segment` 来自既有受众研究，不用于记录投放结果。
 
 ### 7.7 视觉假设
 
@@ -280,7 +275,7 @@ Art Director 使用一个支持结构化 JSON 输出的强文本模型。它负�
 
 1. 从已验证 brief 中选择真实可视化的故事瞬间；
 2. 为人物设计动作、视线、空间位置和环境证据；
-3. 为每个候选分配不同的广告假设；
+3. 为每个候选分配不同的商业视觉钩子；
 4. 选择符合类型的摄影、布光、色彩和标题安全区；
 5. 输出 `ArtDirectionSet`，不输出最终图片提示词。
 
@@ -345,16 +340,16 @@ NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS=180
   "motivated_lighting": "warm hall lamp and cool dusk window",
   "color_script": "warm skin and home light against restrained cool separation",
   "title_safe_zone": "upper third, no faces or hands",
-  "creative_hypothesis": {}
+  "visual_hook": {}
 }
 ```
 
 `moment_before` 和 `moment_after` 强制导演选择动作过程中的一帧，减少静态肖像和
 人物介绍照。`story_evidence_refs` 必须能在 brief 中解析，否则验证失败。
 
-## 10. 候选组合与广告假设
+## 10. 候选组合与商业视觉钩子
 
-默认四个候选使用四种不同的有效点击机制：
+默认四个候选使用四种不同的视觉吸引机制：
 
 1. `emotional_identification`：目标读者迅速识别人物的欲望、伤害或边界。
 2. `relationship_tension`：人物距离、视线和未完成动作形成开放问题。
@@ -364,7 +359,7 @@ NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS=180
 候选数为 5 时增加 `power_reversal`。候选数为 3 时由 Art Director 根据故事选择
 最相关的三种，不按固定顺序截断。
 
-每个 `creative_hypothesis` 包含：
+每个 `visual_hook` 包含：
 
 ```json
 {
@@ -373,15 +368,15 @@ NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS=180
   "open_question": "Why is the father celebrating with another woman?",
   "identity_anchor": "a partner and mother being publicly excluded",
   "genre_signal": "contemporary family betrayal drama",
-  "conversion_promise": "the protagonist recognizes the betrayal and acts",
+  "reader_promise": "the protagonist recognizes the betrayal and acts",
   "target_emotion": "protective anger",
   "misleading_risk": "low",
   "expected_thumbnail_read": "mother and child excluded from family celebration"
 }
 ```
 
-`conversion_promise` 必须由前期故事、核心任务或明确的故事节点支撑。只在结局揭示
-且不代表全书体验的情节不能作为默认广告钩子。
+`reader_promise` 必须由前期故事、核心任务或明确的故事节点支撑。只在结局揭示且不
+代表全书体验的情节不能作为默认视觉钩子。
 
 ## 11. 类型视觉配置
 
@@ -389,7 +384,7 @@ NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS=180
 
 爱情不是单一暖色滤镜。默认子模式包括：
 
-| 子模式 | 人物动作 | 光线与色彩 | 转化承诺 |
+| 子模式 | 人物动作 | 光线与色彩 | 读者承诺 |
 |---|---|---|---|
 | `tender_slow_burn` | 将触未触、克制对视、共同完成日常动作 | 暖色实际光、柔和但真实的阴影 | 关系逐渐靠近 |
 | `reconciliation` | 保持距离但共享一个旧物或空间 | 家庭暖光和冷色分隔同时存在 | 破裂关系可能修复 |
@@ -416,7 +411,7 @@ NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS=180
 ### 11.3 其他类型
 
 新类型配置遵循同一接口：`submode`、`relationship_motion`、`camera_grammar`、
-`motivated_light`、`color_logic`、`conversion_promise` 和 `prohibited_shortcuts`。
+`motivated_light`、`color_logic`、`reader_promise` 和 `prohibited_shortcuts`。
 缺少类型配置时使用中性电影写实基线，不自动套用爱情或家庭伦理规则。
 
 ## 12. Prompt Compiler
@@ -427,7 +422,7 @@ Prompt Compiler 是纯函数：相同 `CoverBriefV2 + CoverScenePlan + compiler_
 必须生成相同提示词。它不访问网络、不调用 LLM、不改变方向计划。
 
 编译后的提示词上限为 12,000 个 Unicode code point。Compiler 先按模块删除重复表达，
-再检查长度；超过上限直接失败，不能截断 CAST LOCK、STORY TRUTH、标题或广告承诺。
+再检查长度；超过上限直接失败，不能截断 CAST LOCK、STORY TRUTH、标题或读者承诺。
 
 最终提示词按模型注意力优先级排列：事实和人物先于风格，动作先于装饰，正向摄影
 指令先于紧凑排除项。禁止堆叠 `beautiful`、`viral`、`high CTR`、`masterpiece` 等
@@ -444,7 +439,7 @@ Prompt Compiler 是纯函数：相同 `CoverBriefV2 + CoverScenePlan + compiler_
 6. LIVED ENVIRONMENT AND PRIMARY PROP
 7. GENRE EMOTION
 8. CAMERA, DEPTH AND MOTIVATED LIGHTING
-9. MOBILE AD CREATIVE OBJECTIVE
+9. MOBILE COMMERCIAL COVER OBJECTIVE
 10. TITLE AND SAFE ZONE
 11. PHOTOREALISM REQUIREMENTS
 12. COMPACT FAILURE EXCLUSIONS
@@ -486,11 +481,11 @@ CAMERA, DEPTH AND MOTIVATED LIGHTING
 {motivated_lighting}. Use physically consistent shadows, reflections, perspective,
 skin tones, and contact between hands, clothing, props, and furniture.
 
-MOBILE AD CREATIVE OBJECTIVE
-At {thumbnail_width}x{thumbnail_height}, the first glance must reveal
+MOBILE COMMERCIAL COVER OBJECTIVE
+At {thumbnail_reference_width}x{thumbnail_reference_height}, the first glance must reveal
 {first_glance_subject}. Create one unresolved visual question: {open_question}.
 Trigger recognition through {identity_anchor}. Truthfully promise
-{conversion_promise}. Prioritize one relationship, one action, and one evidence
+{reader_promise}. Prioritize one relationship, one action, and one evidence
 object; small details are subordinate.
 
 TITLE AND SAFE ZONE
@@ -535,9 +530,9 @@ subtitles, taglines, author text, and any text other than the exact title.
 - 大于三人场景：35mm 或 50mm，使用景深层次而不是缩小所有人脸。
 - 极端广角、俯拍、仰拍只有在故事权力关系需要时使用。
 
-## 14. 广告点击与转化设计
+## 14. 商业吸引力设计
 
-### 14.1 合格点击
+### 14.1 第一眼视觉钩子
 
 封面必须在缩略图第一眼建立一个真实、单一的问题。有效机制包括：
 
@@ -551,9 +546,9 @@ subtitles, taglines, author text, and any text other than the exact title.
 封面不能同时表达三条剧情线。标题、人物关系、动作和证物构成四级层次，环境只支撑
 理解。高刺激画面若无法由 `story_evidence_refs` 证明，将被 Canon Validator 拒绝。
 
-### 14.2 缩略图预检
+### 14.2 缩略图设计预检
 
-每张成图生成只读的 120x180（或 ad context 指定尺寸）预览。质量检查回答：
+每张成图生成只读的 120x180（或 commercial visual goal 指定尺寸）预览。质量检查回答：
 
 1. 第一眼是否能找到主要人物或关系组合？
 2. 不读小字是否能识别核心情绪？
@@ -564,34 +559,11 @@ subtitles, taglines, author text, and any text other than the exact title.
 
 预检失败只标记问题，不把未经批准的自动重试转换成图片费用。
 
-### 14.3 投放指标合同
+### 14.3 数据边界
 
-```json
-{
-  "cover_candidate_id": "candidate-id",
-  "audience_segment": "stable segment id",
-  "placement": "mobile_feed",
-  "campaign_id": "external opaque id",
-  "impressions": 0,
-  "clicks": 0,
-  "qualified_reads": 0,
-  "chapter_1_completions": 0,
-  "chapter_3_completions": 0,
-  "paid_conversions": 0,
-  "revenue_minor_units": 0,
-  "currency": "USD",
-  "window_started_at": "ISO-8601",
-  "window_ended_at": "ISO-8601"
-}
-```
-
-指标导入要求同一受众、版位、时间窗口和落地页条件可比较。系统分别报告 CTR、点击后
-阅读率、合格转化率和每千次曝光价值，不把不同流量条件直接合并。
-
-### 14.4 策略学习边界
-
-第一阶段只保存指标与产生聚合报告，不自动重写类型配置。后续学习只能更新同一市场、
-类型、子模式和版位下的视觉策略权重，不能修改人物事实、故事节点或 Canon。
+本期系统不接收 impressions、clicks、reads、paid conversions、revenue、campaign id、
+placement 或实验分组，不计算 CTR/CVR，不对候选做数据排名，也不从投放结果自动调整
+类型配置。商业吸引力只作为封面设计与人工审阅标准。
 
 ## 15. 生成前质量门
 
@@ -602,9 +574,9 @@ subtitles, taglines, author text, and any text other than the exact title.
 3. 每个人物具备年龄阶段和生活身份；
 4. 所有 story evidence ref 可解析；
 5. scene plan 是一个连续空间和一个冻结动作；
-6. 候选的 visual strategy 和 creative hypothesis 互不重复；
+6. 候选的 visual strategy 和 visual hook 互不重复；
 7. 类型配置存在或明确选择中性基线；
-8. 广告承诺有前期故事依据；
+8. 读者承诺有前期故事依据；
 9. 标题和语言与批准 Prompt 完全一致；
 10. 没有待确认的关键 `visual_assumptions`；
 11. final prompt 通过人物覆盖、禁词、额外文案和长度检查；
@@ -674,8 +646,8 @@ subtitles, taglines, author text, and any text other than the exact title.
 | `generic_ai_face` | PHOTOREALISM + CAMERA |
 | `weak_story_action` | SINGLE CINEMATIC MOMENT |
 | `genre_drift` | GENRE EMOTION |
-| `thumbnail_clutter` | BLOCKING + AD OBJECTIVE |
-| `promise_mismatch` | CREATIVE HYPOTHESIS + STORY EVIDENCE |
+| `thumbnail_clutter` | BLOCKING + COMMERCIAL COVER OBJECTIVE |
+| `reader_promise_mismatch` | VISUAL HOOK + STORY EVIDENCE |
 | `title_failure` | TITLE SAFE ZONE |
 
 修复生成新的 prompt revision，并保留旧 prompt、质量报告和失败图片来源。就绪图片仍然
@@ -690,23 +662,22 @@ subtitles, taglines, author text, and any text other than the exact title.
 - `profile_version`
 - `compiler_version`
 - `concept_approval`
-- 每个 concept 的 `scene_plan` 与 `creative_hypothesis`
+- 每个 concept 的 `scene_plan` 与 `visual_hook`
 - 每个 candidate 的 `prompt_revision`、attempt history 和 quality report
-- `ad_context`
-- 投放反馈引用，不直接嵌入无限增长的指标明细
+- `commercial_visual_goal`
 
 图片候选继续保存模型、request id、实际尺寸、请求尺寸、格式、SHA、最终提示词和安全
 请求参数。API 密钥、Authorization 头、完整 provider 错误体和未发布原始 Prompt 不进入
-CoverSet、日志或投放记录。
+CoverSet 或日志。
 
 ## 19. Studio 工作流
 
 Cover Studio 分为四个连续状态：
 
 1. **Story facts**：显示主要人物、年龄、生活环境、类型和待确认视觉假设。
-2. **Art direction**：显示 3-5 个场景方案、cast、广告假设和故事证据；批准后锁定 hash。
+2. **Art direction**：显示 3-5 个场景方案、cast、视觉钩子和故事证据；批准后锁定 hash。
 3. **Generation**：逐张显示进度、图片费用边界和独立失败。
-4. **Review**：并排显示原图、移动缩略图、质量报告、创意假设和 retry 原因。
+4. **Review**：并排显示原图、移动缩略图、质量报告、视觉钩子和 retry 原因。
 
 用户可以拒绝一个概念并在图片调用前重新导演，也可以在成图后对单张候选选择具体
 repair code。选择封面仍需确认；系统不根据离线分数自动选中。
@@ -721,7 +692,6 @@ POST /projects/{id}/covers/directions/{direction_id}/approve
 POST /projects/{id}/covers/generate
 POST /projects/{id}/covers/{set_id}/candidates/{candidate_id}/retry
 GET  /projects/{id}/covers/{set_id}/quality
-POST /projects/{id}/covers/{set_id}/performance
 ```
 
 `generate` 必须引用已批准且未 stale 的 direction id。现有直接生成 API 在兼容期内可以
@@ -770,7 +740,6 @@ Art Director；fallback 也必须经过 v2 Validator 和 Prompt Compiler，不�
 | binary validation | 格式/比例/解码失败 | 候选失败，不写 deliverable |
 | visual evaluation | evaluator 不可用 | human_review_required，不伪造分数 |
 | quality blocker | 人物/写实/标题/事实失败 | 候选可见但不可推荐，等待人工 retry/reject |
-| performance import | 流量维度不完整 | 拒绝聚合，保留原始导入错误 |
 
 任何阶段都不能回滚、删除或改变小说生产运行。封面状态和小说运行状态保持独立。
 
@@ -788,7 +757,7 @@ Art Director；fallback 也必须经过 v2 Validator 和 Prompt Compiler，不�
 ### 23.2 Art Director 测试
 
 - 使用固定结构化响应 fixture，不调用真实文本模型；
-- 四个策略、场景、镜头和广告假设具有实质差异；
+- 四个策略、场景、镜头和视觉钩子具有实质差异；
 - 拒绝新增人物、年龄变化、族裔推断、无依据 spoiler 和多场景拼贴；
 - provider 失败发生在图片调用前；
 - direction approval 与 brief hash 绑定。
@@ -796,7 +765,7 @@ Art Director；fallback 也必须经过 v2 Validator 和 Prompt Compiler，不�
 ### 23.3 Compiler golden tests
 
 - 同输入生成逐字相同提示词；
-- 所有必要人物、年龄、环境和广告承诺进入正确模块；
+- 所有必要人物、年龄、环境和读者承诺进入正确模块；
 - 爱情与家庭伦理子模式选择正确；
 - 2-3 人和 4+ 人构图规则不同；
 - 不出现空占位符、未批准身份、额外文案和不可执行营销形容词；
@@ -816,17 +785,17 @@ Art Director；fallback 也必须经过 v2 Validator 和 Prompt Compiler，不�
 - facts -> direction -> generation -> review 状态；
 - 多主角和待确认字段可见；
 - 原图/120x180 切换不改变布局；
-- 质量 blocker、creative hypothesis 和 repair code 可读；
+- 质量 blocker、visual hook 和 repair code 可读；
 - 生成期间按钮禁用、进度稳定、错误可恢复；
 - 桌面和移动端无文字或控件重叠。
 
-### 23.6 投放指标
+### 23.6 商业视觉边界
 
-- 不同 audience/placement/window 不错误聚合；
-- CTR 和 qualified conversion 分别计算；
-- 零曝光、迟到数据和重复导入幂等；
+- commercial visual goal 只包含受众、缩略图和读者承诺；
+- API 和 CoverSet 不出现 campaign、impression、click、conversion 或 revenue 字段；
+- visual hook 可以追踪到 story evidence；
 - prompt/cover/profile version 可追踪；
-- 指标不会修改 Canon 或人物合同。
+- 人工审阅不会修改 Canon 或人物合同。
 
 ## 24. 分阶段实施
 
@@ -851,14 +820,7 @@ Art Director；fallback 也必须经过 v2 Validator 和 Prompt Compiler，不�
 - repair codes、attempt history；
 - Studio 并排审阅。
 
-### Phase 4: 广告反馈闭环
-
-- performance contract 和幂等导入；
-- qualified conversion 报告；
-- 仅报告的策略聚合，不自动重写类型配置。
-
-每个 Phase 独立提交和验证。Phase 1-3 构成图片质量升级的完整生产能力；Phase 4
-提供真实投放学习基础。
+每个 Phase 独立提交和验证。Phase 1-3 构成本次图片质量升级的完整生产能力。
 
 ## 25. 验收标准
 
@@ -867,16 +829,16 @@ Art Director；fallback 也必须经过 v2 Validator 和 Prompt Compiler，不�
 3. 2-3 主角全部清晰入画；4+ 主角遵循前景主轴和同场景中景规则。
 4. 正常路径由 Art Director 产生结构化 ScenePlan，不直接产生自由文本图片提示词。
 5. Canon Validator 可以阻止新增人物事实、年龄漂移、市场身份推断和无依据情节。
-6. Prompt Compiler 对相同输入产生确定性结果，并通过类型/人物/广告 golden tests。
+6. Prompt Compiler 对相同输入产生确定性结果，并通过类型/人物/视觉钩子 golden tests。
 7. 所有最终图片请求的 model 精确为 `gpt-image-2`，每张为独立 `n=1`。
-8. 每张候选保留 scene plan、creative hypothesis、compiler version、prompt、request id、
+8. 每张候选保留 scene plan、visual hook、compiler version、prompt、request id、
    model、尺寸、格式、SHA 和 attempt history。
 9. 爱情候选通过行为、距离、实际暖光和环境产生暧昧，不依赖通用玫瑰或婚礼符号。
 10. 家庭伦理候选通过可信空间、关系动作和唯一生活证物表达冲突。
 11. 成图使用真人电影摄影基线，不以插画、3D、塑料皮肤或时装站姿作为成功输出。
 12. 缩略图可以识别一个关系、一个动作、一个开放问题和清晰标题。
-13. 离线质量评估不宣称预测 CTR；真实投放以 qualified conversion per impression 为主指标。
-14. 高 CTR、低后续转化的 promise mismatch 可被独立识别。
+13. 商业吸引力只通过定性视觉合同和人工审阅判断，不采集或预测广告转化数据。
+14. API、CoverSet 和 Studio 不包含 campaign、impression、click、conversion 或 revenue 数据。
 15. 图片、Director 或 Evaluator 失败不改变小说、章节、Canon 或生产运行状态。
 16. 所有自动测试不访问付费端点；live `gpt-image-2` 验证继续需要明确费用批准。
 17. 后端、前端、Skill、CLI、Docker 和浏览器验证全部通过后才标记实现完成。
@@ -890,7 +852,7 @@ Art Director；fallback 也必须经过 v2 Validator 和 Prompt Compiler，不�
 - 使用 CoverBrief v2 + Art Director + Canon Validator + Prompt Compiler。
 - 电影写实是默认介质；不把插画作为成功 fallback。
 - 多主角必须同场景表达，禁止头像拼贴。
-- 广告主指标为 qualified conversion per impression，CTR 不能独立决定胜出。
+- 本期只优化封面商业吸引力，不采集、计算或学习广告转化数据。
 - 市场配置不能推断或覆盖人物身份。
 - 图片调用前必须审批方向和关键视觉假设。
 - 图片调用后仍由用户在 Cover Studio 明确选择，不自动激活候选。
