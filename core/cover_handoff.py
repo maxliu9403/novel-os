@@ -10,8 +10,10 @@ from typing import Any, Mapping
 
 try:
     from .cover_models import CoverBrief, CoverConcept
+    from .cover_models_v2 import CoverBriefV2
 except ImportError:  # pragma: no cover - legacy CLI imports core modules top-level
     from cover_models import CoverBrief, CoverConcept
+    from cover_models_v2 import CoverBriefV2
 
 
 BEGIN = "COVER_HANDOFF_BEGIN"
@@ -22,7 +24,7 @@ _BLOCK = re.compile(
 )
 
 
-def parse_cover_handoff(prompt_text: str) -> CoverBrief:
+def parse_cover_handoff(prompt_text: str) -> CoverBrief | CoverBriefV2:
     text = str(prompt_text or "")
     if BEGIN not in text or END not in text:
         raise ValueError(f"Prompt must contain {BEGIN} and {END}")
@@ -36,6 +38,8 @@ def parse_cover_handoff(prompt_text: str) -> CoverBrief:
     if not isinstance(payload, dict):
         raise ValueError("Cover handoff JSON must be an object")
     prompt_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    if int(payload.get("schema_version") or 1) == 2:
+        return CoverBriefV2.from_dict(payload, source_prompt_sha256=prompt_sha)
     return CoverBrief.from_dict(payload, source_prompt_sha256=prompt_sha)
 
 
@@ -55,7 +59,7 @@ def resolve_cover_brief(
     project_path: str | Path,
     *,
     prompt_text: str | None = None,
-) -> CoverBrief:
+) -> CoverBrief | CoverBriefV2:
     """Load a current handoff or adapt durable artifacts from a legacy project."""
     project = Path(project_path)
     prompt_path = project / "outputs" / "input" / "prompt.md"
@@ -375,7 +379,7 @@ def _generation_prompt(brief: CoverBrief, strategy: dict[str, str]) -> str:
     forbidden = ", ".join(brief.forbidden_elements) or "unsupported spoilers"
     world = ", ".join(brief.world_signals) or "fictional story setting"
     lines = [
-        "Create a finished, high-conversion commercial cover for serialized fiction.",
+        "Create a finished, visually compelling commercial cover for serialized fiction.",
         "Canvas: portrait 2:3, preserve the provider-supported resolution, and keep it readable as a mobile feed thumbnail.",
         f"Target audience: {brief.target_audience}.",
         f"Genre and market signal: {brief.genre}; {brief.market_scope}.",

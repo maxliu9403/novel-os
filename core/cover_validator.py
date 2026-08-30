@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .cover_models_v2 import ArtDirectionSet, CoverBriefV2
+try:
+    from .cover_models_v2 import ArtDirectionSet, CoverBriefV2
+except ImportError:  # pragma: no cover - legacy CLI imports core modules top-level
+    from cover_models_v2 import ArtDirectionSet, CoverBriefV2
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,20 @@ def validate_direction(
     if direction.brief_sha256 != brief.source_prompt_sha256:
         findings.append(ValidationFinding(
             "brief_hash_mismatch", "blocker", "Direction is bound to a different brief hash",
+        ))
+    pending_critical = [
+        *brief.pending_critical_assumptions(),
+        *(
+            item for item in direction.visual_assumptions
+            if item.critical and item.status == "pending_confirmation"
+        ),
+    ]
+    for assumption in pending_critical:
+        findings.append(ValidationFinding(
+            "unresolved_critical_assumption",
+            "blocker",
+            "Critical visual facts must be confirmed before art direction approval",
+            assumption.field,
         ))
     required = {item.character_id for item in brief.required_characters}
     known = {item.character_id for item in brief.principal_characters}

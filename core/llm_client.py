@@ -98,13 +98,10 @@ def _env_flag(name: str, default: bool) -> bool:
     return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
-def _openai_compatible_options() -> dict:
+def _openai_compatible_options(timeout_seconds: float | None = None) -> dict:
     return {
-        "timeout": float(
-            os.environ.get(
-                "NOVEL_OS_LLM_TIMEOUT_SECONDS",
-                DEFAULT_OPENAI_TIMEOUT_SECONDS,
-            )
+        "timeout": timeout_seconds if timeout_seconds is not None else float(
+            os.environ.get("NOVEL_OS_LLM_TIMEOUT_SECONDS", DEFAULT_OPENAI_TIMEOUT_SECONDS)
         ),
         "max_retries": int(
             os.environ.get(
@@ -137,11 +134,15 @@ class LLMClient:
         max_tokens: Optional[int] = None,
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
+        timeout_seconds: float | None = None,
     ):
+        if timeout_seconds is not None and timeout_seconds <= 0:
+            raise ValueError("LLM timeout must be positive")
         self.provider_name = (provider or self._resolve_provider()).lower()
         self.max_tokens = max_tokens or int(os.environ.get("NOVEL_OS_MAX_TOKENS", DEFAULT_MAX_TOKENS))
         self._explicit_base_url = base_url
         self._explicit_api_key = api_key
+        self.timeout_seconds = timeout_seconds
 
         # Map alias -> openai_compatible with preset base_url/model/key
         self._backend, self.model = self._build_backend(model)
@@ -232,7 +233,8 @@ class LLMClient:
         key = self._explicit_api_key or os.environ.get("ANTHROPIC_API_KEY")
         if not key:
             raise LLMError("ANTHROPIC_API_KEY is not set.")
-        return anthropic.Anthropic(api_key=key)
+        options = {"timeout": self.timeout_seconds} if self.timeout_seconds is not None else {}
+        return anthropic.Anthropic(api_key=key, **options)
 
     def _build_openai_native(self):
         try:
@@ -242,7 +244,8 @@ class LLMClient:
         key = self._explicit_api_key or os.environ.get("OPENAI_API_KEY")
         if not key:
             raise LLMError("OPENAI_API_KEY is not set.")
-        return OpenAI(api_key=key)
+        options = {"timeout": self.timeout_seconds} if self.timeout_seconds is not None else {}
+        return OpenAI(api_key=key, **options)
 
     def _build_openai_compatible(self, base_url: str, api_key: str):
         try:
@@ -252,7 +255,7 @@ class LLMClient:
         return OpenAI(
             api_key=api_key,
             base_url=base_url,
-            **_openai_compatible_options(),
+            **_openai_compatible_options(self.timeout_seconds),
         )
 
     def _build_azure(self, deployment: Optional[str]):
@@ -267,7 +270,13 @@ class LLMClient:
             raise LLMError("Azure needs AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT.")
         if not deployment:
             raise LLMError("Azure needs NOVEL_OS_MODEL set to the deployment name.")
-        client = AzureOpenAI(api_key=key, api_version=api_version, azure_endpoint=endpoint)
+        options = {"timeout": self.timeout_seconds} if self.timeout_seconds is not None else {}
+        client = AzureOpenAI(
+            api_key=key,
+            api_version=api_version,
+            azure_endpoint=endpoint,
+            **options,
+        )
         return client, deployment
 
     def _build_gemini(self):
@@ -338,6 +347,7 @@ class LLMClient:
             "choices and proceed.\n\n"
         )
         prompt = f"{preamble}# ROLE\n{system}\n\n# TASK / CONTEXT\n{user}" if system else user
+        run_options = {"timeout": self.timeout_seconds} if self.timeout_seconds is not None else {}
         try:
             proc = subprocess.run(
                 cmd,
@@ -345,7 +355,10 @@ class LLMClient:
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
+                **run_options,
             )
+        except subprocess.TimeoutExpired as e:
+            raise LLMError("Claude Code CLI timed out") from e
         except OSError as e:
             raise LLMError(f"Failed to invoke the Claude Code CLI: {e}") from e
         if proc.returncode != 0:

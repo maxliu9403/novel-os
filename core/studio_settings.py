@@ -29,6 +29,11 @@ _ENV_KEYS = (
     "NOVEL_OS_COVER_FORMAT",
     "NOVEL_OS_COVER_COUNT",
     "NOVEL_OS_COVER_TIMEOUT_SECONDS",
+    "NOVEL_OS_COVER_DIRECTOR_PROVIDER",
+    "NOVEL_OS_COVER_DIRECTOR_MODEL",
+    "NOVEL_OS_COVER_DIRECTOR_BASE_URL",
+    "NOVEL_OS_COVER_DIRECTOR_API_KEY",
+    "NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS",
     "OPENROUTER_API_KEY",
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
@@ -64,6 +69,93 @@ class CoverSettings:
     timeout_seconds: float = 180.0
     inherits_base_url: bool = False
     inherits_api_key: bool = False
+
+
+@dataclass(frozen=True)
+class CoverDirectorSettings:
+    provider: str
+    model: str
+    base_url: str
+    api_key: str
+    timeout_seconds: float = 180.0
+    inherits_writing: bool = True
+
+
+_PROVIDER_KEY_NAMES = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+}
+
+
+def resolve_cover_director_settings(
+    source: Mapping[str, Any] | None = None,
+) -> CoverDirectorSettings:
+    """Resolve planning settings independently from the final image model."""
+    if source is None:
+        values: dict[str, Any] = dict(os.environ)
+        values.update(load_settings())
+    else:
+        values = dict(source)
+
+    writing_provider = str(values.get("NOVEL_OS_LLM_PROVIDER") or "").strip()
+    provider = str(
+        values.get("NOVEL_OS_COVER_DIRECTOR_PROVIDER") or writing_provider
+    ).strip()
+    model = str(
+        values.get("NOVEL_OS_COVER_DIRECTOR_MODEL")
+        or values.get("NOVEL_OS_MODEL")
+        or ""
+    ).strip()
+    base_url = str(
+        values.get("NOVEL_OS_COVER_DIRECTOR_BASE_URL")
+        or values.get("NOVEL_OS_BASE_URL")
+        or ""
+    ).strip().rstrip("/")
+    native_key_name = _PROVIDER_KEY_NAMES.get(provider or writing_provider, "")
+    api_key = str(
+        values.get("NOVEL_OS_COVER_DIRECTOR_API_KEY")
+        or values.get("NOVEL_OS_API_KEY")
+        or (values.get(native_key_name) if native_key_name else "")
+        or ""
+    ).strip()
+    try:
+        timeout = float(values.get("NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS") or 180)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Cover Director timeout must be a positive number") from exc
+    if timeout <= 0:
+        raise ValueError("Cover Director timeout must be a positive number")
+    independent = any(
+        str(values.get(key) or "").strip()
+        for key in (
+            "NOVEL_OS_COVER_DIRECTOR_PROVIDER",
+            "NOVEL_OS_COVER_DIRECTOR_MODEL",
+            "NOVEL_OS_COVER_DIRECTOR_BASE_URL",
+            "NOVEL_OS_COVER_DIRECTOR_API_KEY",
+        )
+    )
+    return CoverDirectorSettings(
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        timeout_seconds=timeout,
+        inherits_writing=not independent,
+    )
+
+
+def cover_director_status(source: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Return Director routing without exposing either inherited or dedicated keys."""
+    settings = resolve_cover_director_settings(source)
+    return {
+        "provider": settings.provider,
+        "model": settings.model,
+        "base_url": settings.base_url,
+        "has_api_key": bool(settings.api_key),
+        "timeout_seconds": settings.timeout_seconds,
+        "inherits_writing": settings.inherits_writing,
+    }
 
 
 def resolve_cover_settings(source: Mapping[str, Any] | None = None) -> CoverSettings:
@@ -133,6 +225,7 @@ def cover_status(source: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Return the safe, UI-facing cover configuration projection."""
     try:
         settings = resolve_cover_settings(source)
+        director = cover_director_status(source)
     except ValueError as exc:
         return {
             "configured": False,
@@ -146,6 +239,12 @@ def cover_status(source: Mapping[str, Any] | None = None) -> dict[str, Any]:
             "timeout_seconds": 180.0,
             "inherits_base_url": False,
             "inherits_api_key": False,
+            "director_provider": "",
+            "director_model": "",
+            "director_base_url": "",
+            "director_has_api_key": False,
+            "director_timeout_seconds": 180.0,
+            "director_inherits_writing": True,
             "error": str(exc),
         }
     has_key = bool(settings.api_key)
@@ -161,6 +260,12 @@ def cover_status(source: Mapping[str, Any] | None = None) -> dict[str, Any]:
         "timeout_seconds": settings.timeout_seconds,
         "inherits_base_url": settings.inherits_base_url,
         "inherits_api_key": settings.inherits_api_key,
+        "director_provider": director["provider"],
+        "director_model": director["model"],
+        "director_base_url": director["base_url"],
+        "director_has_api_key": director["has_api_key"],
+        "director_timeout_seconds": director["timeout_seconds"],
+        "director_inherits_writing": director["inherits_writing"],
         "error": None if has_key else "Add a cover API key or configure the shared Sub2API key.",
     }
 

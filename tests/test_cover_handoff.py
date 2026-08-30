@@ -81,6 +81,26 @@ def test_parse_cover_handoff_v2_normalizes_the_same_source_hash() -> None:
     assert brief.source_prompt_sha256 == hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
 
+def test_parse_cover_handoff_accepts_versioned_multi_character_contract() -> None:
+    from tests.test_cover_models_v2 import two_character_fixture
+
+    brief = parse_cover_handoff(_prompt(two_character_fixture()))
+
+    assert brief.schema_version == 2
+    assert [item.character_id for item in brief.required_characters] == [
+        "char_mara", "char_oren",
+    ]
+
+
+def test_v1_generation_prompt_uses_visual_objective_without_conversion_claims() -> None:
+    brief = parse_cover_handoff(_prompt(_handoff()))
+
+    prompt = build_cover_concepts(brief, count=4)[0].generation_prompt.casefold()
+
+    assert "high-conversion" not in prompt
+    assert "high conversion" not in prompt
+
+
 def test_parse_cover_handoff_rejects_missing_or_duplicate_boundaries() -> None:
     with pytest.raises(ValueError, match="COVER_HANDOFF_BEGIN"):
         parse_cover_handoff("# prompt without handoff")

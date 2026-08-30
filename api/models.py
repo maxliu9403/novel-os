@@ -75,6 +75,11 @@ class StudioCoverUpdate(BaseModel):
     output_format: str | None = None
     count: int | None = None
     timeout_seconds: float | None = None
+    director_provider: str | None = None
+    director_model: str | None = None
+    director_base_url: str | None = None
+    director_api_key: str | None = None
+    director_timeout_seconds: float | None = None
 
 
 class StudioCoverStatus(BaseModel):
@@ -89,6 +94,12 @@ class StudioCoverStatus(BaseModel):
     timeout_seconds: float
     inherits_base_url: bool = False
     inherits_api_key: bool = False
+    director_provider: str = ""
+    director_model: str = ""
+    director_base_url: str = ""
+    director_has_api_key: bool = False
+    director_timeout_seconds: float = 180.0
+    director_inherits_writing: bool = True
     error: str | None = None
 
 
@@ -569,10 +580,11 @@ class CoverGenerateRequest(BaseModel):
 
 
 class CoverDirectionCreate(BaseModel):
-    brief: dict
-    direction: dict
+    brief: dict | None = None
+    direction: dict | None = None
     source_prompt_sha256: str = ""
     foundation_sha256: str = ""
+    count: int = 4
 
 
 class CoverDirectionApproval(BaseModel):
@@ -584,6 +596,7 @@ class CoverCandidateMutation(BaseModel):
     expected_revision: int
     expected_active_revision: int = 0
     confirm_stale: bool = False
+    repair_codes: list[str] = []
 
 
 class Job(BaseModel):

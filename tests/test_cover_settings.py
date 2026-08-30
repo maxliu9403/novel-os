@@ -105,3 +105,57 @@ def test_cover_settings_allow_provider_native_portrait_resolution() -> None:
     })
 
     assert settings.size == "1024x1536"
+
+
+def test_cover_director_settings_fall_back_to_writing_model_not_image_model() -> None:
+    settings = studio_settings.resolve_cover_director_settings({
+        "NOVEL_OS_LLM_PROVIDER": "openai_compatible",
+        "NOVEL_OS_MODEL": "story-planner-v2",
+        "NOVEL_OS_BASE_URL": "https://text.example/v1/",
+        "NOVEL_OS_API_KEY": "writing-secret",
+        "NOVEL_OS_COVER_MODEL": "gpt-image-2",
+    })
+
+    assert settings.provider == "openai_compatible"
+    assert settings.model == "story-planner-v2"
+    assert settings.base_url == "https://text.example/v1"
+    assert settings.api_key == "writing-secret"
+    assert settings.timeout_seconds == 180.0
+    assert settings.inherits_writing is True
+
+
+def test_cover_director_settings_allow_independent_provider_and_validate_timeout() -> None:
+    settings = studio_settings.resolve_cover_director_settings({
+        "NOVEL_OS_LLM_PROVIDER": "anthropic",
+        "NOVEL_OS_MODEL": "writing-model",
+        "NOVEL_OS_COVER_DIRECTOR_PROVIDER": "openai_compatible",
+        "NOVEL_OS_COVER_DIRECTOR_MODEL": "director-model",
+        "NOVEL_OS_COVER_DIRECTOR_BASE_URL": "https://director.example/v1/",
+        "NOVEL_OS_COVER_DIRECTOR_API_KEY": "director-secret",
+        "NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS": "240",
+    })
+
+    assert settings.provider == "openai_compatible"
+    assert settings.model == "director-model"
+    assert settings.base_url == "https://director.example/v1"
+    assert settings.api_key == "director-secret"
+    assert settings.timeout_seconds == 240.0
+    assert settings.inherits_writing is False
+
+    with pytest.raises(ValueError, match="Director timeout"):
+        studio_settings.resolve_cover_director_settings({
+            "NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS": "0",
+        })
+
+
+def test_cover_director_status_redacts_independent_key() -> None:
+    status = studio_settings.cover_director_status({
+        "NOVEL_OS_COVER_DIRECTOR_PROVIDER": "openai_compatible",
+        "NOVEL_OS_COVER_DIRECTOR_MODEL": "director-model",
+        "NOVEL_OS_COVER_DIRECTOR_BASE_URL": "https://director.example/v1",
+        "NOVEL_OS_COVER_DIRECTOR_API_KEY": "director-secret",
+    })
+
+    assert status["has_api_key"] is True
+    assert status["model"] == "director-model"
+    assert "director-secret" not in repr(status)

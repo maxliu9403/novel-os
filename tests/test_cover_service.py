@@ -10,6 +10,10 @@ from api.media import LocalMediaStore, digest
 from core.cover_models import CoverBrief, CoverCandidate, CoverConcept, CoverSet
 from core.cover_store import CoverConflict, CoverStore
 from core.image_client import GeneratedImage, ImageClientError
+from core.cover_director import CoverArtDirector
+from core.cover_prompt_compiler import scene_to_cover_concept
+from core.cover_quality import CoverVisualEvaluator
+from tests.test_cover_director import _brief as _brief_v2, director_fixture
 
 
 SHA = "a" * 64
@@ -261,6 +265,120 @@ def test_retry_calls_only_failed_candidate_and_reaches_ready(tmp_path) -> None:
     assert client.prompts[:4] == prompts_before
     assert client.prompts[-1] != _concepts()[1].generation_prompt
     assert "Do not infer or invent ethnicity" in client.prompts[-1]
+
+
+def test_quality_repair_appends_attempt_and_preserves_prior_provenance(tmp_path) -> None:
+    brief = _brief_v2()
+    direction = CoverArtDirector.from_fixture(director_fixture()).plan(brief, count=4)
+    concepts = [scene_to_cover_concept(brief, scene) for scene in direction.plans]
+    images = [_jpeg(marker=bytes([index])) for index in range(1, 6)]
+    client = FakeImageClient(images)
+    registrar = Registrar()
+    evaluator = CoverVisualEvaluator(
+        provider="fixture",
+        model="visual-v1",
+        complete=lambda *_args: {
+            "status": "blocked",
+            "blockers": ["generic_ai_face"],
+            "repair_codes": ["generic_ai_face"],
+            "evidence": ["face region"],
+            "findings": [],
+        },
+    )
+    projected: list[bytes] = []
+
+    def thumbnail_projector(_image: bytes, *, width: int, height: int) -> bytes:
+        assert (width, height) == (120, 180)
+        thumbnail = b"projected-thumbnail"
+        projected.append(thumbnail)
+        return thumbnail
+
+    service = CoverService(
+        image_client=client,
+        media_store=LocalMediaStore(tmp_path / "media"),
+        media_add=registrar,
+        visual_evaluator=evaluator,
+        thumbnail_projector=thumbnail_projector,
+    )
+    project = tmp_path / "project"
+    generated = service.generate("project-one", project, brief, concepts, compiler_version="cover-compiler.v2")
+    candidate = generated.candidates[0]
+    first_attempt = candidate.attempt_history[0]
+
+    repaired = service.retry_candidate(
+        "project-one",
+        project,
+        generated.cover_set_id,
+        candidate.candidate_id,
+        expected_revision=generated.revision,
+        repair_codes=["generic_ai_face"],
+    )
+
+    updated = repaired.candidates[0]
+    assert len(client.prompts) == 5
+    assert len(updated.attempt_history) == 2
+    assert updated.attempt_history[0] == first_attempt
+    assert updated.prompt_revision == 2
+    assert updated.sha256 != candidate.sha256
+    assert "Repair focus: generic ai face" in updated.generation_prompt
+    assert projected == [b"projected-thumbnail"] * 5
+
+
+def test_visual_evaluator_receives_thumbnail_projection_not_original_bytes(tmp_path) -> None:
+    brief = _brief_v2()
+    direction = CoverArtDirector.from_fixture(director_fixture()).plan(brief, count=4)
+    concepts = [scene_to_cover_concept(brief, scene) for scene in direction.plans]
+    images = [_jpeg(marker=bytes([index])) for index in range(1, 5)]
+    received: list[tuple[bytes, bytes]] = []
+    evaluator = CoverVisualEvaluator(
+        provider="fixture",
+        model="visual-v1",
+        complete=lambda image, thumbnail, _brief, _scene: (
+            received.append((image, thumbnail))
+            or {
+                "status": "human_review_required",
+                "blockers": [],
+                "repair_codes": [],
+                "evidence": ["fixture"],
+                "findings": [],
+            }
+        ),
+    )
+    service = CoverService(
+        image_client=FakeImageClient(images),
+        media_store=LocalMediaStore(tmp_path / "media"),
+        media_add=Registrar(),
+        visual_evaluator=evaluator,
+        thumbnail_projector=lambda _image, **_size: b"120x180-thumbnail",
+    )
+
+    service.generate("project-one", tmp_path / "project", brief, concepts)
+
+    assert len(received) == 4
+    assert all(thumbnail == b"120x180-thumbnail" for _, thumbnail in received)
+    assert all(image != thumbnail for image, thumbnail in received)
+
+
+def test_quality_repair_rejects_unreported_code_before_image_call(tmp_path) -> None:
+    brief = _brief_v2()
+    direction = CoverArtDirector.from_fixture(director_fixture()).plan(brief, count=4)
+    concepts = [scene_to_cover_concept(brief, scene) for scene in direction.plans]
+    service, client, _ = _service(
+        tmp_path, [_jpeg(marker=bytes([index])) for index in range(1, 5)]
+    )
+    generated = service.generate("project-one", tmp_path / "project", brief, concepts)
+
+    with pytest.raises(CoverServiceError, match="reported"):
+        service.retry_candidate(
+            "project-one",
+            tmp_path / "project",
+            generated.cover_set_id,
+            generated.candidates[0].candidate_id,
+            expected_revision=generated.revision,
+            repair_codes=["generic_ai_face"],
+        )
+
+    assert len(client.prompts) == 4
 
 
 def test_reject_and_select_are_explicit_and_idempotent(tmp_path) -> None:

@@ -8,6 +8,7 @@ import re
 import tempfile
 import uuid
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 
 try:
@@ -68,16 +69,29 @@ class CoverStore:
         ]
         return sorted(values, key=lambda item: (item.created_at, item.cover_set_id))
 
-    def create_direction(self, direction: ArtDirectionSet) -> ArtDirectionSet:
+    def create_direction(
+        self,
+        direction: ArtDirectionSet,
+        *,
+        brief: dict | None = None,
+    ) -> ArtDirectionSet:
         direction_id = direction.direction_id or f"direction-{uuid.uuid4().hex}"
         if not _DIRECTION_ID.fullmatch(direction_id):
             raise ValueError("Invalid cover direction id")
-        created = replace(direction, direction_id=direction_id, direction_sha256="")
+        created = replace(
+            direction,
+            direction_id=direction_id,
+            direction_sha256="",
+            status="awaiting_approval",
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
         created = replace(created, direction_sha256=created.content_hash())
         path = self._direction_path(direction_id)
         if path.exists():
             raise CoverConflict(f"Cover direction '{direction_id}' already exists")
         self._write_json(path, created.to_dict())
+        if brief is not None:
+            self._write_json(self._direction_brief_path(direction_id), dict(brief))
         return created
 
     def load_direction(self, direction_id: str) -> ArtDirectionSet:
@@ -95,9 +109,49 @@ class CoverStore:
         values = [
             self.load_direction(path.stem)
             for path in self.directions_dir.glob("direction-*.json")
-            if path.is_file() and not path.is_symlink()
+            if path.is_file() and not path.is_symlink() and not path.name.endswith(".brief.json")
         ]
-        return sorted(values, key=lambda item: item.direction_id)
+        return sorted(values, key=lambda item: (item.created_at, item.direction_id))
+
+    def load_direction_brief(self, direction_id: str) -> dict:
+        path = self._direction_brief_path(direction_id)
+        if not path.is_file():
+            return {}
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return dict(payload) if isinstance(payload, dict) else {}
+
+    def require_latest_direction(self, direction_id: str) -> ArtDirectionSet:
+        current = self.load_direction(direction_id)
+        directions = self.list_directions()
+        if not directions or directions[-1].direction_id != direction_id:
+            raise CoverConflict("Only the latest cover direction can be approved or generated")
+        return current
+
+    def append_attempt(self, candidate_id: str, attempt) -> CoverSet:
+        """Append an immutable attempt to the one cover set owning a candidate."""
+        matches: list[CoverSet] = []
+        for cover_set in self.list():
+            if any(item.candidate_id == candidate_id for item in cover_set.candidates):
+                matches.append(cover_set)
+        if not matches:
+            raise FileNotFoundError(f"Cover candidate '{candidate_id}' not found")
+        if len(matches) > 1:
+            raise CoverConflict(f"Cover candidate '{candidate_id}' is ambiguous")
+        current = matches[0]
+        candidate = next(item for item in current.candidates if item.candidate_id == candidate_id)
+        payload = attempt.to_dict() if hasattr(attempt, "to_dict") else dict(attempt)
+        updated_candidate = replace(
+            candidate,
+            attempt_history=(*candidate.attempt_history, payload),
+        )
+        updated = replace(
+            current,
+            candidates=tuple(
+                updated_candidate if item.candidate_id == candidate_id else item
+                for item in current.candidates
+            ),
+        )
+        return self.save(updated, expected_revision=current.revision)
 
     def approve_direction(
         self,
@@ -106,7 +160,7 @@ class CoverStore:
         expected_brief_sha256: str,
         approved_direction_sha256: str,
     ) -> ArtDirectionSet:
-        current = self.load_direction(direction_id)
+        current = self.require_latest_direction(direction_id)
         if current.status == "stale":
             raise CoverConflict("Cover direction is stale")
         if current.brief_sha256 != expected_brief_sha256:
@@ -171,6 +225,10 @@ class CoverStore:
             raise ValueError("Invalid cover direction id")
         return self.directions_dir / f"{direction_id}.json"
 
+    def _direction_brief_path(self, direction_id: str) -> Path:
+        self._direction_path(direction_id)
+        return self.directions_dir / f"{direction_id}.brief.json"
+
     @staticmethod
     def _validate_ready_provenance(current: CoverSet, proposed: CoverSet) -> None:
         proposed_by_id = {item.candidate_id: item for item in proposed.candidates}
@@ -180,8 +238,27 @@ class CoverStore:
             new = proposed_by_id.get(old.candidate_id)
             if new is None:
                 raise CoverConflict("Ready candidate provenance is immutable")
+            old_history = tuple(old.attempt_history)
+            new_history = tuple(new.attempt_history)
+            if len(new_history) < len(old_history) or new_history[:len(old_history)] != old_history:
+                raise CoverConflict("Cover generation attempt history is append-only")
             if any(getattr(old, name) != getattr(new, name) for name in _PROVENANCE_FIELDS):
-                raise CoverConflict("Ready candidate provenance is immutable")
+                if len(new_history) <= len(old_history) or new_history[:len(old_history)] != old_history:
+                    raise CoverConflict("Ready candidate provenance is immutable")
+                latest = dict(new_history[-1])
+                if (
+                    latest.get("status") != "ready"
+                    or latest.get("generation_prompt") != new.generation_prompt
+                    or latest.get("image_sha256") != new.sha256
+                    or latest.get("request_id") != new.request_id
+                    or latest.get("model") != new.model
+                    or latest.get("relative_path") != new.relative_path
+                    or latest.get("media_id") != new.media_id
+                    or int(latest.get("width") or 0) != new.width
+                    or int(latest.get("height") or 0) != new.height
+                    or latest.get("content_type") != new.content_type
+                ):
+                    raise CoverConflict("Ready candidate retry provenance is incomplete")
 
     @staticmethod
     def _write_json(path: Path, payload: dict) -> None:

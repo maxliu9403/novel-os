@@ -21,5 +21,9 @@ if [ -n "${NOVEL_OS_COVER_BASE_URL:-}" ]; then
   NOVEL_OS_COVER_BASE_URL="$(translate_loopback "$NOVEL_OS_COVER_BASE_URL")"
   export NOVEL_OS_COVER_BASE_URL
 fi
+if [ -n "${NOVEL_OS_COVER_DIRECTOR_BASE_URL:-}" ]; then
+  NOVEL_OS_COVER_DIRECTOR_BASE_URL="$(translate_loopback "$NOVEL_OS_COVER_DIRECTOR_BASE_URL")"
+  export NOVEL_OS_COVER_DIRECTOR_BASE_URL
+fi
 
 exec "$@"

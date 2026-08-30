@@ -10,7 +10,8 @@ from api import db
 from api.main import create_app
 from api.media import LocalMediaStore
 from api import routes
-from api.routes import get_cover_service
+from api.routes import get_cover_art_director, get_cover_service
+from core.cover_director import CoverArtDirector
 from core.cover_models import CoverBrief, CoverConcept
 from core.image_client import GeneratedImage, ImageClientError
 from tests.test_cover_director import director_fixture
@@ -76,7 +77,7 @@ def _concepts(title: str = "The Door Is Mine") -> list[dict]:
     } for index in range(1, 5)]
 
 
-def _client(tmp_path, monkeypatch) -> tuple[TestClient, ImageClient]:
+def _client(tmp_path, monkeypatch, *, director=None) -> tuple[TestClient, ImageClient]:
     monkeypatch.setenv("NOVEL_OS_SETTINGS_PATH", str(tmp_path / "settings.json"))
     projects = tmp_path / "projects"
     media = tmp_path / "media"
@@ -93,6 +94,8 @@ def _client(tmp_path, monkeypatch) -> tuple[TestClient, ImageClient]:
         media_store=store,
         media_add=media_add,
     )
+    if director is not None:
+        app.dependency_overrides[get_cover_art_director] = lambda: director
     return TestClient(app), image_client
 
 
@@ -414,6 +417,94 @@ def test_direction_api_persists_and_approves_exact_direction_hash(tmp_path, monk
     assert approved.json()["status"] == "approved"
 
 
+def test_direction_api_ignores_client_supplied_approved_status(tmp_path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, monkeypatch)
+    project = client.post(
+        "/api/projects", json={"title": "Approval Boundary", "genre": "Drama"}
+    ).json()
+    payload = director_fixture()
+    payload["status"] = "approved"
+
+    response = client.post(
+        f"/api/projects/{project['id']}/covers/directions",
+        json={"brief": two_character_fixture(), "direction": payload},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "awaiting_approval"
+
+
+def test_new_direction_supersedes_older_approval_before_image_call(
+    tmp_path, monkeypatch,
+) -> None:
+    client, image_client = _client(tmp_path, monkeypatch)
+    project = client.post(
+        "/api/projects", json={"title": "Latest Direction Gate", "genre": "Drama"}
+    ).json()
+    first = client.post(
+        f"/api/projects/{project['id']}/covers/directions",
+        json={"brief": two_character_fixture(), "direction": director_fixture()},
+    ).json()
+    approved = client.post(
+        f"/api/projects/{project['id']}/covers/directions/{first['direction_id']}/approve",
+        json={
+            "expected_brief_sha256": first["brief_sha256"],
+            "approved_direction_sha256": first["direction_sha256"],
+        },
+    ).json()
+    second = client.post(
+        f"/api/projects/{project['id']}/covers/directions",
+        json={"brief": two_character_fixture(), "direction": director_fixture()},
+    )
+    assert second.status_code == 201
+
+    response = client.post(
+        f"/api/projects/{project['id']}/covers/generate",
+        json={
+            "brief": approved["brief"],
+            "source_prompt_sha256": approved["brief_sha256"],
+            "direction_id": approved["direction_id"],
+            "approved_direction_sha256": approved["direction_sha256"],
+        },
+    )
+
+    assert response.status_code == 409
+    assert "latest" in response.json()["detail"]
+    assert image_client.calls == 0
+
+
+def test_direction_api_plans_from_persisted_v2_story_facts(tmp_path, monkeypatch) -> None:
+    client, image_client = _client(
+        tmp_path,
+        monkeypatch,
+        director=CoverArtDirector.from_fixture(director_fixture()),
+    )
+    project = client.post(
+        "/api/projects", json={"title": "Direction from Story", "genre": "Drama"}
+    ).json()
+    prompt = tmp_path / "projects" / project["id"] / "outputs" / "input" / "prompt.md"
+    prompt.parent.mkdir(parents=True, exist_ok=True)
+    prompt.write_text(
+        "COVER_HANDOFF_BEGIN\n```json\n"
+        + json.dumps(two_character_fixture(), ensure_ascii=False)
+        + "\n```\nCOVER_HANDOFF_END\n",
+        encoding="utf-8",
+    )
+
+    response = client.post(
+        f"/api/projects/{project['id']}/covers/directions",
+        json={"count": 4},
+    )
+
+    assert response.status_code == 201
+    created = response.json()
+    assert created["status"] == "awaiting_approval"
+    assert created["brief"]["schema_version"] == 2
+    assert created["brief"]["principal_characters"][0]["age"] == 34
+    assert len(created["plans"]) == 4
+    assert image_client.calls == 0
+
+
 def test_v2_generation_requires_an_approved_direction_before_image_call(tmp_path, monkeypatch) -> None:
     client, image_client = _client(tmp_path, monkeypatch)
     project = client.post("/api/projects", json={"title": "Direction Gate", "genre": "Drama"}).json()
@@ -430,3 +521,148 @@ def test_v2_generation_requires_an_approved_direction_before_image_call(tmp_path
     assert response.status_code == 409
     assert "approved" in response.json()["detail"]
     assert image_client.calls == 0
+
+
+def test_changed_v2_brief_marks_approved_direction_stale_before_image_call(
+    tmp_path, monkeypatch,
+) -> None:
+    client, image_client = _client(tmp_path, monkeypatch)
+    project = client.post("/api/projects", json={"title": "Direction Drift", "genre": "Drama"}).json()
+    created = client.post(
+        f"/api/projects/{project['id']}/covers/directions",
+        json={"brief": two_character_fixture(), "direction": director_fixture()},
+    ).json()
+    approved = client.post(
+        f"/api/projects/{project['id']}/covers/directions/{created['direction_id']}/approve",
+        json={
+            "expected_brief_sha256": created["brief_sha256"],
+            "approved_direction_sha256": created["direction_sha256"],
+        },
+    ).json()
+
+    response = client.post(
+        f"/api/projects/{project['id']}/covers/generate",
+        json={
+            "brief": approved["brief"],
+            "source_prompt_sha256": "c" * 64,
+            "direction_id": approved["direction_id"],
+            "approved_direction_sha256": approved["direction_sha256"],
+        },
+    )
+
+    assert response.status_code == 409
+    assert "stale" in response.json()["detail"]
+    directions = client.get(f"/api/projects/{project['id']}/covers/directions").json()
+    assert directions[0]["status"] == "stale"
+    assert image_client.calls == 0
+
+
+def test_current_project_prompt_overrides_old_client_brief_for_stale_detection(
+    tmp_path, monkeypatch,
+) -> None:
+    client, image_client = _client(tmp_path, monkeypatch)
+    project = client.post("/api/projects", json={"title": "Current Prompt Gate", "genre": "Drama"}).json()
+    created = client.post(
+        f"/api/projects/{project['id']}/covers/directions",
+        json={"brief": two_character_fixture(), "direction": director_fixture()},
+    ).json()
+    approved = client.post(
+        f"/api/projects/{project['id']}/covers/directions/{created['direction_id']}/approve",
+        json={
+            "expected_brief_sha256": created["brief_sha256"],
+            "approved_direction_sha256": created["direction_sha256"],
+        },
+    ).json()
+    changed = two_character_fixture()
+    changed["core_conflict"] = "The current story now turns on a different family rupture."
+    prompt = tmp_path / "projects" / project["id"] / "outputs" / "input" / "prompt.md"
+    prompt.parent.mkdir(parents=True, exist_ok=True)
+    prompt.write_text(
+        "COVER_HANDOFF_BEGIN\n```json\n"
+        + json.dumps(changed, ensure_ascii=False)
+        + "\n```\nCOVER_HANDOFF_END\n",
+        encoding="utf-8",
+    )
+
+    response = client.post(
+        f"/api/projects/{project['id']}/covers/generate",
+        json={
+            "brief": approved["brief"],
+            "source_prompt_sha256": approved["brief_sha256"],
+            "direction_id": approved["direction_id"],
+            "approved_direction_sha256": approved["direction_sha256"],
+        },
+    )
+
+    assert response.status_code == 409
+    assert "stale" in response.json()["detail"]
+    assert image_client.calls == 0
+
+
+def test_approved_v2_direction_generates_four_independent_image2_candidates(
+    tmp_path, monkeypatch,
+) -> None:
+    client, image_client = _client(tmp_path, monkeypatch)
+    project = client.post("/api/projects", json={"title": "Direction Generate", "genre": "Drama"}).json()
+    created = client.post(
+        f"/api/projects/{project['id']}/covers/directions",
+        json={"brief": two_character_fixture(), "direction": director_fixture()},
+    ).json()
+    approved = client.post(
+        f"/api/projects/{project['id']}/covers/directions/{created['direction_id']}/approve",
+        json={
+            "expected_brief_sha256": created["brief_sha256"],
+            "approved_direction_sha256": created["direction_sha256"],
+        },
+    ).json()
+
+    response = client.post(
+        f"/api/projects/{project['id']}/covers/generate",
+        json={
+            "brief": approved["brief"],
+            "source_prompt_sha256": approved["brief_sha256"],
+            "direction_id": approved["direction_id"],
+            "approved_direction_sha256": approved["direction_sha256"],
+        },
+    )
+
+    assert response.status_code == 202
+    assert _wait(client, response.json()["job_id"])["status"] == "done"
+    assert image_client.calls == 4
+    cover_set = client.get(f"/api/projects/{project['id']}/covers").json()[0]
+    assert cover_set["brief_schema_version"] == 2
+    assert cover_set["compiler_version"] == "cover-compiler.v2"
+    assert cover_set["brief"]["principal_characters"][0]["age"] == 34
+    assert [item["model"] for item in cover_set["candidates"]] == ["gpt-image-2"] * 4
+    assert all(item["safe_request_parameters"]["n"] == 1 for item in cover_set["candidates"])
+    assert all(len(item["attempt_history"]) == 1 for item in cover_set["candidates"])
+
+
+def test_quality_route_is_advisory_and_invalid_repair_code_stops_before_image_call(
+    tmp_path, monkeypatch,
+) -> None:
+    client, image_client = _client(tmp_path, monkeypatch)
+    project = client.post("/api/projects", json={"title": "Quality API", "genre": "Drama"}).json()
+    job_id = client.post(
+        f"/api/projects/{project['id']}/covers/generate",
+        json={"brief": _brief(), "concepts": _concepts()},
+    ).json()["job_id"]
+    _wait(client, job_id)
+    cover_set = client.get(f"/api/projects/{project['id']}/covers").json()[0]
+    candidate = cover_set["candidates"][0]
+
+    quality = client.get(
+        f"/api/projects/{project['id']}/covers/{cover_set['cover_set_id']}/quality"
+    )
+    assert quality.status_code == 200
+    assert quality.json()["reports"][0]["status"] == "human_review_required"
+    assert quality.json()["reports"][0]["attempt_count"] == 1
+
+    retry = client.post(
+        f"/api/projects/{project['id']}/covers/{cover_set['cover_set_id']}"
+        f"/candidates/{candidate['candidate_id']}/retry",
+        json={"expected_revision": cover_set["revision"], "repair_codes": ["generic_ai_face"]},
+    )
+    assert retry.status_code == 400
+    assert "reported" in retry.json()["detail"]
+    assert image_client.calls == 4

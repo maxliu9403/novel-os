@@ -9,15 +9,16 @@ Turn the approved story design into 3-5 distinct commercial cover candidates. Pr
 
 ## Entry gate
 
-1. Locate the approved Prompt and read its single `COVER_HANDOFF_BEGIN` / `COVER_HANDOFF_END` JSON block. Read [references/cover-handoff.md](references/cover-handoff.md) for the contract.
-2. Confirm the brainstorm Sections A-E are approved. If title, audience, conflict, protagonist identity, decisive node, or fictional world signals are unresolved, return to `novel-brainstorm-workshop` for that decision.
-3. Read [references/commercial-direction.md](references/commercial-direction.md) before drafting concepts.
+1. Locate the approved Prompt and normalize its single `COVER_HANDOFF_BEGIN` / `COVER_HANDOFF_END` JSON block to `CoverBriefV2`. Read [references/cover-handoff.md](references/cover-handoff.md) for the contract.
+2. Confirm Sections A-E are approved and every required protagonist has an age or age band, occupation/lived status, daily wardrobe or lived environment, agency signal, and evidence refs. Pending critical assumptions stop before image generation.
+3. Create 3-5 structured `CoverScenePlan` values through the Art Director, run the Canon Validator, and persist the resulting direction. Read [references/commercial-direction.md](references/commercial-direction.md) before reviewing it.
+4. Show Story facts and Art direction in Cover Studio. Continue only after exact direction-hash approval; stale direction approval never carries across a changed brief.
 
 ## Concept review
 
 Create 3-5 concepts with distinct focal scenes and visual strategies. Each concept states the protagonist action, power contrast, one secondary signal, composition, palette, and exact title treatment. Quote the exact title once; add no subtitle, author copy, logo, watermark, real place name, or unsupported spoiler. For the English / US profile, make the focal scene a consequential frozen action with visible reaction and stakes, and keep faces and the decisive prop clear of the title-safe zone.
 
-Show the concepts before billable image generation. Identify any inferred visual detail. Continue only after the user approves the set or explicitly asks for immediate generation from already approved concepts.
+Show the concepts before billable image generation. Identify every visual assumption. Approval binds both `brief_sha256` and `direction_sha256`; a boolean confirmation or global skip flag is not approval.
 
 ## Execute
 
@@ -31,21 +32,25 @@ When available, use Docker without restarting services:
 
 ```bash
 NOVEL_OS_PROJECT_NAME='PROJECT' NOVEL_OS_COVER_COUNT='4' \
+NOVEL_OS_COVER_DIRECTION_ID='DIRECTION_ID' \
+NOVEL_OS_COVER_APPROVED_DIRECTION_SHA256='DIRECTION_SHA256' \
   ./deploy.sh novel-cover './prompt/TITLE.md'
 ```
 
-Use actual values, never placeholders. The launcher reuses a healthy backend and writes portrait `2:3` candidates at the provider's native resolution (the preferred request is `2048x3072`) plus the delivery ZIP. Native fallback:
+Use actual values, never placeholders. The launcher reuses a healthy backend and writes portrait `2:3` candidates at the provider's native resolution (the preferred request is `2048x3072`) plus the delivery ZIP. Each candidate is a separate `gpt-image-2`, `n=1` call. Native fallback:
 
 ```bash
 PYTHONPATH=core ./venv/bin/python core/orchestrator.py cover generate \
-  --project './projects/PROJECT' --prompt './prompt/TITLE.md' --count 4
+  --project './projects/PROJECT' --prompt './prompt/TITLE.md' --count 4 \
+  --direction-id 'DIRECTION_ID' \
+  --approved-direction-sha256 'DIRECTION_SHA256'
 ```
 
 Do not call `up`, `restart`, or `down` for an already healthy service. Do not run a live provider smoke test unless the user approved the image spend.
 
 ## Review and delivery
 
-Return candidate paths and `/projects/PROJECT/covers`. Use the Studio for full-resolution inspection and explicit selection. CLI recovery forms are documented by `./deploy.sh novel-cover --help`; retry only the failed candidate.
+Return candidate paths and `/projects/PROJECT/covers`. Use the Studio for full-resolution and mobile-thumbnail inspection, quality blockers, and explicit selection. An unavailable visual evaluator means `human_review_required`; it never invents scores. Retry a failed candidate directly, or retry a ready candidate only with repair codes present in its quality report. Every retry appends an immutable generation attempt.
 
 After selection, verify non-empty `covers/selected-cover.*`, `covers/cover-set.json`, `package-manifest.json`, and `book-package.zip`. Report candidate status separately from package status.
 

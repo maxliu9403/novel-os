@@ -22,8 +22,9 @@ def test_brainstorm_skill_emits_machine_readable_cover_handoff() -> None:
     for field in (
         '"title"', '"language"', '"genre"', '"target_audience"',
         '"core_task"', '"core_conflict"', '"emotional_promise"',
-        '"protagonist"', '"decisive_story_node"', '"secondary_task"',
-        '"world_signals"', '"title_direction"', '"forbidden_elements"',
+        '"principal_characters"', '"relationship_map"', '"lived_environment"',
+        '"decisive_story_nodes"', '"secondary_signals"', '"genre_emotion_profile"',
+        '"commercial_visual_goal"', '"title_direction"', '"forbidden_elements"',
     ):
         assert field in contract
     assert "Sections A-E" in skill

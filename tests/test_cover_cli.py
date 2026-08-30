@@ -3,9 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from core.cover_director import CoverArtDirector
+from core.cover_handoff import parse_cover_handoff_v2
 from core.cover_models import CoverBrief, CoverConcept, CoverSet
 from core.cover_store import CoverStore
 from core.orchestrator import main
+from tests.test_cover_director import director_fixture
+from tests.test_cover_models_v2 import two_character_fixture
 
 
 SHA = "a" * 64
@@ -57,6 +61,49 @@ def test_cover_generate_rejects_invalid_count_before_provider_call(tmp_path: Pat
 
     assert code == 2
     assert "between 3 and 5" in capsys.readouterr().err
+
+
+def test_cover_generate_marks_direction_stale_from_current_prompt_before_provider_call(
+    tmp_path: Path, capsys, monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    original_payload = two_character_fixture()
+    original_text = (
+        "COVER_HANDOFF_BEGIN\n```json\n"
+        + json.dumps(original_payload, ensure_ascii=False)
+        + "\n```\nCOVER_HANDOFF_END\n"
+    )
+    brief = parse_cover_handoff_v2(original_text)
+    store = CoverStore(project)
+    direction = store.create_direction(
+        CoverArtDirector.from_fixture(director_fixture()).plan(brief, count=4),
+        brief=brief.to_dict(),
+    )
+    direction = store.approve_direction(
+        direction.direction_id,
+        expected_brief_sha256=direction.brief_sha256,
+        approved_direction_sha256=direction.direction_sha256,
+    )
+    changed_payload = two_character_fixture()
+    changed_payload["core_conflict"] = "The current story now turns on another rupture."
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text(
+        "COVER_HANDOFF_BEGIN\n```json\n"
+        + json.dumps(changed_payload, ensure_ascii=False)
+        + "\n```\nCOVER_HANDOFF_END\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("NOVEL_OS_COVER_API_KEY", "unused-cover-key")
+
+    code = main([
+        "cover", "generate", "--project", str(project), "--prompt", str(prompt),
+        "--direction-id", direction.direction_id,
+        "--approved-direction-sha256", direction.direction_sha256,
+    ])
+
+    assert code == 2
+    assert "stale" in capsys.readouterr().err
+    assert store.load_direction(direction.direction_id).status == "stale"
 
 
 def test_cover_select_requires_revision_arguments(tmp_path: Path) -> None:

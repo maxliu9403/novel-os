@@ -43,6 +43,37 @@ def test_store_rejects_direction_approval_hash_mismatch(tmp_path) -> None:
         )
 
 
+def test_store_forces_new_direction_to_awaiting_approval(tmp_path) -> None:
+    direction = replace(
+        CoverArtDirector.from_fixture(director_fixture()).plan(_brief(), count=4),
+        status="approved",
+        created_at="2100-01-01T00:00:00+00:00",
+    )
+
+    created = CoverStore(tmp_path / "project").create_direction(direction)
+
+    assert created.status == "awaiting_approval"
+    assert created.created_at != direction.created_at
+
+
+def test_store_only_allows_latest_direction_to_be_approved(tmp_path) -> None:
+    brief = _brief()
+    store = CoverStore(tmp_path / "project")
+    first = store.create_direction(
+        CoverArtDirector.from_fixture(director_fixture()).plan(brief, count=4)
+    )
+    store.create_direction(
+        CoverArtDirector.from_fixture(director_fixture()).plan(brief, count=4)
+    )
+
+    with pytest.raises(CoverConflict, match="latest"):
+        store.approve_direction(
+            first.direction_id,
+            expected_brief_sha256=brief.source_prompt_sha256,
+            approved_direction_sha256=first.direction_sha256,
+        )
+
+
 def test_store_marks_direction_stale_when_brief_hash_changes(tmp_path) -> None:
     direction = CoverArtDirector.from_fixture(director_fixture()).plan(_brief(), count=4)
     store = CoverStore(tmp_path / "project")

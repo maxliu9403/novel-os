@@ -26,6 +26,23 @@ def test_validator_blocks_unknown_evidence_and_identity_invention() -> None:
     assert {item.code for item in findings} >= {"unknown_evidence", "identity_invention"}
 
 
+def test_validator_blocks_pending_critical_visual_assumption() -> None:
+    brief = _brief()
+    payload = director_fixture()
+    payload["visual_assumptions"] = [{
+        "field": "char_mara.age",
+        "proposed_value": "mid-thirties",
+        "reason": "age is missing from approved story facts",
+        "status": "pending_confirmation",
+        "critical": True,
+    }]
+    direction = CoverArtDirector.from_fixture(payload).plan(brief, count=4)
+
+    findings = validate_direction(brief, direction)
+
+    assert "unresolved_critical_assumption" in {item.code for item in findings}
+
+
 def test_validator_requires_all_four_characters_in_same_scene_with_depth_blocking() -> None:
     brief = _brief(4)
     payload = director_fixture()

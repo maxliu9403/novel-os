@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, ClassVar, Mapping
 
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -13,6 +13,16 @@ _REAL_PLACE_MARKERS = {
     "tokyo", "singapore", "hong kong", "sydney", "toronto", "chicago",
 }
 _ASSUMPTION_STATUSES = {"pending_confirmation", "approved"}
+COVER_REPAIR_CODES = frozenset({
+    "age_mismatch",
+    "missing_character",
+    "generic_ai_face",
+    "weak_story_action",
+    "genre_drift",
+    "thumbnail_clutter",
+    "reader_promise_mismatch",
+    "title_failure",
+})
 
 
 def _text(value: Any, field_name: str, *, required: bool = True) -> str:
@@ -706,6 +716,7 @@ class ArtDirectionSet:
     status: str = "awaiting_approval"
     direction_id: str = ""
     direction_sha256: str = ""
+    created_at: str = ""
 
     def __post_init__(self) -> None:
         if self.schema_version != 1:
@@ -743,6 +754,7 @@ class ArtDirectionSet:
             status=str(data.get("status") or "awaiting_approval"),
             direction_id=str(data.get("direction_id") or "").strip(),
             direction_sha256=str(data.get("direction_sha256") or "").strip(),
+            created_at=str(data.get("created_at") or "").strip(),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -756,6 +768,7 @@ class ArtDirectionSet:
             "status": self.status,
             "direction_id": self.direction_id,
             "direction_sha256": self.direction_sha256,
+            "created_at": self.created_at,
         }
 
     def content_hash(self) -> str:
@@ -766,6 +779,8 @@ class ArtDirectionSet:
         payload.pop("direction_sha256", None)
         payload.pop("direction_id", None)
         payload.pop("status", None)
+        if not payload.get("created_at"):
+            payload.pop("created_at", None)
         return hashlib.sha256(
             json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
@@ -777,6 +792,35 @@ class CompiledCoverPrompt:
     compiler_version: str
     revision: int = 1
     modules: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class QualityFinding:
+    code: str
+    severity: str
+    message: str
+    evidence: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.code.strip() or self.severity not in {"blocker", "warning", "info"}:
+            raise ValueError("QualityFinding requires a code and a valid severity")
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "code": self.code,
+            "severity": self.severity,
+            "message": self.message,
+            "evidence": self.evidence,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "QualityFinding":
+        return cls(
+            code=_text(data.get("code"), "quality_finding.code"),
+            severity=_text(data.get("severity"), "quality_finding.severity"),
+            message=_text(data.get("message"), "quality_finding.message"),
+            evidence=_text(data.get("evidence"), "quality_finding.evidence", required=False),
+        )
 
 
 @dataclass(frozen=True)
@@ -795,3 +839,142 @@ class CoverQualityReport:
     blockers: tuple[str, ...] = ()
     repair_codes: tuple[str, ...] = ()
     evidence: tuple[str, ...] = ()
+    findings: tuple[QualityFinding, ...] = ()
+    evaluator_provider: str = ""
+    evaluator_model: str = ""
+    evaluated_at: str = ""
+
+    _DIMENSIONS: ClassVar[tuple[str, ...]] = (
+        "canon_fidelity", "required_cast_coverage", "age_and_environment_fidelity",
+        "photorealism", "anatomy_and_physics", "cinematic_storytelling", "genre_emotion",
+        "thumbnail_clarity", "hook_promise_alignment", "title_legibility_advisory",
+    )
+
+    def __post_init__(self) -> None:
+        if self.status not in {"blocked", "human_review_required", "recommended_for_human_review"}:
+            raise ValueError(f"Unknown cover quality status '{self.status}'")
+        for dimension in self._DIMENSIONS:
+            value = getattr(self, dimension)
+            if value is not None and not 0 <= value <= 100:
+                raise ValueError(f"{dimension} must be between 0 and 100")
+        unknown = set(self.repair_codes) - COVER_REPAIR_CODES
+        if unknown:
+            raise ValueError(f"Unknown cover repair code: {', '.join(sorted(unknown))}")
+        if self.blockers and self.status != "blocked":
+            raise ValueError("Cover quality blockers require blocked status")
+        required = (
+            self.canon_fidelity,
+            self.required_cast_coverage,
+            self.age_and_environment_fidelity,
+            self.photorealism,
+            self.anatomy_and_physics,
+        )
+        if self.status == "recommended_for_human_review" and not all(
+            score is not None and score >= 80 for score in required
+        ):
+            raise ValueError("Recommended cover quality requires all five fidelity scores at 80 or above")
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "CoverQualityReport":
+        findings_raw = data.get("findings") or ()
+        if not isinstance(findings_raw, (list, tuple)):
+            raise ValueError("cover quality findings must be a list")
+        values: dict[str, Any] = {
+            dimension: (int(data[dimension]) if data.get(dimension) is not None else None)
+            for dimension in cls._DIMENSIONS
+        }
+        values.update({
+            "status": _text(data.get("status"), "quality_report.status"),
+            "blockers": _texts(data.get("blockers"), "quality_report.blockers"),
+            "repair_codes": _texts(data.get("repair_codes"), "quality_report.repair_codes"),
+            "evidence": _texts(data.get("evidence"), "quality_report.evidence"),
+            "findings": tuple(QualityFinding.from_dict(item) for item in findings_raw),
+            "evaluator_provider": _text(data.get("evaluator_provider"), "quality_report.evaluator_provider", required=False),
+            "evaluator_model": _text(data.get("evaluator_model"), "quality_report.evaluator_model", required=False),
+            "evaluated_at": _text(data.get("evaluated_at"), "quality_report.evaluated_at", required=False),
+        })
+        return cls(**values)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            **{dimension: getattr(self, dimension) for dimension in self._DIMENSIONS},
+            "blockers": list(self.blockers),
+            "repair_codes": list(self.repair_codes),
+            "evidence": list(self.evidence),
+            "findings": [item.to_dict() for item in self.findings],
+            "evaluator_provider": self.evaluator_provider,
+            "evaluator_model": self.evaluator_model,
+            "evaluated_at": self.evaluated_at,
+        }
+
+
+@dataclass(frozen=True)
+class CoverGenerationAttempt:
+    attempt_id: str
+    prompt_revision: int
+    status: str
+    generation_prompt: str
+    repair_codes: tuple[str, ...] = ()
+    image_sha256: str = ""
+    request_id: str = ""
+    model: str = ""
+    relative_path: str = ""
+    media_id: str = ""
+    width: int = 0
+    height: int = 0
+    content_type: str = ""
+    safe_request_parameters: dict[str, Any] = field(default_factory=dict)
+    error: str = ""
+    quality_report: CoverQualityReport | None = None
+    created_at: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.attempt_id.strip() or self.prompt_revision < 1 or self.status not in {"ready", "failed"}:
+            raise ValueError("Invalid cover generation attempt")
+        if not self.generation_prompt.strip():
+            raise ValueError("Cover generation attempt prompt is required")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "attempt_id": self.attempt_id,
+            "prompt_revision": self.prompt_revision,
+            "status": self.status,
+            "generation_prompt": self.generation_prompt,
+            "repair_codes": list(self.repair_codes),
+            "image_sha256": self.image_sha256,
+            "request_id": self.request_id,
+            "model": self.model,
+            "relative_path": self.relative_path,
+            "media_id": self.media_id,
+            "width": self.width,
+            "height": self.height,
+            "content_type": self.content_type,
+            "safe_request_parameters": dict(self.safe_request_parameters),
+            "error": self.error,
+            "quality_report": self.quality_report.to_dict() if self.quality_report else None,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "CoverGenerationAttempt":
+        report = data.get("quality_report")
+        return cls(
+            attempt_id=_text(data.get("attempt_id"), "generation_attempt.attempt_id"),
+            prompt_revision=int(data.get("prompt_revision") or 1),
+            status=_text(data.get("status"), "generation_attempt.status"),
+            generation_prompt=_text(data.get("generation_prompt"), "generation_attempt.generation_prompt"),
+            repair_codes=_texts(data.get("repair_codes"), "generation_attempt.repair_codes"),
+            image_sha256=_text(data.get("image_sha256"), "generation_attempt.image_sha256", required=False),
+            request_id=_text(data.get("request_id"), "generation_attempt.request_id", required=False),
+            model=_text(data.get("model"), "generation_attempt.model", required=False),
+            relative_path=_text(data.get("relative_path"), "generation_attempt.relative_path", required=False),
+            media_id=_text(data.get("media_id"), "generation_attempt.media_id", required=False),
+            width=int(data.get("width") or 0),
+            height=int(data.get("height") or 0),
+            content_type=_text(data.get("content_type"), "generation_attempt.content_type", required=False),
+            safe_request_parameters=dict(data.get("safe_request_parameters") or {}),
+            error=_text(data.get("error"), "generation_attempt.error", required=False),
+            quality_report=CoverQualityReport.from_dict(report) if isinstance(report, Mapping) else None,
+            created_at=_text(data.get("created_at"), "generation_attempt.created_at", required=False),
+        )

@@ -16,13 +16,19 @@ from api.cover_service import CoverService, CoverServiceError
 from api.media import LocalMediaStore
 
 try:
+    from .cover_models_v2 import CoverBriefV2
     from .cover_handoff import build_cover_concepts, resolve_cover_brief
+    from .cover_prompt_compiler import COMPILER_VERSION, scene_to_cover_concept
     from .cover_store import CoverConflict, CoverStore
+    from .cover_validator import validate_direction
     from .image_client import ImageClientError, ImageGenerationClient
     from .studio_settings import resolve_cover_settings
 except ImportError:  # pragma: no cover - used by `python core/orchestrator.py`
+    from cover_models_v2 import CoverBriefV2
     from cover_handoff import build_cover_concepts, resolve_cover_brief
+    from cover_prompt_compiler import COMPILER_VERSION, scene_to_cover_concept
     from cover_store import CoverConflict, CoverStore
+    from cover_validator import validate_direction
     from image_client import ImageClientError, ImageGenerationClient
     from studio_settings import resolve_cover_settings
 
@@ -37,6 +43,10 @@ def configure_cover_parser(subparsers) -> None:
     generate.add_argument("--project", required=True, help="Novel project directory")
     generate.add_argument("--prompt", required=True, help="Prompt file, or - for stdin")
     generate.add_argument("--count", type=int, default=None, help="Candidate count (3-5)")
+    generate.add_argument("--direction-id", default="", help="Approved v2 direction id")
+    generate.add_argument(
+        "--approved-direction-sha256", default="", help="Exact approved direction content hash"
+    )
 
     listing = commands.add_parser("list", help="List persisted cover sets")
     listing.add_argument("--project", required=True, help="Novel project directory")
@@ -76,9 +86,45 @@ def run_cover_command(args) -> int:
                 raise ValueError("Cover candidate count must be between 3 and 5")
             text = _read_prompt(args.prompt)
             brief = resolve_cover_brief(project, prompt_text=text)
-            concepts = build_cover_concepts(brief, count=count)
+            compiler_version = ""
+            if args.direction_id or args.approved_direction_sha256:
+                if not args.direction_id or not args.approved_direction_sha256:
+                    raise ValueError("Both direction id and approved direction hash are required")
+                direction_store = CoverStore(project)
+                direction = direction_store.require_latest_direction(args.direction_id)
+                if (
+                    not isinstance(brief, CoverBriefV2)
+                    or brief.source_prompt_sha256 != direction.brief_sha256
+                ):
+                    direction_store.mark_direction_stale(
+                        args.direction_id, brief.source_prompt_sha256
+                    )
+                    raise CoverConflict("Cover direction is stale for the current Prompt")
+                if direction.status != "approved":
+                    raise CoverConflict("Cover direction must be approved before generation")
+                if direction.direction_sha256 != args.approved_direction_sha256:
+                    raise CoverConflict("Cover direction approval hash mismatch")
+                brief_payload = direction_store.load_direction_brief(args.direction_id)
+                if not brief_payload:
+                    raise CoverConflict("Approved direction is missing its versioned cover brief")
+                brief = CoverBriefV2.from_dict(
+                    brief_payload,
+                    source_prompt_sha256=direction.brief_sha256,
+                    foundation_sha256=str(brief_payload.get("foundation_sha256") or ""),
+                )
+                findings = validate_direction(brief, direction)
+                if findings:
+                    raise CoverConflict("Cover direction is stale or invalid")
+                concepts = [scene_to_cover_concept(brief, scene) for scene in direction.plans]
+                compiler_version = COMPILER_VERSION
+            else:
+                if isinstance(brief, CoverBriefV2):
+                    raise CoverConflict(
+                        "Versioned cover facts require an approved art direction before generation"
+                    )
+                concepts = build_cover_concepts(brief, count=count)
             result = _generation_service(settings).generate(
-                project.name, project, brief, concepts
+                project.name, project, brief, concepts, compiler_version=compiler_version
             )
         elif command == "retry":
             settings = resolve_cover_settings()

@@ -154,6 +154,15 @@ Optional environment overrides:
   NOVEL_OS_COVER_QUALITY         low, medium, high, or auto; default high
   NOVEL_OS_COVER_FORMAT          jpeg or png; default jpeg
   NOVEL_OS_COVER_TIMEOUT_SECONDS Provider timeout; default 180
+  NOVEL_OS_COVER_DIRECTOR_PROVIDER Optional planning provider; defaults to writing provider
+  NOVEL_OS_COVER_DIRECTOR_MODEL    Optional planning model; defaults to writing model
+  NOVEL_OS_COVER_DIRECTOR_BASE_URL Optional planning endpoint
+  NOVEL_OS_COVER_DIRECTOR_API_KEY  Optional planning key
+  NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS
+                                  Planning timeout; default 180
+  NOVEL_OS_COVER_DIRECTION_ID     Approved v2 direction id
+  NOVEL_OS_COVER_APPROVED_DIRECTION_SHA256
+                                  Exact approved direction content hash
 
 Provider URL and key are configured in ignored .env values or Studio Settings.
 Cover commands reuse a healthy backend, never restart services, and write to:
@@ -372,13 +381,15 @@ run_novel() {
 }
 
 run_novel_cover_generate() {
-  local prompt_file project_name count
+  local prompt_file project_name count direction_id direction_sha
   local -a args
   prompt_file="$(choose_prompt "${1:-}")"
   prompt_file="$(cd "$(dirname "$prompt_file")" && pwd)/$(basename "$prompt_file")"
   project_name="${2:-${NOVEL_OS_PROJECT_NAME:-$(basename "$prompt_file")}}"
   project_name="${project_name%.*}"
   count="${NOVEL_OS_COVER_COUNT:-4}"
+  direction_id="${NOVEL_OS_COVER_DIRECTION_ID:-}"
+  direction_sha="${NOVEL_OS_COVER_APPROVED_DIRECTION_SHA256:-}"
 
   validate_project_name "$project_name"
   if [[ ! "$count" =~ ^[3-5]$ ]]; then
@@ -394,6 +405,13 @@ run_novel_cover_generate() {
     --project "/data/projects/$project_name"
     --prompt - --count "$count"
   )
+  if [[ -n "$direction_id" || -n "$direction_sha" ]]; then
+    if [[ -z "$direction_id" || ! "$direction_sha" =~ ^[0-9a-f]{64}$ ]]; then
+      echo "V2 cover generation requires NOVEL_OS_COVER_DIRECTION_ID and a 64-character NOVEL_OS_COVER_APPROVED_DIRECTION_SHA256." >&2
+      return 1
+    fi
+    args+=(--direction-id "$direction_id" --approved-direction-sha256 "$direction_sha")
+  fi
   "${args[@]}" < "$prompt_file"
   printf '\nCover candidates: %s/projects/%s/outputs/deliverables/covers/pending\n' "$DATA_DIR" "$project_name"
   printf 'Delivery package: %s/projects/%s/outputs/deliverables/book-package.zip\n' "$DATA_DIR" "$project_name"

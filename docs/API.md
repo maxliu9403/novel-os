@@ -204,6 +204,11 @@ orch._llm = my_fake_llm_client       # bypass real LLM calls
 | `NOVEL_OS_COVER_FORMAT` | `jpeg` or `png`; default `jpeg` |
 | `NOVEL_OS_COVER_COUNT` | Default candidate count, 3-5; default 4 |
 | `NOVEL_OS_COVER_TIMEOUT_SECONDS` | Per-image provider timeout; default 180 |
+| `NOVEL_OS_COVER_DIRECTOR_PROVIDER` | Optional Art Director provider; falls back to the writing provider |
+| `NOVEL_OS_COVER_DIRECTOR_MODEL` | Optional Art Director model; falls back to the writing model, never the image model |
+| `NOVEL_OS_COVER_DIRECTOR_BASE_URL` | Optional Art Director endpoint; falls back to `NOVEL_OS_BASE_URL` |
+| `NOVEL_OS_COVER_DIRECTOR_API_KEY` | Optional Art Director key; stored write-only in Studio |
+| `NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS` | Art Director timeout; default 180 |
 
 `.env` files in the project root are auto-loaded (with or without `python-dotenv`).
 
@@ -222,24 +227,54 @@ GET /api/studio/cover
 PUT /api/studio/cover
 ```
 
-`PUT` accepts `base_url`, `api_key`, `model`, `size`, `quality`,
-`output_format`, `count`, and `timeout_seconds`. The response reports
-`configured` and `has_api_key` but never returns the key.
+`PUT` accepts image fields (`base_url`, `api_key`, locked `model`, `size`,
+`quality`, `output_format`, `count`, `timeout_seconds`) and optional independent
+Art Director fields (`director_provider`, `director_model`, `director_base_url`,
+`director_api_key`, `director_timeout_seconds`). Responses expose only key
+presence flags, never either key.
 
-### Generate from the persisted Prompt
+### Plan and approve art direction
+
+```http
+POST /api/projects/{project_id}/covers/directions
+Content-Type: application/json
+
+{"count": 4}
+
+GET /api/projects/{project_id}/covers/directions
+
+POST /api/projects/{project_id}/covers/directions/{direction_id}/approve
+Content-Type: application/json
+
+{
+  "expected_brief_sha256": "BRIEF_SHA256",
+  "approved_direction_sha256": "DIRECTION_SHA256"
+}
+```
+
+The server reads the current v2 handoff, blocks unresolved critical facts,
+creates 3-5 structured scene plans through the configured Art Director, and
+persists the facts snapshot. Approval binds the exact brief and direction
+hashes and makes no image request.
+
+### Generate an approved direction
 
 ```http
 POST /api/projects/{project_id}/covers/generate
 Content-Type: application/json
 
-{"count": 4}
+{
+  "count": 4,
+  "direction_id": "DIRECTION_ID",
+  "approved_direction_sha256": "DIRECTION_SHA256"
+}
 ```
 
-The server reads `outputs/input/prompt.md`, requires exactly one approved
-`COVER_HANDOFF_BEGIN` / `COVER_HANDOFF_END` block, creates distinct concepts,
-then issues one `n=1` request per concept. `count` must be 3-5. An advanced
-caller may instead send both `brief` and `concepts`; neither may be supplied
-without the other.
+Before submitting the background job, the server resolves the current project
+Prompt again and marks an older approval stale. It then compiles each approved
+scene and issues one independent `gpt-image-2`, `n=1` request. Historical v1
+brief/concept submission remains available for compatibility; Studio uses the
+direction-gated workflow.
 
 The response is HTTP 202 with a job object:
 

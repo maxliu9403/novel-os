@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import uuid
 from dataclasses import replace
 from pathlib import Path
 from typing import Callable, Sequence
@@ -16,12 +17,26 @@ from core.cover_models import (
     CoverConcept,
     CoverSet,
 )
-from core.cover_models_v2 import CoverBriefV2
+from core.cover_models_v2 import (
+    CoverBriefV2,
+    CoverGenerationAttempt,
+    CoverQualityReport,
+    CoverScenePlan,
+    QualityFinding,
+)
 from core.cover_handoff import refresh_cover_concept_prompt
 from core.cover_store import CoverConflict, CoverStore
 from core.delivery_package import build_delivery_package
 from core.image_binary import aspect_ratio_matches, content_type, dimensions
 from core.image_client import GeneratedImage, ImageClientError, ImageGenerationClient
+from core.cover_quality import (
+    UnavailableCoverVisualEvaluator,
+    ThumbnailProjectionError,
+    evaluate_binary_cover,
+    human_review_report,
+    project_cover_thumbnail,
+    report_from_binary_findings,
+)
 
 
 _GENERATION_EXTENSIONS = {"image/png": ".png", "image/jpeg": ".jpg"}
@@ -40,11 +55,15 @@ class CoverService:
         media_store: media_lib.MediaStore | None = None,
         media_add: Callable[..., object] | None = None,
         provider: str = "openai_compatible",
+        visual_evaluator=None,
+        thumbnail_projector: Callable[..., bytes] = project_cover_thumbnail,
     ) -> None:
         self.image_client = image_client
         self.media_store = media_store
         self.media_add = media_add
         self.provider = provider
+        self.visual_evaluator = visual_evaluator or UnavailableCoverVisualEvaluator()
+        self.thumbnail_projector = thumbnail_projector
 
     def generate(
         self,
@@ -78,6 +97,7 @@ class CoverService:
         candidate_id: str,
         *,
         expected_revision: int,
+        repair_codes: Sequence[str] = (),
     ) -> CoverSet:
         project = Path(project_path).resolve()
         self._require_generation_dependencies()
@@ -86,18 +106,27 @@ class CoverService:
         if current.revision != expected_revision:
             raise CoverConflict("Cover set revision changed")
         candidate = self._candidate(current, candidate_id)
-        if candidate.status != "failed":
-            raise CoverServiceError("Only a failed cover candidate can be retried")
-        refreshed_concepts = tuple(
-            replace(
-                concept,
-                generation_prompt=refresh_cover_concept_prompt(current.brief, concept),
+        if candidate.status != "failed" and not (
+            candidate.status == "ready" and repair_codes
+        ):
+            raise CoverServiceError(
+                "Retry requires a failed candidate or a ready candidate with reported repair codes"
             )
+        refreshed_concepts = tuple(
+            self._repair_concept(current.brief, concept, candidate, repair_codes)
             if concept.concept_id == candidate.concept_id else concept
             for concept in current.concepts
         )
         current = replace(current, concepts=refreshed_concepts)
-        current = self._attempt_candidate(project_id, project, store, current, candidate_id)
+        current = self._attempt_candidate(
+            project_id,
+            project,
+            store,
+            current,
+            candidate_id,
+            repair_codes=repair_codes,
+            prompt_revision=candidate.prompt_revision + 1,
+        )
         current = self._finalize(store, current)
         build_delivery_package(project, cover_set=current)
         return current
@@ -213,24 +242,70 @@ class CoverService:
         store: CoverStore,
         current: CoverSet,
         candidate_id: str,
+        *,
+        repair_codes: Sequence[str] = (),
+        prompt_revision: int | None = None,
     ) -> CoverSet:
         candidate = self._candidate(current, candidate_id)
         concept = next(
             item for item in current.concepts if item.concept_id == candidate.concept_id
         )
+        prompt_revision = prompt_revision or candidate.prompt_revision
         try:
             assert self.image_client is not None
             generated = self.image_client.generate(concept.generation_prompt)
             ready = self._persist_generated(
                 project_id, project, current, candidate, concept, generated
             )
+            report = self._quality_report(
+                current.brief,
+                concept,
+                generated.data,
+                ready.sha256,
+                ready.content_type,
+            )
+            ready = replace(ready, quality_report=report.to_dict())
+            attempt = CoverGenerationAttempt(
+                attempt_id=f"attempt-{uuid.uuid4().hex}",
+                prompt_revision=prompt_revision,
+                status="ready",
+                generation_prompt=concept.generation_prompt,
+                repair_codes=tuple(repair_codes),
+                image_sha256=ready.sha256,
+                request_id=ready.request_id,
+                model=ready.model,
+                relative_path=ready.relative_path,
+                media_id=ready.media_id,
+                width=ready.width,
+                height=ready.height,
+                content_type=ready.content_type,
+                safe_request_parameters=dict(ready.safe_request_parameters),
+                quality_report=report,
+                created_at=self._now(),
+            )
         except (ImageClientError, OSError, ValueError) as exc:
-            ready = replace(
+            error = self._safe_error(exc)
+            ready = candidate if candidate.status == "ready" else replace(
                 candidate,
                 status="failed",
-                error=self._safe_error(exc),
+                error=error,
                 generation_prompt=concept.generation_prompt,
+                prompt_revision=prompt_revision,
             )
+            attempt = CoverGenerationAttempt(
+                attempt_id=f"attempt-{uuid.uuid4().hex}",
+                prompt_revision=prompt_revision,
+                status="failed",
+                generation_prompt=concept.generation_prompt,
+                repair_codes=tuple(repair_codes),
+                error=error,
+                created_at=self._now(),
+            )
+        ready = replace(
+            ready,
+            attempt_history=(*candidate.attempt_history, attempt.to_dict()),
+            prompt_revision=prompt_revision if attempt.status == "ready" else ready.prompt_revision,
+        )
         updated = replace(
             current,
             candidates=self._replace_candidate(current, ready),
@@ -238,6 +313,96 @@ class CoverService:
             updated_at=self._now(),
         )
         return store.save(updated, expected_revision=current.revision)
+
+    def _repair_concept(
+        self,
+        brief: CoverBrief | CoverBriefV2,
+        concept: CoverConcept,
+        candidate: CoverCandidate,
+        repair_codes: Sequence[str],
+    ) -> CoverConcept:
+        if not repair_codes:
+            return replace(
+                concept,
+                generation_prompt=refresh_cover_concept_prompt(brief, concept),
+                scene_plan=dict(concept.scene_plan),
+            )
+        report = candidate.quality_report or {}
+        reported = set(str(item) for item in report.get("repair_codes") or ())
+        requested = tuple(dict.fromkeys(str(item).strip() for item in repair_codes if str(item).strip()))
+        if not requested or not set(requested).issubset(reported):
+            raise CoverServiceError("Retry repair codes must be reported by the candidate quality report")
+        if not isinstance(brief, CoverBriefV2) or not concept.scene_plan:
+            raise CoverServiceError("Repair-code retry requires a versioned cover direction")
+        scene = CoverScenePlan.from_dict(concept.scene_plan)
+        from core.cover_prompt_compiler import compile_cover_prompt, compile_repair_prompt
+
+        baseline = compile_cover_prompt(brief, scene)
+        prior = replace(baseline, revision=max(1, candidate.prompt_revision))
+        compiled = compile_repair_prompt(brief, scene, prior, requested)
+        return replace(concept, generation_prompt=compiled.text, scene_plan=scene.to_dict())
+
+    def _quality_report(
+        self,
+        brief: CoverBrief | CoverBriefV2,
+        concept: CoverConcept,
+        image: bytes,
+        image_sha256: str,
+        expected_content_type: str,
+    ) -> CoverQualityReport:
+        binary = evaluate_binary_cover(
+            image,
+            expected_sha256=image_sha256,
+            expected_content_type=expected_content_type,
+        )
+        if binary:
+            return report_from_binary_findings(binary)
+        if not isinstance(brief, CoverBriefV2) or not concept.scene_plan:
+            return human_review_report(
+                "Structured scene plan is unavailable for this historical candidate"
+            )
+        if not self.visual_evaluator.available:
+            return self.visual_evaluator.evaluate(
+                image=b"",
+                thumbnail=b"",
+                brief=brief,
+                scene=CoverScenePlan.from_dict(concept.scene_plan),
+            )
+        try:
+            scene = CoverScenePlan.from_dict(concept.scene_plan)
+            thumbnail = self.thumbnail_projector(
+                image,
+                width=brief.commercial_visual_goal.thumbnail_reference_width,
+                height=brief.commercial_visual_goal.thumbnail_reference_height,
+            )
+            report = self.visual_evaluator.evaluate(
+                image=image,
+                thumbnail=thumbnail,
+                brief=brief,
+                scene=scene,
+            )
+        except ThumbnailProjectionError as exc:
+            return report_from_binary_findings((QualityFinding(
+                "thumbnail_projection_failure",
+                "blocker",
+                "Cover could not be decoded for mobile-thumbnail review",
+                str(exc),
+            ),))
+        except Exception as exc:
+            return human_review_report(str(exc))
+        blockers = tuple(report.blockers)
+        if blockers and report.status != "blocked":
+            report = replace(report, status="blocked")
+        required_scores = (
+            report.canon_fidelity, report.required_cast_coverage,
+            report.age_and_environment_fidelity, report.photorealism,
+            report.anatomy_and_physics,
+        )
+        if not blockers and all(score is not None and score >= 80 for score in required_scores):
+            report = replace(report, status="recommended_for_human_review")
+        elif not blockers and report.status == "blocked":
+            report = replace(report, status="human_review_required")
+        return report
 
     def _persist_generated(
         self,

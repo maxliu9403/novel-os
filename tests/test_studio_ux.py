@@ -18,6 +18,11 @@ def _client(tmp_path, monkeypatch):
         "NOVEL_OS_BASE_URL",
         "NOVEL_OS_COVER_MODEL",
         "NOVEL_OS_COVER_FORMAT",
+        "NOVEL_OS_COVER_DIRECTOR_PROVIDER",
+        "NOVEL_OS_COVER_DIRECTOR_MODEL",
+        "NOVEL_OS_COVER_DIRECTOR_BASE_URL",
+        "NOVEL_OS_COVER_DIRECTOR_API_KEY",
+        "NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS",
     ):
         monkeypatch.delenv(key, raising=False)
     settings = tmp_path / "studio_settings.json"
@@ -76,6 +81,30 @@ def test_cover_status_and_put_keep_key_write_only(tmp_path, monkeypatch):
     persisted = json.loads(settings.read_text(encoding="utf-8"))
     assert persisted["NOVEL_OS_COVER_API_KEY"] == "cover-secret"
     assert persisted["NOVEL_OS_COVER_BASE_URL"] == "https://sub2api.example/v1/"
+
+
+def test_cover_put_persists_independent_director_settings_without_echoing_key(
+    tmp_path, monkeypatch,
+):
+    client, settings = _client(tmp_path, monkeypatch)
+
+    response = client.put("/api/studio/cover", json={
+        "director_provider": "openai_compatible",
+        "director_model": "director-model",
+        "director_base_url": "https://director.example/v1/",
+        "director_api_key": "director-secret",
+        "director_timeout_seconds": 240,
+    })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["director_model"] == "director-model"
+    assert body["director_has_api_key"] is True
+    assert body["director_inherits_writing"] is False
+    assert "director_api_key" not in body
+    assert "director-secret" not in response.text
+    persisted = json.loads(settings.read_text(encoding="utf-8"))
+    assert persisted["NOVEL_OS_COVER_DIRECTOR_API_KEY"] == "director-secret"
 
 
 def test_cover_put_accepts_provider_native_portrait_size(tmp_path, monkeypatch):

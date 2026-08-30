@@ -49,7 +49,7 @@ Every generated Prompt includes exactly one JSON object inside these literal bou
 COVER_HANDOFF_BEGIN
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "title": "<exact approved title>",
   "author": "<approved author or empty>",
   "language": "<title and output language>",
@@ -59,32 +59,85 @@ COVER_HANDOFF_BEGIN
   "core_task": "<reader-facing premise and protagonist objective>",
   "core_conflict": "<specific opposition and stakes>",
   "emotional_promise": "<dominant emotion and earned payoff>",
-  "protagonist": {
-    "role": "<story role>",
-    "visual_identity": "<confirmed visual identity>",
-    "agency_signal": "<visible action or decision>"
+  "principal_characters": [{
+    "character_id": "<stable story character id>",
+    "name": "<confirmed name>",
+    "narrative_role": "<protagonist or co-protagonist role>",
+    "must_appear": true,
+    "age": null,
+    "age_band": "<confirmed age phase; use an integer age instead when known>",
+    "gender_presentation": "<confirmed presentation or empty>",
+    "physical_identity": "<confirmed visible identity only>",
+    "occupation_and_status": "<occupation and lived status>",
+    "daily_wardrobe": "<credible repeated-use clothing>",
+    "lived_environment": "<daily material environment>",
+    "current_emotional_state": "<state at the decisive node>",
+    "agency_signal": "<visible action or decision>",
+    "relationships": ["<related character id>"],
+    "source_refs": ["<approved story-contract path>"]
+  }],
+  "relationship_map": [{
+    "from_character_id": "<character id>",
+    "to_character_id": "<character id>",
+    "relationship": "<confirmed relationship>",
+    "power_balance": "<current power balance>",
+    "visible_tension": "<visualizable behavior>",
+    "shared_risk": "<shared stake or empty>"
+  }],
+  "lived_environment": {
+    "era": "<confirmed era>",
+    "fictional_place": "<invented or abstract story place>",
+    "primary_spaces": ["<lived story space>"],
+    "economic_signals": ["<material reality signal>"],
+    "cultural_signals": ["<confirmed routine or object>"],
+    "weather_and_season": "<confirmed value or empty>",
+    "environment_truths": ["<durable setting fact>"]
   },
-  "relationship_or_power_contrast": "<visualizable contrast>",
-  "decisive_story_node": "<major irreversible event suitable for a cover>",
-  "secondary_task": {
-    "story_function": "<supporting pressure or promise>",
-    "visual_signal": "<one person, setting feature, or symbolic object>"
+  "decisive_story_nodes": [{
+    "node_id": "<stable node id>",
+    "description": "<major irreversible action suitable for a cover>",
+    "evidence_refs": ["character:<id>"]
+  }],
+  "secondary_signals": [{
+    "signal_id": "<stable signal id>",
+    "description": "<one person, setting feature, or story object>",
+    "story_function": "<supporting pressure or promise>"
+  }],
+  "genre_emotion_profile": {
+    "primary_genre": "<genre>",
+    "submode": "<confirmed romance, family-ethics, or neutral submode>",
+    "emotional_temperature": "<scene temperature>",
+    "desired_viewer_feeling": "<first emotional response>",
+    "relationship_motion": "<visible move closer, apart, exclusion, or boundary>",
+    "prohibited_shortcuts": ["<genre cliche that would mislead>"]
   },
-  "world_signals": ["<fictional setting, institution, era, technology, or social rule>"],
+  "commercial_visual_goal": {
+    "market": "<release market branch>",
+    "audience_segment": "<confirmed audience>",
+    "display_context": "mobile_thumbnail",
+    "thumbnail_reference_width": 120,
+    "thumbnail_reference_height": 180,
+    "first_glance_priority": "<one relationship or decisive action>",
+    "reader_identification": "<truthful identification anchor>",
+    "truthful_story_promise": "<what this scene honestly promises>"
+  },
   "title_direction": {
     "hierarchy": "<title hierarchy>",
     "preferred_zone": "<top, center, or lower third>",
     "readability": "mobile_thumbnail"
   },
-  "forbidden_elements": ["real places", "logos", "watermarks", "unsupported spoilers"]
+  "forbidden_elements": ["real landmarks", "logos", "watermarks", "unsupported spoilers"],
+  "visual_assumptions": []
 }
 ```
 COVER_HANDOFF_END
 ````
 
 The contents must be valid JSON after replacing every placeholder. Title,
-target audience, conflict, protagonist identity, decisive node, and world
-signals come from confirmed Sections A-E rather than new assumptions. Keep real
+target audience, conflict, principal-character ages and lived identities,
+relationships, decisive nodes, and environment signals come from confirmed
+Sections A-E rather than new assumptions. Include every protagonist or
+co-protagonist whose arc is part of the reader promise. Keep real
 market geography only in `audience_research`; cover-facing places are fictional
 or abstract. This block is production metadata and does not enter reader prose.
 

@@ -5,14 +5,26 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Sequence
 
-from .cover_models_v2 import (
-    CompiledCoverPrompt,
-    CoverBriefV2,
-    CoverScenePlan,
-    PrincipalCharacter,
-)
-from .cover_models import CoverConcept
-from .cover_profiles import resolve_genre_profile
+try:
+    from .cover_models_v2 import (
+        COVER_REPAIR_CODES,
+        CompiledCoverPrompt,
+        CoverBriefV2,
+        CoverScenePlan,
+        PrincipalCharacter,
+    )
+    from .cover_models import CoverConcept
+    from .cover_profiles import resolve_genre_profile
+except ImportError:  # pragma: no cover - legacy CLI imports core modules top-level
+    from cover_models_v2 import (
+        COVER_REPAIR_CODES,
+        CompiledCoverPrompt,
+        CoverBriefV2,
+        CoverScenePlan,
+        PrincipalCharacter,
+    )
+    from cover_models import CoverConcept
+    from cover_profiles import resolve_genre_profile
 
 
 COMPILER_VERSION = "cover-compiler.v2"
@@ -186,6 +198,7 @@ def scene_to_cover_concept(
         secondary_signal=scene.primary_prop,
         title_treatment=scene.title_safe_zone,
         generation_prompt=compiled.text,
+        scene_plan=scene.to_dict(),
     )
 
 
@@ -199,6 +212,7 @@ _REPAIR_MODULES = {
     "reader_promise_mismatch": ("MOBILE COMMERCIAL COVER OBJECTIVE", "STORY TRUTH"),
     "title_failure": ("TITLE AND SAFE ZONE",),
 }
+assert set(_REPAIR_MODULES) == COVER_REPAIR_CODES
 
 
 def compile_repair_prompt(

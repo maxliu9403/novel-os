@@ -381,6 +381,12 @@ def test_novel_cover_reuses_healthy_backend_without_service_restart(tmp_path: Pa
     assert capture.read_text(encoding="utf-8") == prompt.read_text(encoding="utf-8")
 
 
+def test_compose_defaults_new_cover_generation_to_jpeg() -> None:
+    compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
+
+    assert "NOVEL_OS_COVER_FORMAT: ${NOVEL_OS_COVER_FORMAT:-jpeg}" in compose
+
+
 def test_novel_cover_rejects_invalid_count_before_docker(tmp_path: Path):
     bin_dir, log, capture = _fake_docker(tmp_path)
     prompt = tmp_path / "cover-prompt.md"

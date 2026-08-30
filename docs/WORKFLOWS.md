@@ -177,6 +177,12 @@ NOVEL_OS_COVER_QUALITY=high
 NOVEL_OS_COVER_FORMAT=jpeg
 NOVEL_OS_COVER_COUNT=4
 NOVEL_OS_COVER_TIMEOUT_SECONDS=180
+# Optional: omit these to reuse the writing model route.
+NOVEL_OS_COVER_DIRECTOR_PROVIDER=openai_compatible
+NOVEL_OS_COVER_DIRECTOR_MODEL=your-planning-model
+NOVEL_OS_COVER_DIRECTOR_BASE_URL=https://your-text-endpoint.example/v1
+NOVEL_OS_COVER_DIRECTOR_API_KEY=your-text-key
+NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS=180
 ```
 
 Generate 3-5 independent candidates through the healthy Docker backend:

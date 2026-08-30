@@ -160,6 +160,9 @@ class CoverConcept:
     secondary_signal: str
     title_treatment: str
     generation_prompt: str
+    # v2 scenes are retained on the concept so quality review and repair can
+    # reconstruct the exact structured direction without reparsing prose.
+    scene_plan: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for name in (
@@ -174,7 +177,15 @@ class CoverConcept:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "CoverConcept":
-        return cls(**{field_name: str(data.get(field_name) or "") for field_name in cls.__dataclass_fields__})
+        values = {
+            field_name: str(data.get(field_name) or "")
+            for field_name in (
+                "concept_id", "visual_strategy", "focal_scene", "composition", "palette",
+                "secondary_signal", "title_treatment", "generation_prompt",
+            )
+        }
+        values["scene_plan"] = dict(data.get("scene_plan") or {})
+        return cls(**values)
 
 
 @dataclass(frozen=True)
@@ -195,6 +206,9 @@ class CoverCandidate:
     safe_request_parameters: dict[str, Any] = field(default_factory=dict)
     error: str = ""
     created_at: str = field(default_factory=_now)
+    prompt_revision: int = 1
+    attempt_history: tuple[dict[str, Any], ...] = ()
+    quality_report: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.status not in _CANDIDATE_STATUSES:
@@ -219,6 +233,9 @@ class CoverCandidate:
             if name != "safe_request_parameters"
         }
         values["safe_request_parameters"] = dict(data.get("safe_request_parameters") or {})
+        values["attempt_history"] = tuple(dict(item) for item in data.get("attempt_history") or ())
+        report = data.get("quality_report")
+        values["quality_report"] = dict(report) if isinstance(report, Mapping) else None
         return cls(**values)
 
 

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from .cover_models_v2 import CoverBriefV2, GenreEmotionProfile
+try:
+    from .cover_models_v2 import CoverBriefV2, GenreEmotionProfile
+except ImportError:  # pragma: no cover - legacy CLI imports core modules top-level
+    from cover_models_v2 import CoverBriefV2, GenreEmotionProfile
 
 
 _ROMANCE = {

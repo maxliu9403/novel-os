@@ -88,6 +88,34 @@ def get_cover_mutation_service(
     return CoverService(media_store=store, media_add=db.media_add)
 
 
+def get_cover_art_director():
+    """Resolve story direction through the configured text-model boundary."""
+    from core.cover_director import CoverArtDirector
+    from core.llm_client import LLMClient, LLMError
+    from core.studio_settings import resolve_cover_director_settings
+
+    try:
+        settings = resolve_cover_director_settings()
+        client = LLMClient(
+            provider=settings.provider or None,
+            model=settings.model or None,
+            base_url=settings.base_url or None,
+            api_key=settings.api_key or None,
+            timeout_seconds=settings.timeout_seconds,
+        )
+    except (LLMError, ValueError) as exc:
+        message = str(exc)
+
+        def unavailable(_system: str, _user: str) -> str:
+            raise LLMError(message)
+
+        return CoverArtDirector(complete=unavailable, model="unavailable")
+    return CoverArtDirector(
+        complete=client.complete,
+        model=client.model or client.provider,
+    )
+
+
 def _content_disposition(project_id: str, extension: str) -> str:
     """Build a browser-compatible attachment name for any project id.
 
@@ -167,6 +195,11 @@ def put_studio_cover(body: StudioCoverUpdate):
         "output_format": "NOVEL_OS_COVER_FORMAT",
         "count": "NOVEL_OS_COVER_COUNT",
         "timeout_seconds": "NOVEL_OS_COVER_TIMEOUT_SECONDS",
+        "director_provider": "NOVEL_OS_COVER_DIRECTOR_PROVIDER",
+        "director_model": "NOVEL_OS_COVER_DIRECTOR_MODEL",
+        "director_base_url": "NOVEL_OS_COVER_DIRECTOR_BASE_URL",
+        "director_api_key": "NOVEL_OS_COVER_DIRECTOR_API_KEY",
+        "director_timeout_seconds": "NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS",
     }
     patch: dict[str, object | None] = {}
     for field, key in field_keys.items():
@@ -185,6 +218,7 @@ def put_studio_cover(body: StudioCoverUpdate):
             candidate[key] = value
     try:
         studio_settings.resolve_cover_settings(candidate)
+        studio_settings.resolve_cover_director_settings(candidate)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     studio_settings.save_settings(patch)
@@ -714,7 +748,7 @@ def _cover_project(svc: ProjectService, project_id: str) -> Path:
 
 
 def _cover_store(svc: ProjectService, project_id: str):
-    from core.cover_store import CoverStore
+    from core.cover_store import CoverConflict, CoverStore
 
     return CoverStore(_cover_project(svc, project_id))
 
@@ -734,8 +768,15 @@ def _cover_out(project_id: str, cover_set, *, active_revision: int = 0) -> dict:
     return body
 
 
+def _direction_out(direction, *, brief: dict | None = None) -> dict:
+    body = direction.to_dict()
+    if brief:
+        body["brief"] = brief
+    return body
+
+
 def _cover_error(exc: Exception) -> HTTPException:
-    from core.cover_store import CoverConflict, CoverStore
+    from core.cover_store import CoverConflict
     from core.image_client import ImageClientError
 
     if isinstance(exc, FileNotFoundError):
@@ -755,35 +796,66 @@ def create_cover_direction(
     project_id: str,
     body: CoverDirectionCreate,
     svc: ProjectService = Depends(get_service),
+    director=Depends(get_cover_art_director),
 ):
+    from core.cover_director import CoverDirectionError
+    from core.cover_handoff import resolve_cover_brief_v2
     from core.cover_models_v2 import ArtDirectionSet, CoverBriefV2
     from core.cover_validator import validate_direction
-    from core.cover_store import CoverStore
+    from core.cover_store import CoverConflict, CoverStore
 
     project = _cover_project(svc, project_id)
-    source_sha = body.source_prompt_sha256 or hashlib.sha256(
-        json.dumps(body.brief, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    ).hexdigest()
     try:
-        brief = CoverBriefV2.from_dict(
-            body.brief,
-            source_prompt_sha256=source_sha,
-            foundation_sha256=body.foundation_sha256,
-        )
-        direction = ArtDirectionSet.from_dict(
-            body.direction,
-            brief_sha256=brief.source_prompt_sha256,
-        )
+        if (body.brief is None) != (body.direction is None):
+            raise ValueError("Cover brief and structured direction must be supplied together")
+        if body.brief is None:
+            brief = resolve_cover_brief_v2(project)
+            pending = brief.pending_critical_assumptions()
+            if pending:
+                raise CoverConflict(
+                    "Cover story facts need confirmation before art direction: "
+                    + ", ".join(item.field for item in pending)
+                )
+            direction = director.plan(brief, count=body.count)
+        else:
+            source_sha = body.source_prompt_sha256 or hashlib.sha256(
+                json.dumps(body.brief, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            ).hexdigest()
+            brief = CoverBriefV2.from_dict(
+                body.brief,
+                source_prompt_sha256=source_sha,
+                foundation_sha256=body.foundation_sha256,
+            )
+            assert body.direction is not None
+            direction = ArtDirectionSet.from_dict(
+                body.direction,
+                brief_sha256=brief.source_prompt_sha256,
+            )
         findings = validate_direction(brief, direction)
         if findings:
             raise ValueError(
                 "Cover direction validation failed: "
                 + "; ".join(item.code for item in findings)
             )
-        created = CoverStore(project).create_direction(direction)
-    except (FileNotFoundError, ValueError) as exc:
+        created = CoverStore(project).create_direction(direction, brief=brief.to_dict())
+    except CoverConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except CoverDirectionError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail="Project Prompt is missing") from exc
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return created.to_dict()
+    return _direction_out(created, brief=CoverStore(project).load_direction_brief(created.direction_id))
+
+
+@router.get("/projects/{project_id}/covers/directions")
+def list_cover_directions(project_id: str, svc: ProjectService = Depends(get_service)):
+    store = _cover_store(svc, project_id)
+    return [
+        _direction_out(direction, brief=store.load_direction_brief(direction.direction_id))
+        for direction in reversed(store.list_directions())
+    ]
 
 
 @router.post(
@@ -804,9 +876,9 @@ def approve_cover_direction(
             expected_brief_sha256=body.expected_brief_sha256,
             approved_direction_sha256=body.approved_direction_sha256,
         )
-    except (FileNotFoundError, ValueError, CoverConflict) as exc:
+    except (FileNotFoundError, ValueError) as exc:
         raise _cover_error(exc) from exc
-    return approved.to_dict()
+    return _direction_out(approved, brief=CoverStore(project).load_direction_brief(direction_id))
 
 
 @router.post(
@@ -831,19 +903,54 @@ def generate_covers(
     compiler_version = ""
     try:
         if body.direction_id:
-            if body.brief is None or body.concepts is not None:
+            if body.concepts is not None:
                 raise ValueError(
-                    "v2 cover generation requires a brief and direction_id without concepts"
+                    "v2 cover generation requires a direction_id without concepts"
                 )
-            source_sha = body.source_prompt_sha256 or hashlib.sha256(
-                json.dumps(body.brief, ensure_ascii=False, sort_keys=True).encode("utf-8")
-            ).hexdigest()
-            brief = CoverBriefV2.from_dict(
-                body.brief,
-                source_prompt_sha256=source_sha,
-                foundation_sha256=body.foundation_sha256,
+            direction_store = CoverStore(project)
+            direction = direction_store.require_latest_direction(body.direction_id)
+            stored_payload = direction_store.load_direction_brief(body.direction_id)
+            if not stored_payload:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cover direction has no story-facts snapshot",
+                )
+            stored_brief = CoverBriefV2.from_dict(
+                stored_payload,
+                source_prompt_sha256=str(
+                    stored_payload.get("source_prompt_sha256") or direction.brief_sha256
+                ),
+                foundation_sha256=str(stored_payload.get("foundation_sha256") or ""),
             )
-            direction = CoverStore(project).load_direction(body.direction_id)
+            prompt_path = project / "outputs" / "input" / "prompt.md"
+            if prompt_path.is_file():
+                from core.cover_handoff import resolve_cover_brief_v2
+
+                brief = resolve_cover_brief_v2(project)
+            elif body.brief is not None:
+                source_sha = body.source_prompt_sha256 or hashlib.sha256(
+                    json.dumps(body.brief, ensure_ascii=False, sort_keys=True).encode("utf-8")
+                ).hexdigest()
+                brief = CoverBriefV2.from_dict(
+                    body.brief,
+                    source_prompt_sha256=source_sha,
+                    foundation_sha256=body.foundation_sha256,
+                )
+            else:
+                brief = stored_brief
+            if stored_brief.source_prompt_sha256 != direction.brief_sha256:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cover direction story-facts snapshot is invalid",
+                )
+            if direction.brief_sha256 != brief.source_prompt_sha256:
+                direction_store.mark_direction_stale(
+                    body.direction_id, brief.source_prompt_sha256
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cover direction is stale for the current story facts",
+                )
             if direction.status != "approved":
                 raise HTTPException(
                     status_code=409,
@@ -882,6 +989,11 @@ def generate_covers(
                         "Project Prompt is missing; generate covers with ./deploy.sh novel-cover PROMPT"
                     )
                 brief = resolve_cover_brief(project)
+                if isinstance(brief, CoverBriefV2):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Versioned cover facts require an approved art direction before generation",
+                    )
                 count = body.count
                 if count is None:
                     from core.studio_settings import resolve_cover_settings
@@ -889,6 +1001,8 @@ def generate_covers(
                     count = resolve_cover_settings().count
                 concepts = build_cover_concepts(brief, count=count)
             brief.validate_concepts(concepts)
+    except CoverConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -926,6 +1040,36 @@ def get_cover(
         raise HTTPException(status_code=404, detail="Cover set not found")
     active_revision = _cover_store(svc, project_id).active().revision
     return _cover_out(project_id, cover_set, active_revision=active_revision)
+
+
+@router.get("/projects/{project_id}/covers/{cover_set_id}/quality")
+def get_cover_quality(
+    project_id: str,
+    cover_set_id: str,
+    svc: ProjectService = Depends(get_service),
+):
+    """Return advisory quality reports without changing candidate state."""
+    try:
+        cover_set = _cover_store(svc, project_id).load(cover_set_id)
+    except (FileNotFoundError, ValueError) as exc:
+        raise _cover_error(exc) from exc
+    if cover_set.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Cover set not found")
+    reports = []
+    for candidate in cover_set.candidates:
+        report = dict(candidate.quality_report or {})
+        reports.append({
+            "candidate_id": candidate.candidate_id,
+            "status": report.get("status", "human_review_required"),
+            "report": report,
+            "attempt_count": len(candidate.attempt_history),
+        })
+    return {
+        "cover_set_id": cover_set.cover_set_id,
+        "revision": cover_set.revision,
+        "status": cover_set.status,
+        "reports": reports,
+    }
 
 
 @router.post(
@@ -1003,6 +1147,21 @@ def retry_cover_candidate(
         raise _cover_error(exc) from exc
     if current.project_id != project_id:
         raise HTTPException(status_code=404, detail="Cover set not found")
+    if body.repair_codes:
+        candidate = next(
+            (item for item in current.candidates if item.candidate_id == candidate_id),
+            None,
+        )
+        if candidate is None:
+            raise HTTPException(status_code=404, detail="Cover candidate not found")
+        report = candidate.quality_report or {}
+        allowed = {str(item) for item in report.get("repair_codes") or ()}
+        requested = {str(item).strip() for item in body.repair_codes if str(item).strip()}
+        if not requested or not requested.issubset(allowed):
+            raise HTTPException(
+                status_code=400,
+                detail="Retry repair codes must be reported by the candidate quality report",
+            )
     job_id = runner.submit(
         "cover.retry",
         lambda: covers.retry_candidate(
@@ -1011,6 +1170,7 @@ def retry_cover_candidate(
             cover_set_id,
             candidate_id,
             expected_revision=body.expected_revision,
+            repair_codes=body.repair_codes,
         ),
         meta={"project_id": project_id, "cover_set_id": cover_set_id},
     )
