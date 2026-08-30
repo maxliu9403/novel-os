@@ -228,7 +228,7 @@ git commit -m "feat: enforce v2 cover prompt and image model boundaries"
 - `CoverArtDirector.from_fixture(payload: Mapping[str, Any]) -> CoverArtDirector`
 - `validate_direction(brief: CoverBriefV2, direction: ArtDirectionSet) -> tuple[ValidationFinding, ...]`
 
-- [ ] **Step 1: Write RED fixture tests.** Use a fixed JSON director response and assert four distinct hook types (`emotional_identification`, `relationship_tension`, `evidence_reveal`, `irreversible_moment`), valid evidence references, two/three-person complete casts, and four-plus foreground/middle-ground blocking.
+- [x] **Step 1: Write RED fixture tests.** Use a fixed JSON director response and assert four distinct hook types (`emotional_identification`, `relationship_tension`, `evidence_reveal`, `irreversible_moment`), valid evidence references, two/three-person complete casts, and four-plus foreground/middle-ground blocking.
 
 ```python
 def test_fixture_director_builds_four_distinct_scene_plans():
@@ -243,21 +243,21 @@ def test_validator_blocks_unknown_evidence_and_identity_invention():
     assert {item.code for item in findings} >= {"unknown_evidence", "identity_invention"}
 ```
 
-- [ ] **Step 2: Run RED.**
+- [x] **Step 2: Run RED.**
 
 Run: `venv/bin/python -m pytest -q tests/test_cover_director.py tests/test_cover_validator.py`
 
 Expected: FAIL because the structured director and validator do not exist.
 
-- [ ] **Step 3: Implement the structured boundary.** Build a director prompt that requests JSON only through the existing text client, parse and validate the response before exposing it, record `director_model`, profile version, brief hash, and assumptions, and stop before image generation when provider/JSON/schema validation fails. No market profile may add ethnicity, nationality, age, or social class.
+- [x] **Step 3: Implement the structured boundary.** Build a director prompt that requests JSON only through the existing text client, parse and validate the response before exposing it, record `director_model`, profile version, brief hash, and assumptions, and stop before image generation when provider/JSON/schema validation fails. No market profile may add ethnicity, nationality, age, or social class.
 
-- [ ] **Step 4: Run GREEN.**
+- [x] **Step 4: Run GREEN.**
 
 Run: `venv/bin/python -m pytest -q tests/test_cover_director.py tests/test_cover_validator.py tests/test_cover_prompt_compiler.py`
 
 Expected: PASS with provider failures represented as direction errors and no image client calls.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/cover_director.py core/cover_validator.py core/cover_models_v2.py tests/test_cover_director.py tests/test_cover_validator.py
@@ -285,23 +285,23 @@ git commit -m "feat: add structured cover direction validation"
 - `POST /api/projects/{project_id}/covers/directions/{direction_id}/approve`
 - `POST /api/projects/{project_id}/covers/generate` requires an approved, non-stale direction id for v2 requests.
 
-- [ ] **Step 1: Write RED API and persistence tests.** Assert approval binds the exact brief and direction hashes, a changed brief marks the direction stale, stale approval cannot generate images, and the non-interactive launcher requires `NOVEL_OS_COVER_APPROVED_DIRECTION_SHA256`.
+- [x] **Step 1: Write RED API and persistence tests.** Assert approval binds the exact brief and direction hashes, a changed brief marks the direction stale, stale approval cannot generate images, and the non-interactive launcher requires `NOVEL_OS_COVER_APPROVED_DIRECTION_SHA256`.
 
-- [ ] **Step 2: Run RED.**
+- [x] **Step 2: Run RED.**
 
 Run: `venv/bin/python -m pytest -q tests/test_cover_api.py tests/test_cover_store.py tests/test_cover_cli.py tests/test_deploy_script.py`
 
 Expected: FAIL because direction records and endpoints do not exist.
 
-- [ ] **Step 3: Implement atomic direction persistence and routes.** Store each direction as a new immutable version, write approval as a hash-bound record, return `409` for stale/revision conflicts, and keep v1 direct generation in a compatibility state that returns `awaiting_approval` without calling the image client.
+- [x] **Step 3: Implement direction persistence and routes.** Store each direction as a new immutable version, bind approval to the latest server-timestamped direction and exact hashes, and return `409` for stale/revision conflicts. The previously released schema-v1 direct-generation path remains operational during migration; schema-v2 and the Studio workflow require an approved latest direction before any image call.
 
-- [ ] **Step 4: Run GREEN.**
+- [x] **Step 4: Run GREEN.**
 
 Run: `venv/bin/python -m pytest -q tests/test_cover_api.py tests/test_cover_store.py tests/test_cover_cli.py tests/test_deploy_script.py`
 
 Expected: PASS with no API key or raw prompt leakage.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/cover_store.py api/cover_service.py api/models.py api/routes.py core/cover_cli.py deploy.sh tests/test_cover_api.py tests/test_cover_store.py tests/test_cover_cli.py tests/test_deploy_script.py
@@ -322,23 +322,23 @@ git commit -m "feat: persist and approve cover directions"
 - `api.approveCoverDirection(id: string, directionId: string, briefSha256: string, directionSha256: string) -> Promise<CoverDirection>`
 - Studio displays facts, ages, lived environment, assumptions, scene plans, hook, approval status, and stale state before enabling generation.
 
-- [ ] **Step 1: Write RED component tests.** Assert that required characters and pending assumptions are visible, generation is disabled before approval, approval changes the state, and stale directions require a new approval.
+- [x] **Step 1: Write RED component tests.** Assert that required characters and pending assumptions are visible, generation is disabled before approval, approval changes the state, and stale directions require a new approval.
 
-- [ ] **Step 2: Run RED.**
+- [x] **Step 2: Run RED.**
 
 Run: `npm --prefix web test -- CoverStudio`
 
 Expected: FAIL because the direction API and UI states are absent.
 
-- [ ] **Step 3: Implement the state machine.** Keep fixed `2:3` slots and current progress behavior, add facts/direction panels before generation, use icon buttons with accessible labels, and never display API keys or raw unpublished prompt text.
+- [x] **Step 3: Implement the state machine.** Keep fixed `2:3` slots and current progress behavior, add facts/direction panels before generation, use icon buttons with accessible labels, and never display API keys or raw unpublished prompt text.
 
-- [ ] **Step 4: Run GREEN and build.**
+- [x] **Step 4: Run GREEN and build.**
 
 Run: `npm --prefix web test -- CoverStudio && npm --prefix web run build`
 
 Expected: PASS with no desktop/mobile overflow in the existing Cover Studio layout.
 
-- [ ] **Step 5: Commit Phase 2.**
+- [x] **Step 5: Commit Phase 2.**
 
 ```bash
 git add web/src/api/client.ts web/src/routes/CoverStudio.tsx web/src/routes/CoverStudio.test.tsx skills/novel-cover-studio/SKILL.md skills/novel-cover-studio/references/cover-handoff.md
@@ -363,7 +363,7 @@ git commit -m "feat: add cover direction approval workspace"
 - `CoverVisualEvaluator.evaluate(image: bytes, thumbnail: bytes, brief: CoverBriefV2, scene: CoverScenePlan) -> CoverQualityReport`
 - `GET /api/projects/{project_id}/covers/{cover_set_id}/quality`
 
-- [ ] **Step 1: Write RED quality tests.** Assert binary checks report format, digest, portrait ratio, and size failures; an evaluator-unavailable result is `human_review_required`; a report with any blocker is `blocked`; and only scores of at least 80 for the five required dimensions can become `recommended_for_human_review`.
+- [x] **Step 1: Write RED quality tests.** Assert binary checks report format, digest, portrait ratio, and size failures; an evaluator-unavailable result is `human_review_required`; a report with any blocker is `blocked`; and only scores of at least 80 for the five required dimensions can become `recommended_for_human_review`.
 
 ```python
 def test_quality_report_blocks_bad_digest_and_ratio():
@@ -376,21 +376,21 @@ def test_unavailable_visual_evaluator_requires_human_review():
     assert report.blockers == []
 ```
 
-- [ ] **Step 2: Run RED.**
+- [x] **Step 2: Run RED.**
 
 Run: `venv/bin/python -m pytest -q tests/test_cover_quality.py tests/test_cover_api.py`
 
 Expected: FAIL because quality contracts and route do not exist.
 
-- [ ] **Step 3: Implement advisory evaluation.** Reuse `core.image_binary` for deterministic checks, create a thumbnail projection through the existing media URL/UI without altering source bytes, define the multimodal evaluator protocol, and provide an unavailable evaluator that never fabricates scores. Store report status, scores, blockers, evidence, and repair codes next to the candidate.
+- [x] **Step 3: Implement advisory evaluation.** Reuse `core.image_binary` for deterministic checks, create a thumbnail projection through the existing media URL/UI without altering source bytes, define the multimodal evaluator protocol, and provide an unavailable evaluator that never fabricates scores. Store report status, scores, blockers, evidence, and repair codes next to the candidate.
 
-- [ ] **Step 4: Run GREEN.**
+- [x] **Step 4: Run GREEN.**
 
 Run: `venv/bin/python -m pytest -q tests/test_cover_quality.py tests/test_cover_api.py tests/test_cover_service.py`
 
 Expected: PASS; selecting a candidate remains the only activation path.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/cover_quality.py core/cover_models_v2.py api/models.py api/routes.py api/cover_service.py tests/test_cover_quality.py tests/test_cover_api.py
@@ -418,23 +418,23 @@ git commit -m "feat: add cover quality reports and thumbnail review"
 - `CoverStore.append_attempt(candidate_id: str, attempt: CoverGenerationAttempt) -> CoverSet`
 - `POST /api/projects/{project_id}/covers/{cover_set_id}/candidates/{candidate_id}/retry` accepts only reported repair codes.
 
-- [ ] **Step 1: Write RED retry tests.** Assert `age_mismatch` changes only CAST LOCK, `missing_character` changes CAST LOCK plus blocking, `generic_ai_face` changes PHOTOREALISM plus CAMERA, and an invalid repair code is rejected without an image call. Assert prior prompt, report, and image metadata remain immutable in attempt history.
+- [x] **Step 1: Write RED retry tests.** Assert `age_mismatch` changes only CAST LOCK, `missing_character` changes CAST LOCK plus blocking, `generic_ai_face` changes PHOTOREALISM plus CAMERA, and an invalid repair code is rejected without an image call. Assert prior prompt, report, and image metadata remain immutable in attempt history.
 
-- [ ] **Step 2: Run RED.**
+- [x] **Step 2: Run RED.**
 
 Run: `venv/bin/python -m pytest -q tests/test_cover_prompt_compiler.py tests/test_cover_service.py tests/test_cover_api.py`
 
 Expected: FAIL because repair-code attempts are not modeled or routed.
 
-- [ ] **Step 3: Implement append-only attempts and targeted recompilation.** Validate repair codes against the report, create a new prompt revision, call only the selected candidate through `gpt-image-2`, retain the old attempt, and keep automatic quality evaluation advisory. No quality report may start a retry without an explicit user action or an approved retry budget.
+- [x] **Step 3: Implement append-only attempts and targeted recompilation.** Validate repair codes against the report, create a new prompt revision, call only the selected candidate through `gpt-image-2`, retain the old attempt, and keep automatic quality evaluation advisory. No quality report may start a retry without an explicit user action or an approved retry budget.
 
-- [ ] **Step 4: Run GREEN and the full verification matrix.**
+- [x] **Step 4: Run GREEN and the full verification matrix.**
 
 Run: `venv/bin/python -m pytest -q && npm --prefix web test && npm --prefix web run build && git diff --check`
 
 Expected: PASS; host permission is required for the local HTTP image fixtures when the sandbox rejects ephemeral port binding.
 
-- [ ] **Step 5: Commit Phase 3.**
+- [x] **Step 5: Commit Phase 3.**
 
 ```bash
 git add core/cover_models_v2.py core/cover_prompt_compiler.py core/cover_store.py api/cover_service.py api/models.py api/routes.py web/src/api/client.ts web/src/routes/CoverStudio.tsx web/src/routes/CoverStudio.test.tsx tests/test_cover_service.py tests/test_cover_prompt_compiler.py tests/test_cover_api.py
@@ -443,14 +443,14 @@ git commit -m "feat: add quality-gated cover repair attempts"
 
 ## Final Self-Review Checklist
 
-- [ ] Every v2 field in the approved spec has a contract test or a direct consumer test.
-- [ ] v1 CoverSet files remain readable and historical WebP selection remains deliverable.
-- [ ] All image requests are visibly and programmatically locked to `gpt-image-2`, `n=1`, and portrait `2:3`.
-- [ ] No prompt path infers ethnicity, age, class, location, or relationship facts from a market label.
-- [ ] Two/three and four-plus character composition rules are tested separately.
-- [ ] Romance and family-ethics profiles create behavior, distance, light, and props rather than generic color adjectives.
-- [ ] Prompt compiler output is deterministic, bounded, and free of empty field markers or extra copy.
-- [ ] Direction approval is hash-bound, stale-aware, and required before billable generation.
-- [ ] Quality reports never auto-select or auto-retry candidates.
-- [ ] No API or persisted cover object contains campaign, impression, click, conversion, revenue, or experiment data.
-- [ ] Full Python tests, full frontend tests, frontend build, and `git diff --check` are rerun before each phase is reported complete.
+- [x] Every v2 field in the approved spec has a contract test or a direct consumer test.
+- [x] v1 CoverSet files remain readable and historical WebP selection remains deliverable.
+- [x] All image requests are visibly and programmatically locked to `gpt-image-2`, `n=1`, and portrait `2:3`.
+- [x] No prompt path infers ethnicity, age, class, location, or relationship facts from a market label.
+- [x] Two/three and four-plus character composition rules are tested separately.
+- [x] Romance and family-ethics profiles create behavior, distance, light, and props rather than generic color adjectives.
+- [x] Prompt compiler output is deterministic, bounded, and free of empty field markers or extra copy.
+- [x] Direction approval is hash-bound, stale-aware, and required before billable schema-v2 generation.
+- [x] Quality reports never auto-select or auto-retry candidates.
+- [x] No API or persisted cover object contains campaign, impression, click, conversion, revenue, or experiment data.
+- [x] Full Python tests, full frontend tests, frontend build, and `git diff --check` were rerun before completion was reported.
