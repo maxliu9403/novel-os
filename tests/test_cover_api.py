@@ -13,6 +13,7 @@ from api import routes
 from api.routes import get_cover_art_director, get_cover_service
 from core.cover_director import CoverArtDirector
 from core.cover_models import CoverBrief, CoverConcept
+from core.cover_models_v2 import ArtDirectionSet
 from core.image_client import GeneratedImage, ImageClientError
 from tests.test_cover_director import director_fixture
 from tests.test_cover_models_v2 import two_character_fixture
@@ -106,6 +107,22 @@ def _wait(client: TestClient, job_id: str) -> dict:
             return body
         time.sleep(0.01)
     raise AssertionError("cover job did not finish")
+
+
+class CanonAwareFixtureDirector:
+    def plan(self, brief, *, count: int) -> ArtDirectionSet:
+        payload = director_fixture()
+        character_id = brief.principal_characters[0].character_id
+        node_id = brief.decisive_story_nodes[0].node_id
+        for plan in payload["plans"]:
+            plan["cast"] = [character_id]
+            plan["focal_character_id"] = character_id
+            plan["story_evidence_refs"] = [
+                f"character:{character_id}", f"node:{node_id}",
+            ]
+            plan["gaze_graph"] = [f"{character_id} -> primary evidence"]
+        payload["plans"] = payload["plans"][:count]
+        return ArtDirectionSet.from_dict(payload, brief_sha256=brief.source_prompt_sha256)
 
 
 def test_generate_lists_and_downloads_project_cover_package(tmp_path, monkeypatch) -> None:
@@ -502,6 +519,92 @@ def test_direction_api_plans_from_persisted_v2_story_facts(tmp_path, monkeypatch
     assert created["brief"]["schema_version"] == 2
     assert created["brief"]["principal_characters"][0]["age"] == 34
     assert len(created["plans"]) == 4
+    assert image_client.calls == 0
+
+
+def test_direction_api_plans_from_confirmed_legacy_story_facts(tmp_path, monkeypatch) -> None:
+    client, image_client = _client(
+        tmp_path,
+        monkeypatch,
+        director=CanonAwareFixtureDirector(),
+    )
+    project = client.post(
+        "/api/projects", json={"title": "Legacy Direction", "genre": "Domestic drama"}
+    ).json()
+    project_path = tmp_path / "projects" / project["id"]
+    inputs = project_path / "outputs" / "input"
+    state_dir = project_path / "outputs" / "state"
+    inputs.mkdir(parents=True, exist_ok=True)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    inputs.joinpath("prompt.md").write_text(
+        "# Legacy prompt\n\n"
+        "```yaml\n"
+        "financial_baseline:\n"
+        "  claire:\n"
+        "    occupation: accounts-payable clerk\n"
+        "```\n",
+        encoding="utf-8",
+    )
+    inputs.joinpath("brief.json").write_text(json.dumps({
+        "title": "The Empty Chair Beside Her",
+        "genre": "domestic drama",
+        "audience": "women ages 30-50",
+        "language": "American English",
+    }), encoding="utf-8")
+    inputs.joinpath("foundation.json").write_text(json.dumps({
+        "title": "The Empty Chair Beside Her",
+        "premise": "Claire leaves an unrepentant husband and builds a stable home.",
+        "characters": [{
+            "id": "claire_bennett",
+            "name": "Claire Bennett",
+            "role": "protagonist",
+            "age": 30,
+            "physical_description": "A practical woman in late pregnancy.",
+            "external_goal": "Build a dependable home for her daughter.",
+            "strength": "Documents the truth and sets boundaries.",
+        }],
+        "plot_threads": [{
+            "id": "main",
+            "name": "independence",
+            "description": "Claire replaces family appearance with reliable care.",
+            "type": "main",
+        }],
+        "setting": {
+            "time_period": "August 2027 through June 2028",
+            "primary_location": "Linden Falls, a fictional city centered on Willow Creek",
+        },
+    }), encoding="utf-8")
+    state_dir.joinpath("story_state.json").write_text(json.dumps({
+        "metadata": {
+            "genre": "domestic drama",
+            "language": "American English",
+            "audience": "women ages 30-50",
+        },
+        "characters": {"claire_bennett": {
+            "id": "claire_bennett",
+            "full_name": "Claire Bennett",
+            "role": "protagonist",
+            "age": 30,
+            "arc_stage": "resolution",
+            "current_location": "Two-bedroom apartment near Little Harbor",
+            "emotional_state": "hurt but self-directed",
+        }},
+        "story_bible": {"setting": {
+            "time_period": "August 2027 through June 2028",
+            "primary_location": "Linden Falls, a fictional city centered on Willow Creek",
+        }},
+    }), encoding="utf-8")
+
+    response = client.post(
+        f"/api/projects/{project['id']}/covers/directions",
+        json={"count": 4},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["brief"]["principal_characters"][0]["age"] == 30
+    assert response.json()["brief"]["principal_characters"][0][
+        "occupation_and_status"
+    ] == "accounts-payable clerk"
     assert image_client.calls == 0
 
 

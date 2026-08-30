@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from core.cover_director import CoverArtDirector, CoverDirectionError
@@ -105,4 +107,44 @@ def test_director_rejects_provider_failure_before_image_generation() -> None:
     director = CoverArtDirector(complete=fail, model="fixture-director")
 
     with pytest.raises(CoverDirectionError, match="director unavailable"):
+        director.plan(_brief(), count=4)
+
+
+def test_director_prompt_defines_exact_machine_readable_response_contract() -> None:
+    brief = _brief()
+
+    payload = json.loads(CoverArtDirector._user_prompt(brief, 4))
+
+    contract = payload["response_contract"]
+    assert contract["plans"]["exact_count"] == 4
+    assert contract["plans"]["required_hook_types"] == [
+        "emotional_identification",
+        "relationship_tension",
+        "evidence_reveal",
+        "irreversible_moment",
+    ]
+    assert set(contract["plans"]["required_fields"]) == {
+        "concept_id", "visual_strategy", "story_evidence_refs", "cast",
+        "focal_character_id", "moment_before", "frozen_action", "moment_after",
+        "gaze_graph", "blocking", "environment_anchors", "primary_prop",
+        "shot_scale", "camera_height", "lens", "depth_plan",
+        "motivated_lighting", "color_script", "title_safe_zone", "visual_hook",
+    }
+    assert contract["allowed_character_ids"] == ["char_mara", "char_oren"]
+    assert contract["required_character_ids"] == ["char_mara", "char_oren"]
+    assert contract["allowed_evidence_refs"] == [
+        "character:char_mara", "character:char_oren", "node:door_choice",
+        "signal:child_backpack",
+    ]
+
+
+def test_director_count_error_reports_requested_and_received_plans() -> None:
+    payload = director_fixture()
+    payload["plans"] = payload["plans"][:3]
+    director = CoverArtDirector.from_fixture(payload)
+
+    with pytest.raises(
+        CoverDirectionError,
+        match="requested 4, received 3",
+    ):
         director.plan(_brief(), count=4)

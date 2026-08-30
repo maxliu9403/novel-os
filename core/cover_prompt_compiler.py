@@ -30,6 +30,17 @@ except ImportError:  # pragma: no cover - legacy CLI imports core modules top-le
 COMPILER_VERSION = "cover-compiler.v2"
 MAX_PROMPT_CODEPOINTS = 12_000
 _MARKETING_SHORTCUTS = ("viral", "high ctr", "high conversion", "click-through", "masterpiece")
+_FORBIDDEN_NEGATIONS = (
+    "no",
+    "not",
+    "without",
+    "exclude",
+    "excluding",
+    "avoid",
+    "avoiding",
+    "do not include",
+    "free of",
+)
 
 
 def _character_block(character: PrincipalCharacter) -> str:
@@ -59,6 +70,19 @@ def _evidence_exists(brief: CoverBriefV2, reference: str) -> bool:
     return False
 
 
+def _anchor_uses_forbidden_element(anchor: str, forbidden: str) -> bool:
+    text = anchor.casefold()
+    target = forbidden.casefold()
+    start = text.find(target)
+    if start < 0:
+        return False
+    prefix = text[:start].strip().rstrip(".,;:")
+    return not any(
+        prefix == negation or prefix.endswith(f" {negation}")
+        for negation in _FORBIDDEN_NEGATIONS
+    )
+
+
 def _validate_scene(brief: CoverBriefV2, scene: CoverScenePlan) -> None:
     if brief.pending_critical_assumptions():
         raise ValueError("cover prompt cannot compile while critical visual assumptions are pending")
@@ -79,7 +103,10 @@ def _validate_scene(brief: CoverBriefV2, scene: CoverScenePlan) -> None:
     ):
         raise ValueError("four-plus protagonist covers require foreground and middle/background blocking")
     for forbidden in brief.forbidden_elements:
-        if forbidden and forbidden.casefold() in scene.environment_anchors.__repr__().casefold():
+        if forbidden and any(
+            _anchor_uses_forbidden_element(anchor, forbidden)
+            for anchor in scene.environment_anchors
+        ):
             raise ValueError(f"cover scene uses forbidden element '{forbidden}'")
 
 
@@ -120,6 +147,7 @@ def _modules(brief: CoverBriefV2, scene: CoverScenePlan) -> dict[str, str]:
             f"The approved lived spaces are {', '.join(brief.lived_environment.primary_spaces)}; "
             f"character lived environments: {', '.join(item.lived_environment for item in required if item.lived_environment) or 'none specified'}. "
             f"economic signals: {', '.join(brief.lived_environment.economic_signals) or 'none specified'}. "
+            f"Environment truths and timeline constraints: {'; '.join(brief.lived_environment.environment_truths) or 'none specified'}. "
             f"Show lived material, scale, economic reality, and physical contact. The only dominant story prop is {scene.primary_prop}; it is handled or observed."
         ),
         "GENRE EMOTION": (

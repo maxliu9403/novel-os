@@ -69,6 +69,9 @@ def test_compile_is_deterministic_and_contains_age_environment_and_hook() -> Non
     assert "age 34" in first.text
     assert "late thirties" in first.text
     assert "modest apartment kitchen" in first.text
+    assert "the home is actively lived in" in first.modules[
+        "LIVED ENVIRONMENT AND PRIMARY PROP"
+    ]
     assert "VISUAL HOOK" in first.text
     assert first.text.count('The Door Is Mine') == 1
     assert len(first.text) <= 12000
@@ -85,6 +88,38 @@ def test_compile_rejects_unresolved_story_evidence_reference() -> None:
 
     with pytest.raises(ValueError, match="evidence"):
         compile_cover_prompt(brief_fixture(), invalid)
+
+
+def test_compile_allows_environment_anchor_that_explicitly_excludes_forbidden_element() -> None:
+    payload = two_character_fixture()
+    payload["forbidden_elements"] = ["real place names"]
+    brief = CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+    scene = scene_fixture()
+    constrained = CoverScenePlan(**{
+        **scene.__dict__,
+        "environment_anchors": (
+            "anonymous fictional hospital room",
+            "No real place names, hospital branding, or identifiable landmarks",
+        ),
+    })
+
+    compiled = compile_cover_prompt(brief, constrained)
+
+    assert "No real place names" in compiled.text
+
+
+def test_compile_rejects_positive_use_of_forbidden_environment_element() -> None:
+    payload = two_character_fixture()
+    payload["forbidden_elements"] = ["real place names"]
+    brief = CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+    scene = scene_fixture()
+    invalid = CoverScenePlan(**{
+        **scene.__dict__,
+        "environment_anchors": ("real place names printed on the wall",),
+    })
+
+    with pytest.raises(ValueError, match="forbidden element 'real place names'"):
+        compile_cover_prompt(brief, invalid)
 
 
 def test_repair_compile_changes_only_requested_modules() -> None:
