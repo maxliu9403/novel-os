@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 try:
     from .cover_models_v2 import CoverBriefV2, GenreEmotionProfile
@@ -63,6 +63,71 @@ _NEUTRAL = GenreEmotionProfile(
 )
 
 
+@dataclass(frozen=True)
+class TitleTypographyProfile:
+    letterform_voice: str
+    hierarchy: str
+    expressive_detail: str
+    prohibited_shortcuts: tuple[str, ...]
+
+
+_TITLE_PROHIBITED_SHORTCUTS = (
+    "generic Times-like typesetting",
+    "rigid centered block",
+    "full-script or cursive title",
+    "heavy outline, bevel, glow, or drop shadow",
+    "distorted or symbol-replaced letters",
+)
+
+_ROMANCE_TITLE = TitleTypographyProfile(
+    letterform_voice=(
+        "elegant high-contrast editorial serif letterforms with warm humanist curves "
+        "and lightly hand-finished terminals"
+    ),
+    hierarchy=(
+        "an airy, intimate 2-4 line composition with supporting words held smaller "
+        "and emotional words given graceful scale"
+    ),
+    expressive_detail=(
+        "one restrained calligraphic entry stroke or extended terminal may suggest "
+        "closeness without turning the title into script"
+    ),
+    prohibited_shortcuts=_TITLE_PROHIBITED_SHORTCUTS,
+)
+
+_FAMILY_TITLE = TitleTypographyProfile(
+    letterform_voice=(
+        "literary high-contrast editorial serif letterforms with humanist stress, "
+        "subtle asymmetry, and slightly hand-finished terminals"
+    ),
+    hierarchy=(
+        "a controlled asymmetric 2-4 line composition that lets the conflict-bearing "
+        "words dominate while connector words remain quieter"
+    ),
+    expressive_detail=(
+        "one restrained offset, terminal, or baseline tension may echo the domestic "
+        "fracture without damaging dignity or readability"
+    ),
+    prohibited_shortcuts=_TITLE_PROHIBITED_SHORTCUTS,
+)
+
+_NEUTRAL_TITLE = TitleTypographyProfile(
+    letterform_voice=(
+        "refined cinematic editorial serif letterforms with balanced contrast and "
+        "subtle hand-finished character"
+    ),
+    hierarchy=(
+        "a composed asymmetric 2-4 line arrangement with clear scale contrast between "
+        "supporting and story-bearing words"
+    ),
+    expressive_detail=(
+        "one restrained calligraphic terminal may provide a memorable signature while "
+        "the remaining letters stay precise"
+    ),
+    prohibited_shortcuts=_TITLE_PROHIBITED_SHORTCUTS,
+)
+
+
 def resolve_genre_profile(brief: CoverBriefV2) -> GenreEmotionProfile:
     """Return a canonical profile without changing story facts or identity."""
     genre = brief.genre.casefold()
@@ -84,3 +149,13 @@ def resolve_genre_profile(brief: CoverBriefV2) -> GenreEmotionProfile:
         desired_viewer_feeling=supplied.desired_viewer_feeling or profile.desired_viewer_feeling,
         relationship_motion=supplied.relationship_motion or profile.relationship_motion,
     )
+
+
+def resolve_title_typography(profile: GenreEmotionProfile) -> TitleTypographyProfile:
+    """Return an executable title voice aligned with the resolved cover genre."""
+    primary_genre = profile.primary_genre.casefold()
+    if primary_genre == "romance":
+        return _ROMANCE_TITLE
+    if primary_genre == "family_ethics":
+        return _FAMILY_TITLE
+    return _NEUTRAL_TITLE

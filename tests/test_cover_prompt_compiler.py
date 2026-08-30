@@ -60,11 +60,13 @@ def test_compile_is_deterministic_and_contains_age_environment_and_hook() -> Non
     second = compile_cover_prompt(brief_fixture(), scene_fixture())
 
     assert first.text == second.text
+    assert first.compiler_version == "cover-compiler.v3"
     assert [name for name in first.modules] == [
         "ROLE AND OUTPUT", "STORY TRUTH", "CAST LOCK", "SINGLE CINEMATIC MOMENT",
         "RELATIONSHIP BLOCKING", "LIVED ENVIRONMENT AND PRIMARY PROP", "GENRE EMOTION",
         "CAMERA, DEPTH AND MOTIVATED LIGHTING", "MOBILE COMMERCIAL COVER OBJECTIVE",
-        "TITLE AND SAFE ZONE", "PHOTOREALISM REQUIREMENTS", "COMPACT FAILURE EXCLUSIONS",
+        "TITLE AND SAFE ZONE", "TITLE ART DIRECTION", "PHOTOREALISM REQUIREMENTS",
+        "COMPACT FAILURE EXCLUSIONS",
     ]
     assert "age 34" in first.text
     assert "late thirties" in first.text
@@ -75,6 +77,35 @@ def test_compile_is_deterministic_and_contains_age_environment_and_hook() -> Non
     assert "VISUAL HOOK" in first.text
     assert first.text.count('The Door Is Mine') == 1
     assert len(first.text) <= 12000
+
+
+def test_compile_directs_an_artistic_but_readable_title_lockup() -> None:
+    compiled = compile_cover_prompt(brief_fixture(), scene_fixture())
+    typography = compiled.modules["TITLE ART DIRECTION"]
+
+    assert "art-directed asymmetric literary title lockup" in typography
+    assert "supporting words" in typography
+    assert "story-bearing words" in typography
+    assert "restrained calligraphic" in typography
+    assert "generic Times-like typesetting" in typography
+    assert "rigid centered block" in typography
+    assert "full-script or cursive title" in typography
+    assert compiled.text.count('The Door Is Mine') == 1
+
+
+def test_compile_keeps_exact_title_once_when_safe_zone_repeats_it() -> None:
+    scene = scene_fixture()
+    repeated = CoverScenePlan(**{
+        **scene.__dict__,
+        "title_safe_zone": (
+            'clear upper quarter for the exact title “The Door Is Mine,” with simple background'
+        ),
+    })
+
+    compiled = compile_cover_prompt(brief_fixture(), repeated)
+
+    assert compiled.text.count("The Door Is Mine") == 1
+    assert "clear upper quarter" in compiled.modules["TITLE AND SAFE ZONE"]
 
 
 def test_compile_rejects_unresolved_required_assumption() -> None:
@@ -132,3 +163,15 @@ def test_repair_compile_changes_only_requested_modules() -> None:
     assert repaired.revision == baseline.revision + 1
     assert repaired.modules["SINGLE CINEMATIC MOMENT"] == baseline.modules["SINGLE CINEMATIC MOMENT"]
     assert repaired.modules["CAST LOCK"] != baseline.modules["CAST LOCK"]
+
+
+def test_title_repair_refreshes_safe_zone_and_art_direction() -> None:
+    baseline = compile_cover_prompt(brief_fixture(), scene_fixture())
+
+    repaired = compile_repair_prompt(
+        brief_fixture(), scene_fixture(), baseline, ["title_failure"],
+    )
+
+    assert repaired.modules["TITLE AND SAFE ZONE"] != baseline.modules["TITLE AND SAFE ZONE"]
+    assert repaired.modules["TITLE ART DIRECTION"] != baseline.modules["TITLE ART DIRECTION"]
+    assert "Repair focus: title failure." in repaired.modules["TITLE ART DIRECTION"]

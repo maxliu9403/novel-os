@@ -895,7 +895,7 @@ def generate_covers(
     from core.cover_models import CoverBrief, CoverConcept
     from core.cover_models_v2 import CoverBriefV2
     from core.cover_handoff import build_cover_concepts, resolve_cover_brief
-    from core.cover_prompt_compiler import scene_to_cover_concept
+    from core.cover_prompt_compiler import COMPILER_VERSION, scene_to_cover_concept
     from core.cover_store import CoverConflict, CoverStore
     from core.cover_validator import validate_direction
 
@@ -968,7 +968,7 @@ def generate_covers(
                 raise HTTPException(status_code=409, detail="Cover direction is stale or invalid")
             concepts = [scene_to_cover_concept(brief, plan) for plan in direction.plans]
             brief.validate_concepts(concepts)
-            compiler_version = "cover-compiler.v2"
+            compiler_version = COMPILER_VERSION
         else:
             if (body.brief is None) != (body.concepts is None):
                 raise ValueError("Cover brief and concepts must be supplied together")

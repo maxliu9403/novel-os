@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from core.cover_models_v2 import CoverBriefV2
+from core import cover_profiles
 from core.cover_profiles import resolve_genre_profile
 from tests.test_cover_models_v2 import two_character_fixture
 
@@ -35,3 +36,17 @@ def test_unknown_genre_uses_neutral_cinematic_baseline() -> None:
     assert profile.primary_genre == "neutral"
     assert profile.submode == "neutral_baseline"
     assert profile.prohibited_shortcuts
+
+
+def test_title_typography_changes_voice_between_romance_and_family_ethics() -> None:
+    romance = cover_profiles.resolve_title_typography(
+        resolve_genre_profile(_brief("contemporary romance", "tender_slow_burn"))
+    )
+    family = cover_profiles.resolve_title_typography(
+        resolve_genre_profile(_brief("family ethics drama", "domestic_betrayal"))
+    )
+
+    assert romance.letterform_voice != family.letterform_voice
+    assert "calligraphic" in romance.expressive_detail
+    assert "tension" in family.expressive_detail
+    assert "generic Times-like typesetting" in family.prohibited_shortcuts

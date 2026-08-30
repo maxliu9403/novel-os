@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from typing import Sequence
 
@@ -14,7 +15,7 @@ try:
         PrincipalCharacter,
     )
     from .cover_models import CoverConcept
-    from .cover_profiles import resolve_genre_profile
+    from .cover_profiles import resolve_genre_profile, resolve_title_typography
 except ImportError:  # pragma: no cover - legacy CLI imports core modules top-level
     from cover_models_v2 import (
         COVER_REPAIR_CODES,
@@ -24,10 +25,10 @@ except ImportError:  # pragma: no cover - legacy CLI imports core modules top-le
         PrincipalCharacter,
     )
     from cover_models import CoverConcept
-    from cover_profiles import resolve_genre_profile
+    from cover_profiles import resolve_genre_profile, resolve_title_typography
 
 
-COMPILER_VERSION = "cover-compiler.v2"
+COMPILER_VERSION = "cover-compiler.v3"
 MAX_PROMPT_CODEPOINTS = 12_000
 _MARKETING_SHORTCUTS = ("viral", "high ctr", "high conversion", "click-through", "masterpiece")
 _FORBIDDEN_NEGATIONS = (
@@ -83,6 +84,13 @@ def _anchor_uses_forbidden_element(anchor: str, forbidden: str) -> bool:
     )
 
 
+def _title_safe_zone_without_repeated_title(title: str, safe_zone: str) -> str:
+    pattern = re.compile(
+        rf'["“]?{re.escape(title)}(?P<punct>[,.;:]?)["”]?', re.IGNORECASE
+    )
+    return pattern.sub(lambda match: f"the title{match.group('punct')}", safe_zone)
+
+
 def _validate_scene(brief: CoverBriefV2, scene: CoverScenePlan) -> None:
     if brief.pending_critical_assumptions():
         raise ValueError("cover prompt cannot compile while critical visual assumptions are pending")
@@ -112,6 +120,10 @@ def _validate_scene(brief: CoverBriefV2, scene: CoverScenePlan) -> None:
 
 def _modules(brief: CoverBriefV2, scene: CoverScenePlan) -> dict[str, str]:
     profile = resolve_genre_profile(brief)
+    typography = resolve_title_typography(profile)
+    title_safe_zone = _title_safe_zone_without_repeated_title(
+        brief.title, scene.title_safe_zone
+    )
     required = brief.required_characters
     cast_lock = "\n".join(_character_block(item) for item in required if item.character_id in scene.cast)
     if len(required) >= 4:
@@ -168,7 +180,18 @@ def _modules(brief: CoverBriefV2, scene: CoverScenePlan) -> dict[str, str]:
         ),
         "TITLE AND SAFE ZONE": (
             f"Render the exact title \"{brief.title}\" exactly once in {brief.language}. No other text. "
-            f"Keep faces, hands, and the primary prop outside {scene.title_safe_zone}. The title remains readable at mobile thumbnail size."
+            f"Keep faces, hands, and the primary prop outside {title_safe_zone}. The title remains readable at mobile thumbnail size."
+        ),
+        "TITLE ART DIRECTION": (
+            f"Typography voice: {typography.letterform_voice}. Build an art-directed asymmetric "
+            f"literary title lockup inside the approved safe zone. Hierarchy: {typography.hierarchy}. "
+            "Make articles, prepositions, and other supporting words visibly subordinate while "
+            "story-bearing words carry the dominant scale; preserve exact spelling, word order, "
+            "and an unmistakable reading path. Use balanced negative space, deliberate line breaks, "
+            "and optical rather than mechanical alignment. "
+            f"Expressive detail: {typography.expressive_detail}. Draw the lettering color from the "
+            f"scene palette ({scene.color_script}) with strong value contrast at thumbnail size. "
+            f"Avoid {', '.join(typography.prohibited_shortcuts)}."
         ),
         "PHOTOREALISM REQUIREMENTS": (
             "Natural skin texture, pores, age-appropriate facial structure and fine lines, subtle asymmetry, "
@@ -238,7 +261,7 @@ _REPAIR_MODULES = {
     "genre_drift": ("GENRE EMOTION",),
     "thumbnail_clutter": ("RELATIONSHIP BLOCKING", "MOBILE COMMERCIAL COVER OBJECTIVE"),
     "reader_promise_mismatch": ("MOBILE COMMERCIAL COVER OBJECTIVE", "STORY TRUTH"),
-    "title_failure": ("TITLE AND SAFE ZONE",),
+    "title_failure": ("TITLE AND SAFE ZONE", "TITLE ART DIRECTION"),
 }
 assert set(_REPAIR_MODULES) == COVER_REPAIR_CODES
 
