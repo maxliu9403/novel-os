@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { motion } from "motion/react";
-import { api, type CoverCandidate, type CoverSet, type JobStatus, type ProjectDetail, type StudioCoverStatus } from "../api/client";
+import { api, type CoverCandidate, type CoverDirection, type CoverSet, type JobStatus, type ProjectDetail, type StudioCoverStatus } from "../api/client";
 import Scene from "../components/Scene";
 import Icon from "../components/Icon";
 import { useToast } from "../components/toastContext";
@@ -29,6 +29,8 @@ export default function CoverStudio() {
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [settings, setSettings] = useState<StudioCoverStatus | null>(null);
   const [sets, setSets] = useState<CoverSet[]>([]);
+  const [directions, setDirections] = useState<CoverDirection[]>([]);
+  const [directionsLoaded, setDirectionsLoaded] = useState(false);
   const [selectedSetId, setSelectedSetId] = useState("");
   const [loadedProjectId, setLoadedProjectId] = useState("");
   const [busy, setBusy] = useState("");
@@ -65,12 +67,23 @@ export default function CoverStudio() {
     return () => { live = false; };
   }, [applySets, id, load]);
 
+  useEffect(() => {
+    let live = true;
+    api.coverDirections(id)
+      .then((next) => live && setDirections(Array.isArray(next) ? next : []))
+      .catch(() => live && setDirections([]))
+      .finally(() => live && setDirectionsLoaded(true));
+    return () => { live = false; };
+  }, [id]);
+
   const loading = loadedProjectId !== id;
 
   const current = useMemo(
     () => sets.find((item) => item.cover_set_id === selectedSetId) || sets[0] || null,
     [selectedSetId, sets],
   );
+  const approvedDirection = directions[0]?.status === "approved" ? directions[0] : null;
+  const generationAllowed = Boolean(settings?.configured && approvedDirection);
 
   const updateProgress = (nextSets: CoverSet[], context: JobProgressContext) => {
     if (context.mode === "retry") {
@@ -121,8 +134,16 @@ export default function CoverStudio() {
     }
   };
 
+  const reconcileDirections = async () => {
+    try {
+      setDirections(await api.coverDirections(id));
+    } catch {
+      // Preserve the operation error; the next page refresh can retry reconciliation.
+    }
+  };
+
   const generate = async () => {
-    if (!settings?.configured) return;
+    if (!settings || !generationAllowed) return;
     setBusy("generate");
     setProgress({
       mode: "generate", completed: 0, total: settings.count, phase: "preparing",
@@ -130,13 +151,18 @@ export default function CoverStudio() {
     setError("");
     try {
       await waitForJob(
-        await api.generateCovers(id, settings.count),
+          await (approvedDirection
+            ? api.generateCovers(id, settings.count, {
+                direction_id: approvedDirection.direction_id,
+                approved_direction_sha256: approvedDirection.direction_sha256,
+              })
+            : api.generateCovers(id, settings.count)),
         { mode: "generate", total: settings.count, knownSetIds: new Set(sets.map((item) => item.cover_set_id)) },
       );
       applySets(await api.covers(id));
       toast("Cover candidates ready", "success");
     } catch (cause) {
-      await reconcileSets();
+      await Promise.all([reconcileSets(), reconcileDirections()]);
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
       toast(message, "error");
@@ -146,7 +172,46 @@ export default function CoverStudio() {
     }
   };
 
-  const retry = async (candidate: CoverCandidate) => {
+  const approveDirection = async (direction: CoverDirection) => {
+    setBusy(`direction:${direction.direction_id}`);
+    try {
+      const approved = await api.approveCoverDirection(
+        id, direction.direction_id, direction.brief_sha256, direction.direction_sha256,
+      );
+      setDirections((items) => items.map((item) => (
+        item.direction_id === approved.direction_id ? approved : item
+      )));
+      toast("Art direction approved", "success");
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      toast(message, "error");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const createDirection = async () => {
+    if (!settings) return;
+    setBusy("direction:create");
+    setError("");
+    try {
+      const created = await api.createCoverDirection(id, settings.count);
+      setDirections((items) => [
+        created,
+        ...items.filter((item) => item.direction_id !== created.direction_id),
+      ]);
+      toast("Art direction ready for review", "success");
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      toast(message, "error");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const retry = async (candidate: CoverCandidate, repairCodes: string[] = []) => {
     if (!current) return;
     const candidateNumber = current.candidates.findIndex((item) => item.candidate_id === candidate.candidate_id) + 1;
     setBusy(candidate.candidate_id);
@@ -156,7 +221,11 @@ export default function CoverStudio() {
     });
     try {
       await waitForJob(
-        await api.retryCover(id, current.cover_set_id, candidate.candidate_id, current.revision),
+        await (repairCodes.length
+          ? api.retryCover(
+              id, current.cover_set_id, candidate.candidate_id, current.revision, repairCodes,
+            )
+          : api.retryCover(id, current.cover_set_id, candidate.candidate_id, current.revision)),
         { mode: "retry", candidateNumber },
       );
       applySets(await api.covers(id));
@@ -254,10 +323,22 @@ export default function CoverStudio() {
                 <Icon name="download" className="h-4 w-4" /> Package
               </a>
             )}
+            {directionsLoaded && !directions[0] && (
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={Boolean(busy)}
+                onClick={createDirection}
+                aria-label="Create art direction"
+              >
+                <Icon name="sparkles" className="h-4 w-4" />
+                {busy === "direction:create" ? "Planning" : "Create direction"}
+              </button>
+            )}
             <button
               type="button"
               className="btn-primary"
-              disabled={!settings?.configured || Boolean(busy)}
+              disabled={!generationAllowed || Boolean(busy)}
               onClick={generate}
               aria-label={`Generate ${settings?.count || 4} covers`}
             >
@@ -286,6 +367,15 @@ export default function CoverStudio() {
         )}
 
         {progress && <GenerationProgress progress={progress} />}
+
+        {directions.length > 0 && (
+          <DirectionWorkspace
+            directions={directions}
+            busy={busy}
+            onApprove={approveDirection}
+            onCreate={createDirection}
+          />
+        )}
 
         <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -329,7 +419,7 @@ export default function CoverStudio() {
                   || (progress.mode === "retry" && progress.candidateNumber === index + 1)
                 )
               )}
-              onRetry={() => retry(candidate)}
+              onRetry={(repairCodes) => retry(candidate, repairCodes)}
               onSelect={() => select(candidate)}
               onReject={() => reject(candidate)}
             />
@@ -337,6 +427,131 @@ export default function CoverStudio() {
         </div>
       </div>
     </Scene>
+  );
+}
+
+function DirectionWorkspace({
+  directions, busy, onApprove, onCreate,
+}: {
+  directions: CoverDirection[];
+  busy: string;
+  onApprove: (direction: CoverDirection) => void;
+  onCreate: () => void;
+}) {
+  const direction = directions[0];
+  const characters = direction.brief?.principal_characters || [];
+  const environment = direction.brief?.lived_environment || {};
+  const assumptions = [
+    ...(Array.isArray(direction.brief?.visual_assumptions)
+      ? direction.brief.visual_assumptions
+      : []),
+    ...(direction.visual_assumptions || []),
+  ];
+  return (
+    <section
+      aria-label="Story facts and art direction"
+      className="mt-7 border-y border-[rgba(74,91,133,0.14)] py-5"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="eyebrow">Story facts</p>
+          <h2 className="mt-1 font-display text-[18px] font-semibold text-ink-text">
+            Art direction review
+          </h2>
+          <p className="mt-1 text-[12px] text-ink-muted">
+            {direction.brief?.genre || "Story-specific direction"} · {direction.brief?.target_audience || "Approved audience"}
+          </p>
+        </div>
+        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+          direction.status === "approved"
+            ? "border-[#8dc5a6] bg-[#eaf8f0] text-[#26714a]"
+            : direction.status === "stale"
+              ? "border-[#df93a7] bg-[#fff1f4] text-[#96354e]"
+              : "border-[#d6a85f] bg-[#fff7e8] text-[#72511d]"
+        }`}>
+          {direction.status.replaceAll("_", " ")}
+        </span>
+      </div>
+
+      {characters.length > 0 && (
+        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {characters.map((character) => (
+            <div key={String(character.character_id)} className="rounded-[6px] border border-paper-line bg-white/65 p-3">
+              <p className="text-[12px] font-semibold text-ink-text">{String(character.name || character.character_id)}</p>
+              <p className="mt-1 text-[11px] leading-4 text-ink-muted">
+                {character.age ? `Age ${character.age}` : character.age_band ? `Age phase: ${character.age_band}` : "Age pending"}
+                {character.occupation_and_status ? ` · ${character.occupation_and_status}` : ""}
+              </p>
+              <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-ink-muted">
+                {character.lived_environment || character.daily_wardrobe || "Lived environment pending"}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {environment && Object.keys(environment).length > 0 && (
+        <p className="mt-3 text-[11.5px] text-ink-muted">
+          Lived spaces: {Array.isArray(environment.primary_spaces) ? environment.primary_spaces.join(", ") : String(environment.primary_spaces || "pending")}
+        </p>
+      )}
+
+      {assumptions.length > 0 && (
+        <div className="mt-3 border-l-2 border-[#d6a85f] bg-[#fff7e8] px-3 py-2.5 text-[11.5px] text-[#72511d]">
+          <p className="font-semibold">
+            {assumptions.filter((item) => item.status === "pending_confirmation").length} visual assumptions included in this approval
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {assumptions.map((item, index) => (
+              <li key={`${String(item.field)}:${index}`}>
+                <span className="font-medium">{String(item.field)}</span>: {String(item.proposed_value)}
+                {item.reason ? <span className="text-[#86642f]"> · {String(item.reason)}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {direction.plans.map((plan, index) => (
+          <article key={plan.concept_id} className="rounded-[6px] border border-paper-line bg-white/65 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-[12px] font-semibold text-ink-text">Direction {index + 1}: {formatStrategy(plan.visual_strategy)}</p>
+              <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-ink-muted">{plan.visual_hook.hook_type.replaceAll("_", " ")}</span>
+            </div>
+            <p className="mt-2 text-[11.5px] leading-4 text-ink-muted">{plan.frozen_action}</p>
+            <p className="mt-1 text-[11px] leading-4 text-ink-muted">Cast: {plan.cast.join(", ")} · Prop: {plan.primary_prop}</p>
+            <p className="mt-1 text-[11px] leading-4 text-ink-muted">{plan.visual_hook.open_question}</p>
+          </article>
+        ))}
+      </div>
+
+      {direction.status !== "approved" && direction.status !== "stale" && (
+        <button
+          type="button"
+          className="btn-primary mt-4"
+          disabled={Boolean(busy)}
+          onClick={() => onApprove(direction)}
+          aria-label="Approve art direction"
+        >
+          <Icon name="circle-check" className="h-4 w-4" /> Approve art direction
+        </button>
+      )}
+      {direction.status === "stale" && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[12px] font-medium text-[#96354e]">This direction is stale. Create a new direction from the current story facts.</p>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={Boolean(busy)}
+            onClick={onCreate}
+            aria-label="Create new art direction"
+          >
+            <Icon name="sparkles" className="h-4 w-4" /> New direction
+          </button>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -405,12 +620,14 @@ function CandidateCard({
   busy: boolean;
   disabled: boolean;
   generating: boolean;
-  onRetry: () => void;
+  onRetry: (repairCodes?: string[]) => void;
   onSelect: () => void;
   onReject: () => void;
 }) {
   const imageUrl = api.assetUrl(candidate.url);
   const label = `candidate ${index + 1}`;
+  const repairCodes = candidate.quality_report?.repair_codes || [];
+  const [repairCode, setRepairCode] = useState(repairCodes[0] || "");
   return (
     <motion.article
       data-testid="cover-slot"
@@ -464,9 +681,20 @@ function CandidateCard({
         <p className="mt-1 line-clamp-2 min-h-[34px] text-[11.5px] leading-[17px] text-ink-muted">
           {candidate.error || concept?.focal_scene || "Awaiting generation"}
         </p>
+        {candidate.quality_report && (
+          <p className={`mt-2 text-[10.5px] font-semibold ${
+            candidate.quality_report.status === "blocked"
+              ? "text-[#a6425d]"
+              : candidate.quality_report.status === "recommended_for_human_review"
+                ? "text-[#26714a]"
+                : "text-[#72511d]"
+          }`}>
+            {qualityStatusLabel(candidate.quality_report.status)}
+          </p>
+        )}
         <div className="mt-3 flex min-h-9 flex-wrap items-center gap-1.5">
           {candidate.status === "failed" && (
-            <button type="button" className="btn-secondary px-3 py-2 text-[11.5px]" onClick={onRetry} disabled={disabled} aria-label={`Retry ${label}`}>
+            <button type="button" className="btn-secondary px-3 py-2 text-[11.5px]" onClick={() => onRetry()} disabled={disabled} aria-label={`Retry ${label}`}>
               <Icon name="history" className="h-3.5 w-3.5" /> Retry
             </button>
           )}
@@ -486,6 +714,29 @@ function CandidateCard({
             </span>
           )}
         </div>
+        {candidate.status === "ready" && repairCodes.length > 0 && (
+          <div className="mt-2 flex items-center gap-1.5 border-t border-paper-line pt-2">
+            <select
+              value={repairCode}
+              onChange={(event) => setRepairCode(event.target.value)}
+              aria-label={`Repair reason ${label}`}
+              className="min-w-0 flex-1 rounded-[6px] border border-paper-line bg-white px-2 py-1.5 text-[10.5px] text-ink-text"
+            >
+              {repairCodes.map((code) => (
+                <option key={code} value={code}>{formatStrategy(code)}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn-secondary px-2.5 py-1.5 text-[10.5px]"
+              onClick={() => onRetry([repairCode])}
+              disabled={disabled || !repairCode}
+              aria-label={`Regenerate ${label} with repair`}
+            >
+              <Icon name="history" className="h-3.5 w-3.5" /> Repair
+            </button>
+          </div>
+        )}
       </div>
     </motion.article>
   );
@@ -532,4 +783,10 @@ function statusClass(status: CoverCandidate["status"]) {
   if (status === "ready") return "border-white/60 bg-white/85 text-ink-text";
   if (status === "rejected") return "border-[#c7cbd5] bg-[#f1f2f5]/90 text-[#6e7482]";
   return "border-white/60 bg-white/80 text-ink-muted";
+}
+
+function qualityStatusLabel(status: NonNullable<CoverCandidate["quality_report"]>["status"]) {
+  if (status === "recommended_for_human_review") return "Recommended for review";
+  if (status === "human_review_required") return "Human review required";
+  return "Quality blockers found";
 }

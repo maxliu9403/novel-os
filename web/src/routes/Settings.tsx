@@ -30,6 +30,11 @@ export default function Settings() {
   const [coverTimeout, setCoverTimeout] = useState(180);
   const [coverQuality, setCoverQuality] = useState<StudioCoverStatus["quality"]>("high");
   const [coverFormat, setCoverFormat] = useState<StudioCoverStatus["output_format"]>("jpeg");
+  const [directorProvider, setDirectorProvider] = useState("");
+  const [directorModel, setDirectorModel] = useState("");
+  const [directorBaseUrl, setDirectorBaseUrl] = useState("");
+  const [directorApiKey, setDirectorApiKey] = useState("");
+  const [directorTimeout, setDirectorTimeout] = useState(180);
 
   function load() {
     api.studioLlm().then((s) => {
@@ -45,6 +50,10 @@ export default function Settings() {
       setCoverTimeout(s.timeout_seconds);
       setCoverQuality(s.quality);
       setCoverFormat(s.output_format);
+      setDirectorProvider(s.director_inherits_writing ? "" : (s.director_provider || ""));
+      setDirectorModel(s.director_inherits_writing ? "" : (s.director_model || ""));
+      setDirectorBaseUrl(s.director_inherits_writing ? "" : (s.director_base_url || ""));
+      setDirectorTimeout(s.director_timeout_seconds || 180);
     }).catch((e) => setError(String(e)));
   }
 
@@ -101,9 +110,15 @@ export default function Settings() {
         output_format: coverFormat,
         count: coverCount,
         timeout_seconds: coverTimeout,
+        director_provider: directorProvider.trim(),
+        director_model: directorModel.trim(),
+        director_base_url: directorBaseUrl.trim(),
+        director_api_key: directorApiKey.trim() || undefined,
+        director_timeout_seconds: directorTimeout,
       });
       setCoverStatus(next);
       setCoverApiKey("");
+      setDirectorApiKey("");
       toast("Cover settings saved", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
@@ -312,6 +327,59 @@ export default function Settings() {
                     autoComplete="off"
                   />
                 </Field>
+                <div className="mt-8 border-t border-[rgba(74,91,133,0.12)] pt-7">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h3 className="font-display text-[18px] font-semibold text-ink-text">Art direction planning</h3>
+                    <span className="text-[11px] font-medium text-ink-muted">
+                      {coverStatus.director_inherits_writing ? "Uses writing model" : "Independent route"}
+                    </span>
+                  </div>
+                  <div className="mt-4 grid gap-x-4 sm:grid-cols-2">
+                    <Field label="Director provider">
+                      <input
+                        className={fieldClass}
+                        value={directorProvider}
+                        onChange={(e) => setDirectorProvider(e.target.value)}
+                        placeholder={coverStatus.director_provider || "openai_compatible"}
+                      />
+                    </Field>
+                    <Field label="Director model">
+                      <input
+                        className={fieldClass}
+                        value={directorModel}
+                        onChange={(e) => setDirectorModel(e.target.value)}
+                        placeholder={coverStatus.director_model || "Model id"}
+                      />
+                    </Field>
+                    <Field label="Director base URL">
+                      <input
+                        className={fieldClass}
+                        value={directorBaseUrl}
+                        onChange={(e) => setDirectorBaseUrl(e.target.value)}
+                        placeholder={coverStatus.director_base_url || "https://director.example/v1"}
+                      />
+                    </Field>
+                    <Field label="Director timeout seconds">
+                      <input
+                        className={fieldClass}
+                        type="number"
+                        min={1}
+                        value={directorTimeout}
+                        onChange={(e) => setDirectorTimeout(Number(e.target.value))}
+                      />
+                    </Field>
+                  </div>
+                  <Field label="Director API key">
+                    <input
+                      className={fieldClass}
+                      type="password"
+                      value={directorApiKey}
+                      onChange={(e) => setDirectorApiKey(e.target.value)}
+                      placeholder={coverStatus.director_has_api_key ? "Configured" : "API key"}
+                      autoComplete="off"
+                    />
+                  </Field>
+                </div>
                 <button
                   type="button"
                   disabled={coverBusy}

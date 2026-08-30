@@ -50,6 +50,12 @@ export interface StudioCoverStatus {
   timeout_seconds: number;
   inherits_base_url: boolean;
   inherits_api_key: boolean;
+  director_provider?: string;
+  director_model?: string;
+  director_base_url?: string;
+  director_has_api_key?: boolean;
+  director_timeout_seconds?: number;
+  director_inherits_writing?: boolean;
   error: string | null;
 }
 
@@ -76,6 +82,15 @@ export interface CoverCandidate {
   height: number;
   content_type: string;
   error: string;
+  prompt_revision?: number;
+  attempt_history?: Array<Record<string, unknown>>;
+  quality_report?: {
+    status: "blocked" | "human_review_required" | "recommended_for_human_review";
+    blockers: string[];
+    repair_codes: string[];
+    evidence: string[];
+    [key: string]: unknown;
+  } | null;
 }
 
 export interface CoverSet {
@@ -98,6 +113,48 @@ export interface CoverSet {
   active_revision: number;
   created_at: string;
   updated_at: string;
+  brief_schema_version?: number;
+  compiler_version?: string;
+}
+
+export interface CoverDirectionPlan {
+  concept_id: string;
+  visual_strategy: string;
+  cast: string[];
+  focal_character_id: string;
+  frozen_action: string;
+  blocking: string;
+  primary_prop: string;
+  visual_hook: {
+    hook_type: string;
+    first_glance_subject: string;
+    open_question: string;
+    reader_promise: string;
+    expected_thumbnail_read: string;
+  };
+}
+
+export interface CoverDirection {
+  direction_id: string;
+  schema_version: number;
+  director_model: string;
+  profile_version: string;
+  brief_sha256: string;
+  direction_sha256: string;
+  created_at?: string;
+  status: "awaiting_approval" | "approved" | "stale" | "rejected";
+  plans: CoverDirectionPlan[];
+  visual_assumptions: Array<{
+    field: string; proposed_value: string; reason: string;
+    status: "pending_confirmation" | "approved"; critical: boolean;
+  }>;
+  brief?: Record<string, any> & {
+    title?: string;
+    genre?: string;
+    target_audience?: string;
+    principal_characters?: Array<Record<string, any>>;
+    lived_environment?: Record<string, any>;
+  };
 }
 
 export interface ContinuityFinding {
@@ -436,12 +493,35 @@ export const api = {
     base_url?: string; api_key?: string; model?: string; size?: string;
     quality?: string; output_format?: string; count?: number;
     timeout_seconds?: number;
+    director_provider?: string; director_model?: string;
+    director_base_url?: string; director_api_key?: string;
+    director_timeout_seconds?: number;
   }) => send<StudioCoverStatus>("/api/studio/cover", "PUT", body),
   covers: (id: string) => get<CoverSet[]>(`/api/projects/${id}/covers`),
   cover: (id: string, coverSetId: string) =>
     get<CoverSet>(`/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}`),
-  generateCovers: (id: string, count?: number) =>
-    send<JobStatus>(`/api/projects/${id}/covers/generate`, "POST", { count }),
+  coverQuality: (id: string, coverSetId: string) =>
+    get<Record<string, unknown>>(
+      `/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}/quality`,
+    ),
+  generateCovers: (id: string, count?: number, direction?: {
+    direction_id: string;
+    approved_direction_sha256: string;
+  }) =>
+    send<JobStatus>(`/api/projects/${id}/covers/generate`, "POST", direction
+      ? { count, ...direction }
+      : { count }),
+  coverDirections: (id: string) =>
+    get<CoverDirection[]>(`/api/projects/${id}/covers/directions`),
+  createCoverDirection: (id: string, count = 4) =>
+    send<CoverDirection>(`/api/projects/${id}/covers/directions`, "POST", { count }),
+  approveCoverDirection: (
+    id: string, directionId: string, briefSha256: string, directionSha256: string,
+  ) => send<CoverDirection>(
+    `/api/projects/${id}/covers/directions/${encodeURIComponent(directionId)}/approve`,
+    "POST",
+    { expected_brief_sha256: briefSha256, approved_direction_sha256: directionSha256 },
+  ),
   selectCover: (
     id: string, coverSetId: string, candidateId: string,
     expectedRevision: number, expectedActiveRevision: number, confirmStale = false,
@@ -463,10 +543,11 @@ export const api = {
   ),
   retryCover: (
     id: string, coverSetId: string, candidateId: string, expectedRevision: number,
+    repairCodes: string[] = [],
   ) => send<JobStatus>(
     `/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}/candidates/${encodeURIComponent(candidateId)}/retry`,
     "POST",
-    { expected_revision: expectedRevision },
+    { expected_revision: expectedRevision, repair_codes: repairCodes },
   ),
   deliveryPackageUrl: (id: string) => `${BASE}/api/projects/${id}/deliverables/package`,
   continuity: (id: string) => get<ContinuityReport>(`/api/projects/${id}/continuity`),

@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ToastProvider } from "../components/Toaster";
 import { ConfirmProvider } from "../components/Confirm";
 import CoverStudio from "./CoverStudio";
-import { api, type CoverSet } from "../api/client";
+import { api, type CoverDirection, type CoverSet } from "../api/client";
 
 
 const project = {
@@ -59,6 +59,9 @@ function coverSet(status: CoverSet["status"] = "partial"): CoverSet {
 }
 
 function renderStudio() {
+  if (!vi.isMockFunction(api.coverDirections)) {
+    vi.spyOn(api, "coverDirections").mockResolvedValue([]);
+  }
   return render(
     <MemoryRouter initialEntries={[`/projects/${project.id}/covers`]}>
       <ToastProvider><ConfirmProvider>
@@ -66,6 +69,46 @@ function renderStudio() {
       </ConfirmProvider></ToastProvider>
     </MemoryRouter>,
   );
+}
+
+function coverDirection(status: CoverDirection["status"] = "awaiting_approval"): CoverDirection {
+  return {
+    direction_id: "direction-" + "a".repeat(32),
+    schema_version: 1,
+    director_model: "fixture-director",
+    profile_version: "cover-profiles.v2",
+    brief_sha256: "a".repeat(64),
+    direction_sha256: "b".repeat(64),
+    status,
+    visual_assumptions: [],
+    brief: {
+      schema_version: 2,
+      title: project.title,
+      genre: "family ethics",
+      target_audience: "adult relationship-drama readers",
+      principal_characters: [{
+        character_id: "char_mara", name: "Mara", age: 34,
+        occupation_and_status: "caregiver returning to paid work",
+        lived_environment: "a lived-in apartment entry",
+      }],
+      lived_environment: { primary_spaces: ["lived-in apartment entry"] },
+    },
+    plans: Array.from({ length: 4 }, (_, index) => ({
+      concept_id: `concept-${index + 1}`,
+      visual_strategy: `strategy_${index + 1}`,
+      cast: ["char_mara"], focal_character_id: "char_mara",
+      frozen_action: "Mara removes the shared key before the door closes",
+      blocking: "Mara foreground right at the threshold",
+      primary_prop: "shared brass key",
+      visual_hook: {
+        hook_type: "irreversible_moment",
+        first_glance_subject: "Mara and the key",
+        open_question: "Will she close the door?",
+        reader_promise: "she chooses her boundary",
+        expected_thumbnail_read: "one woman, one key, one decision",
+      },
+    })),
+  };
 }
 
 afterEach(() => {
@@ -98,6 +141,64 @@ test("routes an unconfigured workspace to independent cover settings", async () 
   expect(screen.getByRole("button", { name: "Generate 4 covers" })).toBeDisabled();
 });
 
+test("shows story facts and requires exact art direction approval before generation", async () => {
+  const pending = coverDirection();
+  const approved = coverDirection("approved");
+  vi.spyOn(api, "project").mockResolvedValue(project);
+  vi.spyOn(api, "studioCover").mockResolvedValue(coverStatus);
+  vi.spyOn(api, "covers").mockResolvedValue([]);
+  vi.spyOn(api, "coverDirections").mockResolvedValue([pending]);
+  const approve = vi.spyOn(api, "approveCoverDirection").mockResolvedValue(approved);
+  const user = userEvent.setup();
+
+  renderStudio();
+
+  expect(await screen.findByText("Art direction review")).toBeInTheDocument();
+  expect(screen.getByText("Age 34 · caregiver returning to paid work")).toBeInTheDocument();
+  expect(screen.getByText("a lived-in apartment entry")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Generate 4 covers" })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: "Approve art direction" }));
+  await waitFor(() => expect(approve).toHaveBeenCalledWith(
+    project.id, pending.direction_id, pending.brief_sha256, pending.direction_sha256,
+  ));
+  expect(screen.getByRole("button", { name: "Generate 4 covers" })).toBeEnabled();
+});
+
+test("creates art direction from the persisted story facts before generation", async () => {
+  const pending = coverDirection();
+  vi.spyOn(api, "project").mockResolvedValue(project);
+  vi.spyOn(api, "studioCover").mockResolvedValue(coverStatus);
+  vi.spyOn(api, "covers").mockResolvedValue([]);
+  vi.spyOn(api, "coverDirections").mockResolvedValue([]);
+  const create = vi.spyOn(api, "createCoverDirection").mockResolvedValue(pending);
+  const user = userEvent.setup();
+
+  renderStudio();
+
+  await screen.findByRole("heading", { name: "Cover Studio" });
+  expect(screen.getByRole("button", { name: "Generate 4 covers" })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: "Create art direction" }));
+
+  await waitFor(() => expect(create).toHaveBeenCalledWith(project.id, 4));
+  expect(await screen.findByText("Art direction review")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Approve art direction" })).toBeEnabled();
+});
+
+test("does not reuse an older approval when the newest direction awaits review", async () => {
+  vi.spyOn(api, "project").mockResolvedValue(project);
+  vi.spyOn(api, "studioCover").mockResolvedValue(coverStatus);
+  vi.spyOn(api, "covers").mockResolvedValue([]);
+  vi.spyOn(api, "coverDirections").mockResolvedValue([
+    coverDirection("awaiting_approval"),
+    { ...coverDirection("approved"), direction_id: `direction-${"c".repeat(32)}` },
+  ]);
+
+  renderStudio();
+
+  expect(await screen.findByText("Art direction review")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Generate 4 covers" })).toBeDisabled();
+});
+
 test("shows partial results and retries only the failed candidate", async () => {
   const partial = coverSet();
   vi.spyOn(api, "project").mockResolvedValue(project);
@@ -118,6 +219,38 @@ test("shows partial results and retries only the failed candidate", async () => 
   await user.click(screen.getByRole("button", { name: "Retry candidate 2" }));
   await waitFor(() => expect(retry).toHaveBeenCalledWith(
     project.id, partial.cover_set_id, "candidate-2", partial.revision,
+  ));
+});
+
+test("offers only reported quality repair codes for a ready candidate", async () => {
+  const ready = coverSet("ready");
+  const reviewed = {
+    ...ready,
+    candidates: ready.candidates.map((candidate, index) => index === 0 ? {
+      ...candidate,
+      quality_report: {
+        status: "blocked" as const,
+        blockers: ["generic_ai_face"],
+        repair_codes: ["generic_ai_face"],
+        evidence: ["face region"],
+      },
+    } : candidate),
+  };
+  vi.spyOn(api, "project").mockResolvedValue(project);
+  vi.spyOn(api, "studioCover").mockResolvedValue(coverStatus);
+  vi.spyOn(api, "covers").mockResolvedValue([reviewed]);
+  const retry = vi.spyOn(api, "retryCover").mockResolvedValue({
+    job_id: "job-repair", kind: "cover.retry", status: "done", error: null, meta: {},
+  });
+  const user = userEvent.setup();
+
+  renderStudio();
+
+  expect(await screen.findByText("Quality blockers found")).toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "Repair reason candidate 1" })).toHaveValue("generic_ai_face");
+  await user.click(screen.getByRole("button", { name: "Regenerate candidate 1 with repair" }));
+  await waitFor(() => expect(retry).toHaveBeenCalledWith(
+    project.id, reviewed.cover_set_id, "candidate-1", reviewed.revision, ["generic_ai_face"],
   ));
 });
 
@@ -146,9 +279,11 @@ test("requires confirmation before selection and exposes the delivery package", 
 
 test("generates the configured candidate count from the persisted story handoff", async () => {
   const ready = coverSet("ready");
+  const approved = coverDirection("approved");
   vi.spyOn(api, "project").mockResolvedValue(project);
   vi.spyOn(api, "studioCover").mockResolvedValue(coverStatus);
   vi.spyOn(api, "covers").mockResolvedValueOnce([]).mockResolvedValue([ready]);
+  vi.spyOn(api, "coverDirections").mockResolvedValue([approved]);
   const generate = vi.spyOn(api, "generateCovers").mockResolvedValue({
     job_id: "job-generate", kind: "cover.generate", status: "done", error: null, meta: {},
   });
@@ -158,12 +293,16 @@ test("generates the configured candidate count from the persisted story handoff"
   await screen.findByRole("heading", { name: "Cover Studio" });
   await user.click(screen.getByRole("button", { name: "Generate 4 covers" }));
 
-  await waitFor(() => expect(generate).toHaveBeenCalledWith(project.id, 4));
+  await waitFor(() => expect(generate).toHaveBeenCalledWith(project.id, 4, {
+    direction_id: approved.direction_id,
+    approved_direction_sha256: approved.direction_sha256,
+  }));
   expect(await screen.findByText("2 of 4 rendered")).toBeInTheDocument();
 });
 
 test("shows generation progress in the preview while candidates are rendering", async () => {
   const existing = coverSet("selected");
+  const approved = coverDirection("approved");
   const generatingBase = { ...coverSet("generating"), cover_set_id: "cover-new" };
   const generating = {
     ...generatingBase,
@@ -187,6 +326,7 @@ test("shows generation progress in the preview while candidates are rendering", 
   const ready = { ...coverSet("ready"), cover_set_id: "cover-new" };
   vi.spyOn(api, "project").mockResolvedValue(project);
   vi.spyOn(api, "studioCover").mockResolvedValue(coverStatus);
+  vi.spyOn(api, "coverDirections").mockResolvedValue([approved]);
   vi.spyOn(api, "covers")
     .mockResolvedValueOnce([existing])
     .mockResolvedValueOnce([generating, existing])
@@ -214,9 +354,11 @@ test("shows generation progress in the preview while candidates are rendering", 
 });
 
 test("keeps a generation failure visible in the cover workspace", async () => {
+  const approved = coverDirection("approved");
   vi.spyOn(api, "project").mockResolvedValue(project);
   vi.spyOn(api, "studioCover").mockResolvedValue(coverStatus);
   vi.spyOn(api, "covers").mockResolvedValue([]);
+  vi.spyOn(api, "coverDirections").mockResolvedValue([approved]);
   vi.spyOn(api, "generateCovers").mockRejectedValue(
     new Error("Legacy cover story data is incomplete"),
   );
