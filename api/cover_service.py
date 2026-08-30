@@ -51,12 +51,16 @@ class CoverService:
         project_path: str | Path,
         brief: CoverBrief,
         concepts: Sequence[CoverConcept],
+        *,
+        compiler_version: str = "",
     ) -> CoverSet:
         project = Path(project_path).resolve()
         self._require_generation_dependencies()
         self._reset_pending_projection(project)
         store = CoverStore(project)
-        current = store.create(CoverSet.new(project_id, brief, concepts))
+        current = store.create(
+            CoverSet.new(project_id, brief, concepts, compiler_version=compiler_version)
+        )
         for candidate in current.candidates:
             current = self._attempt_candidate(
                 project_id, project, store, current, candidate.candidate_id
@@ -245,6 +249,12 @@ class CoverService:
     ) -> CoverCandidate:
         mime = content_type(generated.data)
         width, height = dimensions(generated.data)
+        expected_model = str(
+            getattr(getattr(self.image_client, "settings", None), "model", "")
+            or "gpt-image-2"
+        )
+        if generated.model != expected_model or generated.model != "gpt-image-2":
+            raise CoverServiceError("Generated cover model must be gpt-image-2")
         if mime != generated.content_type or not aspect_ratio_matches(width, height):
             raise CoverServiceError(
                 "Generated cover bytes failed portrait 2:3 aspect-ratio validation"

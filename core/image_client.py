@@ -22,6 +22,7 @@ except ImportError:  # pragma: no cover - legacy top-level core imports
 
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 MAX_IMAGE_BYTES = 40 * 1024 * 1024
+REQUIRED_IMAGE_MODEL = "gpt-image-2"
 
 
 class ImageClientError(RuntimeError):
@@ -59,6 +60,8 @@ class ImageGenerationClient:
     ) -> None:
         if not settings.api_key:
             raise ImageClientError("Cover API key is not configured")
+        if settings.model != REQUIRED_IMAGE_MODEL:
+            raise ImageClientError(f"Cover image model must be {REQUIRED_IMAGE_MODEL}")
         if max_attempts < 1:
             raise ValueError("max_attempts must be at least 1")
         self.settings = settings

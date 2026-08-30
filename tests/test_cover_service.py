@@ -93,6 +93,11 @@ class FakeImageClient:
         )
 
 
+class WrongModelImageClient(FakeImageClient):
+    def generate(self, prompt: str) -> GeneratedImage:
+        return replace(super().generate(prompt), model="dall-e-3")
+
+
 @dataclass
 class MediaRow:
     id: str
@@ -133,6 +138,21 @@ def test_generate_persists_four_independent_ready_candidates(tmp_path) -> None:
         assert candidate.media_id == f"media-{index}"
         assert candidate.relative_path.endswith(f"cover-{index:02d}.jpg")
         assert (tmp_path / "project" / candidate.relative_path).is_file()
+
+
+def test_service_does_not_persist_an_image_from_a_different_model(tmp_path) -> None:
+    registrar = Registrar()
+    service = CoverService(
+        image_client=WrongModelImageClient([_jpeg(marker=b"wrong-model")] * 4),
+        media_store=LocalMediaStore(tmp_path / "media"),
+        media_add=registrar,
+    )
+
+    cover_set = service.generate("project-one", tmp_path / "project", _brief(), _concepts())
+
+    assert cover_set.candidates[0].status == "failed"
+    assert "gpt-image-2" in cover_set.candidates[0].error
+    assert not registrar.calls
 
 
 def test_generate_supports_unicode_project_id(tmp_path) -> None:

@@ -231,6 +231,8 @@ class CoverSet:
     candidates: tuple[CoverCandidate, ...]
     source_prompt_sha256: str
     foundation_sha256: str = ""
+    brief_schema_version: int = 1
+    compiler_version: str = ""
     status: str = "generating"
     requested_count: int = 4
     selected_candidate_id: str = ""
@@ -243,6 +245,8 @@ class CoverSet:
             raise ValueError(f"Unknown cover set status '{self.status}'")
         if not 3 <= self.requested_count <= 5:
             raise ValueError("Cover candidate count must be between 3 and 5")
+        if self.brief_schema_version not in {1, 2}:
+            raise ValueError("Cover brief schema version must be 1 or 2")
         if len(self.concepts) != self.requested_count or len(self.candidates) != self.requested_count:
             raise ValueError("Cover set concepts and candidates must match requested_count")
 
@@ -252,6 +256,8 @@ class CoverSet:
         project_id: str,
         brief: CoverBrief,
         concepts: Sequence[CoverConcept],
+        *,
+        compiler_version: str = "",
     ) -> "CoverSet":
         brief.validate_concepts(concepts)
         set_id = f"cover-{uuid.uuid4().hex}"
@@ -273,6 +279,8 @@ class CoverSet:
             candidates=candidates,
             source_prompt_sha256=brief.source_prompt_sha256,
             foundation_sha256=brief.foundation_sha256,
+            brief_schema_version=int(getattr(brief, "schema_version", 1) or 1),
+            compiler_version=compiler_version,
             requested_count=len(concepts),
             created_at=now,
             updated_at=now,
@@ -294,6 +302,8 @@ class CoverSet:
             "candidates": [candidate.to_dict() for candidate in self.candidates],
             "source_prompt_sha256": self.source_prompt_sha256,
             "foundation_sha256": self.foundation_sha256,
+            "brief_schema_version": self.brief_schema_version,
+            "compiler_version": self.compiler_version,
             "status": self.status,
             "requested_count": self.requested_count,
             "selected_candidate_id": self.selected_candidate_id,
@@ -315,6 +325,8 @@ class CoverSet:
             ),
             source_prompt_sha256=str(data.get("source_prompt_sha256") or ""),
             foundation_sha256=str(data.get("foundation_sha256") or ""),
+            brief_schema_version=int(data.get("brief_schema_version") or 1),
+            compiler_version=str(data.get("compiler_version") or ""),
             status=str(data.get("status") or "generating"),
             requested_count=int(data.get("requested_count") or 0),
             selected_candidate_id=str(data.get("selected_candidate_id") or ""),

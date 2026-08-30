@@ -98,6 +98,20 @@ def test_cover_set_json_round_trip_and_stale_detection() -> None:
     assert stale.source_prompt_sha256 == SHA_A
 
 
+def test_cover_set_round_trip_preserves_prompt_compilation_metadata() -> None:
+    cover_set = CoverSet.new("project-one", _brief(), [_concept(i) for i in range(1, 5)])
+    enriched = replace(
+        cover_set,
+        brief_schema_version=2,
+        compiler_version="cover-compiler.v2",
+    )
+
+    restored = CoverSet.from_dict(enriched.to_dict())
+
+    assert restored.brief_schema_version == 2
+    assert restored.compiler_version == "cover-compiler.v2"
+
+
 def test_ready_candidate_requires_complete_immutable_provenance() -> None:
     with pytest.raises(ValueError, match="ready candidate"):
         CoverCandidate(candidate_id="candidate-1", concept_id="concept-1", status="ready")

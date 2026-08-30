@@ -66,7 +66,7 @@
 - `normalize_cover_brief(source: CoverBrief | Mapping[str, Any], *, source_prompt_sha256: str, foundation_sha256: str = "") -> CoverBriefV2`
 - `normalize_legacy_project(project: Path, prompt_text: str) -> CoverBriefV2`
 
-- [ ] **Step 1: Write RED contract tests.** Cover a single protagonist, two and three required protagonists, four required protagonists, v1 conversion, and rejected missing critical fields. Assert that each required character includes `age` or `age_band`, `occupation_and_status` or equivalent lived identity, `daily_wardrobe` or environment anchor, and `agency_signal`.
+- [x] **Step 1: Write RED contract tests.** Cover a single protagonist, two and three required protagonists, four required protagonists, v1 conversion, and rejected missing critical fields. Assert that each required character includes `age` or `age_band`, `occupation_and_status` or equivalent lived identity, `daily_wardrobe` or environment anchor, and `agency_signal`.
 
 ```python
 def test_v2_round_trip_preserves_required_characters_and_visual_goal():
@@ -89,21 +89,21 @@ def test_normalizer_marks_v1_missing_identity_as_pending_assumptions():
     assert any(item.status == "pending_confirmation" for item in result.visual_assumptions)
 ```
 
-- [ ] **Step 2: Run the RED tests.**
+- [x] **Step 2: Run the RED tests.**
 
 Run: `venv/bin/python -m pytest -q tests/test_cover_models_v2.py tests/test_cover_normalizer.py tests/test_cover_handoff.py`
 
 Expected: FAIL because the v2 contracts and normalizer do not exist.
 
-- [ ] **Step 3: Implement strict contracts and conversion.** Use frozen dataclasses, explicit tuple/list serialization, SHA-256 validation, character-id references, and source-path strings for legacy facts. Preserve the existing `CoverBrief` API for v1 callers. Update `parse_cover_handoff()` and `resolve_cover_brief()` to return v2 only through an explicit normalizer call so current v1 generation remains compatible during migration.
+- [x] **Step 3: Implement strict contracts and conversion.** Use frozen dataclasses, explicit tuple/list serialization, SHA-256 validation, character-id references, and source-path strings for legacy facts. Preserve the existing `CoverBrief` API for v1 callers. Update `parse_cover_handoff()` and `resolve_cover_brief()` to return v2 only through an explicit normalizer call so current v1 generation remains compatible during migration.
 
-- [ ] **Step 4: Run GREEN and compatibility tests.**
+- [x] **Step 4: Run GREEN and compatibility tests.**
 
 Run: `venv/bin/python -m pytest -q tests/test_cover_models_v2.py tests/test_cover_normalizer.py tests/test_cover_handoff.py tests/test_cover_models.py tests/test_cover_api.py`
 
 Expected: PASS, including existing v1 round trips and project isolation tests.
 
-- [ ] **Step 5: Commit the contract boundary.**
+- [x] **Step 5: Commit the contract boundary.**
 
 ```bash
 git add core/cover_models_v2.py core/cover_normalizer.py core/cover_handoff.py tests/test_cover_models_v2.py tests/test_cover_normalizer.py tests/test_cover_handoff.py
@@ -123,7 +123,7 @@ git commit -m "feat: add versioned cover story contract"
 - `compile_cover_prompt(brief: CoverBriefV2, scene: CoverScenePlan, *, compiler_version: str = "cover-compiler.v2") -> CompiledCoverPrompt`
 - `compile_repair_prompt(brief: CoverBriefV2, scene: CoverScenePlan, prior: CompiledCoverPrompt, repair_codes: Sequence[str]) -> CompiledCoverPrompt`
 
-- [ ] **Step 1: Write RED golden tests.** Assert the exact module order (`ROLE AND OUTPUT`, `STORY TRUTH`, `CAST LOCK`, `SINGLE CINEMATIC MOMENT`, `RELATIONSHIP BLOCKING`, `LIVED ENVIRONMENT`, `GENRE EMOTION`, `CAMERA`, `MOBILE COMMERCIAL`, `TITLE`, `PHOTOREALISM`, `EXCLUDE`), deterministic byte-for-byte output, no empty field markers, and a 12,000-code-point limit.
+- [x] **Step 1: Write RED golden tests.** Assert the exact module order (`ROLE AND OUTPUT`, `STORY TRUTH`, `CAST LOCK`, `SINGLE CINEMATIC MOMENT`, `RELATIONSHIP BLOCKING`, `LIVED ENVIRONMENT`, `GENRE EMOTION`, `CAMERA`, `MOBILE COMMERCIAL`, `TITLE`, `PHOTOREALISM`, `EXCLUDE`), deterministic byte-for-byte output, no empty field markers, and a 12,000-code-point limit.
 
 ```python
 def test_compile_is_deterministic_and_contains_age_environment_and_hook():
@@ -148,21 +148,21 @@ def test_repair_compile_changes_only_requested_modules():
     assert repaired.modules["SINGLE CINEMATIC MOMENT"] == baseline.modules["SINGLE CINEMATIC MOMENT"]
 ```
 
-- [ ] **Step 2: Run RED.**
+- [x] **Step 2: Run RED.**
 
 Run: `venv/bin/python -m pytest -q tests/test_cover_profiles.py tests/test_cover_prompt_compiler.py`
 
 Expected: FAIL because no profile or compiler exists.
 
-- [ ] **Step 3: Implement profiles and compiler.** Encode the romance submodes (`tender_slow_burn`, `reconciliation`, `forbidden_tension`, `betrayal_romance`), family-ethics submodes (`accusation_triangle`, `public_exclusion`, `domestic_betrayal`, `boundary_and_departure`), and a neutral baseline. Build the final prompt from structured blocks, explicitly describe numerical age plus visible age phase, preserve only approved identity traits, apply the 2/3 versus 4+ cast rule, and reject unsupported marketing adjectives and real places.
+- [x] **Step 3: Implement profiles and compiler.** Encode the romance submodes (`tender_slow_burn`, `reconciliation`, `forbidden_tension`, `betrayal_romance`), family-ethics submodes (`accusation_triangle`, `public_exclusion`, `domestic_betrayal`, `boundary_and_departure`), and a neutral baseline. Build the final prompt from structured blocks, explicitly describe numerical age plus visible age phase, preserve only approved identity traits, apply the 2/3 versus 4+ cast rule, and reject unsupported marketing adjectives and real places.
 
-- [ ] **Step 4: Run GREEN and property checks.**
+- [x] **Step 4: Run GREEN and property checks.**
 
 Run: `venv/bin/python -m pytest -q tests/test_cover_profiles.py tests/test_cover_prompt_compiler.py tests/test_cover_handoff.py`
 
 Expected: PASS with identical output for identical inputs and all prompts under the length cap.
 
-- [ ] **Step 5: Commit the compiler.**
+- [x] **Step 5: Commit the compiler.**
 
 ```bash
 git add core/cover_profiles.py core/cover_prompt_compiler.py tests/test_cover_profiles.py tests/test_cover_prompt_compiler.py
@@ -189,23 +189,23 @@ git commit -m "feat: compile canon-bound cinematic cover prompts"
 - `CoverService` records `compiler_version`, `brief_schema_version`, and the compiled prompt on each new candidate without changing v1 selection behavior.
 - `PUT /api/studio/cover` accepts only the locked image model and migrates legacy `webp` setting values to JPEG while retaining endpoint and key state.
 
-- [ ] **Step 1: Add RED boundary tests.** Instantiate a direct `CoverSettings(model="dall-e-3", ...)` and assert client construction fails; assert an injected generated image with a non-image2 model is not persisted; assert a v1 WebP candidate can still be selected; assert the Settings UI exposes a read-only image model.
+- [x] **Step 1: Add RED boundary tests.** Instantiate a direct `CoverSettings(model="dall-e-3", ...)` and assert client construction fails; assert an injected generated image with a non-image2 model is not persisted; assert a v1 WebP candidate can still be selected; assert the Settings UI exposes a read-only image model.
 
-- [ ] **Step 2: Run RED.**
+- [x] **Step 2: Run RED.**
 
 Run: `venv/bin/python -m pytest -q tests/test_image_client.py tests/test_cover_service.py tests/test_cover_settings.py tests/test_studio_ux.py && npm --prefix web test -- Settings`
 
 Expected: FAIL on the new direct-client, provenance, and UI assertions.
 
-- [ ] **Step 3: Implement the boundary checks.** Keep `_GENERATION_EXTENSIONS` limited to JPEG/PNG, use a separate historical extension map for WebP selection, normalize legacy WebP settings to JPEG without deleting independent base URL/key fields, and make the UI model field read-only. Persist v2 metadata only when present so v1 JSON remains loadable.
+- [x] **Step 3: Implement the boundary checks.** Keep `_GENERATION_EXTENSIONS` limited to JPEG/PNG, use a separate historical extension map for WebP selection, normalize legacy WebP settings to JPEG without deleting independent base URL/key fields, and make the UI model field read-only. Persist v2 metadata only when present so v1 JSON remains loadable.
 
-- [ ] **Step 4: Run GREEN and the full first-version suite.**
+- [x] **Step 4: Run GREEN and the full first-version suite.**
 
 Run: `venv/bin/python -m pytest -q && npm --prefix web test && npm --prefix web run build`
 
 Expected: PASS; the Python image-client fixtures may require host permission because they bind ephemeral local ports.
 
-- [ ] **Step 5: Commit Phase 1.**
+- [x] **Step 5: Commit Phase 1.**
 
 ```bash
 git add core/cover_models.py core/cover_handoff.py core/image_client.py core/studio_settings.py api/cover_service.py api/routes.py web/src/routes/Settings.tsx tests/test_image_client.py tests/test_cover_service.py tests/test_cover_settings.py tests/test_studio_ux.py
