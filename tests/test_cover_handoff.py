@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from core.cover_handoff import build_cover_concepts, parse_cover_handoff
+from core.cover_handoff import build_cover_concepts, parse_cover_handoff, parse_cover_handoff_v2
 
 
 def _handoff(
@@ -70,6 +70,15 @@ def test_parse_cover_handoff_supports_non_english_titles() -> None:
 
     assert brief.title == "门钥匙只在我手里"
     assert brief.language == "Chinese"
+
+
+def test_parse_cover_handoff_v2_normalizes_the_same_source_hash() -> None:
+    prompt = _prompt(_handoff())
+
+    brief = parse_cover_handoff_v2(prompt)
+
+    assert brief.schema_version == 2
+    assert brief.source_prompt_sha256 == hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
 
 def test_parse_cover_handoff_rejects_missing_or_duplicate_boundaries() -> None:

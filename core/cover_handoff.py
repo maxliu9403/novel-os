@@ -39,6 +39,18 @@ def parse_cover_handoff(prompt_text: str) -> CoverBrief:
     return CoverBrief.from_dict(payload, source_prompt_sha256=prompt_sha)
 
 
+def parse_cover_handoff_v2(prompt_text: str):
+    """Parse the existing handoff and normalize it without changing v1 callers."""
+    from .cover_normalizer import normalize_cover_brief
+
+    brief = parse_cover_handoff(prompt_text)
+    return normalize_cover_brief(
+        brief,
+        source_prompt_sha256=brief.source_prompt_sha256,
+        foundation_sha256=brief.foundation_sha256,
+    )
+
+
 def resolve_cover_brief(
     project_path: str | Path,
     *,
@@ -51,6 +63,22 @@ def resolve_cover_brief(
     if BEGIN in text or END in text:
         return parse_cover_handoff(text)
     return _legacy_cover_brief(project, text)
+
+
+def resolve_cover_brief_v2(
+    project_path: str | Path,
+    *,
+    prompt_text: str | None = None,
+):
+    """Resolve a current or legacy project into the v2 facts contract."""
+    from .cover_normalizer import normalize_cover_brief, normalize_legacy_project
+
+    project = Path(project_path)
+    prompt_path = project / "outputs" / "input" / "prompt.md"
+    text = prompt_text if prompt_text is not None else prompt_path.read_text(encoding="utf-8")
+    if BEGIN in text or END in text:
+        return parse_cover_handoff_v2(text)
+    return normalize_legacy_project(project, text)
 
 
 def _legacy_cover_brief(project: Path, prompt_text: str) -> CoverBrief:
