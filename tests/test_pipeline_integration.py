@@ -1,3 +1,4 @@
+import hashlib
 import json
 import zipfile
 from pathlib import Path
@@ -20,6 +21,94 @@ class PipelineLLM:
     model = "fake-fiction-model"
     calls = []
     prompts = {}
+
+    def complete(self, *, system, user):
+        type(self).calls.append(system.splitlines()[0])
+        if system.startswith("whole-book-conflict.v1"):
+            source = json.loads(user.rsplit("as canonical JSON:\n", 1)[1])
+            chapters = source["chapters"]
+            by_number = {item["number"]: item for item in chapters}
+            last = max(by_number)
+            middle = 1 if last <= 2 else (last + 1) // 2
+
+            def quote(number):
+                return next(
+                    line.strip()
+                    for line in reversed(by_number[number]["text"].splitlines())
+                    if line.strip()
+                )
+
+            return json.dumps({
+                "protagonist": "Mara Vale",
+                "goal": "Keep her neighborhood studio open",
+                "opposition": "Escalating lease pressure",
+                "stakes": "Her savings, self-trust, and community space",
+                "escalation": "Each commitment makes retreat more costly",
+                "unresolved_choice": "How much Mara will risk for the studio",
+                "evidence": {
+                    "opening": [{"chapter": 1, "source_quote": quote(1)}],
+                    "middle": [{"chapter": middle, "source_quote": quote(middle)}],
+                    "late": [{"chapter": last, "source_quote": quote(last)}],
+                },
+            })
+        if system.startswith("publication-copy-writer.v1"):
+            return json.dumps({
+                "reader_heading": "Before the Story",
+                "hook_lead": (
+                    "Mara must defend her neighborhood studio before rising costs "
+                    "destroy its future."
+                ),
+                "spoiler_free_blurb": (
+                    "Mara Vale has staked her savings and fragile confidence on opening "
+                    "a neighborhood studio, but the lease that promised independence now "
+                    "gives a powerful landlord leverage over every decision. Each new "
+                    "demand threatens the space, the people beginning to rely on it, and "
+                    "the self-trust she has only started to rebuild. Walking away would "
+                    "protect what little money remains, yet surrendering the keys would "
+                    "confirm every fear that kept her waiting. Staying means gathering "
+                    "allies, challenging rules written to favor someone richer, and "
+                    "risking public failure before opening day. As pressure tightens, "
+                    "Mara must decide whether a secure retreat matters more than the "
+                    "uncertain community taking shape around her. The studio can become "
+                    "proof that her new life is real, but only if she chooses what she is "
+                    "prepared to sacrifice to keep its door open."
+                ),
+            })
+        if "before any\nreader-facing copy" in system:
+            return json.dumps({
+                "status": "pass",
+                "checks": {
+                    "whole_book_core_conflict": True,
+                    "source_supported": True,
+                    "opening_middle_late_coherent": True,
+                    "spoiler_free": True,
+                },
+                "findings": [],
+            })
+        return json.dumps({
+            "status": "pass",
+            "checks": {
+                "whole_book_core_conflict": True,
+                "hook_core_conflict": True,
+                "blurb_core_conflict": True,
+                "protagonist_stakes": True,
+                "spoiler_free": True,
+                "source_supported": True,
+            },
+            "reader_pull": {
+                "status": "pass",
+                "checks": {
+                    "first_glance_clarity": True,
+                    "concrete_emotional_stakes": True,
+                    "escalating_pressure": True,
+                    "protagonist_agency": True,
+                    "open_loop": True,
+                    "truthful_genre_promise": True,
+                },
+            },
+            "claim_evidence": [],
+            "findings": [],
+        })
 
     def run_agent(self, agent_name, prompt):
         type(self).calls.append(agent_name)
@@ -139,6 +228,15 @@ def _real_orchestrator_with_fake_llm(project_path):
     orchestrator = NovelOrchestrator(project_path)
     orchestrator._llm = PipelineLLM()
     return orchestrator
+
+
+def test_orchestrator_exposes_cached_role_client(tmp_path: Path):
+    orchestrator = NovelOrchestrator(str(tmp_path))
+    orchestrator._llm = PipelineLLM()
+
+    assert orchestrator.llm_for("style_curator") is orchestrator.llm_for(
+        "style_curator"
+    )
 
 
 def _one_chapter_spec(project: Path, prompt: Path, **overrides):
@@ -330,6 +428,10 @@ def test_real_orchestrator_pipeline_completes_two_chapters(tmp_path: Path):
 
     assert manifest.status == "completed", manifest.error
     assert manifest.get("book.check").status == "done"
+    assert manifest.get("publication.copy").status == "done"
+    assert manifest.get("compile").status == "done"
+    assert manifest.get("delivery.package").status == "done"
+    assert manifest.current_phase == "delivery.package"
     assert (project / "outputs/input/foundation.json").exists()
     assert (project / "outputs/manuscript/chapter_002_final.md").exists()
     final_state = StoryState(str(project))
@@ -339,6 +441,8 @@ def test_real_orchestrator_pipeline_completes_two_chapters(tmp_path: Path):
     assert final_state.plot_threads["plot_001"].name == "Second Chance"
     book = (project / "outputs/deliverables/book.md").read_text(encoding="utf-8")
     assert "# One Prompt Book" in book
+    assert "Before the Story" in book
+    assert "Mara must defend her neighborhood studio" in book
     assert "Morning light claimed" in book
     assert (project / "outputs/deliverables/package-manifest.json").is_file()
     with zipfile.ZipFile(project / "outputs/deliverables/book-package.zip") as package:
@@ -430,6 +534,19 @@ Ending_Evidence: [irreversible_change=Mara assumes the lease; emotional_payoff=S
 
     assert manifest.status == "completed", manifest.error
     assert manifest.get("ending.review").status == "done"
+    ending_contract = json.loads(
+        (project / "outputs/input/ending_contract.json").read_text(encoding="utf-8")
+    )
+    assert manifest.get("publication.copy").input_hashes[
+        "ending_contract_sha256"
+    ] == hashlib.sha256(
+        json.dumps(
+            ending_contract,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
     state = StoryState(str(project))
     assert state.plot_threads["plot_001"].status == "resolved"
     assert state.characters["char_001"].arc_stage == "resolution"
@@ -975,7 +1092,15 @@ def test_resume_reloads_bound_canon_proposal_by_id(tmp_path: Path):
     resumed_ids = resumed.get("chapter.style", 1).canon_proposal_ids
     assert resumed_ids[: len(bound_ids)] == bound_ids
     assert len(resumed_ids) == len(bound_ids) + 1
-    assert PipelineLLM.calls == before_calls
+    assert PipelineLLM.calls[: len(before_calls)] == before_calls
+    assert all(
+        call in {
+            "whole-book-conflict.v1",
+            "publication-copy-writer.v1",
+            "publication-copy-validator.v1",
+        }
+        for call in PipelineLLM.calls[len(before_calls) :]
+    )
     for proposal_id in resumed_ids:
         ProposalStore(project).load(proposal_id)
 

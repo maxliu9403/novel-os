@@ -38,6 +38,17 @@ from prompt_intake import ingest_prompt
 from project_identity import ensure_project_instance_id
 from promotion import PromotionRequest, PromotionService
 from proposals import ProposalStore
+from publication_copy import (
+    POLICY_VERSION as PUBLICATION_COPY_POLICY_VERSION,
+    PublicationCopy,
+    canonical_json_bytes,
+    parse_publication_copy,
+)
+from publication_copy_service import PublicationCopyBlocked, PublicationCopyService
+from publication_source import (
+    PublicationSourceError,
+    build_publication_source_set,
+)
 from quality import EvaluationReport, EvaluationRequest, QualityLab
 from styles import StyleSheet
 
@@ -49,6 +60,7 @@ _STAGE_AGENTS = {
     "chapter.edit": "editor",
     "chapter.validate": "continuity_guardian",
     "chapter.style": "style_curator",
+    "publication.copy": "style_curator",
 }
 
 _EVIDENCE_PROPOSAL_PHASES = (
@@ -175,7 +187,9 @@ class PipelineRunner:
             previous = manifest.get("chapter.promote", number)
             if previous is None:
                 continue
-            if previous.status == "done" and self._checkpoint_valid(project, previous):
+            if previous.status == "done" and self._checkpoint_valid(
+                project, previous, manifest
+            ):
                 continue
             key = f"pipeline-{manifest.run_id}-chapter-{number}"
             try:
@@ -385,52 +399,81 @@ class PipelineRunner:
             self._write_stage_result(manifest, project, promote)
             repaired.append(number)
 
-        compile_result = manifest.get("compile")
-        compile_valid = bool(
-            compile_result
-            and compile_result.status == "done"
-            and self._checkpoint_valid(project, compile_result)
-        )
-        if repaired or not compile_valid:
-            self._compile_book(manifest, project)
-            result = compile_result or StageResult(phase="compile", status="done")
-            result.status = "done"
-            result.error = None
-            result.retryable = False
-            result.finished_at = self._now()
-            result.artifact_paths = [
-                f"outputs/deliverables/book.{self._format_extension(fmt)}"
-                for fmt in manifest.spec.output_formats
-            ] + [
-                "outputs/deliverables/package-manifest.json",
-                "outputs/deliverables/book-package.zip",
-            ]
-            self._require_files(project, result.artifact_paths)
-            result.artifact_hashes = {
-                path: self._sha256(project / path) for path in result.artifact_paths
-            }
-            decision = (
-                "Repaired final artifacts and recompiled chapters "
-                + ", ".join(str(number) for number in repaired)
-                if repaired
-                else "Recompiled missing or invalid deliverables from trusted final chapters."
+        # Completed manifests written before publication.copy remain historical;
+        # integrity repair restores their existing projections without backfill.
+        if manifest.get("publication.copy") is None:
+            compile_result = manifest.get("compile")
+            compile_valid = bool(
+                compile_result
+                and compile_result.status == "done"
+                and self._checkpoint_valid(project, compile_result)
             )
-            if decision not in result.decisions:
-                result.decisions.append(decision)
-            self._save_stage(manifest, project, store, result, snapshot_state=True)
+            if repaired or not compile_valid:
+                self._compile_book(manifest, project, require_publication_copy=False)
+                self._deliver_package(manifest, project)
+                result = compile_result or StageResult(phase="compile", status="done")
+                result.status = "done"
+                result.error = None
+                result.retryable = False
+                result.finished_at = self._now()
+                result.artifact_paths = [
+                    f"outputs/deliverables/book.{self._format_extension(fmt)}"
+                    for fmt in manifest.spec.output_formats
+                ] + [
+                    "outputs/deliverables/package-manifest.json",
+                    "outputs/deliverables/book-package.zip",
+                ]
+                self._require_files(project, result.artifact_paths)
+                result.artifact_hashes = {
+                    path: self._sha256(project / path) for path in result.artifact_paths
+                }
+                decision = (
+                    "Repaired final artifacts and recompiled chapters "
+                    + ", ".join(str(number) for number in repaired)
+                    if repaired
+                    else "Recompiled missing or invalid deliverables from trusted final chapters."
+                )
+                if decision not in result.decisions:
+                    result.decisions.append(decision)
+                self._save_stage(manifest, project, store, result, snapshot_state=True)
+                self._event(
+                    manifest,
+                    "run.integrity_repaired",
+                    chapters=repaired,
+                    recompiled=True,
+                )
+
+            manifest.status = "completed"
+            manifest.current_phase = "compile"
+            manifest.current_chapter = None
+            manifest.error = None
+            store.save(manifest)
+            return manifest
+
+        publication_result = manifest.get("publication.copy")
+        current_publication_inputs = self._stage_input_hashes(
+            project, "publication.copy", None, manifest
+        )
+        if (
+            publication_result is not None
+            and publication_result.input_hashes == current_publication_inputs
+            and not self._checkpoint_valid(
+                project, publication_result, manifest
+            )
+        ):
+            raise PipelineError(
+                "Completed publication.copy authority is missing or divergent",
+                blocked=True,
+            )
+
+        if repaired:
             self._event(
                 manifest,
                 "run.integrity_repaired",
                 chapters=repaired,
-                recompiled=True,
+                recompiled=False,
             )
-
-        manifest.status = "completed"
-        manifest.current_phase = "compile"
-        manifest.current_chapter = None
-        manifest.error = None
-        store.save(manifest)
-        return manifest
+        return self._execute(manifest, project, store)
 
     def retry(
         self,
@@ -587,6 +630,17 @@ class PipelineRunner:
                 manifest,
                 project,
                 store,
+                "publication.copy",
+                None,
+                lambda: self._generate_publication_copy(manifest, project),
+                lambda value: isinstance(value, PublicationCopy),
+                ["outputs/publication/publication-copy.json"],
+            )
+
+            self._stage(
+                manifest,
+                project,
+                store,
                 "compile",
                 None,
                 lambda: self._compile_book(manifest, project),
@@ -594,7 +648,17 @@ class PipelineRunner:
                 [
                     f"outputs/deliverables/book.{self._format_extension(fmt)}"
                     for fmt in manifest.spec.output_formats
-                ] + [
+                ],
+            )
+            self._stage(
+                manifest,
+                project,
+                store,
+                "delivery.package",
+                None,
+                lambda: self._deliver_package(manifest, project),
+                lambda value: bool(value),
+                [
                     "outputs/deliverables/package-manifest.json",
                     "outputs/deliverables/book-package.zip",
                 ],
@@ -887,7 +951,7 @@ class PipelineRunner:
             self._validate_bound_revision(project, previous)
             self._validate_bound_proposals(project, previous)
             self._validate_evidence_records(manifest, project, previous)
-            if self._checkpoint_valid(project, previous):
+            if self._checkpoint_valid(project, previous, manifest):
                 if (
                     manifest.spec.quality_policy == "evidence_v1"
                     and phase in _STATE_AUTHORITY_PHASES
@@ -935,9 +999,11 @@ class PipelineRunner:
                 status="running",
                 attempt=attempt,
                 started_at=self._now(),
-                input_hashes=self._stage_input_hashes(project, phase, chapter),
             )
             try:
+                result.input_hashes = self._stage_input_hashes(
+                    project, phase, chapter, manifest
+                )
                 result.provider, result.model = self._runtime_model(phase)
                 self._save_stage(manifest, project, store, result)
                 self._event(
@@ -1020,7 +1086,7 @@ class PipelineRunner:
             ) from exc
 
         result.input_hashes = self._stage_input_hashes(
-            project, result.phase, result.chapter
+            project, result.phase, result.chapter, manifest
         )
         result.artifact_paths = [
             path for path in artifacts if (project / path).is_file()
@@ -1132,6 +1198,7 @@ class PipelineRunner:
         project: Path,
         phase: str,
         chapter: Optional[int],
+        manifest: Optional[RunManifest] = None,
     ) -> Dict[str, str]:
         inputs: Dict[str, list[str]] = {
             "outline": ["outputs/input/prompt.md", "outputs/input/brief.json"],
@@ -1161,11 +1228,77 @@ class PipelineRunner:
         }
         if _is_repair_phase(phase):
             inputs[phase] = []
-        return {
+        file_hashes = {
             relative: PipelineRunner._sha256(project / relative)
             for relative in inputs.get(phase, [])
             if (project / relative).is_file()
         }
+        if manifest is None or phase not in {
+            "book.check",
+            "publication.copy",
+            "compile",
+            "delivery.package",
+        }:
+            return file_hashes
+
+        if phase in {"book.check", "publication.copy", "compile"}:
+            try:
+                source = build_publication_source_set(
+                    project,
+                    manifest.run_id,
+                    manifest.spec.num_chapters,
+                    manifest.spec.quality_policy,
+                )
+            except PublicationSourceError as exc:
+                raise PipelineError(str(exc), blocked=True) from exc
+            file_hashes["source_set_sha256"] = source.source_set_sha256
+
+        if phase == "publication.copy":
+            book_check_path = PipelineRunner._stage_result_path(
+                project, manifest.run_id, "book-check"
+            )
+            if not book_check_path.is_file():
+                raise PipelineError(
+                    "publication.copy requires the persisted book.check stage result",
+                    blocked=True,
+                )
+            file_hashes["book_check_stage_sha256"] = PipelineRunner._sha256(
+                book_check_path
+            )
+            metadata = PipelineRunner._publication_metadata(project)
+            file_hashes["publication_metadata_sha256"] = hashlib.sha256(
+                canonical_json_bytes(metadata)
+            ).hexdigest()
+            if PipelineRunner._has_explicit_ending_contract(project):
+                try:
+                    ending_contract = load_ending_contract(project)
+                except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+                    raise PipelineError(
+                        f"ending contract is unreadable: {exc}", blocked=True
+                    ) from exc
+                file_hashes["ending_contract_sha256"] = hashlib.sha256(
+                    canonical_json_bytes(ending_contract)
+                ).hexdigest()
+            file_hashes["publication_copy_policy_sha256"] = hashlib.sha256(
+                PUBLICATION_COPY_POLICY_VERSION.encode("utf-8")
+            ).hexdigest()
+
+        publication_path = project / "outputs/publication/publication-copy.json"
+        if phase in {"compile", "delivery.package"} and publication_path.is_file():
+            file_hashes[
+                "outputs/publication/publication-copy.json"
+            ] = PipelineRunner._sha256(publication_path)
+
+        if phase == "delivery.package":
+            for fmt in manifest.spec.output_formats:
+                relative = (
+                    "outputs/deliverables/book."
+                    + PipelineRunner._format_extension(fmt)
+                )
+                path = project / relative
+                if path.is_file():
+                    file_hashes[relative] = PipelineRunner._sha256(path)
+        return file_hashes
 
     @staticmethod
     def _foundation_idempotency_key(manifest: RunManifest, project: Path) -> str:
@@ -1249,7 +1382,11 @@ class PipelineRunner:
 
         orchestrator = getattr(self, "_active_orchestrator", None)
         proposal_ids = getattr(orchestrator, "last_canon_proposal_ids", ())
-        if (result.phase in _STAGE_AGENTS or _is_repair_phase(result.phase)) and proposal_ids:
+        if (
+            result.chapter is not None
+            and (result.phase in _STAGE_AGENTS or _is_repair_phase(result.phase))
+            and proposal_ids
+        ):
             result.canon_proposal_ids = [str(value) for value in proposal_ids]
 
         revision_specs = {
@@ -1322,6 +1459,14 @@ class PipelineRunner:
                 result.evaluation_report_ids = [report.report_id]
                 result.promotion_receipt_id = receipt.receipt_id
             if manifest.spec.quality_policy == "legacy":
+                artifacts = ArtifactStore(project)
+                current = artifacts.get_head(result.chapter, "final")
+                artifacts.set_head(
+                    result.chapter,
+                    "final",
+                    result.revision_id,
+                    expected_revision_id=current.revision_id if current else None,
+                )
                 result.promotion_receipt_id = self._legacy_receipt_id(
                     manifest.run_id, result
                 )
@@ -1501,9 +1646,14 @@ class PipelineRunner:
         )
 
     @classmethod
-    def _checkpoint_valid(cls, project: Path, result: StageResult) -> bool:
+    def _checkpoint_valid(
+        cls,
+        project: Path,
+        result: StageResult,
+        manifest: Optional[RunManifest] = None,
+    ) -> bool:
         if result.input_hashes != cls._stage_input_hashes(
-            project, result.phase, result.chapter
+            project, result.phase, result.chapter, manifest
         ):
             return False
         if not cls._files_exist(project, result.artifact_paths):
@@ -1514,12 +1664,17 @@ class PipelineRunner:
         )
         if not artifacts_valid:
             return False
-        if result.state_snapshot_path:
-            return cls._artifact_valid(
+        if result.state_snapshot_path and not cls._artifact_valid(
                 project,
                 result.state_snapshot_path,
                 result.state_snapshot_hash,
-            )
+            ):
+            return False
+        if result.phase == "publication.copy" and manifest is not None:
+            try:
+                cls._load_publication_copy(manifest, project)
+            except (PipelineError, ValueError, OSError, UnicodeError):
+                return False
         return True
 
     @staticmethod
@@ -1803,6 +1958,33 @@ class PipelineRunner:
     def _stage_slug(result: StageResult) -> str:
         phase = re.sub(r"[^a-zA-Z0-9_-]+", "-", result.phase).strip("-")
         return f"{phase}-chapter-{result.chapter:03d}" if result.chapter is not None else phase
+
+    @staticmethod
+    def _stage_result_path(project: Path, run_id: str, slug: str) -> Path:
+        return project / "outputs" / "runs" / run_id / "stages" / f"{slug}.json"
+
+    @staticmethod
+    def _publication_metadata(project: Path) -> Dict[str, str]:
+        from state_manager import StoryState
+
+        metadata = StoryState(str(project)).metadata
+        return {
+            "title": str(metadata.get("title") or "Untitled"),
+            "language": str(metadata.get("language") or "en-US"),
+            "genre": str(metadata.get("genre") or "Fiction"),
+        }
+
+    @staticmethod
+    def _has_explicit_ending_contract(project: Path) -> bool:
+        if (project / ENDING_CONTRACT_RELATIVE).is_file():
+            return True
+        foundation_path = project / "outputs/input/foundation.json"
+        if not foundation_path.is_file():
+            return False
+        foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
+        return isinstance(foundation, dict) and isinstance(
+            foundation.get("ending_contract"), dict
+        )
 
     @staticmethod
     def _atomic_copy(source: Path, target: Path) -> None:
@@ -2187,7 +2369,7 @@ class PipelineRunner:
                 status="done",
                 attempt=current.attempt,
                 input_hashes=self._stage_input_hashes(
-                    project, "chapter.promote", number
+                    project, "chapter.promote", number, manifest
                 ),
                 artifact_paths=[relative],
                 artifact_hashes={relative: self._sha256(target)},
@@ -2217,15 +2399,33 @@ class PipelineRunner:
             status="done",
             attempt=current.attempt,
             input_hashes=self._stage_input_hashes(
-                project, "chapter.promote", number
+                project, "chapter.promote", number, manifest
             ),
             artifact_paths=[relative],
             artifact_hashes={relative: self._sha256(target)},
+            revision_id=style.revision_id if style else "",
+            story_contract_revision_id=(
+                style.story_contract_revision_id if style else ""
+            ),
+            chapter_contract_revision_id=(
+                style.chapter_contract_revision_id if style else ""
+            ),
+            canon_proposal_ids=list(style.canon_proposal_ids) if style else [],
             decisions=["Human approval recorded by CLI; candidate promoted to canonical final."],
             provider=style.provider if style else "",
             model=style.model if style else "",
             started_at=current.started_at or self._now(),
             finished_at=self._now(),
+        )
+        artifacts = ArtifactStore(project)
+        current_head = artifacts.get_head(number, "final")
+        artifacts.set_head(
+            number,
+            "final",
+            result.revision_id,
+            expected_revision_id=(
+                current_head.revision_id if current_head else None
+            ),
         )
         result.promotion_receipt_id = self._legacy_receipt_id(
             manifest.run_id, result
@@ -2266,13 +2466,147 @@ class PipelineRunner:
         style.artifact_hashes[relative] = revised.sha256
         PipelineRunner._rebind_stage_proposals(project, style, revised.sha256)
 
-    def _compile_book(self, manifest: RunManifest, project: Path) -> bool:
+    def _generate_publication_copy(
+        self,
+        manifest: RunManifest,
+        project: Path,
+    ) -> PublicationCopy:
+        orchestrator = getattr(self, "_active_orchestrator", None)
+        llm_for = getattr(orchestrator, "llm_for", None)
+        if not callable(llm_for):
+            raise PipelineError(
+                "publication.copy requires orchestrator role clients",
+                blocked=True,
+            )
+        try:
+            source = build_publication_source_set(
+                project,
+                manifest.run_id,
+                manifest.spec.num_chapters,
+                manifest.spec.quality_policy,
+            )
+            metadata = self._publication_metadata(project)
+            book_check = manifest.get("book.check")
+            if book_check is None or book_check.status != "done":
+                raise PipelineError(
+                    "publication.copy requires a completed book.check stage",
+                    blocked=True,
+                )
+            book_check_path = self._stage_result_path(
+                project, manifest.run_id, "book-check"
+            )
+            self._require_files(
+                project, [str(book_check_path.relative_to(project))]
+            )
+            ending_contract = load_ending_contract(project)
+            ending_sha256 = hashlib.sha256(
+                canonical_json_bytes(ending_contract)
+            ).hexdigest()
+            service = PublicationCopyService(
+                llm_for("style_curator"),
+                llm_for("continuity_guardian"),
+            )
+            return service.generate(
+                project=project,
+                run_id=manifest.run_id,
+                title=metadata["title"],
+                language=metadata["language"],
+                genre=metadata["genre"],
+                source=source,
+                book_check_stage_sha256=self._sha256(book_check_path),
+                ending_contract_sha256=ending_sha256,
+                # The persisted gate timestamp is stable across stage retries.
+                finished_at=book_check.finished_at,
+            )
+        except PipelineError:
+            raise
+        except PublicationSourceError as exc:
+            raise PipelineError(str(exc), blocked=True) from exc
+        except PublicationCopyBlocked as exc:
+            if "model call failed" in str(exc):
+                raise LLMError(str(exc)) from exc
+            raise PipelineError(str(exc), blocked=True) from exc
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+            raise PipelineError(
+                f"publication.copy input validation failed: {exc}", blocked=True
+            ) from exc
+
+    @classmethod
+    def _load_publication_copy(
+        cls,
+        manifest: RunManifest,
+        project: Path,
+    ) -> PublicationCopy:
+        path = project / "outputs/publication/publication-copy.json"
+        if not path.is_file() or path.stat().st_size == 0:
+            raise PipelineError(
+                "structured publication copy is missing",
+                blocked=True,
+            )
+        try:
+            publication_copy = parse_publication_copy(path.read_bytes())
+            source = build_publication_source_set(
+                project,
+                manifest.run_id,
+                manifest.spec.num_chapters,
+                manifest.spec.quality_policy,
+            )
+        except (PublicationSourceError, OSError, UnicodeError, ValueError) as exc:
+            raise PipelineError(
+                f"structured publication copy failed validation: {exc}",
+                blocked=True,
+            ) from exc
+
+        metadata = cls._publication_metadata(project)
+        book_check_path = cls._stage_result_path(
+            project, manifest.run_id, "book-check"
+        )
+        if not book_check_path.is_file():
+            raise PipelineError(
+                "structured publication copy has no persisted book.check binding",
+                blocked=True,
+            )
+        expected_chapters = [
+            (chapter.number, chapter.revision_id, chapter.sha256)
+            for chapter in source.chapters
+        ]
+        actual_chapters = [
+            (chapter.number, chapter.revision_id, chapter.sha256)
+            for chapter in publication_copy.source.chapters
+        ]
+        if (
+            publication_copy.title != metadata["title"]
+            or publication_copy.language != metadata["language"]
+            or publication_copy.source.run_id != manifest.run_id
+            or publication_copy.source.source_set_sha256 != source.source_set_sha256
+            or publication_copy.source.book_check_stage_sha256
+            != cls._sha256(book_check_path)
+            or actual_chapters != expected_chapters
+        ):
+            raise PipelineError(
+                "structured publication copy is divergent from current Final authority",
+                blocked=True,
+            )
+        return publication_copy
+
+    def _compile_book(
+        self,
+        manifest: RunManifest,
+        project: Path,
+        *,
+        require_publication_copy: bool = True,
+    ) -> bool:
         state_path = project / "outputs/state/story_state.json"
         self._require_files(project, [str(state_path.relative_to(project))])
         from state_manager import StoryState
 
         state = StoryState(str(project))
         artifacts = ArtifactStore(project)
+        publication_copy = (
+            self._load_publication_copy(manifest, project)
+            if require_publication_copy
+            else None
+        )
         chapters = []
         for number in range(1, manifest.spec.num_chapters + 1):
             path = project / self._chapter_stage(number, "final")
@@ -2280,7 +2614,7 @@ class PipelineRunner:
                 head = artifacts.get_head(number, "final")
                 if head is not None:
                     text = artifacts.read_text(head.revision_id)
-                elif path.is_file():
+                elif not require_publication_copy and path.is_file():
                     text = path.read_text(encoding="utf-8")
                 else:
                     raise PipelineError(
@@ -2309,6 +2643,7 @@ class PipelineRunner:
             author=state.metadata.get("author", ""),
             genre=state.metadata.get("genre", ""),
             chapters=chapters,
+            publication_copy=publication_copy,
         )
         if len(book.chapters) != manifest.spec.num_chapters:
             raise PipelineError(
@@ -2323,10 +2658,13 @@ class PipelineRunner:
             extension = self._format_extension(fmt)
             output = output_dir / f"book.{extension}"
             output.write_bytes(render_bytes(book, sheet, fmt))
+        return True
+
+    @staticmethod
+    def _deliver_package(manifest: RunManifest, project: Path) -> Any:
         from delivery_package import build_delivery_package
 
-        build_delivery_package(project)
-        return True
+        return build_delivery_package(project)
 
     def _runtime_model(self, phase: str) -> tuple[str, str]:
         agent_name = "editor" if _is_repair_phase(phase) else _STAGE_AGENTS.get(phase)

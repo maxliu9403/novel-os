@@ -115,6 +115,10 @@ class NovelOrchestrator:
         """Compatibility access to the default writer client."""
         return self._get_llm("writer")
 
+    def llm_for(self, agent_name: str) -> LLMClient:
+        """Return the cached client selected by the existing agent-role router."""
+        return self._get_llm(agent_name)
+
     @llm.setter
     def llm(self, client: LLMClient) -> None:
         self._llm = client

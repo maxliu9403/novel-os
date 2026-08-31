@@ -14,6 +14,8 @@ from state_manager import StoryState
 class FakeOrchestrator:
     calls = []
     fail_validation = False
+    publication_model_calls = []
+    publication_writer_response = None
 
     def __init__(self, project_path: str):
         self.project = Path(project_path)
@@ -23,6 +25,7 @@ class FakeOrchestrator:
         self.feedback = self.outputs / "feedback"
         self.manuscript.mkdir(parents=True, exist_ok=True)
         self.feedback.mkdir(parents=True, exist_ok=True)
+        self._publication_llms = {}
 
     def plan_outline(self, chapters, words, dry_run=False):
         type(self).calls.append(("outline", chapters))
@@ -107,8 +110,20 @@ class FakeOrchestrator:
             "Style PASS\n", encoding="utf-8"
         )
         (self.manuscript / f"chapter_{number:03d}_candidate_final.md").write_text(
-            f"Final {number}\n", encoding="utf-8"
+            (
+                f"# Chapter {number}\n\n"
+                f"Final {number}: Mara keeps the neighborhood studio open while rent pressure "
+                f"rises in chapter {number}.\n"
+            ),
+            encoding="utf-8",
         )
+
+    def llm_for(self, agent_name):
+        if agent_name not in self._publication_llms:
+            self._publication_llms[agent_name] = _PublicationCompletionClient(
+                type(self), agent_name
+            )
+        return self._publication_llms[agent_name]
 
     def runtime_provenance_for(self, agent_name):
         role = {
@@ -121,12 +136,111 @@ class FakeOrchestrator:
         return f"provider-{role}", f"model-{role}"
 
 
+class _PublicationCompletionClient:
+    def __init__(self, owner, role):
+        self.owner = owner
+        self.role = role
+        self.provider = f"provider-{role}"
+        self.model = f"model-{role}"
+
+    def complete(self, *, system, user):
+        self.owner.publication_model_calls.append((self.role, system.splitlines()[0]))
+        if system.startswith("whole-book-conflict.v1"):
+            source = json.loads(user.rsplit("as canonical JSON:\n", 1)[1])
+            chapters = source["chapters"]
+            by_number = {item["number"]: item for item in chapters}
+            last = max(by_number)
+            middle = 1 if last <= 2 else (last + 1) // 2
+
+            def quote(number):
+                return next(
+                    line.strip()
+                    for line in reversed(by_number[number]["text"].splitlines())
+                    if line.strip()
+                )
+
+            return json.dumps({
+                "protagonist": "Mara Vale",
+                "goal": "Keep her neighborhood studio open",
+                "opposition": "Escalating rent pressure",
+                "stakes": "Her savings, self-trust, and community space",
+                "escalation": "Each chapter makes the studio harder to preserve",
+                "unresolved_choice": "How much Mara will risk to keep the door open",
+                "evidence": {
+                    "opening": [{"chapter": 1, "source_quote": quote(1)}],
+                    "middle": [{"chapter": middle, "source_quote": quote(middle)}],
+                    "late": [{"chapter": last, "source_quote": quote(last)}],
+                },
+            })
+        if system.startswith("publication-copy-writer.v1"):
+            if self.owner.publication_writer_response is not None:
+                return self.owner.publication_writer_response
+            return json.dumps({
+                "reader_heading": "Before the Story",
+                "hook_lead": (
+                    "Mara must defend her neighborhood studio before rising rent "
+                    "destroys its future."
+                ),
+                "spoiler_free_blurb": (
+                    "Mara Vale has staked her savings and fragile confidence on opening "
+                    "a neighborhood studio, but the lease that promised independence now "
+                    "gives a powerful landlord leverage over every decision. Each new "
+                    "demand threatens the space, the people beginning to rely on it, and "
+                    "the self-trust she has only started to rebuild. Walking away would "
+                    "protect what little money remains, yet surrendering the keys would "
+                    "confirm every fear that kept her waiting. Staying means gathering "
+                    "allies, challenging rules written to favor someone richer, and "
+                    "risking public failure before opening day. As pressure tightens, "
+                    "Mara must decide whether a secure retreat matters more than the "
+                    "uncertain community taking shape around her. The studio can become "
+                    "proof that her new life is real, but only if she chooses what she is "
+                    "prepared to sacrifice to keep its door open."
+                ),
+            })
+        if "before any\nreader-facing copy" in system:
+            return json.dumps({
+                "status": "pass",
+                "checks": {
+                    "whole_book_core_conflict": True,
+                    "source_supported": True,
+                    "opening_middle_late_coherent": True,
+                    "spoiler_free": True,
+                },
+                "findings": [],
+            })
+        return json.dumps({
+            "status": "pass",
+            "checks": {
+                "whole_book_core_conflict": True,
+                "hook_core_conflict": True,
+                "blurb_core_conflict": True,
+                "protagonist_stakes": True,
+                "spoiler_free": True,
+                "source_supported": True,
+            },
+            "reader_pull": {
+                "status": "pass",
+                "checks": {
+                    "first_glance_clarity": True,
+                    "concrete_emotional_stakes": True,
+                    "escalating_pressure": True,
+                    "protagonist_agency": True,
+                    "open_loop": True,
+                    "truthful_genre_promise": True,
+                },
+            },
+            "claim_evidence": [],
+            "findings": [],
+        })
+
+
 def _factory(project_path):
     return FakeOrchestrator(project_path)
 
 
 def test_runner_completes_two_chapter_book(tmp_path: Path):
     FakeOrchestrator.calls = []
+    FakeOrchestrator.publication_model_calls = []
     prompt = tmp_path / "prompt.md"
     prompt.write_text("# Test Book\n\nA story.", encoding="utf-8")
     spec = RunSpec(
@@ -149,6 +263,79 @@ def test_runner_completes_two_chapter_book(tmp_path: Path):
     assert manifest.get("chapter.write", 1).state_snapshot_path
     assert ("write", 1) in FakeOrchestrator.calls
     assert ("write", 2) in FakeOrchestrator.calls
+
+
+def test_stage_order_and_publication_inputs_are_source_bound(tmp_path: Path):
+    FakeOrchestrator.calls = []
+    FakeOrchestrator.publication_model_calls = []
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test Book\n\nA story.", encoding="utf-8")
+    project = tmp_path / "project"
+
+    manifest = PipelineRunner(orchestrator_factory=_factory).run(RunSpec(
+        project_path=str(project),
+        prompt_path=str(prompt),
+        num_chapters=2,
+        target_words=40,
+        approval_policy="auto",
+    ))
+
+    phases = [
+        result.phase
+        for result in manifest.stages.values()
+        if result.chapter is None
+    ]
+    assert phases.index("book.check") < phases.index("publication.copy")
+    assert phases.index("publication.copy") < phases.index("compile")
+    assert phases.index("compile") < phases.index("delivery.package")
+    assert manifest.current_phase == "delivery.package"
+    assert manifest.status == "completed"
+    publication = manifest.get("publication.copy")
+    assert set(publication.input_hashes) == {
+        "source_set_sha256",
+        "book_check_stage_sha256",
+        "publication_metadata_sha256",
+        "publication_copy_policy_sha256",
+    }
+    assert publication.input_hashes["publication_copy_policy_sha256"] == hashlib.sha256(
+        b"publication-copy-policy.v1"
+    ).hexdigest()
+    assert manifest.get("compile").artifact_paths == [
+        "outputs/deliverables/book.md",
+        "outputs/deliverables/book.epub",
+        "outputs/deliverables/book.pdf",
+        "outputs/deliverables/book.docx",
+    ]
+    assert manifest.get("delivery.package").artifact_paths == [
+        "outputs/deliverables/package-manifest.json",
+        "outputs/deliverables/book-package.zip",
+    ]
+
+
+def test_publication_failure_stops_before_exports(tmp_path: Path):
+    class InvalidPublicationOrchestrator(FakeOrchestrator):
+        publication_model_calls = []
+        publication_writer_response = "{}"
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test Book\n\nA story.", encoding="utf-8")
+    project = tmp_path / "project"
+
+    manifest = PipelineRunner(
+        orchestrator_factory=InvalidPublicationOrchestrator
+    ).run(RunSpec(
+        project_path=str(project),
+        prompt_path=str(prompt),
+        num_chapters=1,
+        target_words=20,
+        approval_policy="auto",
+    ))
+
+    assert manifest.status == "paused"
+    assert manifest.current_phase == "publication.copy"
+    assert manifest.get("publication.copy").status == "blocked"
+    assert not (project / "outputs/publication/publication-copy.json").exists()
+    assert not (project / "outputs/deliverables/book.md").exists()
 
 
 def test_agent_stages_persist_actual_role_provenance(tmp_path: Path):
@@ -924,7 +1111,9 @@ def test_promote_rejects_empty_candidate_final(tmp_path: Path):
     assert not (project / "outputs/manuscript/chapter_001_final.md").exists()
 
 
-def test_compile_rejects_empty_final_instead_of_skipping_chapter(tmp_path: Path):
+def test_compile_ignores_empty_mutable_projection_when_final_head_is_valid(
+    tmp_path: Path,
+):
     FakeOrchestrator.calls = []
     prompt = tmp_path / "prompt.md"
     prompt.write_text("A story.", encoding="utf-8")
@@ -939,11 +1128,14 @@ def test_compile_rejects_empty_final_instead_of_skipping_chapter(tmp_path: Path)
     ))
     (project / "outputs/manuscript/chapter_001_final.md").write_text("", encoding="utf-8")
 
-    with pytest.raises(PipelineError, match="empty"):
-        runner._compile_book(manifest, project)
+    runner._compile_book(manifest, project)
+
+    assert "Final 1" in (
+        project / "outputs/deliverables/book.md"
+    ).read_text(encoding="utf-8")
 
 
-def test_compile_reads_verified_final_head_not_mutable_projection(tmp_path: Path):
+def test_compile_blocks_when_final_head_outgrows_publication_binding(tmp_path: Path):
     FakeOrchestrator.calls = []
     prompt = tmp_path / "prompt.md"
     prompt.write_text("A story.", encoding="utf-8")
@@ -974,15 +1166,13 @@ def test_compile_reads_verified_final_head_not_mutable_projection(tmp_path: Path
     projection = project / "outputs/manuscript/chapter_001_final.md"
     projection.write_text("Forged mutable projection.\n", encoding="utf-8")
 
-    runner._compile_book(manifest, project)
-
-    compiled = (project / "outputs/deliverables/book.md").read_text(encoding="utf-8")
-    assert "Final 1" in compiled
-    assert "Forged mutable projection." not in compiled
+    with pytest.raises(PipelineError, match="divergent"):
+        runner._compile_book(manifest, project)
 
 
 def test_resume_completed_run_repairs_final_from_trusted_candidate_without_agents(tmp_path: Path):
     FakeOrchestrator.calls = []
+    FakeOrchestrator.publication_model_calls = []
     prompt = tmp_path / "prompt.md"
     prompt.write_text("A story.", encoding="utf-8")
     project = tmp_path / "project"
@@ -1005,7 +1195,219 @@ def test_resume_completed_run_repairs_final_from_trusted_candidate_without_agent
     assert final.read_bytes() == candidate.read_bytes()
     assert FakeOrchestrator.calls == calls_before
     assert "Final 1" in (project / "outputs/deliverables/book.md").read_text(encoding="utf-8")
-    assert any("repaired" in item.lower() for item in repaired.get("compile").decisions)
+    assert any(
+        "repaired" in item.lower()
+        for item in repaired.get("chapter.promote", 1).decisions
+    )
+
+
+def _downgrade_to_historical_completed_manifest(
+    runner: PipelineRunner,
+    manifest,
+    project: Path,
+) -> None:
+    manifest.stages.pop("publication.copy")
+    manifest.stages.pop("delivery.package")
+    publication_path = project / "outputs/publication/publication-copy.json"
+    publication_path.unlink()
+
+    compile_result = manifest.get("compile")
+    compile_result.input_hashes = runner._stage_input_hashes(
+        project, "compile", None
+    )
+    compile_result.artifact_paths.extend([
+        "outputs/deliverables/package-manifest.json",
+        "outputs/deliverables/book-package.zip",
+    ])
+    compile_result.artifact_hashes = {
+        relative: runner._sha256(project / relative)
+        for relative in compile_result.artifact_paths
+    }
+    manifest.current_phase = "compile"
+    manifest.current_chapter = None
+    runner._store(project, manifest.run_id).save(manifest)
+
+
+def test_resume_preserves_valid_historical_completed_manifest_without_backfill(
+    tmp_path: Path,
+):
+    FakeOrchestrator.publication_model_calls = []
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Historical Book\n\nA story.", encoding="utf-8")
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=_factory)
+    completed = runner.run(RunSpec(
+        project_path=str(project),
+        prompt_path=str(prompt),
+        num_chapters=1,
+        target_words=20,
+        approval_policy="auto",
+    ))
+    _downgrade_to_historical_completed_manifest(runner, completed, project)
+    model_calls = list(FakeOrchestrator.publication_model_calls)
+    export_sha = runner._sha256(project / "outputs/deliverables/book.md")
+
+    resumed = runner.resume(completed.run_id, project)
+
+    assert resumed.status == "completed"
+    assert resumed.current_phase == "compile"
+    assert resumed.get("publication.copy") is None
+    assert resumed.get("delivery.package") is None
+    assert not (project / "outputs/publication/publication-copy.json").exists()
+    assert runner._sha256(project / "outputs/deliverables/book.md") == export_sha
+    assert FakeOrchestrator.publication_model_calls == model_calls
+
+
+def test_resume_repairs_historical_exports_without_publication_backfill(
+    tmp_path: Path,
+):
+    FakeOrchestrator.publication_model_calls = []
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Historical Book\n\nA story.", encoding="utf-8")
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=_factory)
+    completed = runner.run(RunSpec(
+        project_path=str(project),
+        prompt_path=str(prompt),
+        num_chapters=1,
+        target_words=20,
+        approval_policy="auto",
+    ))
+    _downgrade_to_historical_completed_manifest(runner, completed, project)
+    model_calls = list(FakeOrchestrator.publication_model_calls)
+    (project / "outputs/deliverables/book.md").unlink()
+
+    resumed = runner.resume(completed.run_id, project)
+
+    assert resumed.status == "completed"
+    assert resumed.current_phase == "compile"
+    assert resumed.get("publication.copy") is None
+    assert resumed.get("delivery.package") is None
+    assert not (project / "outputs/publication/publication-copy.json").exists()
+    assert "Final 1" in (
+        project / "outputs/deliverables/book.md"
+    ).read_text(encoding="utf-8")
+    assert (project / "outputs/deliverables/book-package.zip").is_file()
+    assert FakeOrchestrator.publication_model_calls == model_calls
+
+
+def test_compile_retry_reuses_publication_checkpoint_and_final_bytes(tmp_path: Path):
+    FakeOrchestrator.calls = []
+    FakeOrchestrator.publication_model_calls = []
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test Book\n\nA story.", encoding="utf-8")
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=_factory)
+    completed = runner.run(RunSpec(
+        project_path=str(project),
+        prompt_path=str(prompt),
+        num_chapters=1,
+        target_words=20,
+        approval_policy="auto",
+    ))
+    publication_path = project / "outputs/publication/publication-copy.json"
+    final_path = project / "outputs/manuscript/chapter_001_final.md"
+    publication_sha = PipelineRunner._sha256(publication_path)
+    final_sha = PipelineRunner._sha256(final_path)
+    model_calls = list(FakeOrchestrator.publication_model_calls)
+    (project / "outputs/deliverables/book.md").unlink()
+
+    resumed = runner.resume(completed.run_id, project)
+
+    assert resumed.status == "completed", resumed.error
+    assert resumed.current_phase == "delivery.package"
+    assert PipelineRunner._sha256(publication_path) == publication_sha
+    assert PipelineRunner._sha256(final_path) == final_sha
+    assert resumed.get("publication.copy").attempt == 1
+    assert resumed.get("compile").status == "done"
+    assert resumed.get("delivery.package").status == "done"
+    assert FakeOrchestrator.publication_model_calls == model_calls
+
+
+def test_completed_run_does_not_regenerate_missing_publication_authority(
+    tmp_path: Path,
+):
+    FakeOrchestrator.calls = []
+    FakeOrchestrator.publication_model_calls = []
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test Book\n\nA story.", encoding="utf-8")
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=_factory)
+    completed = runner.run(RunSpec(
+        project_path=str(project),
+        prompt_path=str(prompt),
+        num_chapters=1,
+        target_words=20,
+        approval_policy="auto",
+    ))
+    model_calls = list(FakeOrchestrator.publication_model_calls)
+    (project / "outputs/publication/publication-copy.json").unlink()
+
+    resumed = runner.resume(completed.run_id, project)
+
+    assert resumed.status == "paused"
+    assert "publication.copy authority" in resumed.error
+    assert FakeOrchestrator.publication_model_calls == model_calls
+
+
+def test_approved_final_head_change_invalidates_publication_and_downstream(tmp_path: Path):
+    FakeOrchestrator.calls = []
+    FakeOrchestrator.publication_model_calls = []
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test Book\n\nA story.", encoding="utf-8")
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=_factory)
+    completed = runner.run(RunSpec(
+        project_path=str(project),
+        prompt_path=str(prompt),
+        num_chapters=2,
+        target_words=40,
+        approval_policy="auto",
+    ))
+    old_copy_sha = PipelineRunner._sha256(
+        project / "outputs/publication/publication-copy.json"
+    )
+    old_model_call_count = len(FakeOrchestrator.publication_model_calls)
+
+    artifacts = ArtifactStore(project)
+    old_head = artifacts.get_head(2, "final")
+    approved_text = "# Chapter 2\n\nChanged approved text under rising rent pressure.\n"
+    new_head = artifacts.put_text(
+        chapter=2,
+        kind="final",
+        text=approved_text,
+        source="test_approval",
+        parent_revision_id=old_head.revision_id,
+    )
+    artifacts.set_head(
+        2,
+        "final",
+        new_head.revision_id,
+        expected_revision_id=old_head.revision_id,
+    )
+    final_relative = "outputs/manuscript/chapter_002_final.md"
+    (project / final_relative).write_text(approved_text, encoding="utf-8")
+    promote = completed.get("chapter.promote", 2)
+    promote.revision_id = new_head.revision_id
+    promote.artifact_hashes[final_relative] = new_head.sha256
+    promote.promotion_receipt_id = runner._legacy_receipt_id(completed.run_id, promote)
+    runner._write_stage_result(completed, project, promote)
+    runner._store(project, completed.run_id).save(completed)
+
+    resumed = runner.resume(completed.run_id, project)
+
+    assert resumed.status == "completed", resumed.error
+    assert resumed.get("book.check").status == "done"
+    assert resumed.get("publication.copy").attempt == 1
+    assert resumed.get("compile").status == "done"
+    assert resumed.get("delivery.package").status == "done"
+    assert len(FakeOrchestrator.publication_model_calls) > old_model_call_count
+    assert PipelineRunner._sha256(
+        project / "outputs/publication/publication-copy.json"
+    ) != old_copy_sha
+    assert "Changed approved text" in (
+        project / "outputs/deliverables/book.md"
+    ).read_text(encoding="utf-8")
 
 
 def test_run_cli_persists_quality_policy(tmp_path: Path):
