@@ -155,6 +155,44 @@ outputs/state/promotion_receipts/<id>.json
 outputs/quality/evaluation_reports/<id>.json
 ```
 
+### Commercial story runs
+
+Use `quality_policy=evidence_v1` with a Prompt containing exactly one approved
+`[COMMERCIAL_STORY_JSON]` block. Prompt Intake activates the contract; no CLI
+flag privately activates a commercial story. The run adds these artifacts:
+
+```text
+outputs/input/story-fingerprint.json
+outputs/quality/story-originality-report.json
+outputs/quality/commercial/chapter_NNN_design.json
+outputs/quality/commercial/chapter_NNN_report.json
+outputs/quality/commercial-free-trial-report.json
+outputs/quality/commercial-book-report.json
+```
+
+The configured free window is exactly three or four chapters. After its final
+chapter is promoted, `commercial.free_trial_review` verifies recognition,
+pattern proof, a boundary test, local payoff, irreversible choice, visible cost,
+and the next concrete expectation from exact candidate evidence. A blocker stops
+the run before planning the next chapter.
+
+After all configured chapters are promoted, `commercial.book_review` verifies the approved
+conflict/resource progression, reader-value progression, hook distribution,
+protagonist-caused turns, humiliation and resource-seeding budgets, and observable
+payoff for at least two approved belonging anchors. It records factual
+distributions rather than a composite score. A blocker stops ending review,
+whole-book checks, publication copy, and compile.
+
+Resume reuses either report only while all bound story/chapter contract heads,
+final artifact revisions and SHAs, chapter commercial reports, promotion
+receipts, and the free-window report remain unchanged. Retry the named blocked
+review only after its upstream chapter evidence has been repaired and promoted.
+
+The workflow uses local abstract contracts and static fingerprints. It does not
+run online audience research, load advertising telemetry, retrieve raw sample
+chapters, or use embedding/vector/RAG lookup. Those exclusions keep the source
+corpus out of runtime prompts and reduce near-neighbor imitation risk.
+
 ---
 
 ## Story design to cover delivery

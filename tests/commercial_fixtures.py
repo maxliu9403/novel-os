@@ -150,6 +150,76 @@ def commercial_story_fixture_variant():
     return CommercialStoryContract.from_dict(payload)
 
 
+def commercial_story_lifecycle_fixture():
+    """Fresh four-chapter community fixture for the release lifecycle test."""
+    from commercial_story import CommercialStoryContract
+
+    payload = deepcopy(commercial_story_payload())
+    payload["premise_engine"].update(
+        {
+            "protagonist_life_stage": "empty_nest",
+            "protagonist_desire_beyond_escape": (
+                "Protect a late singer's scholarship record and keep serving on her own terms"
+            ),
+            "invisible_labor": "community_service",
+            "sacred_asset": "inheritance_memory",
+            "boundary_transfer": "money",
+            "beneficiary_role": "community_insider",
+            "proof_type": "financial_record",
+            "deadline_type": "financial_close",
+            "agency_source": "community_role",
+            "agency_seeded_in_chapter": 1,
+            "action_cost": "community_belonging",
+            "belonging_anchors": ["self", "friend", "community"],
+            "relationship_shape": "community_betrayal",
+        }
+    )
+    payload["conflict_ladder"] = [
+        {
+            "level": 1,
+            "resource_dimension": "name",
+            "protagonist_action": "She checks the scholarship announcement credit",
+            "observable_consequence": "The board chair is named as sole organizer",
+        },
+        {
+            "level": 2,
+            "resource_dimension": "memory",
+            "protagonist_action": "She compares the approved minutes with the memorial promise",
+            "observable_consequence": "The recorded purpose no longer matches the public story",
+        },
+        {
+            "level": 3,
+            "resource_dimension": "money",
+            "protagonist_action": "She reconciles deposit timestamps against the ledger",
+            "observable_consequence": "A transfer to the chair's favored program becomes visible",
+        },
+        {
+            "level": 4,
+            "resource_dimension": "system",
+            "protagonist_action": "She freezes her own authorization before financial close",
+            "observable_consequence": "The choir cannot release the redirected funds",
+        },
+        {
+            "level": 5,
+            "resource_dimension": "future",
+            "protagonist_action": "She submits the record to the full membership",
+            "observable_consequence": "Her place in the choir and the scholarship's future split",
+        },
+    ]
+    payload["free_trial_arc"] = {
+        "chapter_count": 4,
+        "recognition_event": "Her work and the donor's purpose vanish from the announcement",
+        "pattern_proof": "Minutes and deposit timestamps show a repeated redirection",
+        "first_boundary_test": "She refuses to sign the altered closeout",
+        "local_payoff": "Her missing authorization freezes the transfer",
+        "irreversible_choice": "She sends the records to the full choir membership",
+        "visible_cost": "The board removes her from rehearsal and treasury access",
+        "next_concrete_expectation": "She must defend the scholarship record at the member vote",
+        "action_sequence": ["document", "protect", "withdraw", "accept_cost"],
+    }
+    return CommercialStoryContract.from_dict(payload)
+
+
 def high_overlap_candidate():
     """A candidate just over the configured structural block threshold."""
     return commercial_story_fixture()

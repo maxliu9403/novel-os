@@ -38,6 +38,8 @@ from context_pack import build_context_pack, format_context_pack, slice_chapter_
 from canon import CanonDeltaProposal, apply_canon_proposal, build_canon_proposal
 from canon_ledger import CanonLedger, CanonLedgerEntry, CanonReconciliationEntry
 from proposals import ProposalStore
+from artifacts import ArtifactError, ArtifactStore
+from contracts import ChapterContract
 from commercial_story import CommercialStoryContract
 from commercial_quality import (
     CommercialChapterReport,

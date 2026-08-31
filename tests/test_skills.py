@@ -77,6 +77,55 @@ def test_commercial_agent_handoff_defines_role_specific_checks_and_boundaries() 
     assert "never receives raw corpus" in body.casefold()
 
 
+def test_commercial_prompt_dry_run_has_no_retrieval_or_market_payload(
+    tmp_path: Path,
+) -> None:
+    from commercial_fixtures import commercial_story_lifecycle_fixture
+    from commercial_story import commercial_story_block, parse_commercial_story_block
+    from orchestrator import NovelOrchestrator
+    from prompt_intake import ingest_prompt
+
+    contract = commercial_story_lifecycle_fixture()
+    prompt_text = (
+        "# The Last Signed Measure\n\n"
+        "Audience: women ages 35-60.\n"
+        "A community choir treasurer protects a memorial scholarship record.\n\n"
+        + commercial_story_block(contract)
+    )
+    prompt = tmp_path / "fresh-commercial-prompt.md"
+    prompt.write_text(prompt_text, encoding="utf-8")
+    project = tmp_path / "validation-project"
+
+    ingest_prompt(
+        project,
+        str(prompt),
+        {"title": "The Last Signed Measure", "genre": "Domestic drama"},
+    )
+    parsed = parse_commercial_story_block(prompt_text)
+    assert parsed is not None and parsed.contract_id == contract.contract_id
+
+    orchestrator = NovelOrchestrator(str(project))
+    orchestrator.plan_outline(4, 240, dry_run=True)
+    architect_prompt = (project / "outputs/outline_prompt.md").read_text(
+        encoding="utf-8"
+    )
+    combined = (prompt_text + "\n" + architect_prompt).casefold()
+    for forbidden in (
+        "telegram desktop",
+        "/批次-",
+        "source_records",
+        "research_queries",
+        "audience_research",
+        "click-through rate",
+        "conversion rate",
+        "vector-search payload",
+        "nearest-match payload",
+    ):
+        assert forbidden not in combined
+    assert prompt_text.count("[COMMERCIAL_STORY_JSON]") == 1
+    assert prompt_text.count("[/COMMERCIAL_STORY_JSON]") == 1
+
+
 def test_cover_skill_requires_confirmed_design_and_distinct_concepts() -> None:
     skill = _read(COVER / "SKILL.md")
     handoff = _read(COVER / "references" / "cover-handoff.md")

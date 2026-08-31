@@ -94,6 +94,57 @@ in sync. Over time, more reads move DB-first (the ingest path already populates 
 - **Snapshot / restore:** snapshots live in the DB; restore creates a new
   `snapshot_restore` candidate and receipt after auto-snapshotting the current Final.
 
+## Commercial story quality lifecycle
+
+A Prompt activates the commercial lifecycle only when Prompt Intake accepts one
+strict `[COMMERCIAL_STORY_JSON]` block. Prompts without that block keep the
+existing lifecycle. The approved contract is immutable after intake: Architect
+may expand the cast, setting, and scenes, but the foundation must preserve the
+same contract and computed contract ID.
+
+```text
+intake
+  -> outline
+  -> foundation.originality
+  -> foundation.commit
+  -> chapter.plan
+  -> chapter.design_check
+  -> write / edit / continuity / style
+  -> chapter.commercial_check (bounded candidate repair)
+  -> chapter.promote
+  -> commercial.free_trial_review after chapter 3 or 4
+  -> remaining promoted chapters
+  -> commercial.book_review
+  -> ending / book / publication / compile
+```
+
+Ownership remains explicit:
+
+| Authority | Owns |
+|---|---|
+| Prompt Intake | approved `CommercialStoryContract` and activation |
+| Architect | schema-v2 chapter intent contracts |
+| Continuity Guardian | exact candidate evidence for reader-value delivery |
+| Style Curator | bounded candidate repair without changing contracts |
+| `PromotionService` | final artifact and verified reader-value canon commit |
+| `core/commercial_quality.py` | deterministic chapter, free-window, and whole-book reports |
+
+The free-window and book reports read current ArtifactStore contract/final heads,
+candidate-bound commercial reports, and promotion receipts. They do not infer
+delivery from mutable manuscript projections or agent claims. Their checkpoint
+input hashes include these authorities, so a changed promotion invalidates the
+applicable review and downstream stages on resume. A failed free-window review
+stops before the next chapter plan; a failed book review stops before ending and
+compile work.
+
+The local commercial profile is a compact abstract pattern reference, not a
+runtime story library. Raw sample prose, titles, names, paths, and nearest matches
+never enter generation prompts. This lifecycle has no embeddings, vector store,
+Qdrant, semantic nearest-neighbor retrieval, or RAG. Originality checks compare
+controlled premise dimensions and ordered action fingerprints, not expression,
+and do not make a legal originality determination. Advertising and conversion
+metrics are outside the quality contract.
+
 ## Cover generation and delivery boundary
 
 Cover generation is adjacent to manuscript production, not a manuscript phase.
