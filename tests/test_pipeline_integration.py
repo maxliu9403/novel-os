@@ -8,6 +8,8 @@ import pytest
 import pipeline_runner as pipeline_runner_module
 from artifacts import ArtifactStore
 from canon_ledger import canonical_canon_sha
+from commercial_fixtures import commercial_story_fixture_variant
+from commercial_story import commercial_story_block
 from orchestrator import NovelOrchestrator
 from pipeline_models import RunManifest, RunSpec, StageResult
 from pipeline_runner import PipelineRunner
@@ -448,6 +450,57 @@ def test_real_orchestrator_pipeline_completes_two_chapters(tmp_path: Path):
     with zipfile.ZipFile(project / "outputs/deliverables/book-package.zip") as package:
         assert "book.md" in package.namelist()
         assert "package-manifest.json" in package.namelist()
+
+
+def test_real_orchestrator_commercial_pipeline_persists_originality_gate(
+    tmp_path: Path,
+):
+    contract = commercial_story_fixture_variant()
+
+    class CommercialPipelineLLM(PipelineLLM):
+        def run_agent(self, agent_name, prompt):
+            response = super().run_agent(agent_name, prompt)
+            if agent_name == "architect" and "Full Novel Blueprint" in prompt:
+                prefix, rest = response.split("[STORY_FOUNDATION_JSON]\n", 1)
+                encoded, suffix = rest.split("\n[/STORY_FOUNDATION_JSON]", 1)
+                foundation = json.loads(encoded)
+                foundation["commercial_story_contract"] = contract.to_dict()
+                foundation["commercial_story_contract_id"] = contract.contract_id
+                return (
+                    prefix
+                    + "[STORY_FOUNDATION_JSON]\n"
+                    + json.dumps(foundation)
+                    + "\n[/STORY_FOUNDATION_JSON]"
+                    + suffix
+                )
+            return response
+
+    def factory(project_path):
+        orchestrator = NovelOrchestrator(project_path)
+        orchestrator._llm = CommercialPipelineLLM()
+        return orchestrator
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text(
+        "# Commercial Book\n\n" + commercial_story_block(contract),
+        encoding="utf-8",
+    )
+    project = tmp_path / "projects/commercial-book"
+
+    manifest = PipelineRunner(orchestrator_factory=factory).run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=2,
+            target_words=60,
+            approval_policy="auto",
+        )
+    )
+
+    assert manifest.status == "completed", manifest.error
+    assert manifest.get("foundation.originality").status == "done"
+    assert (project / "outputs/input/story-fingerprint.json").is_file()
+    assert (project / "outputs/quality/story-originality-report.json").is_file()
 
 
 def test_evidence_pipeline_enforces_semantic_ending_contract(tmp_path: Path):

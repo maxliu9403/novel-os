@@ -20,6 +20,7 @@ from typing import Any, Callable, Dict, Optional
 
 from artifacts import ArtifactError, ArtifactStore
 from canon import CanonDeltaProposal
+from commercial_story import CommercialStoryContract
 from contracts import AuthorIntent, ChapterContract, StoryContract
 from canon_ledger import canonical_canon_sha
 from compile_book import gather, render_bytes
@@ -58,6 +59,12 @@ from publication_source import (
     build_publication_source_set,
 )
 from quality import EvaluationReport, EvaluationRequest, QualityLab
+from story_originality import (
+    OriginalityReport,
+    capture_originality_context,
+    evaluate_story_originality,
+    originality_input_hashes,
+)
 from styles import StyleSheet
 
 
@@ -588,6 +595,27 @@ class PipelineRunner:
                     "outputs/story_bible.md",
                 ],
             )
+            commercial_story = self._foundation_commercial_story(project)
+            if commercial_story is not None:
+                originality_context = capture_originality_context(project)
+                self._stage(
+                    manifest,
+                    project,
+                    store,
+                    "foundation.originality",
+                    None,
+                    lambda: evaluate_story_originality(
+                        project,
+                        commercial_story,
+                        context=originality_context,
+                    ),
+                    self._validate_originality_result,
+                    [
+                        "outputs/input/story-fingerprint.json",
+                        "outputs/quality/story-originality-report.json",
+                    ],
+                    captured_input_hashes=originality_context.input_hashes,
+                )
             foundation_key = self._foundation_idempotency_key(manifest, project)
             foundation_receipt = (
                 f"outputs/state/foundation_receipts/{foundation_key}.json"
@@ -961,6 +989,8 @@ class PipelineRunner:
         operation: Callable[[], Any],
         validator: Callable[[Any], Any],
         artifacts: list[str],
+        *,
+        captured_input_hashes: Optional[Dict[str, str]] = None,
     ) -> StageResult:
         previous = manifest.get(phase, chapter)
         if previous and previous.status == "done" and not self._rerun_started:
@@ -1010,6 +1040,7 @@ class PipelineRunner:
         max_attempts = manifest.spec.max_retries + 1
         last_error = ""
         for attempt in range(1, max_attempts + 1):
+            value: Any = None
             result = StageResult(
                 phase=phase,
                 chapter=chapter,
@@ -1018,8 +1049,12 @@ class PipelineRunner:
                 started_at=self._now(),
             )
             try:
-                result.input_hashes = self._stage_input_hashes(
-                    project, phase, chapter, manifest
+                result.input_hashes = dict(
+                    captured_input_hashes
+                    if captured_input_hashes is not None
+                    else self._stage_input_hashes(
+                        project, phase, chapter, manifest
+                    )
                 )
                 result.provider, result.model = self._runtime_model(phase)
                 self._save_stage(manifest, project, store, result)
@@ -1068,6 +1103,18 @@ class PipelineRunner:
                 result.status = "blocked" if exc.blocked else "failed"
                 result.error = str(exc)
                 result.finished_at = self._now()
+                if phase == "foundation.originality":
+                    result.artifact_paths = [
+                        path for path in artifacts if (project / path).is_file()
+                    ]
+                    result.artifact_hashes = {
+                        path: self._sha256(project / path)
+                        for path in result.artifact_paths
+                    }
+                if phase == "foundation.originality" and value is not None:
+                    self._capture_stage_metadata(
+                        manifest, project, result, value
+                    )
                 self._save_stage(manifest, project, store, result)
                 self._event(manifest, "stage.blocked" if exc.blocked else "stage.failed", phase=phase, chapter=chapter, error=str(exc))
                 raise
@@ -1228,6 +1275,8 @@ class PipelineRunner:
         chapter: Optional[int],
         manifest: Optional[RunManifest] = None,
     ) -> Dict[str, str]:
+        if phase == "foundation.originality":
+            return originality_input_hashes(project)
         inputs: Dict[str, list[str]] = {
             "outline": ["outputs/input/prompt.md", "outputs/input/brief.json"],
             "foundation.commit": ["outputs/input/foundation.json"],
@@ -1356,6 +1405,81 @@ class PipelineRunner:
         return file_hashes
 
     @staticmethod
+    def _foundation_commercial_story(
+        project: Path,
+    ) -> CommercialStoryContract | None:
+        foundation_path = project / "outputs/input/foundation.json"
+        brief_path = project / "outputs/input/brief.json"
+        try:
+            foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
+            brief = json.loads(brief_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise PipelineError(
+                f"Commercial story binding inputs are unreadable: {exc}",
+                blocked=True,
+            ) from exc
+
+        approved_payload = brief.get("commercial_story_contract")
+        approved_id = brief.get("commercial_story_contract_id")
+        foundation_payload = foundation.get("commercial_story_contract")
+        foundation_id = foundation.get("commercial_story_contract_id")
+        if approved_payload is None and approved_id is None:
+            if foundation_payload is not None or foundation_id is not None:
+                raise PipelineError(
+                    "Story foundation activated a commercial contract without Prompt Intake approval",
+                    blocked=True,
+                )
+            return None
+        try:
+            approved = CommercialStoryContract.from_dict(approved_payload)
+        except (TypeError, ValueError) as exc:
+            raise PipelineError(
+                f"Approved commercial contract is invalid: {exc}",
+                blocked=True,
+            ) from exc
+        if approved_id != approved.contract_id:
+            raise PipelineError(
+                "Approved commercial contract id is invalid",
+                blocked=True,
+            )
+        if foundation_payload is None or foundation_id is None:
+            raise PipelineError(
+                "Story foundation omitted the approved commercial contract",
+                blocked=True,
+            )
+        try:
+            foundation_contract = CommercialStoryContract.from_dict(
+                foundation_payload
+            )
+        except (TypeError, ValueError) as exc:
+            raise PipelineError(
+                f"Story foundation commercial contract is invalid: {exc}",
+                blocked=True,
+            ) from exc
+        if (
+            foundation_contract != approved
+            or foundation_id != approved.contract_id
+        ):
+            raise PipelineError(
+                "Story foundation changed the approved commercial contract",
+                blocked=True,
+            )
+        return approved
+
+    @staticmethod
+    def _validate_originality_result(value: Any) -> None:
+        if not isinstance(value, OriginalityReport):
+            raise PipelineError(
+                "Structural originality evaluation returned no report",
+                blocked=True,
+            )
+        if value.status == "blocked":
+            raise PipelineError(
+                "Structural originality gate blocked foundation commit",
+                blocked=True,
+            )
+
+    @staticmethod
     def _foundation_idempotency_key(manifest: RunManifest, project: Path) -> str:
         foundation_sha = PipelineRunner._sha256(
             project / "outputs/input/foundation.json"
@@ -1389,6 +1513,12 @@ class PipelineRunner:
         result: StageResult,
         value: Any,
     ) -> None:
+        if result.phase == "foundation.originality" and isinstance(
+            value, OriginalityReport
+        ):
+            result.findings = [item.to_dict() for item in value.findings]
+            result.decisions = [f"originality_status:{value.status}"]
+
         if result.phase == "intake":
             from state_manager import StoryState
 

@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "patterns": [
+    {
+      "pattern_id": "credential_access_chain",
+      "protagonist_life_stage": "career_midpoint",
+      "invisible_labor": "reputation_management",
+      "sacred_asset": "shared_commitment",
+      "boundary_transfer": "system",
+      "beneficiary_role": "unknown_third_party",
+      "proof_type": "key_or_access",
+      "deadline_type": "numbered_repeat",
+      "agency_source": "records_habit",
+      "action_cost": "relationship_loss",
+      "belonging_anchors": [
+        "self",
+        "child"
+      ],
+      "relationship_shape": "intimate_mystery",
+      "action_sequence": [
+        "recognize",
+        "verify",
+        "document",
+        "test_boundary"
+      ],
+      "source_count": 3,
+      "risk_note": "Repeated credential clues can produce an overly fixed discovery chain."
+    },
+    {
+      "pattern_id": "memorial_fire_chain",
+      "protagonist_life_stage": "bereavement",
+      "invisible_labor": "emotional_management",
+      "sacred_asset": "inheritance_memory",
+      "boundary_transfer": "memory",
+      "beneficiary_role": "parent",
+      "proof_type": "physical_object",
+      "deadline_type": "anniversary",
+      "agency_source": "trusted_ally",
+      "action_cost": "relationship_loss",
+      "belonging_anchors": [
+        "self",
+        "family_of_choice"
+      ],
+      "relationship_shape": "extended_family_intrusion",
+      "action_sequence": [
+        "recognize",
+        "verify",
+        "protect",
+        "leave"
+      ],
+      "source_count": 3,
+      "risk_note": "Memorial destruction followed by departure can become a fixed consequence chain."
+    },
+    {
+      "pattern_id": "pregnancy_result_departure_chain",
+      "protagonist_life_stage": "pregnancy",
+      "invisible_labor": "medical_coordination",
+      "sacred_asset": "bodily_autonomy",
+      "boundary_transfer": "body",
+      "beneficiary_role": "affair_partner",
+      "proof_type": "medical_record",
+      "deadline_type": "departure_window",
+      "agency_source": "caregiving_network",
+      "action_cost": "housing",
+      "belonging_anchors": [
+        "self",
+        "child"
+      ],
+      "relationship_shape": "spouse_triangle",
+      "action_sequence": [
+        "recognize",
+        "verify",
+        "protect",
+        "leave"
+      ],
+      "source_count": 4,
+      "risk_note": "A medical result immediately triggering departure can become a fixed reveal chain."
+    }
+  ]
+}

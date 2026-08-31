@@ -5,10 +5,18 @@ from pathlib import Path
 import pytest
 
 from artifacts import ArtifactStore
+from commercial_fixtures import (
+    commercial_story_fixture_variant,
+    high_overlap_candidate,
+    high_overlap_reference,
+)
+from commercial_story import commercial_story_block
 from pipeline_models import RunSpec, StageResult
 from pipeline_runner import PipelineError, PipelineRunner
 from llm_client import LLMError
+from project_identity import ensure_project_instance_id
 from state_manager import StoryState
+from story_originality import StoryFingerprint
 
 
 class FakeOrchestrator:
@@ -238,6 +246,45 @@ def _factory(project_path):
     return FakeOrchestrator(project_path)
 
 
+def _commercial_factory(contract):
+    class CommercialFakeOrchestrator(FakeOrchestrator):
+        def plan_outline(self, chapters, words, dry_run=False):
+            super().plan_outline(chapters, words, dry_run=dry_run)
+            foundation_path = self.outputs / "input/foundation.json"
+            foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
+            foundation["commercial_story_contract"] = contract.to_dict()
+            foundation["commercial_story_contract_id"] = contract.contract_id
+            foundation_path.write_text(
+                json.dumps(foundation, sort_keys=True) + "\n", encoding="utf-8"
+            )
+
+    return CommercialFakeOrchestrator
+
+
+def _write_originality_sibling(project: Path, contract) -> None:
+    foundation = project / "outputs/input/foundation.json"
+    fingerprint = project / "outputs/input/story-fingerprint.json"
+    foundation.parent.mkdir(parents=True, exist_ok=True)
+    foundation.write_text(
+        json.dumps(
+            {
+                "commercial_story_contract": contract.to_dict(),
+                "commercial_story_contract_id": contract.contract_id,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    fingerprint.write_text(
+        json.dumps(
+            StoryFingerprint.from_contract(contract).to_dict(), sort_keys=True
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    ensure_project_instance_id(project)
+
+
 def test_runner_completes_two_chapter_book(tmp_path: Path):
     FakeOrchestrator.calls = []
     FakeOrchestrator.publication_model_calls = []
@@ -286,6 +333,7 @@ def test_stage_order_and_publication_inputs_are_source_bound(tmp_path: Path):
         if result.chapter is None
     ]
     assert phases.index("book.check") < phases.index("publication.copy")
+    assert "foundation.originality" not in phases
     assert phases.index("publication.copy") < phases.index("compile")
     assert phases.index("compile") < phases.index("delivery.package")
     assert manifest.current_phase == "delivery.package"
@@ -321,6 +369,171 @@ def test_stage_order_and_publication_inputs_are_source_bound(tmp_path: Path):
     roles = {entry["path"]: entry["role"] for entry in package_manifest["files"]}
     assert roles["meta/publication-copy.json"] == "publication_copy"
     assert not any(path.startswith("h5-publication/") for path in roles)
+
+
+def test_commercial_story_runs_originality_before_foundation_commit(tmp_path: Path):
+    contract = commercial_story_fixture_variant()
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text(
+        "# Commercial Test\n\n" + commercial_story_block(contract),
+        encoding="utf-8",
+    )
+    project = tmp_path / "projects/candidate"
+
+    manifest = PipelineRunner(
+        orchestrator_factory=_commercial_factory(contract)
+    ).run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            approval_policy="auto",
+        )
+    )
+
+    assert manifest.status == "completed", manifest.error
+    phases = [
+        result.phase for result in manifest.stages.values() if result.chapter is None
+    ]
+    assert phases.index("outline") < phases.index("foundation.originality")
+    assert phases.index("foundation.originality") < phases.index("foundation.commit")
+    originality = manifest.get("foundation.originality")
+    assert originality.status == "done"
+    assert set(originality.input_hashes) == {
+        "foundation_sha256",
+        "catalog_sha256",
+        "sibling_reference_set_sha256",
+    }
+    assert originality.artifact_paths == [
+        "outputs/input/story-fingerprint.json",
+        "outputs/quality/story-originality-report.json",
+    ]
+
+
+def test_pipeline_blocks_when_foundation_omits_the_approved_commercial_contract(
+    tmp_path: Path,
+):
+    contract = commercial_story_fixture_variant()
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text(
+        "# Commercial Test\n\n" + commercial_story_block(contract),
+        encoding="utf-8",
+    )
+    project = tmp_path / "projects/candidate"
+
+    manifest = PipelineRunner(orchestrator_factory=_factory).run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            approval_policy="auto",
+            max_retries=0,
+        )
+    )
+
+    assert manifest.status == "paused"
+    assert "approved commercial contract" in manifest.error.casefold()
+    assert manifest.get("foundation.originality") is None
+    assert manifest.get("foundation.commit") is None
+
+
+def test_pipeline_blocks_foundation_from_privately_activating_commercial_story(
+    tmp_path: Path,
+):
+    contract = commercial_story_fixture_variant()
+    project = tmp_path / "projects/candidate"
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Legacy Story\n\nNo commercial contract.", encoding="utf-8")
+
+    manifest = PipelineRunner(
+        orchestrator_factory=_commercial_factory(contract)
+    ).run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            approval_policy="auto",
+            max_retries=0,
+        )
+    )
+
+    assert manifest.status == "paused"
+    assert "without prompt intake approval" in manifest.error.casefold()
+    assert manifest.get("foundation.originality") is None
+    assert manifest.get("foundation.commit") is None
+
+
+def test_blocked_originality_report_prevents_foundation_commit(tmp_path: Path):
+    projects = tmp_path / "projects"
+    _write_originality_sibling(projects / "reference", high_overlap_reference())
+    contract = high_overlap_candidate()
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text(
+        "# Candidate\n\n" + commercial_story_block(contract), encoding="utf-8"
+    )
+
+    manifest = PipelineRunner(
+        orchestrator_factory=_commercial_factory(contract)
+    ).run(
+        RunSpec(
+            project_path=str(projects / "candidate"),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            approval_policy="auto",
+            max_retries=0,
+        )
+    )
+
+    originality = manifest.get("foundation.originality")
+    assert manifest.status == "paused"
+    assert originality.status == "blocked"
+    assert originality.artifact_paths == [
+        "outputs/input/story-fingerprint.json",
+        "outputs/quality/story-originality-report.json",
+    ]
+    assert manifest.get("foundation.commit") is None
+
+
+def test_new_sibling_fingerprint_invalidates_and_reblocks_paused_run(
+    tmp_path: Path,
+):
+    contract = high_overlap_candidate()
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text(
+        "# Candidate\n\n" + commercial_story_block(contract), encoding="utf-8"
+    )
+    project = tmp_path / "projects/candidate"
+    orchestrator = _commercial_factory(contract)
+    orchestrator.fail_validation = True
+    runner = PipelineRunner(orchestrator_factory=orchestrator)
+    paused = runner.run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            approval_policy="auto",
+            max_retries=0,
+        )
+    )
+    assert paused.get("foundation.originality").status == "done"
+    _write_originality_sibling(
+        tmp_path / "projects/reference", high_overlap_reference()
+    )
+    orchestrator.fail_validation = False
+
+    reblocked = runner.resume(paused.run_id, project)
+
+    assert reblocked.status == "paused"
+    assert reblocked.get("foundation.originality").status == "blocked"
+    events = (
+        project / f"outputs/runs/{paused.run_id}/events.jsonl"
+    ).read_text(encoding="utf-8")
+    assert events.count('"phase": "foundation.originality"') >= 4
 
 
 def test_four_chapter_delivery_checkpoints_current_h5_publication(tmp_path: Path):

@@ -80,6 +80,8 @@ def commercial_story_fixture():
 
 
 def commercial_story_fixture_variant():
+    from commercial_story import CommercialStoryContract
+
     payload = deepcopy(commercial_story_payload())
     premise = payload["premise_engine"]
     premise.update(
@@ -103,6 +105,42 @@ def commercial_story_fixture_variant():
         "disclose",
         "counter_move",
     ]
+    return CommercialStoryContract.from_dict(payload)
+
+
+def high_overlap_candidate():
+    """A candidate just over the configured structural block threshold."""
+    return commercial_story_fixture()
+
+
+def high_overlap_reference():
+    """Nine matching dimensions plus a three-of-four ordered action overlap."""
+    from commercial_story import CommercialStoryContract
+
+    payload = deepcopy(commercial_story_payload())
+    premise = payload["premise_engine"]
+    premise["beneficiary_role"] = "employer"
+    premise["belonging_anchors"] = ["self", "child", "friend"]
+    premise["protagonist_desire_beyond_escape"] = (
+        "Keep control of the work that secures her family's future"
+    )
+    payload["free_trial_arc"].update(
+        {
+            "recognition_event": "A promised credit disappears before release",
+            "pattern_proof": "An ordinary audit exposes repeated transfers",
+            "first_boundary_test": "She withholds a required approval",
+            "local_payoff": "The release pauses under ordinary process rules",
+            "irreversible_choice": "She submits a formal ownership record",
+            "visible_cost": "Her employer removes her system access",
+            "next_concrete_expectation": "She must establish ownership at review",
+            "action_sequence": [
+                "verify",
+                "test_boundary",
+                "withdraw",
+                "counter_move",
+            ],
+        }
+    )
     return CommercialStoryContract.from_dict(payload)
 
 
