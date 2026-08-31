@@ -22,11 +22,14 @@ from __future__ import annotations
 import html
 import re
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from styles import StyleSheet, Style
 
-BlockKind = str  # chapter title, story lead, prose, quote, or scene break
+if TYPE_CHECKING:
+    from publication_copy import PublicationCopy
+
+BlockKind = str  # chapter title, story lead, hook, prose, quote, or scene break
 
 _SCENE_BREAK = re.compile(r"^\s*(?:(?:[-*_]\s*){3,}|\*\s*\*\s*\*)\s*$")
 _HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
@@ -53,6 +56,8 @@ class CompiledBook:
     title: str = "Untitled"
     author: str = ""
     genre: str = ""
+    language: str = "en-US"
+    publication_copy: Optional["PublicationCopy"] = None
     blocks: List[Block] = field(default_factory=list)
     chapters: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -60,7 +65,10 @@ class CompiledBook:
     def word_count(self) -> int:
         return sum(
             len(b.text.split()) for b in self.blocks
-            if b.kind not in ("scene_break", "chapter_title", "story_lead_title")
+            if b.kind not in (
+                "scene_break", "chapter_title", "story_lead_title", "story_hook",
+                "story_lead",
+            )
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -68,6 +76,10 @@ class CompiledBook:
             "title": self.title,
             "author": self.author,
             "genre": self.genre,
+            "language": self.language,
+            "publication_copy": (
+                self.publication_copy.to_dict() if self.publication_copy else None
+            ),
             "word_count": self.word_count,
             "chapters": list(self.chapters),
             "blocks": [b.to_dict() for b in self.blocks],
@@ -138,12 +150,21 @@ def parse_chapter(text: str, chapter: Optional[int] = None) -> List[Block]:
     return blocks
 
 
+def _publication_blocks(copy: "PublicationCopy") -> List[Block]:
+    return [
+        Block("story_lead_title", copy.reader_heading),
+        Block("story_hook", copy.hook_lead),
+        Block("story_lead", copy.spoiler_free_blurb),
+    ]
+
+
 def gather(
     *,
     title: str,
     author: str,
     genre: str,
     chapters: List[Dict[str, Any]],
+    publication_copy: Optional["PublicationCopy"] = None,
 ) -> CompiledBook:
     """Assemble the book from per-chapter prose.
 
@@ -151,7 +172,15 @@ def gather(
     rather than a StoryState keeps this function pure and trivially testable;
     the service layer decides which stage each chapter's text comes from.
     """
-    book = CompiledBook(title=title or "Untitled", author=author, genre=genre)
+    book = CompiledBook(
+        title=title or "Untitled",
+        author=author,
+        genre=genre,
+        language=publication_copy.language if publication_copy else "en-US",
+        publication_copy=publication_copy,
+    )
+    if publication_copy:
+        book.blocks.extend(_publication_blocks(publication_copy))
 
     for entry in chapters:
         number = entry.get("number")
@@ -160,6 +189,12 @@ def gather(
             continue
 
         parsed = parse_chapter(text, chapter=number)
+        if publication_copy and any(
+            block.kind == "story_lead_title" for block in parsed
+        ):
+            raise ValueError(
+                "structured publication copy and STORY_LEAD marker are both present"
+            )
         # A story lead may precede chapter one, so find the actual chapter title
         # instead of assuming the first heading owns navigation.
         chapter_title = next(
@@ -276,9 +311,10 @@ def render_html(book: CompiledBook, sheet: StyleSheet) -> str:
     depend on a stylesheet that does not travel with it.
     """
     title = html.escape(book.title)
+    language = html.escape(book.language or "en-US", quote=True)
     out: List[str] = [
         "<!doctype html>",
-        '<html lang="en"><head><meta charset="utf-8">',
+        f'<html lang="{language}"><head><meta charset="utf-8">',
         f"<title>{title}</title>",
         "<style>body{max-width:38em;margin:4em auto;padding:0 1.5em;color:#111;"
         "background:#fff}@media print{body{margin:0;max-width:none}}</style>",
@@ -321,6 +357,8 @@ def render_markdown(book: CompiledBook, sheet: StyleSheet) -> str:
             out += [f"## {block.text}", ""]
         elif block.kind == "block_quote":
             out += [f"> {block.text}", ""]
+        elif block.kind == "story_hook":
+            out += [f"*{block.text}*", ""]
         else:
             out += [block.text, ""]
     return "\n".join(out).rstrip() + "\n"

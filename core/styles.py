@@ -26,6 +26,7 @@ STYLE_ROLES = (
     "title",            # the book's title page
     "subtitle",         # byline / genre line under it
     "story_lead_title", # reader-facing lead before chapter one
+    "story_hook",       # one-line reader hook before the longer lead
     "story_lead",       # short conflict-and-payoff promise before chapter one
     "chapter_title",    # "Chapter One" or the chapter's name
     "body",             # ordinary prose
@@ -74,6 +75,8 @@ def default_styles() -> Dict[str, Style]:
         "story_lead_title": Style(size_pt=15, line_height=1.3, align="center",
                                   bold=True, space_before_em=2.0,
                                   space_after_em=1.0),
+        "story_hook": Style(size_pt=13, line_height=1.5, align="center",
+                             italic=True, space_after_em=0.8),
         "story_lead": Style(size_pt=12, line_height=1.6, align="left",
                             first_line_indent_em=0.0, space_after_em=1.0),
         "chapter_title": Style(size_pt=18, line_height=1.3, align="center",
