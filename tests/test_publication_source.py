@@ -132,14 +132,26 @@ def _source_set(texts: list[str]) -> PublicationSourceSet:
         )
         for number, text in enumerate(texts, start=1)
     )
-    provisional = PublicationSourceSet(
+    identity = [
+        {
+            "chapter": item.number,
+            "revision_id": item.revision_id,
+            "sha256": item.sha256,
+        }
+        for item in chapters
+    ]
+    source_set_sha256 = hashlib.sha256(
+        json.dumps(
+            identity,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    return PublicationSourceSet(
         run_id="run-source",
         chapters=chapters,
-        source_set_sha256="0" * 64,
-    )
-    return replace(
-        provisional,
-        source_set_sha256=publication_source_input_hash(provisional),
+        source_set_sha256=source_set_sha256,
     )
 
 
@@ -202,6 +214,30 @@ def test_source_set_blocks_missing_receipt_or_final_head_drift(tmp_path, monkeyp
         build_publication_source_set(project, manifest.run_id, 4, "evidence_v1")
 
 
+@pytest.mark.parametrize("chapter_count", [1, 2])
+def test_source_builder_supports_books_below_four_chapters(
+    tmp_path,
+    monkeypatch,
+    chapter_count,
+):
+    texts = tuple(
+        f"# Chapter {number}\n\nApproved short-book chapter {number}."
+        for number in range(1, chapter_count + 1)
+    )
+    project, manifest, receipts = _bound_project(tmp_path, texts=texts)
+    _install_receipts(monkeypatch, receipts)
+
+    source = build_publication_source_set(
+        project,
+        manifest.run_id,
+        chapter_count,
+        "evidence_v1",
+    )
+
+    assert len(source.chapters) == chapter_count
+    assert source.source_set_sha256 == publication_source_input_hash(source)
+
+
 def test_legacy_source_requires_completed_deterministic_stage_binding(tmp_path):
     project, manifest, _ = _bound_project(tmp_path, quality_policy="legacy")
 
@@ -227,10 +263,12 @@ def test_source_fingerprint_is_ordered_stable_and_content_bound(tmp_path, monkey
 
     first = build_publication_source_set(project, manifest.run_id, 4, "evidence_v1")
     second = build_publication_source_set(project, manifest.run_id, 4, "evidence_v1")
-    changed_chapter = replace(first.chapters[1], sha256="f" * 64)
-    changed = replace(
-        first,
-        chapters=(first.chapters[0], changed_chapter, *first.chapters[2:]),
+    changed = _source_set(
+        [
+            first.chapters[0].text,
+            "A changed second Final chapter.",
+            *(item.text for item in first.chapters[2:]),
+        ]
     )
     expected_identity = [
         {
@@ -257,6 +295,35 @@ def test_source_fingerprint_is_ordered_stable_and_content_bound(tmp_path, monkey
     assert publication_source_input_hash(changed) != first.source_set_sha256
 
 
+def test_source_models_and_public_boundaries_reject_forged_content():
+    source = _source_set(["Approved Final text."])
+
+    with pytest.raises(ValueError, match="sha256 does not match"):
+        replace(source.chapters[0], text="Forged text.")
+    with pytest.raises(ValueError, match="source_set_sha256 does not match"):
+        replace(source, source_set_sha256="f" * 64)
+    changed_text = "Changed with a self-consistent chapter hash."
+    changed_chapter = replace(
+        source.chapters[0],
+        text=changed_text,
+        sha256=hashlib.sha256(changed_text.encode("utf-8")).hexdigest(),
+    )
+    with pytest.raises(ValueError, match="source_set_sha256 does not match"):
+        replace(source, chapters=(changed_chapter,))
+
+    forged_chapter = source.chapters[0]
+    object.__setattr__(forged_chapter, "text", "Bypassed frozen dataclass.")
+    with pytest.raises(PublicationSourceError, match="sha256 does not match"):
+        build_evidence_ledger((forged_chapter,))
+    with pytest.raises(PublicationSourceError, match="sha256 does not match"):
+        publication_source_input_hash(source)
+
+    forged_set = _source_set(["Still approved."])
+    object.__setattr__(forged_set, "source_set_sha256", "f" * 64)
+    with pytest.raises(PublicationSourceError, match="source_set_sha256"):
+        group_source_chapters(forged_set)
+
+
 def test_grouping_preserves_all_text_and_only_splits_at_paragraph_boundaries():
     source = _source_set(["A" * 90_000 + "\n\n" + "B" * 40_000, "Chapter two."])
 
@@ -268,6 +335,11 @@ def test_grouping_preserves_all_text_and_only_splits_at_paragraph_boundaries():
         item.text for item in flattened if item.number == 1
     ) == source.chapters[0].text
     assert flattened[0].text.endswith("\n\n")
+    assert flattened[0].sha256 == hashlib.sha256(
+        flattened[0].text.encode("utf-8")
+    ).hexdigest()
+    assert flattened[0].sha256 != source.chapters[0].sha256
+    assert source.source_set_sha256 == publication_source_input_hash(source)
     assert all(
         sum(len(item.text) for item in group) <= 120_000 for group in groups
     )
@@ -281,6 +353,12 @@ def test_grouping_preserves_all_text_and_only_splits_at_paragraph_boundaries():
         item.text for item in flattened
     ]
     assert [record["chapter"] for record in ledger_records] == [1, 1, 2]
+    assert all(
+        record["sha256"]
+        == hashlib.sha256(record["source_quote"].encode("utf-8")).hexdigest()
+        == record["segment_sha256"]
+        for record in ledger_records
+    )
 
 
 def test_grouping_rejects_a_paragraph_that_cannot_fit():
@@ -349,3 +427,47 @@ def test_conflict_evidence_requires_exact_quotes_from_each_proportional_bucket()
         ],
     }
     validate_conflict_evidence(six_chapters, midpoint_evidence)
+
+
+def test_conflict_evidence_supports_one_and_two_chapter_books():
+    one_chapter = _source_set(["One conflict persists throughout."])
+    one_quote = {
+        "chapter": 1,
+        "source_quote": "One conflict persists throughout.",
+    }
+    validate_conflict_evidence(
+        one_chapter,
+        {"opening": [one_quote], "middle": [one_quote], "late": [one_quote]},
+    )
+
+    two_chapters = _source_set(
+        ["The conflict opens.", "The conflict remains under late pressure."]
+    )
+    validate_conflict_evidence(
+        two_chapters,
+        {
+            "opening": [
+                {"chapter": 1, "source_quote": "The conflict opens."}
+            ],
+            "middle": [
+                {
+                    "chapter": 2,
+                    "source_quote": "The conflict remains under late pressure.",
+                }
+            ],
+            "late": [
+                {
+                    "chapter": 2,
+                    "source_quote": "The conflict remains under late pressure.",
+                }
+            ],
+        },
+    )
+
+    wrong_two_chapter_late = {
+        "opening": [{"chapter": 1, "source_quote": "The conflict opens."}],
+        "middle": [{"chapter": 1, "source_quote": "The conflict opens."}],
+        "late": [{"chapter": 1, "source_quote": "The conflict opens."}],
+    }
+    with pytest.raises(PublicationSourceError, match="late.*bucket"):
+        validate_conflict_evidence(two_chapters, wrong_two_chapter_late)

@@ -62,8 +62,10 @@ class SourceChapter:
             raise ValueError("source chapter revision_id must be lowercase SHA-256")
         if not isinstance(self.sha256, str) or not _SHA256_RE.fullmatch(self.sha256):
             raise ValueError("source chapter sha256 must be lowercase SHA-256")
-        if not isinstance(self.text, str):
-            raise ValueError("source chapter text must be a string")
+        if not isinstance(self.text, str) or not self.text.strip():
+            raise ValueError("source chapter text must be a nonblank string")
+        if self.sha256 != _text_sha256(self.text):
+            raise ValueError("source chapter sha256 does not match its UTF-8 text")
         if (
             not isinstance(self.promotion_receipt_id, str)
             or not _RECEIPT_ID_RE.fullmatch(self.promotion_receipt_id)
@@ -88,6 +90,12 @@ class PublicationSourceSet:
             raise ValueError("publication source run_id must be trimmed")
         if not isinstance(self.chapters, tuple) or not self.chapters:
             raise ValueError("publication source chapters must be a nonempty tuple")
+        if not all(isinstance(chapter, SourceChapter) for chapter in self.chapters):
+            raise ValueError(
+                "publication source chapters must contain SourceChapter values"
+            )
+        for chapter in self.chapters:
+            SourceChapter.__post_init__(chapter)
         numbers = [chapter.number for chapter in self.chapters]
         if numbers != sorted(numbers) or len(numbers) != len(set(numbers)):
             raise ValueError(
@@ -98,6 +106,11 @@ class PublicationSourceSet:
             or not _SHA256_RE.fullmatch(self.source_set_sha256)
         ):
             raise ValueError("publication source source_set_sha256 must be SHA-256")
+        expected_sha256 = _source_identity_hash(self.chapters)
+        if self.source_set_sha256 != expected_sha256:
+            raise ValueError(
+                "publication source source_set_sha256 does not match its chapters"
+            )
 
 
 def build_publication_source_set(
@@ -195,29 +208,19 @@ def build_publication_source_set(
             )
         )
 
-    provisional = PublicationSourceSet(
+    source_chapters = tuple(chapters)
+    return PublicationSourceSet(
         run_id=run_id,
-        chapters=tuple(chapters),
-        source_set_sha256="0" * 64,
-    )
-    return replace(
-        provisional,
-        source_set_sha256=publication_source_input_hash(provisional),
+        chapters=source_chapters,
+        source_set_sha256=_source_identity_hash(source_chapters),
     )
 
 
 def publication_source_input_hash(source_set: PublicationSourceSet) -> str:
     """Hash the canonical ordered revision identity of a source set."""
 
-    identity = [
-        {
-            "chapter": item.number,
-            "revision_id": item.revision_id,
-            "sha256": item.sha256,
-        }
-        for item in sorted(source_set.chapters, key=lambda item: item.number)
-    ]
-    return hashlib.sha256(canonical_json_bytes(identity)).hexdigest()
+    _require_source_set_integrity(source_set)
+    return _source_identity_hash(source_set.chapters)
 
 
 def group_source_chapters(
@@ -233,6 +236,7 @@ def group_source_chapters(
 
     if type(max_codepoints) is not int or max_codepoints < 1:
         raise ValueError("max_codepoints must be a positive integer")
+    _require_source_set_integrity(source_set)
 
     segments: list[SourceChapter] = []
     for chapter in source_set.chapters:
@@ -268,6 +272,7 @@ def build_evidence_ledger(group: Sequence[SourceChapter]) -> str:
     for item in group:
         if not isinstance(item, SourceChapter):
             raise TypeError("evidence ledger entries must be SourceChapter values")
+        _require_source_chapter_integrity(item)
         occurrence[item.number] = occurrence.get(item.number, 0) + 1
         record = {
             "chapter": item.number,
@@ -290,13 +295,10 @@ def validate_conflict_evidence(
 ) -> None:
     """Require exact Final quotes in opening, middle, and late buckets."""
 
+    _require_source_set_integrity(source_set)
     if not isinstance(evidence, Mapping) or set(evidence) != set(_EVIDENCE_BUCKETS):
         raise PublicationSourceError(
             "conflict evidence must contain exactly opening, middle, and late"
-        )
-    if len(source_set.chapters) < 3:
-        raise PublicationSourceError(
-            "conflict evidence needs at least three chapters for three buckets"
         )
 
     by_number = {chapter.number: chapter for chapter in source_set.chapters}
@@ -327,11 +329,11 @@ def validate_conflict_evidence(
                 raise PublicationSourceError(
                     f"{bucket} evidence must contain a trimmed exact source quote"
                 )
-            expected_bucket = _chapter_bucket(
+            if not _chapter_matches_bucket(
                 chapter_number,
+                bucket=bucket,
                 chapter_count=chapter_count,
-            )
-            if expected_bucket != bucket:
+            ):
                 raise PublicationSourceError(
                     f"{bucket} evidence chapter {chapter_number} is outside the "
                     f"{bucket} bucket"
@@ -494,16 +496,30 @@ def _split_chapter(
         for match in _PARAGRAPH_BOUNDARY_RE.finditer(
             remaining, 0, max_codepoints
         ):
-            boundary_end = match.end()
+            if remaining[: match.end()].strip():
+                boundary_end = match.end()
         if boundary_end == 0:
             raise PublicationSourceError(
                 f"chapter {chapter.number} contains a paragraph larger than "
                 f"max_codepoints; no paragraph boundary can preserve it"
             )
-        segments.append(replace(chapter, text=remaining[:boundary_end]))
+        segment_text = remaining[:boundary_end]
+        segments.append(
+            replace(
+                chapter,
+                text=segment_text,
+                sha256=_text_sha256(segment_text),
+            )
+        )
         remaining = remaining[boundary_end:]
     if remaining:
-        segments.append(replace(chapter, text=remaining))
+        segments.append(
+            replace(
+                chapter,
+                text=remaining,
+                sha256=_text_sha256(remaining),
+            )
+        )
     return segments
 
 
@@ -521,17 +537,68 @@ def _evidence_field(entry: Any, name: str) -> Any:
     return getattr(entry, name)
 
 
-def _chapter_bucket(
+def _chapter_matches_bucket(
     chapter_number: int,
     *,
+    bucket: str,
     chapter_count: int,
-) -> str:
+) -> bool:
+    if chapter_count == 1:
+        return chapter_number == 1
+    if chapter_count == 2:
+        allowed = {
+            "opening": {1},
+            "middle": {1, 2},
+            "late": {2},
+        }
+        return chapter_number in allowed[bucket]
+
     # Place each chapter by its midpoint in the book. This gives the exact
     # 1 / 2-3 / 4 partition for four chapters and applies the same
     # proportional boundaries to other lengths.
     proportion = (chapter_number - 0.5) / chapter_count
     if proportion < 0.25:
-        return "opening"
-    if proportion >= 0.75:
-        return "late"
-    return "middle"
+        expected_bucket = "opening"
+    elif proportion >= 0.75:
+        expected_bucket = "late"
+    else:
+        expected_bucket = "middle"
+    return bucket == expected_bucket
+
+
+def _text_sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _source_identity_hash(chapters: Sequence[SourceChapter]) -> str:
+    identity = [
+        {
+            "chapter": item.number,
+            "revision_id": item.revision_id,
+            "sha256": item.sha256,
+        }
+        for item in sorted(chapters, key=lambda item: item.number)
+    ]
+    return hashlib.sha256(canonical_json_bytes(identity)).hexdigest()
+
+
+def _require_source_chapter_integrity(chapter: SourceChapter) -> None:
+    if not isinstance(chapter, SourceChapter):
+        raise PublicationSourceError("publication source chapter type is invalid")
+    try:
+        SourceChapter.__post_init__(chapter)
+    except ValueError as exc:
+        raise PublicationSourceError(
+            f"invalid publication source chapter: {exc}"
+        ) from exc
+
+
+def _require_source_set_integrity(source_set: PublicationSourceSet) -> None:
+    if not isinstance(source_set, PublicationSourceSet):
+        raise TypeError("source_set must be a PublicationSourceSet")
+    try:
+        PublicationSourceSet.__post_init__(source_set)
+    except ValueError as exc:
+        raise PublicationSourceError(
+            f"invalid publication source set: {exc}"
+        ) from exc
