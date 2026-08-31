@@ -6,7 +6,11 @@ from pathlib import Path
 import pytest
 
 import orchestrator as orchestrator_module
-from commercial_fixtures import architect_foundation_text, commercial_story_fixture
+from commercial_fixtures import (
+    architect_foundation_text,
+    chapter_contract_v2,
+    commercial_story_fixture,
+)
 from commercial_story import commercial_story_block
 from canon_ledger import canonical_canon_sha
 from continuity_engine import Finding
@@ -16,6 +20,7 @@ from orchestrator import NovelOrchestrator
 from prompt_intake import ingest_prompt
 from proposals import ProposalStore
 from state_parser import normalize_agent_output
+from artifacts import ArtifactStore
 
 
 class FakeLLM:
@@ -150,6 +155,120 @@ def _prepared_orchestrator(tmp_path: Path, *, mode: str = "legacy_apply"):
     orch.state.save_state()
     orch._llm = FakeLLM()
     return project, orch
+
+
+def _prepared_commercial_orchestrator(tmp_path: Path):
+    """Build the smallest evidence-v1 project with an approved commercial contract."""
+    project = tmp_path / "commercial-project"
+    approved = commercial_story_fixture()
+    prompt = project.parent / "commercial-prompt.md"
+    prompt.write_text(
+        "# Commercial Story\n\n" + commercial_story_block(approved),
+        encoding="utf-8",
+    )
+    ingest_prompt(project, prompt, {"chapters": 3, "words": 3600})
+    orch = NovelOrchestrator(str(project))
+    orch.quality_policy = "evidence_v1"
+    orch.state.story_bible["commercial_story_contract"] = approved.to_dict()
+    orch.state.create_chapter(1)
+    orch.state.save_state()
+
+    artifacts = ArtifactStore(project)
+    contract = chapter_contract_v2()
+    revision = artifacts.put_json(
+        chapter=1,
+        kind="chapter_contract",
+        value=contract.to_dict(),
+        source="architect",
+    )
+    artifacts.set_head(1, "chapter_contract", revision.revision_id, expected_revision_id=None)
+    return project, orch
+
+
+def test_scribe_reader_value_prompt_contains_contract_but_no_corpus_material(tmp_path):
+    project, orchestrator = _prepared_commercial_orchestrator(tmp_path)
+
+    orchestrator.write_chapter(1, dry_run=True)
+
+    prompt = (project / "outputs/chapter_001_scribe_prompt.md").read_text(encoding="utf-8")
+    assert "resource_dimension" in prompt
+    assert "recent verified reader-value outcomes" in prompt.casefold()
+    assert "Reader_Value_Updates" not in prompt
+    assert "a5458ce1332e5b74c52889e4a5aed5b9809f69e6e1a8f09cde25c5ab974ee49f" not in prompt
+    assert "/Users/max/workspace/批次-" not in prompt
+
+
+def test_review_prompts_keep_role_specific_quality_checks(tmp_path):
+    _project, orchestrator = _prepared_commercial_orchestrator(tmp_path)
+    chapter = orchestrator.state.get_chapter(1)
+    assert chapter is not None
+
+    editor_prompt = orchestrator._generate_edit_prompt(chapter, "Draft", "line")
+    guardian_prompt = orchestrator._generate_validation_prompt(1, "Draft")
+    style_prompt = orchestrator._generate_style_prompt(1, "Draft")
+
+    assert "repeated humiliation" in editor_prompt.casefold()
+    assert "passive turns" in editor_prompt.casefold()
+    assert "unsupported rescue" in editor_prompt.casefold()
+    assert "repeated hook" in editor_prompt.casefold()
+    assert "evidence provenance" in guardian_prompt.casefold()
+    assert "child knowledge and voice" in guardian_prompt.casefold()
+    assert "institutional plausibility" in guardian_prompt.casefold()
+    assert "contract to the prose" in guardian_prompt.casefold()
+    assert "character-specific attention" in style_prompt.casefold()
+    assert "work knowledge" in style_prompt.casefold()
+    assert "speech strategy" in style_prompt.casefold()
+    assert "shame trigger" in style_prompt.casefold()
+    assert "body response" in style_prompt.casefold()
+    assert "template phrase repetition" in style_prompt.casefold()
+    assert "I did not cry" in style_prompt
+
+
+def test_scribe_context_uses_only_promoted_reader_value_records(tmp_path):
+    project, orchestrator = _prepared_commercial_orchestrator(tmp_path)
+    artifacts = ArtifactStore(project)
+    prior = orchestrator.state.get_chapter(1)
+    assert prior is not None
+    prior.status = "complete"
+    final_text = "Chapter one canonical final."
+    final_revision = artifacts.put_text(
+        chapter=1,
+        kind="final",
+        text=final_text,
+        source="style_curator",
+    )
+    artifacts.set_head(1, "final", final_revision.revision_id, expected_revision_id=None)
+    prior.canonical_revision_id = final_revision.revision_id
+    prior.reader_value_updates = [
+        {
+            "report_id": "commercial-chapter-report:" + "c" * 64,
+            "candidate_sha256": final_revision.sha256,
+            "reader_jobs": ["recognition", "anger"],
+            "belonging_anchors": [],
+            "resource_dimension": "name",
+            "resource_change": "The omitted author credit is documented.",
+            "satisfaction_type": "evidence",
+            "hook_type": "consequence",
+            "protagonist_caused_turn": True,
+        }
+    ]
+    current = orchestrator.state.create_chapter(2)
+    orchestrator.state.save_state()
+    contract = chapter_contract_v2(chapter=2)
+    revision = artifacts.put_json(
+        chapter=2,
+        kind="chapter_contract",
+        value=contract.to_dict(),
+        source="architect",
+    )
+    artifacts.set_head(2, "chapter_contract", revision.revision_id, expected_revision_id=None)
+
+    context = orchestrator._scribe_commercial_context(current.number)
+
+    assert "Chapter 1" in context
+    assert "The omitted author credit is documented." in context
+    assert "commercial-chapter-report:" not in context
+    assert final_revision.sha256 not in context
 
 
 def test_proposal_only_scribe_run_persists_artifacts_without_mutating_state(

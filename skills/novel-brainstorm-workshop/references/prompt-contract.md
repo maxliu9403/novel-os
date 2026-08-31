@@ -328,6 +328,31 @@ paraphrases. Stable outcome identifiers are preferred over long prose values.
 
 ## Agent handoff blocks
 
+## Commercial agent handoff boundaries
+
+When `commercial_story` is active, keep the runtime inputs separated by role:
+
+- **Scribe** receives the approved story contract, the current chapter contract,
+  recent verified and promoted reader-value summaries, and the ranked context
+  pack. It never receives raw corpus material, corpus paths, retrieval results,
+  or a self-certification field for reader-value delivery.
+- **Editor** checks repeated humiliation, passive protagonist turns, unsupported
+  rescue, and repeated hook mechanics. It must preserve the contract while
+  making each change observable in the scene.
+- **Continuity Guardian** checks evidence provenance, child knowledge and voice,
+  institutional plausibility, and contract-to-prose delivery. It certifies
+  reader-value claims only against the exact candidate artifact.
+- **Style Curator** checks character-specific attention, work knowledge, speech
+  strategy, shame trigger, body response, and template phrase repetition while
+  preserving the novel's established voice.
+
+All roles keep structural labels in their analysis/state blocks rather than in
+reader-facing prose. The following expressions are a repetition review, not a
+blanket ban: `I did not cry`, `I did not scream`, `my blood ran cold`, `my world
+shattered`, `they thought I was weak`, and `the game had just begun`. One
+contextually earned use may remain; repeated uses across recent chapters need a
+scene-specific replacement or a documented repair finding.
+
 The prompt may request structured blocks such as:
 
 ```text

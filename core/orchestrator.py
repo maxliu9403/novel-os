@@ -1183,35 +1183,7 @@ After the Markdown outline, emit exactly one JSON object inside these tags:
             return None
 
         chapter_text = source_path.read_text(encoding="utf-8")
-        prompt = f"""# STYLE CURATOR TASK: Final Polish for Chapter {chapter_number}
-
-Polish this validated chapter while preserving every plot fact, character
-decision, clue, reveal, and continuity constraint. Improve voice consistency,
-rhythm, diction, dialogue distinction, and genre fit. Do not add new events or
-change story outcomes.
-
-## Target Profile
-- Genre: {self.state.metadata.get('genre', 'Fiction')}
-- Audience: {self.state.metadata.get('audience', '') or '[Not specified]'}
-- Language: {self.state.metadata.get('language', 'English')}
-- Tone: {self.state.style_profile.tone}
-- POV: {self.state.style_profile.point_of_view}
-- Prose style: {self.state.style_profile.prose_style}
-
-{self._ending_contract_context(chapter_number)}
-
-## Validated Chapter
-```markdown
-{chapter_text}
-```
-
-## Required Output Contract
-
-Return a short `[STYLE_ANALYSIS]` block, then the complete polished manuscript
-inside `[REVISED_CHAPTER]...[/REVISED_CHAPTER]`, followed by an optional
-`[STYLE_STATE_UPDATE]` block. The revised chapter must be complete, not excerpts
-or recommendations.
-"""
+        prompt = self._generate_style_prompt(chapter_number, chapter_text)
         prompt_path = self.feedback_dir / f"chapter_{chapter_number:03d}_style_prompt.md"
         report_path = self.feedback_dir / f"chapter_{chapter_number:03d}_style_report.md"
         candidate_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_candidate_final.md"
@@ -1269,10 +1241,60 @@ or recommendations.
         print(f"✅ Candidate final saved: {candidate_path}")
         return clean
 
+    def _generate_style_prompt(self, chapter_number: int, chapter_text: str) -> str:
+        """Generate the Style Curator prompt with its role-specific checks."""
+        return f"""# STYLE CURATOR TASK: Final Polish for Chapter {chapter_number}
+
+Polish this validated chapter while preserving every plot fact, character
+decision, clue, reveal, and continuity constraint. Improve voice consistency,
+rhythm, diction, dialogue distinction, and genre fit. Do not add new events or
+change story outcomes. Structural labels belong in the analysis block, never in
+the reader-facing prose.
+
+## Target Profile
+- Genre: {self.state.metadata.get('genre', 'Fiction')}
+- Audience: {self.state.metadata.get('audience', '') or '[Not specified]'}
+- Language: {self.state.metadata.get('language', 'English')}
+- Tone: {self.state.style_profile.tone}
+- POV: {self.state.style_profile.point_of_view}
+- Prose style: {self.state.style_profile.prose_style}
+
+## Style Curator Quality Checks
+- Keep character-specific attention: what this POV character notices, avoids,
+  and misreads must differ from another character's lens.
+- Preserve work knowledge and procedural detail at the character's established
+  level; do not grant unexplained expertise or use a generic competence voice.
+- Differentiate speech strategy, including silence, evasion, interruption, and
+  subtext, rather than relying on repeated declarations.
+- Ground the shame trigger and body response in this character's history and the
+  present scene; use observable behaviour instead of emotion labels.
+- Review template phrase repetition across recent chapters, especially:
+  `I did not cry`, `I did not scream`, `my blood ran cold`, `my world shattered`,
+  `they thought I was weak`, and `the game had just begun`. One earned use may
+  remain; repeated use requires a fresh image or a repair finding.
+- Do not write labels such as "this is the evidence payoff" or
+  "this is the anger beat" in the manuscript.
+
+{self._ending_contract_context(chapter_number)}
+
+## Validated Chapter
+```markdown
+{chapter_text}
+```
+
+## Required Output Contract
+
+Return a short `[STYLE_ANALYSIS]` block, then the complete polished manuscript
+inside `[REVISED_CHAPTER]...[/REVISED_CHAPTER]`, followed by an optional
+`[STYLE_STATE_UPDATE]` block. The revised chapter must be complete, not excerpts
+or recommendations.
+"""
+
     def _generate_chapter_prompt(self, chapter: ChapterState) -> str:
         """Generate a detailed prompt for the Scribe agent."""
         pack_md = format_context_pack(build_context_pack(self.state, chapter.number, purpose="scribe"))
         ending_context = self._ending_contract_context(chapter.number)
+        commercial_context = self._scribe_commercial_context(chapter.number)
 
         prompt = f"""# SCRIBE PROMPT: Chapter {chapter.number}
 
@@ -1288,6 +1310,7 @@ or recommendations.
 
 {pack_md}
 {ending_context}
+{commercial_context}
 ## Chapter Goals
 - [Primary plot advancement]
 - [Character development moment]
@@ -1319,6 +1342,109 @@ Do not list a referenced/off-page character in Characters_Present.
 **Write the complete chapter now. Follow all protocols in your system instructions.**
 """
         return prompt
+
+    def _scribe_commercial_context(self, chapter_number: int) -> str:
+        """Return only approved, artifact-bound commercial inputs for Scribe.
+
+        The context is assembled from the hydrated foundation, the current
+        chapter-contract head, and canonical reader-value records from earlier
+        promoted chapters. Raw prompts, corpus files, paths, and retrieval
+        results are deliberately outside this boundary.
+        """
+        if self.quality_policy != "evidence_v1":
+            return ""
+
+        from artifacts import ArtifactStore
+
+        artifacts = ArtifactStore(self.project_path)
+        current_head = artifacts.get_head(chapter_number, "chapter_contract")
+        if current_head is None:
+            raise ValueError(
+                f"Chapter {chapter_number} has no current chapter contract revision"
+            )
+        try:
+            chapter_contract = json.loads(artifacts.read_text(current_head.revision_id))
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise ValueError(
+                f"Chapter {chapter_number} contract revision is unreadable"
+            ) from exc
+        if not isinstance(chapter_contract, dict):
+            raise ValueError("current chapter contract must be a JSON object")
+
+        commercial_payload = self.state.story_bible.get("commercial_story_contract")
+        if commercial_payload is None:
+            # Evidence-v1 is also supported for non-commercial legacy projects.
+            return (
+                "## Current Chapter Contract\n\n"
+                "```json\n"
+                + json.dumps(chapter_contract, ensure_ascii=False, sort_keys=True, indent=2)
+                + "\n```\n"
+            )
+        try:
+            commercial = CommercialStoryContract.from_dict(commercial_payload)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("stored commercial story contract is invalid") from exc
+        stored_id = self.state.metadata.get("commercial_story_contract_id")
+        if stored_id != commercial.contract_id:
+            raise ValueError("stored commercial story contract id is invalid")
+
+        summaries: list[str] = []
+        for number in sorted(self.state.chapters):
+            if number >= chapter_number:
+                continue
+            prior = self.state.chapters[number]
+            # Canonical revision + complete status are the local proof that the
+            # reader-value record came from a promoted artifact, not a draft.
+            if prior.status != "complete" or not prior.canonical_revision_id:
+                continue
+            try:
+                canonical_revision = artifacts.get_revision(prior.canonical_revision_id)
+            except (KeyError, ValueError):
+                continue
+            if canonical_revision.kind != "final":
+                continue
+            for update in prior.reader_value_updates:
+                if update.get("candidate_sha256") != canonical_revision.sha256:
+                    continue
+                jobs = ", ".join(update.get("reader_jobs") or []) or "none"
+                anchors = ", ".join(update.get("belonging_anchors") or []) or "none"
+                summaries.append(
+                    f"- Chapter {number}: jobs={jobs}; anchors={anchors}; "
+                    f"resource={update.get('resource_dimension', '')}; "
+                    f"change={update.get('resource_change', '')}; "
+                    f"satisfaction={update.get('satisfaction_type', '')}; "
+                    f"hook={update.get('hook_type', '')}; "
+                    f"protagonist_caused_turn={str(update.get('protagonist_caused_turn')).lower()}"
+                )
+
+        summary_block = "\n".join(summaries[-6:]) or "- None yet; this is the first promoted chapter."
+        canonical_commercial = json.dumps(
+            commercial.to_dict(), ensure_ascii=False, sort_keys=True, indent=2
+        )
+        return f"""## Approved Commercial Story Contract
+
+Use this immutable, user-approved contract as design constraints. Do not copy
+its labels into prose or claim a delivery that is not observable in the scene.
+
+```json
+{canonical_commercial}
+```
+
+## Current Chapter Contract
+
+```json
+{json.dumps(chapter_contract, ensure_ascii=False, sort_keys=True, indent=2)}
+```
+
+## Recent Verified Reader-Value Outcomes
+
+These summaries come only from earlier complete chapters whose reader-value
+records were verified and promoted. Treat them as continuity context, not text
+to imitate. Do not emit reader-value state blocks; the Continuity Guardian
+certifies delivery after the candidate is reviewed.
+
+{summary_block}
+"""
 
     def _ending_contract_context(self, chapter_number: int) -> str:
         """Inject the book-level ending contract only near the finale."""
@@ -1390,25 +1516,15 @@ Do not list a referenced/off-page character in Characters_Present.
         outline_path = self.outputs_dir / f"chapter_{chapter_number:03d}_outline.md"
         pack_md = format_context_pack(build_context_pack(self.state, chapter_number, purpose="scribe"))
         if outline_path.exists():
-            user_prompt = outline_path.read_text(encoding='utf-8') + "\n\n" + pack_md
+            user_prompt = (
+                outline_path.read_text(encoding="utf-8")
+                + "\n\n"
+                + pack_md
+                + "\n"
+                + self._scribe_commercial_context(chapter_number)
+            )
         else:
             user_prompt = self._generate_chapter_prompt(chapter)
-        if self.quality_policy == "evidence_v1":
-            from artifacts import ArtifactStore
-
-            artifacts = ArtifactStore(self.project_path)
-            contract_head = artifacts.get_head(chapter_number, "chapter_contract")
-            if contract_head is None:
-                raise ValueError(
-                    f"Chapter {chapter_number} has no current chapter contract revision"
-                )
-            contract = json.loads(artifacts.read_text(contract_head.revision_id))
-            user_prompt += (
-                "\n\n## Current Chapter Contract\n\n"
-                "```json\n"
-                + json.dumps(contract, ensure_ascii=False, sort_keys=True, indent=2)
-                + "\n```\n"
-            )
 
         prompt_path = self.outputs_dir / f"chapter_{chapter_number:03d}_scribe_prompt.md"
         result = self._run_agent_or_save_prompt(
@@ -1623,6 +1739,19 @@ foreshadowing, timeline, or status facts.
 ```
 
 {self._ending_contract_context(chapter.number)}
+
+## Editor Quality Checks
+- Detect repeated humiliation scenes and preserve escalation through a changed
+  resource, relationship, or choice rather than simply increasing insults.
+- Ensure the protagonist causes the chapter's major turn; flag passive turns,
+  coincidence, or an unsupported rescue that solves the conflict for them.
+- Check repeated hook mechanics: the ending hook should use a different
+  mechanic from recent chapters when the current contract calls for rotation.
+- Keep contract labels and analysis terms out of reader-facing prose.
+- Review the six template phrases (`I did not cry`, `I did not scream`,
+  `my blood ran cold`, `my world shattered`, `they thought I was weak`,
+  `the game had just begun`) for repetition across recent chapters; replace a
+  repeated use with a scene-specific image or action.
 
 ## Editing Instructions
 
@@ -1850,6 +1979,24 @@ Provide:
             "relationship labels as Critical or Warning. Do not invent Codex facts "
             "that are not listed.\n"
         )
+
+        prompt += """
+
+## Continuity Guardian Quality Checks
+- Verify evidence provenance: every claimed reveal, payoff, resource change, or
+  reader-value delivery must point to the exact candidate passage or a known
+  canonical fact; do not certify unsupported summaries.
+- Check child knowledge and voice when a child appears: age-appropriate
+  vocabulary, inference, silence, and bodily response must match what the child
+  could know on-page.
+- Check institutional plausibility for medical, legal, workplace, school, and
+  financial actions; flag process shortcuts that change the causal outcome.
+- Compare the current chapter contract to the prose and report whether goal,
+  obstacle, protagonist-caused turn, local payoff, resource change, and ending
+  pressure are observable rather than merely named.
+- Keep structural labels in the report and state update only, never in the
+  reader-facing manuscript.
+"""
 
         prompt += f"""
 ### Previous Chapter Events

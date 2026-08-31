@@ -52,6 +52,31 @@ def test_brainstorm_skill_uses_local_commercial_profile_without_default_web_rese
     assert "raw corpus prose" in originality.casefold()
 
 
+def test_commercial_agent_handoff_defines_role_specific_checks_and_boundaries() -> None:
+    prompt_contract = _read(BRAINSTORM / "references" / "prompt-contract.md")
+    quality = _read(BRAINSTORM / "references" / "quality-gates.md")
+    body = prompt_contract + quality
+
+    assert "approved story contract" in body.casefold()
+    assert "verified and promoted reader-value" in body.casefold()
+    assert "repeated humiliation" in body.casefold()
+    assert "passive turns" in body.casefold()
+    assert "unsupported rescue" in body.casefold()
+    assert "repeated hook mechanics" in body.casefold()
+    assert "evidence provenance" in body.casefold()
+    assert "child knowledge and voice" in body.casefold()
+    assert "institutional plausibility" in body.casefold()
+    assert "contract-to-prose" in body.casefold()
+    assert "character-specific attention" in body.casefold()
+    assert "work knowledge" in body.casefold()
+    assert "speech strategy" in body.casefold()
+    assert "shame trigger" in body.casefold()
+    assert "body response" in body.casefold()
+    assert "template phrase repetition" in body.casefold()
+    assert "i did not cry" in body.casefold()
+    assert "never receives raw corpus" in body.casefold()
+
+
 def test_cover_skill_requires_confirmed_design_and_distinct_concepts() -> None:
     skill = _read(COVER / "SKILL.md")
     handoff = _read(COVER / "references" / "cover-handoff.md")
