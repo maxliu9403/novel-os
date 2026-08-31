@@ -14,6 +14,7 @@ import re
 import shutil
 import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -32,6 +33,13 @@ from ending_quality import (
     load_ending_contract,
 )
 from foundation_canon import FoundationCanonReceipt, FoundationCanonService
+from h5_publication import (
+    H5_PUBLICATION_POLICY_VERSION,
+    H5PublicationError,
+    H5PublicationResult,
+    project_h5_publication,
+    validate_h5_publication_root,
+)
 from llm_client import LLMError
 from pipeline_models import ManifestStore, RunManifest, RunSpec, StageResult
 from prompt_intake import ingest_prompt
@@ -75,6 +83,13 @@ _EVIDENCE_PROPOSAL_PHASES = (
 # Reusing their checkpoint must reassert that authority before a stage snapshot
 # can become the rollback boundary for later work.
 _STATE_AUTHORITY_PHASES = frozenset({"foundation.commit"})
+
+
+@dataclass(frozen=True)
+class _DeliveryStageValue:
+    package_result: Any
+    h5_result: H5PublicationResult | None
+    decision: str = ""
 
 
 def _is_repair_phase(phase: str) -> bool:
@@ -410,7 +425,9 @@ class PipelineRunner:
             )
             if repaired or not compile_valid:
                 self._compile_book(manifest, project, require_publication_copy=False)
-                self._deliver_package(manifest, project)
+                self._deliver_package(
+                    manifest, project, require_publication_copy=False
+                )
                 result = compile_result or StageResult(phase="compile", status="done")
                 result.status = "done"
                 result.error = None
@@ -1021,6 +1038,17 @@ class PipelineRunner:
                 result.artifact_hashes = {
                     path: self._sha256(project / path) for path in result.artifact_paths
                 }
+                if (
+                    phase == "compile"
+                    and previous is not None
+                    and previous.input_hashes == result.input_hashes
+                    and previous.artifact_hashes == result.artifact_hashes
+                    and previous.finished_at
+                ):
+                    # A byte-identical projection repair retains the original
+                    # content completion time, keeping downstream immutable
+                    # delivery metadata deterministic.
+                    result.finished_at = previous.finished_at
                 self._capture_stage_metadata(manifest, project, result, value)
                 if phase == "chapter.promote" and manifest.spec.approval_policy == "auto":
                     result.decisions.append(
@@ -1241,7 +1269,8 @@ class PipelineRunner:
         }:
             return file_hashes
 
-        if phase in {"book.check", "publication.copy", "compile"}:
+        source = None
+        if phase in {"book.check", "publication.copy", "compile", "delivery.package"}:
             try:
                 source = build_publication_source_set(
                     project,
@@ -1298,6 +1327,32 @@ class PipelineRunner:
                 path = project / relative
                 if path.is_file():
                     file_hashes[relative] = PipelineRunner._sha256(path)
+            book_check = manifest.get("book.check")
+            compile_result = manifest.get("compile")
+            if (
+                book_check is None
+                or book_check.status != "done"
+                or not book_check.finished_at
+                or compile_result is None
+                or compile_result.status != "done"
+                or not compile_result.finished_at
+            ):
+                raise PipelineError(
+                    "delivery.package requires completed book.check and compile stages",
+                    blocked=True,
+                )
+            h5_inputs = {
+                "source_set_sha256": source.source_set_sha256,
+                "metadata": PipelineRunner._publication_delivery_metadata(project),
+                "book_check_finished_at": book_check.finished_at,
+                "compile_finished_at": compile_result.finished_at,
+            }
+            file_hashes["h5_publication_inputs_sha256"] = hashlib.sha256(
+                canonical_json_bytes(h5_inputs)
+            ).hexdigest()
+            file_hashes["h5_publication_policy_sha256"] = hashlib.sha256(
+                H5_PUBLICATION_POLICY_VERSION.encode("utf-8")
+            ).hexdigest()
         return file_hashes
 
     @staticmethod
@@ -1470,6 +1525,18 @@ class PipelineRunner:
                 result.promotion_receipt_id = self._legacy_receipt_id(
                     manifest.run_id, result
                 )
+
+        if result.phase == "delivery.package":
+            if not isinstance(value, _DeliveryStageValue):
+                raise PipelineError("delivery.package returned no delivery metadata")
+            if value.decision:
+                result.decisions.append(value.decision)
+            if value.h5_result is not None:
+                relative = value.h5_result.publication_package_path.relative_to(
+                    project
+                ).as_posix()
+                result.artifact_paths.append(relative)
+                result.artifact_hashes[relative] = self._sha256(project / relative)
 
     @staticmethod
     def _legacy_receipt_id(run_id: str, result: StageResult) -> str:
@@ -1674,6 +1741,33 @@ class PipelineRunner:
             try:
                 cls._load_publication_copy(manifest, project)
             except (PipelineError, ValueError, OSError, UnicodeError):
+                return False
+        if result.phase == "delivery.package" and manifest is not None:
+            h5_metadata = [
+                path
+                for path in result.artifact_paths
+                if path.endswith("/meta/publication_package.json")
+            ]
+            if manifest.spec.num_chapters >= 4:
+                if len(h5_metadata) != 1:
+                    return False
+                try:
+                    book_check = manifest.get("book.check")
+                    compile_result = manifest.get("compile")
+                    if book_check is None or compile_result is None:
+                        return False
+                    validate_h5_publication_root(
+                        (project / h5_metadata[0]).parents[1],
+                        expected_finalized_at=book_check.finished_at,
+                        expected_delivered_at=compile_result.finished_at,
+                    )
+                except (H5PublicationError, OSError, ValueError):
+                    return False
+            elif (
+                h5_metadata
+                or "h5_publication: inapplicable_less_than_four_chapters"
+                not in result.decisions
+            ):
                 return False
         return True
 
@@ -1973,6 +2067,36 @@ class PipelineRunner:
             "language": str(metadata.get("language") or "en-US"),
             "genre": str(metadata.get("genre") or "Fiction"),
         }
+
+    @staticmethod
+    def _publication_delivery_metadata(project: Path) -> Dict[str, Any]:
+        from state_manager import StoryState
+
+        metadata = StoryState(str(project)).metadata
+        return {
+            "title": str(metadata.get("title") or "Untitled"),
+            "alternate_titles": PipelineRunner._metadata_text_list(
+                metadata.get("alternate_titles"), "alternate_titles"
+            ),
+            "tags": PipelineRunner._metadata_text_list(
+                metadata.get("tags"), "tags"
+            ),
+        }
+
+    @staticmethod
+    def _metadata_text_list(value: Any, name: str) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value] if value else []
+        if not isinstance(value, (list, tuple)) or not all(
+            isinstance(item, str) for item in value
+        ):
+            raise PipelineError(
+                f"publication metadata {name} must be a string list",
+                blocked=True,
+            )
+        return list(value)
 
     @staticmethod
     def _has_explicit_ending_contract(project: Path) -> bool:
@@ -2660,11 +2784,69 @@ class PipelineRunner:
             output.write_bytes(render_bytes(book, sheet, fmt))
         return True
 
-    @staticmethod
-    def _deliver_package(manifest: RunManifest, project: Path) -> Any:
+    def _deliver_package(
+        self,
+        manifest: RunManifest,
+        project: Path,
+        *,
+        require_publication_copy: bool = True,
+    ) -> _DeliveryStageValue:
         from delivery_package import build_delivery_package
 
-        return build_delivery_package(project)
+        if not require_publication_copy:
+            return _DeliveryStageValue(build_delivery_package(project), None)
+
+        publication_copy = self._load_publication_copy(manifest, project)
+        source = build_publication_source_set(
+            project,
+            manifest.run_id,
+            manifest.spec.num_chapters,
+            manifest.spec.quality_policy,
+        )
+        book_check = manifest.get("book.check")
+        compile_result = manifest.get("compile")
+        if (
+            book_check is None
+            or book_check.status != "done"
+            or not book_check.finished_at
+            or compile_result is None
+            or compile_result.status != "done"
+            or not compile_result.finished_at
+        ):
+            raise PipelineError(
+                "delivery.package requires completed book.check and compile stages",
+                blocked=True,
+            )
+        metadata = self._publication_delivery_metadata(project)
+        try:
+            h5_result = project_h5_publication(
+                project,
+                manifest.run_id,
+                source,
+                publication_copy,
+                book_check.finished_at,
+                compile_result.finished_at,
+                metadata["title"],
+                metadata["alternate_titles"],
+                metadata["tags"],
+            )
+            package_result = build_delivery_package(
+                project,
+                publication_copy_path=(
+                    project / "outputs/publication/publication-copy.json"
+                ),
+                h5_root=h5_result.root if h5_result is not None else None,
+            )
+        except (H5PublicationError, UnicodeError, ValueError) as exc:
+            raise PipelineError(
+                f"delivery.package input validation failed: {exc}", blocked=True
+            ) from exc
+        decision = (
+            ""
+            if h5_result is not None
+            else "h5_publication: inapplicable_less_than_four_chapters"
+        )
+        return _DeliveryStageValue(package_result, h5_result, decision)
 
     def _runtime_model(self, phase: str) -> tuple[str, str]:
         agent_name = "editor" if _is_repair_phase(phase) else _STAGE_AGENTS.get(phase)

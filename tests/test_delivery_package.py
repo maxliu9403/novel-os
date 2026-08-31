@@ -156,3 +156,67 @@ def test_failed_archive_rebuild_preserves_previous_package(tmp_path, monkeypatch
         build_delivery_package(project)
 
     assert (project / "outputs/deliverables/book-package.zip").read_bytes() == previous
+
+
+def test_manifest_includes_publication_copy_and_only_the_current_h5_root(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    _payloads(project)
+    publication_copy = project / "outputs/publication/publication-copy.json"
+    publication_copy.parent.mkdir(parents=True)
+    publication_copy.write_text('{"schema_version":1}\n', encoding="utf-8")
+    h5_base = project / "outputs/deliverables/h5-publication"
+    current = h5_base / "pkg-run-current-aaaaaaaaaaaa"
+    stale = h5_base / "pkg-run-stale-bbbbbbbbbbbb"
+    for root, marker in ((current, "current"), (stale, "stale")):
+        (root / "meta").mkdir(parents=True)
+        (root / "chapters").mkdir()
+        (root / "meta/publication_package.json").write_text(
+            f'{{"package":"{marker}"}}\n', encoding="utf-8"
+        )
+        (root / "chapters/01.md").write_text(marker, encoding="utf-8")
+
+    result = build_delivery_package(
+        project,
+        publication_copy_path=publication_copy,
+        h5_root=current,
+    )
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    roles = {entry["path"]: entry["role"] for entry in manifest["files"]}
+    current_prefix = f"h5-publication/{current.name}/"
+    assert roles["meta/publication-copy.json"] == "publication_copy"
+    assert all(
+        role == "h5_publication_object"
+        for path, role in roles.items()
+        if path.startswith(current_prefix)
+    )
+    assert any(path.startswith(current_prefix) for path in roles)
+    assert not any(stale.name in path for path in roles)
+    with zipfile.ZipFile(result.archive_path) as archive:
+        names = archive.namelist()
+    assert "meta/publication-copy.json" in names
+    assert not any(stale.name in name for name in names)
+
+
+def test_omitted_current_inputs_do_not_repackage_stale_projections(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    _payloads(project)
+    stale_copy = project / "outputs/deliverables/meta/publication-copy.json"
+    stale_copy.parent.mkdir(parents=True)
+    stale_copy.write_text("stale\n", encoding="utf-8")
+    stale_h5 = project / "outputs/deliverables/h5-publication/pkg-old-aaaaaaaaaaaa"
+    (stale_h5 / "meta").mkdir(parents=True)
+    (stale_h5 / "meta/publication_package.json").write_text(
+        "{}\n", encoding="utf-8"
+    )
+
+    result = build_delivery_package(project)
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    paths = {entry["path"] for entry in manifest["files"]}
+    assert "meta/publication-copy.json" not in paths
+    assert not any(path.startswith("h5-publication/") for path in paths)

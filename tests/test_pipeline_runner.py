@@ -310,6 +310,84 @@ def test_stage_order_and_publication_inputs_are_source_bound(tmp_path: Path):
         "outputs/deliverables/package-manifest.json",
         "outputs/deliverables/book-package.zip",
     ]
+    assert manifest.get("delivery.package").decisions == [
+        "h5_publication: inapplicable_less_than_four_chapters"
+    ]
+    package_manifest = json.loads(
+        (project / "outputs/deliverables/package-manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    roles = {entry["path"]: entry["role"] for entry in package_manifest["files"]}
+    assert roles["meta/publication-copy.json"] == "publication_copy"
+    assert not any(path.startswith("h5-publication/") for path in roles)
+
+
+def test_four_chapter_delivery_checkpoints_current_h5_publication(tmp_path: Path):
+    FakeOrchestrator.calls = []
+    FakeOrchestrator.publication_model_calls = []
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test Book\n\nA story.", encoding="utf-8")
+    project = tmp_path / "project"
+
+    manifest = PipelineRunner(orchestrator_factory=_factory).run(RunSpec(
+        project_path=str(project),
+        prompt_path=str(prompt),
+        num_chapters=4,
+        target_words=80,
+        approval_policy="auto",
+    ))
+
+    delivery = manifest.get("delivery.package")
+    h5_metadata = [
+        path for path in delivery.artifact_paths
+        if path.endswith("/meta/publication_package.json")
+    ]
+    assert manifest.status == "completed", manifest.error
+    assert manifest.current_phase == "delivery.package"
+    assert len(h5_metadata) == 1
+    assert (project / h5_metadata[0]).is_file()
+    assert delivery.decisions == []
+    package_manifest = json.loads(
+        (project / "outputs/deliverables/package-manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    roles = {entry["path"]: entry["role"] for entry in package_manifest["files"]}
+    assert roles["meta/publication-copy.json"] == "publication_copy"
+    assert any(role == "h5_publication_object" for role in roles.values())
+
+
+def test_delivery_checkpoint_rejects_h5_stage_timestamp_drift(tmp_path: Path):
+    FakeOrchestrator.publication_model_calls = []
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test Book\n\nA story.", encoding="utf-8")
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=_factory)
+    manifest = runner.run(RunSpec(
+        project_path=str(project),
+        prompt_path=str(prompt),
+        num_chapters=4,
+        target_words=80,
+        approval_policy="auto",
+    ))
+    delivery = manifest.get("delivery.package")
+    publication_package_path = next(
+        project / path
+        for path in delivery.artifact_paths
+        if path.endswith("/meta/publication_package.json")
+    )
+    delivery_path = publication_package_path.parent / "delivery.json"
+    delivery_payload = json.loads(delivery_path.read_bytes())
+    delivery_payload["delivered_at"] = "2026-08-31T02:00:00Z"
+    delivery_path.write_text(
+        json.dumps(
+            delivery_payload, ensure_ascii=False, sort_keys=True, indent=2
+        ) + "\n",
+        encoding="utf-8",
+    )
+
+    assert not runner._checkpoint_valid(project, delivery, manifest)
 
 
 def test_publication_failure_stops_before_exports(tmp_path: Path):
@@ -1322,6 +1400,34 @@ def test_compile_retry_reuses_publication_checkpoint_and_final_bytes(tmp_path: P
     assert resumed.get("compile").status == "done"
     assert resumed.get("delivery.package").status == "done"
     assert FakeOrchestrator.publication_model_calls == model_calls
+
+
+def test_four_chapter_compile_retry_reuses_byte_identical_h5_root(tmp_path: Path):
+    FakeOrchestrator.calls = []
+    FakeOrchestrator.publication_model_calls = []
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test Book\n\nA story.", encoding="utf-8")
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=_factory)
+    completed = runner.run(RunSpec(
+        project_path=str(project),
+        prompt_path=str(prompt),
+        num_chapters=4,
+        target_words=80,
+        approval_policy="auto",
+    ))
+    h5_base = project / "outputs/deliverables/h5-publication"
+    original_roots = sorted(path.name for path in h5_base.iterdir())
+    compile_finished_at = completed.get("compile").finished_at
+    (project / "outputs/deliverables/book.md").unlink()
+
+    resumed = runner.resume(completed.run_id, project)
+
+    assert resumed.status == "completed", resumed.error
+    assert resumed.current_phase == "delivery.package"
+    assert resumed.get("compile").finished_at == compile_finished_at
+    assert sorted(path.name for path in h5_base.iterdir()) == original_roots
+    assert len(original_roots) == 1
 
 
 def test_completed_run_does_not_regenerate_missing_publication_authority(

@@ -36,6 +36,8 @@ def build_delivery_package(
     project_path: str | Path,
     *,
     cover_set: CoverSet | None = None,
+    publication_copy_path: Path | None = None,
+    h5_root: Path | None = None,
 ) -> PackageResult:
     project = Path(project_path).resolve()
     deliverables = project / "outputs" / "deliverables"
@@ -47,7 +49,29 @@ def build_delivery_package(
             cover_set.to_dict(),
         )
 
-    files = list(_payload_files(deliverables))
+    include_publication_copy = publication_copy_path is not None
+    if publication_copy_path is not None:
+        source = Path(publication_copy_path).resolve()
+        if source.is_symlink() or not source.is_file() or source.stat().st_size == 0:
+            raise ValueError("publication copy path must be a nonempty ordinary file")
+        _atomic_copy(source, deliverables / "meta/publication-copy.json")
+
+    current_h5_root: Path | None = None
+    if h5_root is not None:
+        current_h5_root = Path(h5_root).resolve()
+        h5_parent = (deliverables / "h5-publication").resolve()
+        if (
+            current_h5_root.parent != h5_parent
+            or current_h5_root.is_symlink()
+            or not current_h5_root.is_dir()
+        ):
+            raise ValueError("h5_root must be a current ordinary package directory")
+
+    files = list(_payload_files(
+        deliverables,
+        include_publication_copy=include_publication_copy,
+        h5_root=current_h5_root,
+    ))
     manifest = {
         "schema_version": 1,
         "cover": {
@@ -86,7 +110,12 @@ def build_delivery_package(
     )
 
 
-def _payload_files(deliverables: Path) -> Iterable[Path]:
+def _payload_files(
+    deliverables: Path,
+    *,
+    include_publication_copy: bool,
+    h5_root: Path | None,
+) -> Iterable[Path]:
     values: list[Path] = []
     for path in deliverables.rglob("*"):
         if path.is_symlink() or not path.is_file():
@@ -96,6 +125,11 @@ def _payload_files(deliverables: Path) -> Iterable[Path]:
             continue
         if path.name in {_ARCHIVE_NAME, _MANIFEST_NAME} or path.name.endswith(".tmp"):
             continue
+        if relative == Path("meta/publication-copy.json") and not include_publication_copy:
+            continue
+        if relative.parts and relative.parts[0] == "h5-publication":
+            if h5_root is None or not path.resolve().is_relative_to(h5_root):
+                continue
         if relative.parent == Path(".") and path.name.startswith("book."):
             if path.suffix.lower() not in _BOOK_FORMATS:
                 continue
@@ -114,6 +148,10 @@ def _manifest_entry(
     selection_state = ""
     if relative == "covers/cover-set.json":
         role = "cover_metadata"
+    elif relative == "meta/publication-copy.json":
+        role = "publication_copy"
+    elif relative.startswith("h5-publication/"):
+        role = "h5_publication_object"
     elif relative.startswith("covers/pending/"):
         role = "cover_candidate"
         selection_state = "pending"
@@ -162,6 +200,22 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def _atomic_copy(source: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(source.read_bytes())
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
     finally:
         try:
             os.unlink(temporary)
