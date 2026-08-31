@@ -729,18 +729,17 @@ def test_long_source_consolidates_different_fragments_and_emits_bound_evidence_l
         model="style-model",
     )
     preflight_raw = _raw(_preflight_pass())
+    supported_claim = {
+        "claim": "Adrian freezes the family account.",
+        "chapter": 2,
+        "source_quote": "Adrian freezes the family account",
+    }
     group_one_raw = _raw(_guardian_report(claim_evidence=[]))
-    group_two_raw = _raw(_guardian_report(claim_evidence=[]))
+    group_two_raw = _raw(
+        _guardian_report(claim_evidence=[supported_claim])
+    )
     final_raw = _raw(
-        _guardian_report(
-            claim_evidence=[
-                {
-                    "claim": "Adrian freezes the family account.",
-                    "chapter": 2,
-                    "source_quote": "Adrian freezes the family account",
-                }
-            ]
-        )
+        _guardian_report(claim_evidence=[supported_claim])
     )
     guardian = FakeClient(
         [preflight_raw, group_one_raw, group_two_raw, final_raw],
@@ -809,6 +808,46 @@ def test_long_source_final_guardian_coverage_rejects_claims_omitted_by_all_group
     assert not (tmp_path / "outputs/publication/publication-copy.json").exists()
 
 
+def test_long_source_final_guardian_coverage_rejects_invented_group_evidence(
+    tmp_path,
+):
+    source = _long_source_set()
+    first_fragment, second_fragment = _long_conflict_fragments()
+    writer = FakeClient(
+        [
+            _raw(first_fragment),
+            _raw(second_fragment),
+            _raw(_long_conflict()),
+            _raw(_writer_candidate()),
+        ],
+        provider="style-provider",
+        model="style-model",
+    )
+    empty_group = _raw(_guardian_report(claim_evidence=[]))
+    invented_final = _raw(
+        _guardian_report(
+            claim_evidence=[
+                {
+                    "claim": "The family home remains at risk.",
+                    "chapter": 4,
+                    "source_quote": "the family home remains at risk",
+                }
+            ]
+        )
+    )
+    guardian = FakeClient(
+        [_raw(_preflight_pass()), empty_group, empty_group, invented_final],
+        provider="guardian-provider",
+        model="guardian-model",
+    )
+
+    with pytest.raises(PublicationCopyBlocked, match="claim coverage"):
+        _generate(tmp_path, writer, guardian, source=source)
+
+    assert len(guardian.calls) == 4
+    assert not (tmp_path / "outputs/publication/publication-copy.json").exists()
+
+
 def test_long_source_final_guardian_report_is_authoritative_over_scoped_group_miss(
     tmp_path,
 ):
@@ -824,7 +863,12 @@ def test_long_source_final_guardian_report_is_authoritative_over_scoped_group_mi
         provider="style-provider",
         model="style-model",
     )
-    supported_claim = {
+    group_claim = {
+        "claim": "The later source group confirms ongoing housing risk.",
+        "chapter": 4,
+        "source_quote": "the family home remains at risk",
+    }
+    final_claim = {
         "claim": "The family home remains at risk.",
         "chapter": 4,
         "source_quote": "the family home remains at risk",
@@ -832,9 +876,9 @@ def test_long_source_final_guardian_report_is_authoritative_over_scoped_group_mi
     preflight_raw = _raw(_preflight_pass())
     group_one_raw = _raw(_guardian_scoped_source_miss())
     group_two_raw = _raw(
-        _guardian_report(claim_evidence=[supported_claim])
+        _guardian_report(claim_evidence=[group_claim])
     )
-    final_raw = _raw(_guardian_report(claim_evidence=[supported_claim]))
+    final_raw = _raw(_guardian_report(claim_evidence=[final_claim]))
     guardian = FakeClient(
         [preflight_raw, group_one_raw, group_two_raw, final_raw],
         provider="guardian-provider",
@@ -846,7 +890,7 @@ def test_long_source_final_guardian_report_is_authoritative_over_scoped_group_mi
     assert publication_copy.validation.status == "pass"
     assert publication_copy.validation.source_supported is True
     assert [item.to_dict() for item in publication_copy.validation.claim_evidence] == [
-        supported_claim
+        final_claim
     ]
     assert publication_copy.generation.validator_response_sha256 == _provenance_hash(
         preflight_raw, group_one_raw, group_two_raw, final_raw

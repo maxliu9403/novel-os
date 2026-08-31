@@ -1183,15 +1183,18 @@ def _validate_final_guardian_coverage(
         raise ValueError(
             "final claim coverage must include exact evidence for the candidate"
         )
-    covered = {canonical_json_bytes(item) for item in final_claims}
-    group_claims = {
-        canonical_json_bytes(item)
+    final_evidence = {
+        (item["chapter"], item["source_quote"])
+        for item in final_claims
+    }
+    group_evidence = {
+        (item["chapter"], item["source_quote"])
         for report in group_reports
         for item in report["claim_evidence"]
     }
-    if not group_claims <= covered:
+    if final_evidence != group_evidence:
         raise ValueError(
-            "final claim coverage omitted evidence established by a source group"
+            "final claim coverage evidence must exactly match source-group evidence"
         )
 
 
