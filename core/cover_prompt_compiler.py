@@ -42,6 +42,7 @@ _FORBIDDEN_NEGATIONS = (
     "do not include",
     "free of",
 )
+_NEGATION_SCOPE_BREAKERS = re.compile(r"\b(?:but|however|instead|yet)\b")
 
 
 def _character_block(character: PrincipalCharacter) -> str:
@@ -216,8 +217,22 @@ def _validate_prompt(text: str) -> None:
     if len(text) > MAX_PROMPT_CODEPOINTS:
         raise ValueError(f"cover prompt exceeds {MAX_PROMPT_CODEPOINTS} Unicode code points")
     folded = text.casefold()
-    if any(token in folded for token in _MARKETING_SHORTCUTS):
-        raise ValueError("cover prompt contains a non-executable marketing shortcut")
+    for token in _MARKETING_SHORTCUTS:
+        for match in re.finditer(rf"\b{re.escape(token)}\b", folded):
+            clause_start = max(
+                folded.rfind(boundary, 0, match.start())
+                for boundary in (".", "!", "?", ";", "\n")
+            )
+            prefix = folded[clause_start + 1:match.start()]
+            scope_breakers = tuple(_NEGATION_SCOPE_BREAKERS.finditer(prefix))
+            if scope_breakers:
+                prefix = prefix[scope_breakers[-1].end():]
+            if any(
+                re.search(rf"\b{re.escape(negation)}\b", prefix)
+                for negation in _FORBIDDEN_NEGATIONS
+            ):
+                continue
+            raise ValueError("cover prompt contains a non-executable marketing shortcut")
 
 
 def compile_cover_prompt(

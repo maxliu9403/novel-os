@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from core.cover_models_v2 import CoverBriefV2, CoverScenePlan, VisualHook
@@ -151,6 +153,37 @@ def test_compile_rejects_positive_use_of_forbidden_environment_element() -> None
 
     with pytest.raises(ValueError, match="forbidden element 'real place names'"):
         compile_cover_prompt(brief, invalid)
+
+
+def test_compile_allows_marketing_term_inside_negative_story_rule() -> None:
+    brief = brief_fixture()
+    rule = (
+        "No replacement romance, inheritance, windfall, celebrity intervention, "
+        "viral revenge, or sudden professional empire appears."
+    )
+    constrained = replace(
+        brief,
+        lived_environment=replace(
+            brief.lived_environment,
+            environment_truths=brief.lived_environment.environment_truths + (rule,),
+        ),
+    )
+
+    compiled = compile_cover_prompt(constrained, scene_fixture())
+
+    assert rule in compiled.modules["LIVED ENVIRONMENT AND PRIMARY PROP"]
+
+
+@pytest.mark.parametrize("shortcut", ("Make it viral", "Promise high conversion"))
+def test_compile_rejects_positive_marketing_shortcut(shortcut: str) -> None:
+    scene = scene_fixture()
+    invalid = replace(
+        scene,
+        visual_hook=replace(scene.visual_hook, reader_promise=shortcut),
+    )
+
+    with pytest.raises(ValueError, match="non-executable marketing shortcut"):
+        compile_cover_prompt(brief_fixture(), invalid)
 
 
 def test_repair_compile_changes_only_requested_modules() -> None:
