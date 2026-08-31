@@ -281,6 +281,21 @@ def _guardian_fail(code: str) -> dict:
     }
 
 
+def _guardian_scoped_source_miss() -> dict:
+    checks = dict(SEMANTIC_CHECKS)
+    checks["source_supported"] = False
+    return {
+        "status": "fail",
+        "checks": checks,
+        "reader_pull": {
+            "status": "pass",
+            "checks": dict(READER_PULL_CHECKS),
+        },
+        "claim_evidence": [],
+        "findings": [{"code": "claim_outside_source_group"}],
+    }
+
+
 def _preflight_pass() -> dict:
     return {
         "status": "pass",
@@ -792,6 +807,50 @@ def test_long_source_final_guardian_coverage_rejects_claims_omitted_by_all_group
 
     assert len(guardian.calls) == 4
     assert not (tmp_path / "outputs/publication/publication-copy.json").exists()
+
+
+def test_long_source_final_guardian_report_is_authoritative_over_scoped_group_miss(
+    tmp_path,
+):
+    source = _long_source_set()
+    first_fragment, second_fragment = _long_conflict_fragments()
+    writer = FakeClient(
+        [
+            _raw(first_fragment),
+            _raw(second_fragment),
+            _raw(_long_conflict()),
+            _raw(_writer_candidate()),
+        ],
+        provider="style-provider",
+        model="style-model",
+    )
+    supported_claim = {
+        "claim": "The family home remains at risk.",
+        "chapter": 4,
+        "source_quote": "the family home remains at risk",
+    }
+    preflight_raw = _raw(_preflight_pass())
+    group_one_raw = _raw(_guardian_scoped_source_miss())
+    group_two_raw = _raw(
+        _guardian_report(claim_evidence=[supported_claim])
+    )
+    final_raw = _raw(_guardian_report(claim_evidence=[supported_claim]))
+    guardian = FakeClient(
+        [preflight_raw, group_one_raw, group_two_raw, final_raw],
+        provider="guardian-provider",
+        model="guardian-model",
+    )
+
+    publication_copy = _generate(tmp_path, writer, guardian, source=source)
+
+    assert publication_copy.validation.status == "pass"
+    assert publication_copy.validation.source_supported is True
+    assert [item.to_dict() for item in publication_copy.validation.claim_evidence] == [
+        supported_claim
+    ]
+    assert publication_copy.generation.validator_response_sha256 == _provenance_hash(
+        preflight_raw, group_one_raw, group_two_raw, final_raw
+    )
 
 
 @pytest.mark.parametrize("max_repairs", [-1, 3, True])

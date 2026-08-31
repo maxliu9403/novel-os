@@ -522,7 +522,7 @@ class PublicationCopyService:
                 raise _RejectedResponse(
                     f"invalid Guardian final claim coverage: {exc}", merge_raw
                 ) from exc
-            reports.append(merge_report)
+            return merge_report, responses
         return _merge_guardian_reports(reports), responses
 
 
