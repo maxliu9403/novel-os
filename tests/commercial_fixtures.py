@@ -144,6 +144,48 @@ def high_overlap_reference():
     return CommercialStoryContract.from_dict(payload)
 
 
+def legacy_chapter_contract_payload() -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "chapter": 1,
+        "goal": "Megan verifies who removed her credit.",
+        "obstacle": "The release record is controlled by her colleague.",
+        "active_choice": "She checks the approval history herself.",
+        "cost": "Her access is questioned.",
+        "irreversible_change": "She preserves the first authorship record.",
+        "local_payoff": "The missing approval becomes visible.",
+        "ending_pressure": "The launch proceeds in the morning.",
+        "preserve_facts": ["Megan built the original control system"],
+        "allowed_knowledge": ["Megan knows her own approval process"],
+        "world_event_ids": [],
+    }
+
+
+def chapter_contract_v2_payload(**overrides: Any) -> dict[str, Any]:
+    payload = {
+        **legacy_chapter_contract_payload(),
+        "schema_version": 2,
+        "reader_jobs": ["recognition", "anger"],
+        "belonging_anchors": [],
+        "resource_dimension": "name",
+        "resource_change": "Megan withholds the approval tied to her work.",
+        "satisfaction_type": "boundary",
+        "hook_type": "consequence",
+        "humiliation_scene": False,
+        "protagonist_causes_turn": True,
+        "seeded_resource_ids": ["license_record"],
+        "used_resource_ids": ["license_record"],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def chapter_contract_v2(**overrides: Any):
+    from contracts import ChapterContract
+
+    return ChapterContract.from_dict(chapter_contract_v2_payload(**overrides))
+
+
 def architect_foundation_text(
     commercial_story_contract: dict[str, Any], chapter_count: int = 3
 ) -> str:

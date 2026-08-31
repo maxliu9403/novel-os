@@ -6,6 +6,11 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from contracts import AuthorIntent, ChapterContract, StoryContract
+from commercial_fixtures import (
+    chapter_contract_v2,
+    chapter_contract_v2_payload,
+    legacy_chapter_contract_payload,
+)
 from state_manager import ChapterState
 
 
@@ -28,7 +33,7 @@ INVALID_SCHEMA_VERSIONS = [
     pytest.param("1", id="string"),
     pytest.param(True, id="bool"),
     pytest.param(0, id="zero"),
-    pytest.param(2, id="future"),
+    pytest.param(3, id="future"),
     pytest.param(object(), id="object"),
 ]
 
@@ -104,6 +109,63 @@ def test_chapter_contract_round_trips_sequences_from_json_lists():
     assert restored.allowed_knowledge == ("Mara knows the west stairwell",)
     assert restored.world_event_ids == ("flood-warning", "archive-lockdown")
     assert restored.schema_version == 1
+
+
+def test_chapter_contract_v1_remains_readable_with_neutral_commercial_fields():
+    restored = ChapterContract.from_dict(legacy_chapter_contract_payload())
+
+    assert restored.schema_version == 1
+    assert restored.reader_jobs == ()
+    assert restored.belonging_anchors == ()
+    assert restored.resource_dimension == ""
+    assert restored.resource_change == ""
+    assert restored.seeded_resource_ids == ()
+    assert restored.used_resource_ids == ()
+    assert restored.to_dict() == legacy_chapter_contract_payload()
+
+
+def test_chapter_contract_v2_round_trips_and_changes_canonical_identity():
+    contract = chapter_contract_v2()
+
+    restored = ChapterContract.from_dict(
+        json.loads(json.dumps(contract.to_dict()))
+    )
+
+    assert restored == contract
+    assert restored.schema_version == 2
+    assert restored.reader_jobs == ("recognition", "anger")
+    assert restored.resource_dimension == "name"
+    assert restored.protagonist_causes_turn is True
+    assert restored.contract_id != ChapterContract.from_dict(
+        legacy_chapter_contract_payload()
+    ).contract_id
+
+
+def test_chapter_contract_v2_requires_reader_value_fields():
+    payload = chapter_contract_v2_payload()
+    payload["hook_type"] = "phone_interrupt"
+
+    with pytest.raises(ValueError, match="hook_type"):
+        ChapterContract.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("reader_jobs", ["recognition", "recognition"]),
+        ("reader_jobs", []),
+        ("belonging_anchors", ["self", "child", "work"]),
+        ("protagonist_causes_turn", 1),
+        ("humiliation_scene", "false"),
+        ("seeded_resource_ids", ["License-Record"]),
+        ("used_resource_ids", ["x"]),
+    ],
+)
+def test_chapter_contract_v2_rejects_invalid_controlled_values(field, value):
+    payload = chapter_contract_v2_payload(**{field: value})
+
+    with pytest.raises(ValueError, match=field):
+        ChapterContract.from_dict(payload)
 
 
 def test_contract_ids_are_stable_for_semantically_equal_values():

@@ -1021,6 +1021,13 @@ genre-appropriate assumptions rather than asking questions.
         )
 
         ending_context = self._ending_contract_context(chapter.number)
+        commercial_contract = None
+        commercial_payload = self.state.story_bible.get("commercial_story_contract")
+        if commercial_payload is not None:
+            try:
+                commercial_contract = CommercialStoryContract.from_dict(commercial_payload)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("stored commercial story contract is invalid") from exc
         prompt = f"""# ARCHITECT TASK: Outline Chapter {chapter.number}
 
 Produce a structured **beat-sheet outline** for this chapter that the Scribe will
@@ -1070,6 +1077,27 @@ dialogue, or narrative paragraphs:
 Write the beat-sheet now. Outline only no prose.
 """
         if self.quality_policy == "evidence_v1":
+            if commercial_contract is not None:
+                commercial = commercial_contract
+                prompt += f"""
+
+## Commercial Reader-Value Contract (schema-v2 required)
+
+This chapter belongs to an activated commercial story contract. The contract is
+immutable and its approved categories must remain unchanged. Use the chapter's
+specific scene to declare one to three ordered `reader_jobs`, zero to two
+`belonging_anchors`, the controlled `resource_dimension`, an observable
+`resource_change`, a controlled `satisfaction_type`, a controlled `hook_type`,
+whether the scene is a `humiliation_scene`, whether the protagonist causes the
+major turn, and controlled resource IDs that are seeded or used in this chapter.
+The resource IDs must be stable lowercase snake_case identifiers. A used
+resource must be seeded in this or an earlier chapter.
+
+Approved story anchors: {", ".join(commercial.premise_engine.belonging_anchors)}
+Approved boundary transfer: {commercial.premise_engine.boundary_transfer}
+Approved conflict ladder: {json.dumps([step.to_dict() for step in commercial.conflict_ladder], ensure_ascii=False)}
+Approved contract id: {commercial.contract_id}
+"""
             prompt += f"""
 
 ## Machine-Readable Chapter Contract
@@ -1079,6 +1107,7 @@ After the Markdown outline, emit exactly one JSON object inside these tags:
 ```text
 [CHAPTER_CONTRACT]
 {{
+  "schema_version": {2 if commercial_contract is not None else 1},
   "chapter": {chapter.number},
   "goal": "...",
   "obstacle": "...",
@@ -1089,11 +1118,30 @@ After the Markdown outline, emit exactly one JSON object inside these tags:
   "ending_pressure": "...",
   "preserve_facts": ["..."],
   "allowed_knowledge": ["..."],
-  "world_event_ids": ["..."]
+  "world_event_ids": ["..."],
+  "reader_jobs": ["recognition", "anger"],
+  "belonging_anchors": [],
+  "resource_dimension": "name",
+  "resource_change": "...",
+  "satisfaction_type": "boundary",
+  "hook_type": "consequence",
+  "humiliation_scene": false,
+  "protagonist_causes_turn": true,
+  "seeded_resource_ids": ["license_record"],
+  "used_resource_ids": ["license_record"]
 }}
 [/CHAPTER_CONTRACT]
 ```
 """
+            if commercial_contract is None:
+                # Keep the v1 template byte-compatible for unactivated stories.
+                prompt = prompt.replace(
+                    '  "schema_version": 1,\n', "", 1
+                ).replace(
+                    '  "world_event_ids": ["..."],\n  "reader_jobs": ["recognition", "anger"],\n  "belonging_anchors": [],\n  "resource_dimension": "name",\n  "resource_change": "...",\n  "satisfaction_type": "boundary",\n  "hook_type": "consequence",\n  "humiliation_scene": false,\n  "protagonist_causes_turn": true,\n  "seeded_resource_ids": ["license_record"],\n  "used_resource_ids": ["license_record"]',
+                    '  "world_event_ids": ["..."]',
+                    1,
+                )
         return prompt
 
     # ===== Style Curation =====

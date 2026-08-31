@@ -7,6 +7,7 @@ import pytest
 
 import orchestrator as orchestrator_module
 from commercial_fixtures import architect_foundation_text, commercial_story_fixture
+from commercial_story import commercial_story_block
 from canon_ledger import canonical_canon_sha
 from continuity_engine import Finding
 from llm_client import LLMError
@@ -506,6 +507,47 @@ def test_architect_foundation_cannot_omit_approved_commercial_contract() -> None
 
     with pytest.raises(ValueError, match="approved commercial story contract"):
         NovelOrchestrator._parse_story_foundation(omitted, 3, approved)
+
+
+def test_commercial_chapter_prompt_requires_schema_v2_reader_value_contract(
+    tmp_path: Path,
+) -> None:
+    approved = commercial_story_fixture()
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text(
+        "# Commercial Story\n\n" + commercial_story_block(approved),
+        encoding="utf-8",
+    )
+    project = tmp_path / "project"
+    ingest_prompt(project, prompt, {"chapters": 3, "words": 3600})
+    orchestrator = NovelOrchestrator(str(project))
+    orchestrator.quality_policy = "evidence_v1"
+    chapter = orchestrator.state.create_chapter(1)
+
+    generated = orchestrator._generate_chapter_outline_prompt(chapter)
+
+    assert '"schema_version": 2' in generated
+    assert '"reader_jobs"' in generated
+    assert '"resource_change"' in generated
+    assert '"protagonist_causes_turn"' in generated
+    assert approved.contract_id in generated
+    assert approved.premise_engine.boundary_transfer in generated
+
+
+def test_unactivated_chapter_prompt_retains_schema_v1_contract(tmp_path: Path) -> None:
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Legacy Story\n\nA new beginning.", encoding="utf-8")
+    project = tmp_path / "project"
+    ingest_prompt(project, prompt, {"chapters": 2, "words": 2400})
+    orchestrator = NovelOrchestrator(str(project))
+    orchestrator.quality_policy = "evidence_v1"
+    chapter = orchestrator.state.create_chapter(1)
+
+    generated = orchestrator._generate_chapter_outline_prompt(chapter)
+
+    assert '"schema_version": 2' not in generated
+    assert '"reader_jobs"' not in generated
+    assert '"protagonist_causes_turn"' not in generated
 
 
 def test_proposal_only_plan_outline_preserves_canonical_state_and_file(tmp_path: Path):

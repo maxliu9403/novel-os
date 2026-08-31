@@ -146,6 +146,12 @@ RELATIONSHIP_SHAPES = frozenset(
 FREE_ARC_ACTIONS = frozenset(
     {"recognize", "verify", "document", "test_boundary", "protect", "withdraw", "disclose", "leave", "accept_cost", "counter_move"}
 )
+SATISFACTION_TYPES = frozenset(
+    {"boundary", "evidence", "competence", "identity", "relationship", "consequence", "none"}
+)
+HOOK_TYPES = frozenset(
+    {"decision", "consequence", "evidence", "relationship_shift", "deadline", "arrival"}
+)
 
 _OPEN = "[COMMERCIAL_STORY_JSON]"
 _CLOSE = "[/COMMERCIAL_STORY_JSON]"
