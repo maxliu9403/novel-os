@@ -59,6 +59,12 @@ from publication_source import (
     build_publication_source_set,
 )
 from quality import EvaluationReport, EvaluationRequest, QualityLab
+from commercial_quality import (
+    ChapterDesignReport,
+    chapter_design_input_hashes,
+    validate_chapter_design,
+    write_design_report,
+)
 from story_originality import (
     OriginalityReport,
     capture_originality_context,
@@ -775,6 +781,27 @@ class PipelineRunner:
             lambda _value: self._require_files(project, [self._chapter_outline(number)]),
             [self._chapter_outline(number)],
         )
+        commercial_story = (
+            self._foundation_commercial_story(project)
+            if spec.quality_policy == "evidence_v1"
+            else None
+        )
+        if commercial_story is not None:
+            design_relative = (
+                f"outputs/quality/commercial/chapter_{number:03d}_design.json"
+            )
+            self._stage(
+                manifest,
+                project,
+                store,
+                "chapter.design_check",
+                number,
+                lambda: self._run_chapter_design_check(
+                    project, number, commercial_story
+                ),
+                self._validate_design_result,
+                [design_relative],
+            )
         self._stage(
             manifest, project, store, "chapter.write", number,
             lambda: orchestrator.write_chapter(number, dry_run=False),
@@ -1103,15 +1130,14 @@ class PipelineRunner:
                 result.status = "blocked" if exc.blocked else "failed"
                 result.error = str(exc)
                 result.finished_at = self._now()
-                if phase == "foundation.originality":
-                    result.artifact_paths = [
-                        path for path in artifacts if (project / path).is_file()
-                    ]
-                    result.artifact_hashes = {
-                        path: self._sha256(project / path)
-                        for path in result.artifact_paths
-                    }
-                if phase == "foundation.originality" and value is not None:
+                result.artifact_paths = [
+                    path for path in artifacts if (project / path).is_file()
+                ]
+                result.artifact_hashes = {
+                    path: self._sha256(project / path)
+                    for path in result.artifact_paths
+                }
+                if value is not None:
                     self._capture_stage_metadata(
                         manifest, project, result, value
                     )
@@ -1277,6 +1303,8 @@ class PipelineRunner:
     ) -> Dict[str, str]:
         if phase == "foundation.originality":
             return originality_input_hashes(project)
+        if phase == "chapter.design_check":
+            return chapter_design_input_hashes(project, chapter or 0)
         inputs: Dict[str, list[str]] = {
             "outline": ["outputs/input/prompt.md", "outputs/input/brief.json"],
             "foundation.commit": ["outputs/input/foundation.json"],
@@ -1480,6 +1508,47 @@ class PipelineRunner:
             )
 
     @staticmethod
+    def _run_chapter_design_check(
+        project: Path,
+        chapter: int,
+        story_contract: CommercialStoryContract,
+    ) -> ChapterDesignReport:
+        artifacts = ArtifactStore(project)
+        current_head = artifacts.get_head(chapter, "chapter_contract")
+        if current_head is None:
+            raise PipelineError(
+                f"Chapter {chapter} has no persisted chapter contract",
+                blocked=True,
+            )
+        current = ChapterContract.from_dict(
+            json.loads(artifacts.read_text(current_head.revision_id))
+        )
+        prior: list[ChapterContract] = []
+        for number in range(1, chapter):
+            head = artifacts.get_head(number, "chapter_contract")
+            if head is None:
+                raise PipelineError(
+                    f"Chapter {chapter} is missing prior chapter contract {number}",
+                    blocked=True,
+                )
+            prior.append(
+                ChapterContract.from_dict(json.loads(artifacts.read_text(head.revision_id)))
+            )
+        report = validate_chapter_design(current, prior, story_contract)
+        write_design_report(project, report)
+        return report
+
+    @staticmethod
+    def _validate_design_result(value: Any) -> None:
+        if not isinstance(value, ChapterDesignReport):
+            raise PipelineError("Chapter design check returned no report", blocked=True)
+        if value.status == "blocked":
+            raise PipelineError(
+                "Commercial chapter design gate blocked writing",
+                blocked=True,
+            )
+
+    @staticmethod
     def _foundation_idempotency_key(manifest: RunManifest, project: Path) -> str:
         foundation_sha = PipelineRunner._sha256(
             project / "outputs/input/foundation.json"
@@ -1519,6 +1588,12 @@ class PipelineRunner:
             result.findings = [item.to_dict() for item in value.findings]
             result.decisions = [f"originality_status:{value.status}"]
 
+        if result.phase == "chapter.design_check" and isinstance(
+            value, ChapterDesignReport
+        ):
+            result.findings = [item.to_dict() for item in value.findings]
+            result.decisions = [f"design_status:{value.status}"]
+
         if result.phase == "intake":
             from state_manager import StoryState
 
@@ -1546,6 +1621,14 @@ class PipelineRunner:
                     project / self._chapter_outline(result.chapter),
                     result.chapter,
                 )
+                if (
+                    self._foundation_commercial_story(project) is not None
+                    and contract.schema_version != 2
+                ):
+                    raise PipelineError(
+                        "Activated commercial stories require schema-v2 chapter contracts",
+                        blocked=True,
+                    )
                 current = artifacts.get_head(result.chapter, "chapter_contract")
                 revision = artifacts.put_json(
                     chapter=result.chapter,

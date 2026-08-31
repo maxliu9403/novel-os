@@ -7,8 +7,11 @@ import pytest
 from artifacts import ArtifactStore
 from commercial_fixtures import (
     commercial_story_fixture_variant,
+    chapter_contract_v2_payload,
+    chapter_contract_v2,
     high_overlap_candidate,
     high_overlap_reference,
+    legacy_chapter_contract_payload,
 )
 from commercial_story import commercial_story_block
 from pipeline_models import RunSpec, StageResult
@@ -464,6 +467,105 @@ def test_pipeline_blocks_foundation_from_privately_activating_commercial_story(
     assert "without prompt intake approval" in manifest.error.casefold()
     assert manifest.get("foundation.originality") is None
     assert manifest.get("foundation.commit") is None
+
+
+def test_activated_commercial_story_blocks_schema_v1_chapter_contract_before_writing(
+    tmp_path: Path,
+):
+    contract = commercial_story_fixture_variant()
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text(
+        "# Commercial Test\n\n" + commercial_story_block(contract),
+        encoding="utf-8",
+    )
+    project = tmp_path / "projects/candidate"
+    base = _commercial_factory(contract)
+
+    class LegacyChapterContractOrchestrator(base):
+        def plan_chapter(self, number, summary="", pov="", dry_run=False):
+            super().plan_chapter(number, summary, pov, dry_run=dry_run)
+            outline = self.outputs / f"chapter_{number:03d}_outline.md"
+            payload = legacy_chapter_contract_payload()
+            payload["chapter"] = number
+            with outline.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    "\n[CHAPTER_CONTRACT]\n"
+                    + json.dumps(payload)
+                    + "\n[/CHAPTER_CONTRACT]\n"
+                )
+
+    orchestrator = LegacyChapterContractOrchestrator
+    orchestrator.calls = []
+
+    manifest = PipelineRunner(orchestrator_factory=orchestrator).run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            approval_policy="auto",
+            quality_policy="evidence_v1",
+            max_retries=0,
+        )
+    )
+
+    assert manifest.status == "paused"
+    assert "schema-v2" in manifest.error
+    assert manifest.get("chapter.plan", 1).status == "blocked"
+    assert not any(call == ("write", 1) for call in orchestrator.calls)
+
+
+def test_commercial_design_gate_blocks_before_scribe_on_contract_budget_violation(
+    tmp_path: Path,
+):
+    contract = commercial_story_fixture_variant()
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text(
+        "# Commercial Test\n\n" + commercial_story_block(contract),
+        encoding="utf-8",
+    )
+    project = tmp_path / "projects/candidate"
+    base = _commercial_factory(contract)
+
+    class InvalidDesignOrchestrator(base):
+        def plan_chapter(self, number, summary="", pov="", dry_run=False):
+            super().plan_chapter(number, summary, pov, dry_run=dry_run)
+            outline = self.outputs / f"chapter_{number:03d}_outline.md"
+            payload = chapter_contract_v2_payload(
+                chapter=number,
+                used_resource_ids=["license_record"],
+                seeded_resource_ids=[],
+                protagonist_causes_turn=False,
+            )
+            with outline.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    "\n[CHAPTER_CONTRACT]\n"
+                    + json.dumps(payload)
+                    + "\n[/CHAPTER_CONTRACT]\n"
+                )
+
+    InvalidDesignOrchestrator.calls = []
+    manifest = PipelineRunner(orchestrator_factory=InvalidDesignOrchestrator).run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            approval_policy="auto",
+            quality_policy="evidence_v1",
+            max_retries=0,
+        )
+    )
+
+    design = manifest.get("chapter.design_check", 1)
+    assert manifest.status == "paused"
+    assert design.status == "blocked"
+    assert {finding["code"] for finding in design.findings} == {
+        "unseeded_resource",
+        "protagonist_does_not_cause_turn",
+    }
+    assert (project / "outputs/quality/commercial/chapter_001_design.json").is_file()
+    assert not any(call == ("write", 1) for call in InvalidDesignOrchestrator.calls)
 
 
 def test_blocked_originality_report_prevents_foundation_commit(tmp_path: Path):
