@@ -86,6 +86,8 @@ def valid_copy_payload():
             "chapters": [
                 {"number": 1, "revision_id": "rev-001", "sha256": "c" * 64},
                 {"number": 2, "revision_id": "rev-002", "sha256": "d" * 64},
+                {"number": 6, "revision_id": "rev-006", "sha256": "6" * 64},
+                {"number": 10, "revision_id": "rev-010", "sha256": "0" * 64},
             ],
         },
         "generation": {
@@ -204,6 +206,27 @@ def test_round_trip_rejects_out_of_range_copy_even_when_declared_count_matches()
         parse_publication_copy(json.dumps(payload))
 
 
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (
+            lambda value: value["source"]["chapters"].pop(),
+            "conflict evidence chapter 10 is absent from source.chapters",
+        ),
+        (
+            lambda value: value["validation"]["claim_evidence"][0].update(chapter=3),
+            "claim_evidence chapter 3 is absent from source.chapters",
+        ),
+    ],
+)
+def test_round_trip_rejects_evidence_for_an_undeclared_source_chapter(mutate, message):
+    payload = valid_copy_payload()
+    mutate(payload)
+
+    with pytest.raises(ValueError, match=message):
+        parse_publication_copy(json.dumps(payload))
+
+
 def test_canonical_json_bytes_are_compact_sorted_utf8_and_finite():
     assert canonical_json_bytes({"z": 1, "a": "她"}) == b'{"a":"\xe5\xa5\xb9","z":1}'
     with pytest.raises(ValueError):
@@ -254,6 +277,7 @@ def test_quality_gate_accepts_inclusive_language_boundaries(
         ({"hook_lead": "One two three four five six seven."}, "hook_lead_length"),
         ({"hook_lead": "One two three four five six seven eight. Another sentence."}, "single_sentence_hook"),
         ({"hook_lead": "One two three four five six seven eight. Another fragment"}, "single_sentence_hook"),
+        ({"hook_lead": "One two three four five six seven eight.First.Following"}, "single_sentence_hook"),
         ({"reader_heading": "# Before the Story"}, "plain_text_reader_heading"),
         ({"spoiler_free_blurb": "<b>" + BLURB}, "forbidden_markup"),
         ({"spoiler_free_blurb": "*detail0* " + " ".join(f"detail{n}" for n in range(1, 120)) + "."}, "forbidden_markup"),
@@ -271,6 +295,48 @@ def test_quality_gate_rejects_invalid_shape_and_promotional_copy(overrides, mess
             chapter_one_prefix="Unrelated opening language with no shared sequence.",
             ending_spoilers=[],
         )
+
+
+def test_quality_gate_rejects_cjk_sentence_boundary_without_whitespace():
+    with pytest.raises(ValueError, match="single_sentence_hook"):
+        validate_publication_candidate(
+            valid_candidate(
+                language="zh-CN",
+                hook_lead="她必须保护女儿离开谎言寻找真正真相。下一句。",
+                spoiler_free_blurb="雨" * 240 + "。",
+            ),
+            source_chapters={2: "Claire saves every bank statement."},
+            chapter_one_prefix="完全不同的开篇内容。",
+            ending_spoilers=[],
+        )
+
+
+def test_quality_gate_accepts_one_sentence_with_terminal_closing_quote():
+    validation = validate_publication_candidate(
+        valid_candidate(
+            hook_lead='"Claire confronts Ethan before his lies cost their daughter."'
+        ),
+        source_chapters={2: "Claire saves every bank statement."},
+        chapter_one_prefix="Unrelated opening.",
+        ending_spoilers=[],
+    )
+
+    assert validation.status == "pass"
+
+
+def test_quality_gate_accepts_cjk_sentence_with_terminal_closing_quote():
+    validation = validate_publication_candidate(
+        valid_candidate(
+            language="ja-JP",
+            hook_lead="「她必须保护女儿离开谎言寻找真正真相。」",
+            spoiler_free_blurb="雨" * 240 + "。",
+        ),
+        source_chapters={2: "Claire saves every bank statement."},
+        chapter_one_prefix="完全不同的开篇内容。",
+        ending_spoilers=[],
+    )
+
+    assert validation.status == "pass"
 
 
 def test_quality_gate_rejects_spoilers_and_repeated_hook_blurb_windows():
@@ -294,6 +360,37 @@ def test_quality_gate_rejects_spoilers_and_repeated_hook_blurb_windows():
             ending_spoilers=[],
         )
 
+
+@pytest.mark.parametrize("language", ["zh-CN", "ja-JP", "ko-KR"])
+def test_quality_gate_rejects_cjk_hook_blurb_content_character_repetition(language):
+    repeated = "甲乙丙丁戊己庚辛壬癸"
+    with pytest.raises(ValueError, match="hook_blurb_repetition"):
+        validate_publication_candidate(
+            valid_candidate(
+                language=language,
+                hook_lead="甲，乙 丙、丁戊己庚辛壬癸她必须选择回家。",
+                spoiler_free_blurb=repeated + "雨" * 230 + "。",
+            ),
+            source_chapters={2: "Claire saves every bank statement."},
+            chapter_one_prefix="完全不同的开篇内容。",
+            ending_spoilers=[],
+        )
+
+
+@pytest.mark.parametrize("language", ["zh-CN", "ja-JP", "ko-KR"])
+def test_quality_gate_rejects_cjk_copy_of_first_chapter(language):
+    copied = "甲乙丙丁戊己庚辛"
+    with pytest.raises(ValueError, match="not_chapter_one_copy"):
+        validate_publication_candidate(
+            valid_candidate(
+                language=language,
+                hook_lead="甲，乙 丙、丁戊己庚辛她必须选择离开谎言。",
+                spoiler_free_blurb="雨" * 240 + "。",
+            ),
+            source_chapters={2: "Claire saves every bank statement."},
+            chapter_one_prefix=copied + "之后她打开了门。",
+            ending_spoilers=[],
+        )
 
 def test_quality_gate_rejects_copy_of_first_chapter_and_wrong_claim_quote():
     copied = "Pregnant and betrayed Claire must choose to protect her daughter"

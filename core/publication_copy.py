@@ -20,8 +20,14 @@ _RFC3339 = re.compile(
 )
 _ENGLISH_WORD = re.compile(r"[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*")
 _UNICODE_TOKEN = re.compile(r"[^\W_]+", re.UNICODE)
-_SENTENCE_END = re.compile(r"[.!?\u3002\uff01\uff1f]+(?=\s|$)")
-_SENTENCE_BREAK = re.compile(r"[.!?\u3002\uff01\uff1f]+[\"')\]]*\s+\S")
+_SENTENCE_TERMINAL = re.compile(
+    r"[!?\u3002\uff01\uff1f]+|(?<!\d)\.+(?!\d)"
+)
+_SENTENCE_BOUNDARY_WRAPPERS = frozenset(
+    "\"'()[]{}\u2018\u2019\u201c\u201d"
+    "\u3008\u3009\u300a\u300b\u300c\u300d\u300e\u300f"
+    "\u3010\u3011\uff08\uff09"
+)
 _HTML = re.compile(r"<\s*/?\s*[A-Za-z][^>]*>")
 _URL = re.compile(r"(?:https?://|www\.|mailto:)", re.IGNORECASE)
 _MARKDOWN = re.compile(
@@ -649,6 +655,18 @@ class PublicationCopy:
         for name, expected_type in nested_types:
             if not isinstance(getattr(self, name), expected_type):
                 raise ValueError(f"{name} must be a {expected_type.__name__}")
+        source_chapters = {item.number for item in self.source.chapters}
+        for bucket in ("opening", "middle", "late"):
+            for quote in getattr(self.whole_book_core_conflict, bucket):
+                if quote.chapter not in source_chapters:
+                    raise ValueError(
+                        f"conflict evidence chapter {quote.chapter} is absent from source.chapters"
+                    )
+        for quote in self.validation.claim_evidence:
+            if quote.chapter not in source_chapters:
+                raise ValueError(
+                    f"claim_evidence chapter {quote.chapter} is absent from source.chapters"
+                )
         for name in (
             "title",
             "language",
@@ -760,6 +778,18 @@ def _word_tokens(text: str) -> list[str]:
     return [token.casefold() for token in _ENGLISH_WORD.findall(text)]
 
 
+def _repetition_units(text: str, language: str) -> list[str]:
+    locale = (language or "").casefold()
+    if not locale.startswith(("zh", "ja", "ko")):
+        return _word_tokens(text)
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    return [
+        char
+        for char in normalized
+        if not char.isspace() and unicodedata.category(char)[0] != "P"
+    ]
+
+
 def _windows(tokens: Sequence[str], size: int) -> set[tuple[str, ...]]:
     return {
         tuple(tokens[index : index + size])
@@ -794,6 +824,19 @@ def _validate_generic_hook(hook: str) -> None:
         return
     if set(folded.split()) <= _GENERIC_WORDS:
         raise ValueError("generic_reader_hook: hook contains no story-specific fact")
+
+
+def _has_sentence_break(text: str) -> bool:
+    for terminal in _SENTENCE_TERMINAL.finditer(text):
+        cursor = terminal.end()
+        while cursor < len(text) and (
+            text[cursor].isspace()
+            or text[cursor] in _SENTENCE_BOUNDARY_WRAPPERS
+        ):
+            cursor += 1
+        if cursor < len(text):
+            return True
+    return False
 
 
 def _candidate_semantics(
@@ -877,7 +920,7 @@ def validate_publication_candidate(
         _trimmed_text(data["title"], "title")
 
     _validate_plain_copy(reader_heading, hook, blurb)
-    if len(_SENTENCE_END.findall(hook)) > 1 or _SENTENCE_BREAK.search(hook):
+    if _has_sentence_break(hook):
         raise ValueError("single_sentence_hook: hook_lead must be one sentence")
     _validate_generic_hook(hook)
 
@@ -900,12 +943,12 @@ def validate_publication_candidate(
         if spoiler.casefold() in visible_copy:
             raise ValueError(f"ending_spoiler: forbidden phrase {spoiler!r}")
 
-    hook_tokens = _word_tokens(hook)
-    blurb_tokens = _word_tokens(blurb)
+    hook_tokens = _repetition_units(hook, language)
+    blurb_tokens = _repetition_units(blurb, language)
     if _windows(hook_tokens, 10) & _windows(blurb_tokens, 10):
         raise ValueError("hook_blurb_repetition: repeated ten-word window")
 
-    chapter_tokens = _word_tokens(chapter_one_prefix)[:500]
+    chapter_tokens = _repetition_units(chapter_one_prefix, language)[:500]
     chapter_windows = _windows(chapter_tokens, 8)
     if chapter_windows & (_windows(hook_tokens, 8) | _windows(blurb_tokens, 8)):
         raise ValueError("not_chapter_one_copy: repeated eight-word window")
