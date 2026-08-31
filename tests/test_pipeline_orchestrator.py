@@ -1,10 +1,12 @@
 import copy
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
 
 import orchestrator as orchestrator_module
+from commercial_fixtures import architect_foundation_text, commercial_story_fixture
 from canon_ledger import canonical_canon_sha
 from continuity_engine import Finding
 from llm_client import LLMError
@@ -467,6 +469,43 @@ def test_plan_outline_calls_architect_and_chapter_prompt_reads_it(tmp_path: Path
     assert orch.state.get_chapter(1).title == "Opening"
     assert "Mara Vale" in (project / "outputs/story_bible.md").read_text(encoding="utf-8")
     assert "ARCHITECT ANALYSIS: Test" in chapter_prompt
+
+
+def test_architect_foundation_must_echo_approved_commercial_contract() -> None:
+    approved = commercial_story_fixture()
+    text = architect_foundation_text(approved.to_dict())
+
+    parsed = NovelOrchestrator._parse_story_foundation(text, 3, approved)
+
+    assert parsed["commercial_story_contract"] == approved.to_dict()
+    assert parsed["commercial_story_contract_id"] == approved.contract_id
+
+    mutated = json.loads(json.dumps(approved.to_dict()))
+    mutated["premise_engine"]["sacred_asset"] = "home"
+    with pytest.raises(ValueError, match="approved commercial story contract"):
+        NovelOrchestrator._parse_story_foundation(
+            architect_foundation_text(mutated), 3, approved
+        )
+
+
+def test_architect_foundation_cannot_omit_approved_commercial_contract() -> None:
+    approved = commercial_story_fixture()
+    text = architect_foundation_text(approved.to_dict())
+    payload = json.loads(
+        text.split("[STORY_FOUNDATION_JSON]\n", 1)[1].split(
+            "\n[/STORY_FOUNDATION_JSON]", 1
+        )[0]
+    )
+    payload.pop("commercial_story_contract")
+    payload.pop("commercial_story_contract_id")
+    omitted = (
+        "[STORY_FOUNDATION_JSON]\n"
+        + json.dumps(payload)
+        + "\n[/STORY_FOUNDATION_JSON]"
+    )
+
+    with pytest.raises(ValueError, match="approved commercial story contract"):
+        NovelOrchestrator._parse_story_foundation(omitted, 3, approved)
 
 
 def test_proposal_only_plan_outline_preserves_canonical_state_and_file(tmp_path: Path):

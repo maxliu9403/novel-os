@@ -38,6 +38,7 @@ from context_pack import build_context_pack, format_context_pack, slice_chapter_
 from canon import apply_canon_proposal, build_canon_proposal
 from canon_ledger import CanonLedger, CanonLedgerEntry, CanonReconciliationEntry
 from proposals import ProposalStore
+from commercial_story import CommercialStoryContract
 from story_foundation import apply_story_foundation
 
 
@@ -454,7 +455,45 @@ class NovelOrchestrator:
         raw_prompt_path = self.outputs_dir / "input" / "prompt.md"
         brief_path = self.outputs_dir / "input" / "brief.json"
         raw_prompt = raw_prompt_path.read_text(encoding="utf-8") if raw_prompt_path.exists() else ""
-        brief = brief_path.read_text(encoding="utf-8") if brief_path.exists() else "{}"
+        brief_data = (
+            json.loads(brief_path.read_text(encoding="utf-8"))
+            if brief_path.exists()
+            else {}
+        )
+        approved_commercial_story = None
+        if brief_data.get("commercial_story_contract") is not None:
+            approved_commercial_story = CommercialStoryContract.from_dict(
+                brief_data["commercial_story_contract"]
+            )
+            if (
+                brief_data.get("commercial_story_contract_id")
+                != approved_commercial_story.contract_id
+            ):
+                raise ValueError("brief commercial story contract id is invalid")
+        prompt_brief = dict(brief_data)
+        prompt_brief.pop("commercial_story_contract", None)
+        prompt_brief.pop("commercial_story_contract_id", None)
+        brief = json.dumps(prompt_brief, ensure_ascii=False, sort_keys=True, indent=2)
+        commercial_requirement = ""
+        if approved_commercial_story is not None:
+            canonical_commercial = json.dumps(
+                approved_commercial_story.to_dict(),
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+            )
+            commercial_requirement = f"""
+## Approved Commercial Story Contract
+
+This user-approved contract is immutable. Copy it semantically unchanged into
+the foundation field `commercial_story_contract` and set
+`commercial_story_contract_id` to `{approved_commercial_story.contract_id}`.
+Do not reinterpret category values or replace it with prose.
+
+```json
+{canonical_commercial}
+```
+"""
         architect_prompt = f"""# ARCHITECT TASK: Build the Full Novel Blueprint
 
 Create a complete, causally coherent blueprint for this novel. This is the
@@ -474,6 +513,7 @@ authoritative plan that every later chapter outline must follow.
 ```markdown
 {raw_prompt or '[No source prompt was saved; use StoryState metadata.]'}
 ```
+{commercial_requirement}
 
 ## Required Sections
 1. Logline and thematic argument
@@ -565,7 +605,11 @@ genre-appropriate assumptions rather than asking questions.
         )
         if result is not None:
             try:
-                foundation = self._parse_story_foundation(result, num_chapters)
+                foundation = self._parse_story_foundation(
+                    result,
+                    num_chapters,
+                    approved_commercial_story,
+                )
                 foundation_path = self.outputs_dir / "input" / "foundation.json"
                 foundation_path.parent.mkdir(parents=True, exist_ok=True)
                 foundation_path.write_text(
@@ -594,7 +638,11 @@ genre-appropriate assumptions rather than asking questions.
         return result if result is not None else outline
 
     @staticmethod
-    def _parse_story_foundation(text: str, num_chapters: int) -> Dict[str, Any]:
+    def _parse_story_foundation(
+        text: str,
+        num_chapters: int,
+        approved_commercial_story: CommercialStoryContract | None = None,
+    ) -> Dict[str, Any]:
         match = re.search(
             r"\[STORY_FOUNDATION_JSON\]\s*(\{.*?\})\s*\[/STORY_FOUNDATION_JSON\]",
             text,
@@ -615,6 +663,30 @@ genre-appropriate assumptions rather than asking questions.
             raise ValueError("story foundation must define at least one character")
         if not isinstance(data.get("plot_threads"), list) or not data["plot_threads"]:
             raise ValueError("story foundation must define at least one plot thread")
+        foundation_contract = data.get("commercial_story_contract")
+        foundation_contract_id = data.get("commercial_story_contract_id")
+        if approved_commercial_story is not None:
+            try:
+                restored_commercial = CommercialStoryContract.from_dict(
+                    foundation_contract
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    "story foundation must echo the approved commercial story contract"
+                ) from exc
+            if (
+                restored_commercial != approved_commercial_story
+                or foundation_contract_id != approved_commercial_story.contract_id
+            ):
+                raise ValueError(
+                    "story foundation changed the approved commercial story contract"
+                )
+            data["commercial_story_contract"] = restored_commercial.to_dict()
+            data["commercial_story_contract_id"] = restored_commercial.contract_id
+        elif foundation_contract is not None or foundation_contract_id is not None:
+            raise ValueError(
+                "story foundation cannot activate an unapproved commercial story contract"
+            )
         ending = data.get("ending_contract")
         if ending is not None:
             if not isinstance(ending, dict):

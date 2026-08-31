@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from typing import Any
 
 
@@ -103,3 +104,61 @@ def commercial_story_fixture_variant():
         "counter_move",
     ]
     return CommercialStoryContract.from_dict(payload)
+
+
+def architect_foundation_text(
+    commercial_story_contract: dict[str, Any], chapter_count: int = 3
+) -> str:
+    from commercial_story import CommercialStoryContract
+
+    contract = CommercialStoryContract.from_dict(commercial_story_contract)
+    foundation = {
+        "title": "Built From Her Records",
+        "premise": "Megan must reclaim authorship before a public launch.",
+        "themes": ["agency", "belonging"],
+        "setting": {
+            "time_period": "present",
+            "primary_location": "a fictional industrial city",
+            "world_rules": ["Professional records have ordinary legal limits"],
+        },
+        "characters": [
+            {
+                "id": "char_001",
+                "name": "Megan Hale",
+                "role": "protagonist",
+                "external_goal": "Restore her authorship",
+            }
+        ],
+        "plot_threads": [
+            {
+                "id": "plot_001",
+                "name": "Authorship",
+                "description": "Megan proves who built the system.",
+                "type": "main",
+                "priority": 5,
+            }
+        ],
+        "style": {
+            "tone": "intimate",
+            "pov": "third_limited",
+            "tense": "past",
+            "prose_style": "balanced",
+        },
+        "commercial_story_contract": contract.to_dict(),
+        "commercial_story_contract_id": contract.contract_id,
+        "chapters": [
+            {
+                "number": number,
+                "title": f"Chapter {number}",
+                "pov": "Megan Hale",
+                "summary": f"Megan changes the authorship conflict in chapter {number}.",
+                "target_words": 1200,
+            }
+            for number in range(1, chapter_count + 1)
+        ],
+    }
+    return (
+        "[STORY_FOUNDATION_JSON]\n"
+        + json.dumps(foundation, ensure_ascii=False, indent=2)
+        + "\n[/STORY_FOUNDATION_JSON]\n\n# Blueprint\n"
+    )
