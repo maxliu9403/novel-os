@@ -1,5 +1,6 @@
 import hashlib
 import json
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -9,15 +10,19 @@ from commercial_fixtures import (
     commercial_story_fixture_variant,
     chapter_contract_v2_payload,
     chapter_contract_v2,
+    span,
     high_overlap_candidate,
     high_overlap_reference,
     legacy_chapter_contract_payload,
 )
+from commercial_quality import review_commercial_chapter, write_commercial_report
+from canon import CanonDeltaProposal
 from commercial_story import commercial_story_block
 from pipeline_models import RunSpec, StageResult
 from pipeline_runner import PipelineError, PipelineRunner
 from llm_client import LLMError
 from project_identity import ensure_project_instance_id
+from proposals import ProposalStore
 from state_manager import StoryState
 from story_originality import StoryFingerprint
 
@@ -262,6 +267,136 @@ def _commercial_factory(contract):
             )
 
     return CommercialFakeOrchestrator
+
+
+def run_with_commercial_guardian_failures(failure_count: int):
+    """Run a one-chapter evidence pipeline with deterministic Guardian failures."""
+    contract = commercial_story_fixture_variant()
+    base = _commercial_factory(contract)
+
+    class CommercialRepairOrchestrator(base):
+        commercial_attempts = 0
+
+        def _proposal(self, number, agent_name, relative):
+            source = self.project / relative
+            proposal = ProposalStore(self.project).save(CanonDeltaProposal(
+                chapter=number,
+                agent_name=agent_name,
+                source_artifact_sha=hashlib.sha256(source.read_bytes()).hexdigest(),
+                delta={"key_events": [f"{agent_name} completed chapter {number}" ]},
+            ))
+            self.last_canon_proposal_ids = [proposal.proposal_id]
+
+        def plan_chapter(self, number, summary="", pov="", dry_run=False):
+            super().plan_chapter(number, summary, pov, dry_run=dry_run)
+            outline = self.outputs / f"chapter_{number:03d}_outline.md"
+            payload = chapter_contract_v2_payload(chapter=number)
+            with outline.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    "\n[CHAPTER_CONTRACT]\n" + json.dumps(payload)
+                    + "\n[/CHAPTER_CONTRACT]\n"
+                )
+            self._proposal(number, "architect", f"outputs/chapter_{number:03d}_outline.md")
+
+        def write_chapter(self, number, dry_run=False):
+            super().write_chapter(number, dry_run=dry_run)
+            self._proposal(number, "scribe", f"outputs/manuscript/chapter_{number:03d}_draft.md")
+
+        def edit_chapter(self, number, mode="line", dry_run=False):
+            super().edit_chapter(number, mode, dry_run=dry_run)
+            self._proposal(number, "editor", f"outputs/manuscript/chapter_{number:03d}_revised.md")
+
+        def validate_chapter(self, number, dry_run=False):
+            super().validate_chapter(number, dry_run=dry_run)
+            self._proposal(number, "continuity_guardian", f"outputs/feedback/chapter_{number:03d}_continuity_report.md")
+
+        def curate_chapter(self, number, dry_run=False):
+            super().curate_chapter(number, dry_run=dry_run)
+            self._proposal(number, "style_curator", f"outputs/manuscript/chapter_{number:03d}_candidate_final.md")
+
+        def review_commercial_chapter(self, number, dry_run=False):
+            type(self).commercial_attempts += 1
+            candidate = self.manuscript / f"chapter_{number:03d}_candidate_final.md"
+            text = candidate.read_text(encoding="utf-8")
+            quote = next(line for line in text.splitlines() if line.strip())
+            evidence = span(text, quote)
+            payload = {
+                "agency": evidence,
+                "resource_change": evidence,
+                "local_payoff": evidence,
+                "ending_hook": evidence,
+                "reader_jobs": {"recognition": evidence, "anger": evidence},
+                "belonging_anchors": {},
+                "free_trial_beats": [],
+                "child_voice": {"status": "not_applicable", "quote": None, "start": None, "end": None},
+                "institutional_plausibility": evidence,
+                "findings": [] if type(self).commercial_attempts > failure_count else [{
+                    "category": "commercial_delivery",
+                    "severity": "critical",
+                    "message": "The candidate does not deliver the required turn.",
+                    "suggested_action": "Make the protagonist cause the local turn.",
+                    "evidence": [evidence],
+                }],
+            }
+            artifacts = ArtifactStore(self.project)
+            chapter_head = artifacts.get_head(number, "chapter_contract")
+            story_head = artifacts.get_head(0, "story_contract")
+            chapter_contract = chapter_contract_v2(**json.loads(artifacts.read_text(chapter_head.revision_id)))
+            report = review_commercial_chapter(
+                text,
+                chapter_contract,
+                payload,
+                (),
+                story_contract_revision_id=story_head.revision_id,
+                chapter_contract_revision_id=chapter_head.revision_id,
+            )
+            write_commercial_report(self.project, report)
+            if report.reader_value_update is not None:
+                proposal = ProposalStore(self.project).save(CanonDeltaProposal(
+                    chapter=number,
+                    agent_name="continuity_guardian",
+                    source_artifact_sha=report.artifact_sha256,
+                    delta={"reader_value_updates": [dict(report.reader_value_update)]},
+                ))
+                self.last_canon_proposal_ids = [proposal.proposal_id]
+            return report
+
+        def repair_commercial_chapter(self, number, report, attempt, dry_run=False):
+            candidate = self.manuscript / f"chapter_{number:03d}_candidate_final.md"
+            candidate.write_text(
+                candidate.read_text(encoding="utf-8") + f"\nCommercial repair {attempt} changes the turn.\n",
+                encoding="utf-8",
+            )
+            self._proposal(number, "style_curator", f"outputs/manuscript/chapter_{number:03d}_candidate_final.md")
+
+    CommercialRepairOrchestrator.commercial_attempts = 0
+    with tempfile.TemporaryDirectory() as root:
+        root_path = Path(root)
+        prompt = root_path / "prompt.md"
+        prompt.write_text(
+            "# Commercial test\n\nA story.\n\n" + commercial_story_block(contract),
+            encoding="utf-8",
+        )
+        return PipelineRunner(orchestrator_factory=CommercialRepairOrchestrator).run(
+            RunSpec(
+                project_path=str(root_path / "project"),
+                prompt_path=str(prompt),
+                num_chapters=1,
+                target_words=20,
+                approval_policy="auto",
+                quality_policy="evidence_v1",
+                max_quality_repairs=2,
+                output_formats=("markdown",),
+            )
+        )
+
+
+def test_pipeline_repairs_commercial_candidate_at_most_twice():
+    manifest = run_with_commercial_guardian_failures(2)
+
+    assert manifest.get("chapter.commercial.repair.1", 1).status == "done"
+    assert manifest.get("chapter.commercial.repair.2", 1).status == "done"
+    assert manifest.get("chapter.promote", 1).status == "done"
 
 
 def _write_originality_sibling(project: Path, contract) -> None:

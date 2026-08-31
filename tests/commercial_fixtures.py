@@ -5,6 +5,46 @@ import json
 from typing import Any
 
 
+def span(text: str, quote: str) -> dict[str, Any]:
+    start = text.index(quote)
+    return {
+        "status": "present",
+        "quote": quote,
+        "start": start,
+        "end": start + len(quote),
+    }
+
+
+def guardian_reader_value_payload(**overrides: Any) -> dict[str, Any]:
+    text = "Megan signed the withdrawal. The lender froze the draw."
+    default_span = span(text, "Megan signed the withdrawal.")
+    payoff_span = span(text, "The lender froze the draw.")
+    payload: dict[str, Any] = {
+        "agency": default_span,
+        "resource_change": default_span,
+        "local_payoff": payoff_span,
+        "ending_hook": payoff_span,
+        "reader_jobs": {
+            "recognition": default_span,
+            "anger": default_span,
+        },
+        "belonging_anchors": {},
+        "free_trial_beats": [],
+        "child_voice": {"status": "not_applicable", "quote": None, "start": None, "end": None},
+        "institutional_plausibility": default_span,
+        "findings": [],
+    }
+    for key, value in overrides.items():
+        if key.endswith("_span"):
+            target = {"payoff": "local_payoff", "hook": "ending_hook"}.get(
+                key[:-5], key[:-5]
+            )
+            payload[target] = value
+        else:
+            payload[key] = value
+    return payload
+
+
 def commercial_story_payload() -> dict[str, Any]:
     return {
         "schema_version": 1,

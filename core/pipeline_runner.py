@@ -60,6 +60,7 @@ from publication_source import (
 )
 from quality import EvaluationReport, EvaluationRequest, QualityLab
 from commercial_quality import (
+    CommercialChapterReport,
     ChapterDesignReport,
     chapter_design_input_hashes,
     validate_chapter_design,
@@ -80,6 +81,7 @@ _STAGE_AGENTS = {
     "chapter.write": "scribe",
     "chapter.edit": "editor",
     "chapter.validate": "continuity_guardian",
+    "chapter.commercial_check": "continuity_guardian",
     "chapter.style": "style_curator",
     "publication.copy": "style_curator",
 }
@@ -109,8 +111,21 @@ def _is_repair_phase(phase: str) -> bool:
     return phase.startswith("chapter.repair.")
 
 
+def _is_commercial_repair_phase(phase: str) -> bool:
+    return phase.startswith("chapter.commercial.repair.")
+
+
 def _repair_number(phase: str) -> int:
     if not _is_repair_phase(phase):
+        return 0
+    try:
+        return int(phase.rsplit(".", 1)[1])
+    except ValueError:
+        return 0
+
+
+def _commercial_repair_number(phase: str) -> int:
+    if not _is_commercial_repair_phase(phase):
         return 0
     try:
         return int(phase.rsplit(".", 1)[1])
@@ -579,6 +594,7 @@ class PipelineRunner:
             setattr(orchestrator, "raise_llm_errors", True)
             setattr(orchestrator, "state_update_mode", "proposal_only")
             setattr(orchestrator, "quality_policy", manifest.spec.quality_policy)
+            setattr(orchestrator, "pipeline_run_id", manifest.run_id)
             self._active_orchestrator = orchestrator
             self._stage(
                 manifest,
@@ -931,6 +947,78 @@ class PipelineRunner:
             ),
             [self._chapter_report(number, "style"), self._chapter_stage(number, "candidate_final")],
         )
+
+        # Commercial reader-value delivery is a separate gate from ordinary
+        # continuity. It reviews the exact style candidate and, under auto
+        # approval, may replace that candidate at most max_quality_repairs times.
+        commercial_review = getattr(orchestrator, "review_commercial_chapter", None)
+        commercial_repair = getattr(orchestrator, "repair_commercial_chapter", None)
+        if commercial_story is not None and callable(commercial_review):
+            commercial_auto_repair = bool(
+                spec.approval_policy == "auto"
+                and spec.max_quality_repairs > 0
+                and callable(commercial_repair)
+            )
+            commercial_attempt = 0
+            while True:
+                commercial_error: Optional[PipelineError] = None
+                try:
+                    self._stage(
+                        manifest,
+                        project,
+                        store,
+                        "chapter.commercial_check",
+                        number,
+                        lambda: commercial_review(number, dry_run=False),
+                        self._validate_commercial_result,
+                        [
+                            self._commercial_report(number),
+                            self._chapter_stage(number, "candidate_final"),
+                        ],
+                    )
+                except PipelineError as exc:
+                    if not (commercial_auto_repair and exc.blocked):
+                        raise
+                    commercial_error = exc
+
+                if commercial_error is None:
+                    break
+                if commercial_attempt >= spec.max_quality_repairs:
+                    raise PipelineError(
+                        f"Chapter {number} commercial delivery still blocked after "
+                        f"{spec.max_quality_repairs} automatic repair attempts",
+                        blocked=True,
+                    )
+                commercial_attempt += 1
+                feedback = self._commercial_repair_feedback(project, number, commercial_error)
+                commercial_report = self._load_commercial_report(project, number)
+                repair_phase = f"chapter.commercial.repair.{commercial_attempt}"
+                self._event(
+                    manifest,
+                    "chapter.commercial_repair_started",
+                    chapter=number,
+                    repair_attempt=commercial_attempt,
+                )
+                self._stage(
+                    manifest,
+                    project,
+                    store,
+                    repair_phase,
+                    number,
+                    lambda attempt=commercial_attempt, repair_report=commercial_report, repair_feedback=feedback: commercial_repair(
+                        number, repair_report or repair_feedback, attempt, dry_run=False
+                    ),
+                    lambda _value: self._require_files(
+                        project, [self._chapter_stage(number, "candidate_final")]
+                    ),
+                    [self._chapter_stage(number, "candidate_final")],
+                )
+                self._event(
+                    manifest,
+                    "chapter.commercial_repair_done",
+                    chapter=number,
+                    repair_attempt=commercial_attempt,
+                )
         self._stage(
             manifest, project, store, "chapter.promote", number,
             lambda: self._promote(manifest, project, number),
@@ -1314,6 +1402,10 @@ class PipelineRunner:
             "chapter.edit": [PipelineRunner._chapter_stage(chapter or 0, "draft")],
             "chapter.check.post": [PipelineRunner._chapter_stage(chapter or 0, "revised")],
             "chapter.validate": [PipelineRunner._chapter_stage(chapter or 0, "revised")],
+            "chapter.commercial_check": [
+                PipelineRunner._chapter_stage(chapter or 0, "candidate_final"),
+                PipelineRunner._chapter_outline(chapter or 0),
+            ],
             "chapter.style": [
                 PipelineRunner._chapter_stage(chapter or 0, "revised"),
                 PipelineRunner._chapter_report(chapter or 0, "continuity"),
@@ -1333,6 +1425,10 @@ class PipelineRunner:
         }
         if _is_repair_phase(phase):
             inputs[phase] = []
+        if _is_commercial_repair_phase(phase):
+            inputs[phase] = [
+                PipelineRunner._chapter_stage(chapter or 0, "candidate_final"),
+            ]
         file_hashes = {
             relative: PipelineRunner._sha256(project / relative)
             for relative in inputs.get(phase, [])
@@ -1594,6 +1690,16 @@ class PipelineRunner:
             result.findings = [item.to_dict() for item in value.findings]
             result.decisions = [f"design_status:{value.status}"]
 
+        if result.phase == "chapter.commercial_check" and isinstance(
+            value, CommercialChapterReport
+        ):
+            result.findings = [item.to_dict() for item in value.findings]
+            result.decisions = [
+                f"commercial_status:{value.status}",
+                f"commercial_report_id:{value.report_id}",
+                f"commercial_candidate_sha256:{value.artifact_sha256}",
+            ]
+
         if result.phase == "intake":
             from state_manager import StoryState
 
@@ -1652,7 +1758,11 @@ class PipelineRunner:
         proposal_ids = getattr(orchestrator, "last_canon_proposal_ids", ())
         if (
             result.chapter is not None
-            and (result.phase in _STAGE_AGENTS or _is_repair_phase(result.phase))
+            and (
+                result.phase in _STAGE_AGENTS
+                or _is_repair_phase(result.phase)
+                or _is_commercial_repair_phase(result.phase)
+            )
             and proposal_ids
         ):
             result.canon_proposal_ids = [str(value) for value in proposal_ids]
@@ -1663,7 +1773,9 @@ class PipelineRunner:
             "chapter.style": ("final", "style_curator"),
         }
         revision_spec = (
-            ("revised", "editor")
+            ("final", "style_curator")
+            if _is_commercial_repair_phase(result.phase)
+            else ("revised", "editor")
             if _is_repair_phase(result.phase)
             else revision_specs.get(result.phase)
         )
@@ -1671,7 +1783,10 @@ class PipelineRunner:
             kind, source = revision_spec
             relative = self._chapter_stage(
                 result.chapter,
-                "candidate_final" if result.phase == "chapter.style" else kind,
+                "candidate_final"
+                if result.phase == "chapter.style"
+                or _is_commercial_repair_phase(result.phase)
+                else kind,
             )
             artifact_path = project / relative
             artifacts = ArtifactStore(project)
@@ -1684,6 +1799,11 @@ class PipelineRunner:
             parent_revision_id = None
             if result.phase == "chapter.edit":
                 previous = manifest.get("chapter.write", result.chapter)
+                parent_revision_id = previous.revision_id if previous else None
+            elif _is_commercial_repair_phase(result.phase):
+                previous = self._latest_candidate_stage(
+                    manifest, result.chapter, exclude_phase=result.phase
+                )
                 parent_revision_id = previous.revision_id if previous else None
             elif _is_repair_phase(result.phase):
                 previous = self._latest_editor_stage(
@@ -1712,13 +1832,13 @@ class PipelineRunner:
             result.chapter_contract_revision_id = chapter_contract_id
 
         if result.phase == "chapter.promote" and result.chapter is not None:
-            style = manifest.get("chapter.style", result.chapter)
-            if style is not None:
-                result.revision_id = style.revision_id
-                result.story_contract_revision_id = style.story_contract_revision_id
-                result.chapter_contract_revision_id = style.chapter_contract_revision_id
-                result.canon_proposal_ids = list(style.canon_proposal_ids)
-                result.evaluation_report_ids = list(style.evaluation_report_ids)
+            candidate_stage = self._latest_candidate_stage(manifest, result.chapter)
+            if candidate_stage is not None:
+                result.revision_id = candidate_stage.revision_id
+                result.story_contract_revision_id = candidate_stage.story_contract_revision_id
+                result.chapter_contract_revision_id = candidate_stage.chapter_contract_revision_id
+                result.canon_proposal_ids = list(candidate_stage.canon_proposal_ids)
+                result.evaluation_report_ids = list(candidate_stage.evaluation_report_ids)
             if manifest.spec.quality_policy == "evidence_v1":
                 if not isinstance(value, dict):
                     raise PipelineError("Evidence promotion returned no receipt payload")
@@ -1877,6 +1997,86 @@ class PipelineRunner:
             raise PipelineError(
                 f"Evidence record validation failed: {exc}", blocked=True
             ) from exc
+
+        try:
+            PipelineRunner._validate_commercial_record_binding(manifest, project, result)
+        except PipelineError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - normalize durable record failures
+            raise PipelineError(
+                f"Commercial evidence record validation failed: {exc}", blocked=True
+            ) from exc
+
+    @staticmethod
+    def _validate_commercial_record_binding(
+        manifest: RunManifest, project: Path, result: StageResult
+    ) -> None:
+        if (
+            manifest.spec.quality_policy != "evidence_v1"
+            or result.phase != "chapter.promote"
+            or result.chapter is None
+        ):
+            return
+        check = manifest.get("chapter.commercial_check", result.chapter)
+        if check is None or check.status != "done":
+            return
+        path = project / PipelineRunner._commercial_report(result.chapter)
+        if not path.is_file():
+            raise ValueError("commercial chapter report record is missing")
+        report = CommercialChapterReport.from_dict(
+            json.loads(path.read_text(encoding="utf-8"))
+        )
+        if report.status == "blocked":
+            raise ValueError("commercial chapter report is blocked")
+        revision = ArtifactStore(project).get_revision(result.revision_id)
+        if report.artifact_sha256 != revision.sha256:
+            raise ValueError("commercial report is not bound to the promoted artifact")
+        receipt = PromotionService(project).load_receipt(
+            f"pipeline-{manifest.run_id}-chapter-{result.chapter}",
+            check_current_tail=False,
+        )
+        if receipt is None:
+            raise ValueError("commercial promotion receipt is missing")
+        metadata = dict(receipt.decision_metadata)
+        if (
+            metadata.get("commercial_report_id") != report.report_id
+            or metadata.get("commercial_report_artifact_sha256") != report.artifact_sha256
+        ):
+            raise ValueError("promotion receipt is missing commercial report metadata")
+        if not any(
+            decision == f"commercial_report_id:{report.report_id}"
+            for decision in check.decisions
+        ):
+            raise ValueError("promotion is missing the commercial report binding")
+
+    @staticmethod
+    def _commercial_promotion_metadata(
+        project: Path, number: int, candidate_sha256: str
+    ) -> dict[str, str]:
+        path = project / PipelineRunner._commercial_report(number)
+        if not path.is_file():
+            raise PipelineError(
+                f"Chapter {number} commercial report is missing",
+                blocked=True,
+            )
+        try:
+            report = CommercialChapterReport.from_dict(
+                json.loads(path.read_text(encoding="utf-8"))
+            )
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+            raise PipelineError(
+                f"Chapter {number} commercial report is invalid",
+                blocked=True,
+            )
+        if report.status == "blocked" or report.artifact_sha256 != candidate_sha256:
+            raise PipelineError(
+                f"Chapter {number} commercial report does not match candidate",
+                blocked=True,
+            )
+        return {
+            "commercial_report_id": report.report_id,
+            "commercial_report_artifact_sha256": report.artifact_sha256,
+        }
 
     @staticmethod
     def _resolve_spec_from_brief(manifest: RunManifest, project: Path, store: ManifestStore) -> None:
@@ -2457,6 +2657,47 @@ class PipelineRunner:
             raise PipelineError(f"Continuity Guardian blocked chapter {number}", blocked=True)
 
     @staticmethod
+    def _validate_commercial_result(value: Any) -> None:
+        if not isinstance(value, CommercialChapterReport):
+            raise PipelineError(
+                "Commercial Guardian returned no structured chapter report",
+                blocked=True,
+            )
+        if value.status == "blocked":
+            details = "; ".join(item.message for item in value.blockers)
+            raise PipelineError(
+                f"Commercial Guardian blocked chapter {value.chapter}: "
+                f"{details or 'reader-value delivery failed'}",
+                blocked=True,
+            )
+
+    @staticmethod
+    def _commercial_repair_feedback(
+        project: Path, number: int, error: PipelineError
+    ) -> str:
+        report = project / PipelineRunner._commercial_report(number)
+        report_text = (
+            report.read_text(encoding="utf-8")
+            if report.is_file()
+            else "[No commercial Guardian report was produced]"
+        )
+        return f"Commercial gate: {error}\n\n{report_text}"
+
+    @staticmethod
+    def _load_commercial_report(
+        project: Path, number: int
+    ) -> Optional[CommercialChapterReport]:
+        path = project / PipelineRunner._commercial_report(number)
+        if not path.is_file():
+            return None
+        try:
+            return CommercialChapterReport.from_dict(
+                json.loads(path.read_text(encoding="utf-8"))
+            )
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+            return None
+
+    @staticmethod
     def _curate(orchestrator: Any, number: int) -> Any:
         method = getattr(orchestrator, "curate_chapter", None)
         if method is None:
@@ -2505,14 +2746,14 @@ class PipelineRunner:
         number: int,
     ) -> Dict[str, Any]:
         self._restore_committed_tail_state(manifest, project)
-        style = manifest.get("chapter.style", number)
-        if style is None or not style.revision_id:
+        candidate_stage = self._latest_candidate_stage(manifest, number)
+        if candidate_stage is None or not candidate_stage.revision_id:
             raise PipelineError(
                 f"Chapter {number} candidate has no immutable artifact revision",
                 blocked=True,
             )
         artifacts = ArtifactStore(project)
-        candidate = artifacts.get_revision(style.revision_id)
+        candidate = artifacts.get_revision(candidate_stage.revision_id)
         candidate_text = artifacts.read_text(candidate.revision_id)
         proposal_id = self._build_evidence_proposal_chain(
             manifest, project, number, candidate.sha256
@@ -2521,8 +2762,8 @@ class PipelineRunner:
             number,
             candidate_text,
             artifact_revision_id=candidate.revision_id,
-            story_contract_id=style.story_contract_revision_id,
-            chapter_contract_id=style.chapter_contract_revision_id,
+            story_contract_id=candidate_stage.story_contract_revision_id,
+            chapter_contract_id=candidate_stage.chapter_contract_revision_id,
         )
         report = QualityLab.evaluate_deterministic(
             evaluation_request,
@@ -2554,12 +2795,19 @@ class PipelineRunner:
                 artifacts.get_revision(current.revision_id).sha256 if current else None
             ),
             base_canon_sha=canonical_canon_sha(StoryState(str(project))),
-            story_contract_revision_id=style.story_contract_revision_id or None,
-            chapter_contract_revision_id=style.chapter_contract_revision_id or None,
+            story_contract_revision_id=candidate_stage.story_contract_revision_id or None,
+            chapter_contract_revision_id=candidate_stage.chapter_contract_revision_id or None,
             idempotency_key=f"pipeline-{manifest.run_id}-chapter-{number}",
             actor="pipeline",
             reason="evidence_v1 quality gates passed",
-            decision_metadata={"run_id": manifest.run_id},
+            decision_metadata={
+                "run_id": manifest.run_id,
+                **(
+                    self._commercial_promotion_metadata(project, number, candidate.sha256)
+                    if manifest.get("chapter.commercial_check", number) is not None
+                    else {}
+                ),
+            },
         )
         receipt = PromotionService(project).promote(request)
         self._atomic_text(
@@ -2594,6 +2842,21 @@ class PipelineRunner:
                 )
             )
             phases.extend(_EVIDENCE_PROPOSAL_PHASES[3:])
+            phases.extend(
+                result.phase
+                for result in sorted(
+                    (
+                        result
+                        for result in manifest.stages.values()
+                        if result.chapter == number
+                        and result.status == "done"
+                        and _is_commercial_repair_phase(result.phase)
+                    ),
+                    key=lambda result: _commercial_repair_number(result.phase),
+                )
+            )
+            if manifest.get("chapter.commercial_check", number) is not None:
+                phases.append("chapter.commercial_check")
             for phase in phases:
                 stage = manifest.get(phase, number)
                 if stage is None or not stage.canon_proposal_ids:
@@ -2629,10 +2892,13 @@ class PipelineRunner:
                 blocked=True,
             ) from exc
 
-        style = manifest.get("chapter.style", number)
-        if style is not None and bundled.proposal_id not in style.canon_proposal_ids:
-            style.canon_proposal_ids.append(bundled.proposal_id)
-            self._write_stage_result(manifest, project, style)
+        candidate_stage = self._latest_candidate_stage(manifest, number)
+        if (
+            candidate_stage is not None
+            and bundled.proposal_id not in candidate_stage.canon_proposal_ids
+        ):
+            candidate_stage.canon_proposal_ids.append(bundled.proposal_id)
+            self._write_stage_result(manifest, project, candidate_stage)
         return bundled.proposal_id
 
     @staticmethod
@@ -2680,18 +2946,18 @@ class PipelineRunner:
             encoding="utf-8"
         ).strip():
             raise ValueError(f"Chapter {number} candidate final is empty")
-        style = manifest.get("chapter.style", number)
-        if style:
+        candidate_stage = self._latest_candidate_stage(manifest, number)
+        if candidate_stage:
             # Human edits are an expected part of review, not checkpoint
             # corruption. Approval makes the reviewed candidate the new trusted
             # Style-stage artifact before resume validates prior checkpoints.
-            style.artifact_hashes[candidate_relative] = self._sha256(candidate)
-            style.decisions.append("Human reviewed the candidate-final artifact.")
-            self._refresh_reviewed_candidate(project, number, style)
-            self._write_stage_result(manifest, project, style)
+            candidate_stage.artifact_hashes[candidate_relative] = self._sha256(candidate)
+            candidate_stage.decisions.append("Human reviewed the candidate-final artifact.")
+            self._refresh_reviewed_candidate(project, number, candidate_stage)
+            self._write_stage_result(manifest, project, candidate_stage)
             store.save(manifest)
         if manifest.spec.quality_policy == "evidence_v1":
-            if style is None:
+            if candidate_stage is None:
                 raise ValueError(
                     f"Chapter {number} has no evidence candidate stage"
                 )
@@ -2711,16 +2977,16 @@ class PipelineRunner:
                 artifact_paths=[relative],
                 artifact_hashes={relative: self._sha256(target)},
                 revision_id=receipt.new_artifact_revision_id,
-                story_contract_revision_id=style.story_contract_revision_id,
-                chapter_contract_revision_id=style.chapter_contract_revision_id,
-                canon_proposal_ids=list(style.canon_proposal_ids),
+                story_contract_revision_id=candidate_stage.story_contract_revision_id,
+                chapter_contract_revision_id=candidate_stage.chapter_contract_revision_id,
+                canon_proposal_ids=list(candidate_stage.canon_proposal_ids),
                 evaluation_report_ids=[report.report_id],
                 promotion_receipt_id=receipt.receipt_id,
                 decisions=[
                     "Human approval recorded; evidence-backed candidate promoted."
                 ],
-                provider=style.provider,
-                model=style.model,
+                provider=candidate_stage.provider,
+                model=candidate_stage.model,
                 started_at=current.started_at or self._now(),
                 finished_at=self._now(),
             )
@@ -2740,17 +3006,17 @@ class PipelineRunner:
             ),
             artifact_paths=[relative],
             artifact_hashes={relative: self._sha256(target)},
-            revision_id=style.revision_id if style else "",
+            revision_id=candidate_stage.revision_id if candidate_stage else "",
             story_contract_revision_id=(
-                style.story_contract_revision_id if style else ""
+                candidate_stage.story_contract_revision_id if candidate_stage else ""
             ),
             chapter_contract_revision_id=(
-                style.chapter_contract_revision_id if style else ""
+                candidate_stage.chapter_contract_revision_id if candidate_stage else ""
             ),
-            canon_proposal_ids=list(style.canon_proposal_ids) if style else [],
+            canon_proposal_ids=list(candidate_stage.canon_proposal_ids) if candidate_stage else [],
             decisions=["Human approval recorded by CLI; candidate promoted to canonical final."],
-            provider=style.provider if style else "",
-            model=style.model if style else "",
+            provider=candidate_stage.provider if candidate_stage else "",
+            model=candidate_stage.model if candidate_stage else "",
             started_at=current.started_at or self._now(),
             finished_at=self._now(),
         )
@@ -3062,7 +3328,11 @@ class PipelineRunner:
         return _DeliveryStageValue(package_result, h5_result, decision)
 
     def _runtime_model(self, phase: str) -> tuple[str, str]:
-        agent_name = "editor" if _is_repair_phase(phase) else _STAGE_AGENTS.get(phase)
+        agent_name = (
+            "editor"
+            if _is_repair_phase(phase) or _is_commercial_repair_phase(phase)
+            else _STAGE_AGENTS.get(phase)
+        )
         if agent_name is None:
             return "", ""
         orchestrator = getattr(self, "_active_orchestrator", None)
@@ -3101,6 +3371,35 @@ class PipelineRunner:
         )
 
     @staticmethod
+    def _latest_candidate_stage(
+        manifest: RunManifest,
+        chapter: int,
+        *,
+        exclude_phase: str = "",
+    ) -> Optional[StageResult]:
+        candidates = [
+            result
+            for result in manifest.stages.values()
+            if result.chapter == chapter
+            and result.status == "done"
+            and result.phase != exclude_phase
+            and (
+                result.phase == "chapter.style"
+                or _is_commercial_repair_phase(result.phase)
+            )
+            and result.revision_id
+        ]
+        if not candidates:
+            return None
+        return max(
+            candidates,
+            key=lambda result: (
+                1 if _is_commercial_repair_phase(result.phase) else 0,
+                _commercial_repair_number(result.phase),
+            ),
+        )
+
+    @staticmethod
     def _chapter_outline(number: int) -> str:
         return f"outputs/chapter_{number:03d}_outline.md"
 
@@ -3111,6 +3410,10 @@ class PipelineRunner:
     @staticmethod
     def _chapter_report(number: int, report: str) -> str:
         return f"outputs/feedback/chapter_{number:03d}_{report}_report.md"
+
+    @staticmethod
+    def _commercial_report(number: int) -> str:
+        return f"outputs/quality/commercial/chapter_{number:03d}_report.json"
 
     @staticmethod
     def _format_extension(fmt: str) -> str:
