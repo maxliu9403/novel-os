@@ -323,6 +323,13 @@ def test_source_models_and_public_boundaries_reject_forged_content():
     with pytest.raises(PublicationSourceError, match="source_set_sha256"):
         group_source_chapters(forged_set)
 
+    with pytest.raises(PublicationSourceError, match="PublicationSourceSet"):
+        publication_source_input_hash(None)
+    with pytest.raises(PublicationSourceError, match="max_codepoints"):
+        group_source_chapters(_source_set(["Valid source."]), max_codepoints=0)
+    with pytest.raises(PublicationSourceError, match="nonempty sequence"):
+        build_evidence_ledger(())
+
 
 def test_grouping_preserves_all_text_and_only_splits_at_paragraph_boundaries():
     source = _source_set(["A" * 90_000 + "\n\n" + "B" * 40_000, "Chapter two."])
@@ -335,10 +342,16 @@ def test_grouping_preserves_all_text_and_only_splits_at_paragraph_boundaries():
         item.text for item in flattened if item.number == 1
     ) == source.chapters[0].text
     assert flattened[0].text.endswith("\n\n")
-    assert flattened[0].sha256 == hashlib.sha256(
+    assert flattened[0].revision_id == source.chapters[0].revision_id
+    assert flattened[0].sha256 == source.chapters[0].sha256
+    assert flattened[0].promotion_receipt_id == (
+        source.chapters[0].promotion_receipt_id
+    )
+    assert flattened[0].segment_sha256 == hashlib.sha256(
         flattened[0].text.encode("utf-8")
     ).hexdigest()
-    assert flattened[0].sha256 != source.chapters[0].sha256
+    assert flattened[0].segment_sha256 != source.chapters[0].sha256
+    assert [item.segment_ordinal for item in flattened[:2]] == [1, 2]
     assert source.source_set_sha256 == publication_source_input_hash(source)
     assert all(
         sum(len(item.text) for item in group) <= 120_000 for group in groups
@@ -354,11 +367,24 @@ def test_grouping_preserves_all_text_and_only_splits_at_paragraph_boundaries():
     ]
     assert [record["chapter"] for record in ledger_records] == [1, 1, 2]
     assert all(
-        record["sha256"]
+        record["source_sha256"] == item.sha256
+        and record["revision_id"] == item.revision_id
+        and record["segment_sha256"]
         == hashlib.sha256(record["source_quote"].encode("utf-8")).hexdigest()
-        == record["segment_sha256"]
-        for record in ledger_records
+        for record, item in zip(ledger_records, flattened, strict=True)
     )
+
+    with pytest.raises(ValueError, match="whole Final chapters"):
+        replace(source, chapters=(flattened[0], source.chapters[1]))
+
+
+def test_evidence_ledger_rejects_a_forged_segment_hash():
+    source = _source_set(["A" * 12 + "\n\n" + "B" * 12])
+    segment = group_source_chapters(source, max_codepoints=14)[0][0]
+    object.__setattr__(segment, "segment_sha256", "f" * 64)
+
+    with pytest.raises(PublicationSourceError, match="segment_sha256 does not match"):
+        build_evidence_ledger((segment,))
 
 
 def test_grouping_rejects_a_paragraph_that_cannot_fit():
@@ -378,6 +404,24 @@ def test_grouping_preserves_crlf_paragraph_boundaries_exactly():
     assert len(segments) == 2
     assert segments[0].text.endswith("\r\n \r\n")
     assert "".join(item.text for item in segments) == original
+
+
+def test_grouping_preserves_a_whitespace_only_final_segment_exactly():
+    original = "A" * 12 + "\n\n" + " " * 20
+    source = _source_set([original])
+
+    groups = group_source_chapters(source, max_codepoints=14)
+    segments = [item for group in groups for item in group]
+
+    assert [len(item.text) for item in segments] == [14, 14, 6]
+    assert segments[-1].text.isspace()
+    assert all(len(item.text) <= 14 for item in segments)
+    assert "".join(item.text for item in segments) == original
+    assert all(
+        item.segment_sha256
+        == hashlib.sha256(item.text.encode("utf-8")).hexdigest()
+        for item in segments
+    )
 
 
 def test_conflict_evidence_requires_exact_quotes_from_each_proportional_bucket():

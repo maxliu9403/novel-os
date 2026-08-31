@@ -48,6 +48,8 @@ class SourceChapter:
     text: str
     promotion_receipt_id: str
     finalized_at: str
+    segment_sha256: str | None = None
+    segment_ordinal: int | None = None
 
     def __post_init__(self) -> None:
         if type(self.number) is not int or self.number < 1:
@@ -62,10 +64,30 @@ class SourceChapter:
             raise ValueError("source chapter revision_id must be lowercase SHA-256")
         if not isinstance(self.sha256, str) or not _SHA256_RE.fullmatch(self.sha256):
             raise ValueError("source chapter sha256 must be lowercase SHA-256")
-        if not isinstance(self.text, str) or not self.text.strip():
-            raise ValueError("source chapter text must be a nonblank string")
-        if self.sha256 != _text_sha256(self.text):
-            raise ValueError("source chapter sha256 does not match its UTF-8 text")
+        if not isinstance(self.text, str) or not self.text:
+            raise ValueError("source chapter text must be a nonempty string")
+        is_segment = self.segment_sha256 is not None or self.segment_ordinal is not None
+        if is_segment:
+            if (
+                not isinstance(self.segment_sha256, str)
+                or not _SHA256_RE.fullmatch(self.segment_sha256)
+            ):
+                raise ValueError("source chapter segment_sha256 must be SHA-256")
+            if type(self.segment_ordinal) is not int or self.segment_ordinal < 1:
+                raise ValueError(
+                    "source chapter segment_ordinal must be a positive integer"
+                )
+            if self.segment_sha256 != _text_sha256(self.text):
+                raise ValueError(
+                    "source chapter segment_sha256 does not match its UTF-8 text"
+                )
+        else:
+            if not self.text.strip():
+                raise ValueError("whole source chapter text must be nonblank")
+            if self.sha256 != _text_sha256(self.text):
+                raise ValueError(
+                    "source chapter sha256 does not match its UTF-8 text"
+                )
         if (
             not isinstance(self.promotion_receipt_id, str)
             or not _RECEIPT_ID_RE.fullmatch(self.promotion_receipt_id)
@@ -96,6 +118,10 @@ class PublicationSourceSet:
             )
         for chapter in self.chapters:
             SourceChapter.__post_init__(chapter)
+            if chapter.segment_sha256 is not None:
+                raise ValueError(
+                    "publication source sets must contain whole Final chapters"
+                )
         numbers = [chapter.number for chapter in self.chapters]
         if numbers != sorted(numbers) or len(numbers) != len(set(numbers)):
             raise ValueError(
@@ -196,8 +222,8 @@ def build_publication_source_set(
                 stage,
             )
 
-        chapters.append(
-            SourceChapter(
+        try:
+            source_chapter = SourceChapter(
                 number=number,
                 title=_chapter_title(text, number),
                 revision_id=revision.revision_id,
@@ -206,14 +232,23 @@ def build_publication_source_set(
                 promotion_receipt_id=receipt_id,
                 finalized_at=finalized_at,
             )
-        )
+        except (TypeError, ValueError) as exc:
+            raise PublicationSourceError(
+                f"chapter {number} publication source binding is invalid: {exc}"
+            ) from exc
+        chapters.append(source_chapter)
 
     source_chapters = tuple(chapters)
-    return PublicationSourceSet(
-        run_id=run_id,
-        chapters=source_chapters,
-        source_set_sha256=_source_identity_hash(source_chapters),
-    )
+    try:
+        return PublicationSourceSet(
+            run_id=run_id,
+            chapters=source_chapters,
+            source_set_sha256=_source_identity_hash(source_chapters),
+        )
+    except (TypeError, ValueError) as exc:
+        raise PublicationSourceError(
+            f"publication source set binding is invalid: {exc}"
+        ) from exc
 
 
 def publication_source_input_hash(source_set: PublicationSourceSet) -> str:
@@ -235,7 +270,9 @@ def group_source_chapters(
     """
 
     if type(max_codepoints) is not int or max_codepoints < 1:
-        raise ValueError("max_codepoints must be a positive integer")
+        raise PublicationSourceError(
+            "max_codepoints must be a positive integer"
+        )
     _require_source_set_integrity(source_set)
 
     segments: list[SourceChapter] = []
@@ -266,23 +303,27 @@ def build_evidence_ledger(group: Sequence[SourceChapter]) -> str:
         or not isinstance(group, Sequence)
         or not group
     ):
-        raise ValueError("evidence ledger group must be a nonempty sequence")
-    occurrence: dict[int, int] = {}
+        raise PublicationSourceError(
+            "evidence ledger group must be a nonempty sequence"
+        )
     records: list[str] = []
     for item in group:
         if not isinstance(item, SourceChapter):
-            raise TypeError("evidence ledger entries must be SourceChapter values")
+            raise PublicationSourceError(
+                "evidence ledger entries must be SourceChapter values"
+            )
         _require_source_chapter_integrity(item)
-        occurrence[item.number] = occurrence.get(item.number, 0) + 1
+        segment_sha256 = item.segment_sha256 or item.sha256
+        segment_ordinal = item.segment_ordinal or 1
         record = {
             "chapter": item.number,
             "title": item.title,
             "revision_id": item.revision_id,
-            "sha256": item.sha256,
+            "source_sha256": item.sha256,
             "promotion_receipt_id": item.promotion_receipt_id,
             "finalized_at": item.finalized_at,
-            "segment": occurrence[item.number],
-            "segment_sha256": hashlib.sha256(item.text.encode("utf-8")).hexdigest(),
+            "segment": segment_ordinal,
+            "segment_sha256": segment_sha256,
             "source_quote": item.text,
         }
         records.append(canonical_json_bytes(record).decode("utf-8"))
@@ -489,7 +530,7 @@ def _split_chapter(
     if len(chapter.text) <= max_codepoints:
         return [chapter]
 
-    segments: list[SourceChapter] = []
+    segment_texts: list[str] = []
     remaining = chapter.text
     while len(remaining) > max_codepoints:
         boundary_end = 0
@@ -499,27 +540,33 @@ def _split_chapter(
             if remaining[: match.end()].strip():
                 boundary_end = match.end()
         if boundary_end == 0:
-            raise PublicationSourceError(
-                f"chapter {chapter.number} contains a paragraph larger than "
-                f"max_codepoints; no paragraph boundary can preserve it"
-            )
-        segment_text = remaining[:boundary_end]
-        segments.append(
-            replace(
-                chapter,
-                text=segment_text,
-                sha256=_text_sha256(segment_text),
-            )
-        )
+            if remaining[:max_codepoints].isspace():
+                boundary_end = max_codepoints
+            else:
+                raise PublicationSourceError(
+                    f"chapter {chapter.number} contains a paragraph larger than "
+                    f"max_codepoints; no paragraph boundary can preserve it"
+                )
+        segment_texts.append(remaining[:boundary_end])
         remaining = remaining[boundary_end:]
     if remaining:
-        segments.append(
-            replace(
-                chapter,
-                text=remaining,
-                sha256=_text_sha256(remaining),
+        segment_texts.append(remaining)
+
+    segments: list[SourceChapter] = []
+    for ordinal, segment_text in enumerate(segment_texts, start=1):
+        try:
+            segments.append(
+                replace(
+                    chapter,
+                    text=segment_text,
+                    segment_sha256=_text_sha256(segment_text),
+                    segment_ordinal=ordinal,
+                )
             )
-        )
+        except (TypeError, ValueError) as exc:
+            raise PublicationSourceError(
+                f"chapter {chapter.number} segment {ordinal} is invalid: {exc}"
+            ) from exc
     return segments
 
 
@@ -595,10 +642,12 @@ def _require_source_chapter_integrity(chapter: SourceChapter) -> None:
 
 def _require_source_set_integrity(source_set: PublicationSourceSet) -> None:
     if not isinstance(source_set, PublicationSourceSet):
-        raise TypeError("source_set must be a PublicationSourceSet")
+        raise PublicationSourceError(
+            "source_set must be a PublicationSourceSet"
+        )
     try:
         PublicationSourceSet.__post_init__(source_set)
-    except ValueError as exc:
+    except (AttributeError, TypeError, ValueError) as exc:
         raise PublicationSourceError(
             f"invalid publication source set: {exc}"
         ) from exc
