@@ -187,6 +187,9 @@ class ChapterState:
     payoff_events: List[Dict[str, Any]] = field(default_factory=list)
     arc_state_updates: List[Dict[str, Any]] = field(default_factory=list)
     ending_evidence: List[str] = field(default_factory=list)
+    # Verified commercial reader-value delivery. These records are accepted
+    # only from continuity-guardian canon proposals after evidence checks.
+    reader_value_updates: List[Dict[str, Any]] = field(default_factory=list)
     character_references: List[Dict[str, Any]] = field(default_factory=list)
     hooks_start: List[str] = field(default_factory=list)
     hooks_end: List[str] = field(default_factory=list)

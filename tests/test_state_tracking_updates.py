@@ -6,6 +6,9 @@ from continuity_engine import run_all
 from context_pack import build_context_pack, format_context_pack
 from state_manager import Character, PlotThread, StoryState
 from state_parser import ingest_agent_output
+from canon import CanonDeltaProposal, apply_canon_proposal
+from commercial_fixtures import verified_reader_value_update
+import pytest
 
 
 def _state(tmp_path: Path) -> StoryState:
@@ -33,6 +36,64 @@ def _state(tmp_path: Path) -> StoryState:
         )
     )
     return state
+
+
+def test_verified_reader_value_update_is_replayed_as_canon(tmp_path):
+    state = _state(tmp_path)
+    source_sha = "a" * 64
+    update = verified_reader_value_update()
+    proposal = CanonDeltaProposal(
+        chapter=1,
+        agent_name="continuity_guardian",
+        source_artifact_sha=source_sha,
+        delta={"reader_value_updates": [update]},
+    )
+
+    apply_canon_proposal(state, proposal, source_sha)
+
+    restored = state.chapters[1].reader_value_updates[0]
+    assert restored["resource_dimension"] == "name"
+    assert restored["satisfaction_type"] == "boundary"
+    assert restored["hook_type"] == "consequence"
+
+
+def test_scribe_cannot_self_certify_reader_value(tmp_path):
+    state = _state(tmp_path)
+    proposal = CanonDeltaProposal(
+        chapter=1,
+        agent_name="scribe",
+        source_artifact_sha="b" * 64,
+        delta={"reader_value_updates": [verified_reader_value_update()]},
+    )
+
+    with pytest.raises(ValueError, match="continuity_guardian"):
+        apply_canon_proposal(state, proposal, "b" * 64)
+
+
+def test_reader_value_update_replay_is_idempotent_and_report_binding_is_strict(tmp_path):
+    state = _state(tmp_path)
+    source_sha = "a" * 64
+    update = verified_reader_value_update()
+    proposal = CanonDeltaProposal(
+        chapter=1,
+        agent_name="continuity_guardian",
+        source_artifact_sha=source_sha,
+        delta={"reader_value_updates": [update]},
+    )
+
+    apply_canon_proposal(state, proposal, source_sha)
+    apply_canon_proposal(state, proposal, source_sha)
+    assert len(state.chapters[1].reader_value_updates) == 1
+
+    conflicting = verified_reader_value_update(candidate_sha256="d" * 64)
+    conflict = CanonDeltaProposal(
+        chapter=1,
+        agent_name="continuity_guardian",
+        source_artifact_sha=source_sha,
+        delta={"reader_value_updates": [conflicting]},
+    )
+    with pytest.raises(ValueError, match="different candidate"):
+        apply_canon_proposal(state, conflict, source_sha)
 
 
 def test_agent_plot_thread_updates_are_applied_and_persisted(tmp_path):

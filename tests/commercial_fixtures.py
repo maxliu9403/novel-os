@@ -186,6 +186,22 @@ def chapter_contract_v2(**overrides: Any):
     return ChapterContract.from_dict(chapter_contract_v2_payload(**overrides))
 
 
+def verified_reader_value_update(**overrides: Any) -> dict[str, Any]:
+    update = {
+        "report_id": "commercial-chapter-report:" + "c" * 64,
+        "candidate_sha256": "a" * 64,
+        "reader_jobs": ["recognition", "anger"],
+        "belonging_anchors": [],
+        "resource_dimension": "name",
+        "resource_change": "Megan withdraws permit approval",
+        "satisfaction_type": "boundary",
+        "hook_type": "consequence",
+        "protagonist_caused_turn": True,
+    }
+    update.update(overrides)
+    return update
+
+
 def architect_foundation_text(
     commercial_story_contract: dict[str, Any], chapter_count: int = 3
 ) -> str:
