@@ -1,6 +1,7 @@
 import hashlib
 import json
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,11 @@ from commercial_fixtures import (
     high_overlap_reference,
     legacy_chapter_contract_payload,
 )
-from commercial_quality import review_commercial_chapter, write_commercial_report
+from commercial_quality import (
+    free_trial_beats_for_chapter,
+    review_commercial_chapter,
+    write_commercial_report,
+)
 from canon import CanonDeltaProposal
 from commercial_story import commercial_story_block
 from pipeline_models import RunSpec, StageResult
@@ -397,6 +402,183 @@ def test_pipeline_repairs_commercial_candidate_at_most_twice():
     assert manifest.get("chapter.commercial.repair.1", 1).status == "done"
     assert manifest.get("chapter.commercial.repair.2", 1).status == "done"
     assert manifest.get("chapter.promote", 1).status == "done"
+
+
+def run_with_free_trial_failure(tmp_path: Path, *, missing_payoff: bool = True):
+    """Run through chapter three with one intentionally omitted window payoff."""
+    contract = commercial_story_fixture_variant()
+    base = _commercial_factory(contract)
+
+    class FreeTrialFailureOrchestrator(base):
+        calls = []
+
+        def _proposal(self, number, agent_name, relative):
+            source = self.project / relative
+            proposal = ProposalStore(self.project).save(
+                CanonDeltaProposal(
+                    chapter=number,
+                    agent_name=agent_name,
+                    source_artifact_sha=hashlib.sha256(source.read_bytes()).hexdigest(),
+                    delta={"key_events": [f"{agent_name} completed chapter {number}"]},
+                )
+            )
+            self.last_canon_proposal_ids = [proposal.proposal_id]
+
+        def plan_chapter(self, number, summary="", pov="", dry_run=False):
+            type(self).calls.append(("chapter.plan", number))
+            super().plan_chapter(number, summary, pov, dry_run=dry_run)
+            jobs = (
+                ("recognition", "anger")
+                if number == 1
+                else ("anger", "agency")
+                if number == 2
+                else ("agency", "hope")
+            )
+            outline = self.outputs / f"chapter_{number:03d}_outline.md"
+            payload = chapter_contract_v2_payload(
+                chapter=number,
+                reader_jobs=jobs,
+                hook_type=("decision", "evidence", "deadline")[(number - 1) % 3],
+                seeded_resource_ids=(f"resource_{number:02d}",),
+                used_resource_ids=(f"resource_{number:02d}",),
+            )
+            with outline.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    "\n[CHAPTER_CONTRACT]\n"
+                    + json.dumps(payload)
+                    + "\n[/CHAPTER_CONTRACT]\n"
+                )
+            self._proposal(number, "architect", f"outputs/chapter_{number:03d}_outline.md")
+
+        def write_chapter(self, number, dry_run=False):
+            super().write_chapter(number, dry_run=dry_run)
+            self._proposal(
+                number, "scribe", f"outputs/manuscript/chapter_{number:03d}_draft.md"
+            )
+
+        def edit_chapter(self, number, mode="line", dry_run=False):
+            super().edit_chapter(number, mode, dry_run=dry_run)
+            self._proposal(
+                number, "editor", f"outputs/manuscript/chapter_{number:03d}_revised.md"
+            )
+
+        def validate_chapter(self, number, dry_run=False):
+            super().validate_chapter(number, dry_run=dry_run)
+            self._proposal(
+                number,
+                "continuity_guardian",
+                f"outputs/feedback/chapter_{number:03d}_continuity_report.md",
+            )
+
+        def curate_chapter(self, number, dry_run=False):
+            super().curate_chapter(number, dry_run=dry_run)
+            self._proposal(
+                number,
+                "style_curator",
+                f"outputs/manuscript/chapter_{number:03d}_candidate_final.md",
+            )
+
+        def review_commercial_chapter(self, number, dry_run=False):
+            candidate = self.manuscript / f"chapter_{number:03d}_candidate_final.md"
+            text = candidate.read_text(encoding="utf-8")
+            quote = next(line for line in text.splitlines() if line.strip())
+            evidence = span(text, quote)
+            artifacts = ArtifactStore(self.project)
+            chapter_head = artifacts.get_head(number, "chapter_contract")
+            story_head = artifacts.get_head(0, "story_contract")
+            chapter_contract = chapter_contract_v2(
+                **json.loads(artifacts.read_text(chapter_head.revision_id))
+            )
+            expected_beats = free_trial_beats_for_chapter(contract, number)
+            payload = {
+                "agency": evidence,
+                "resource_change": evidence,
+                "local_payoff": evidence,
+                "ending_hook": evidence,
+                "reader_jobs": {
+                    job: evidence for job in chapter_contract.reader_jobs
+                },
+                "belonging_anchors": {},
+                "free_trial_beats": {
+                    beat: evidence for beat in expected_beats
+                } if expected_beats else [],
+                "child_voice": {
+                    "status": "not_applicable", "quote": None, "start": None, "end": None
+                },
+                "institutional_plausibility": evidence,
+                "findings": [],
+            }
+            report = review_commercial_chapter(
+                text,
+                chapter_contract,
+                payload,
+                (),
+                story_contract_revision_id=story_head.revision_id,
+                chapter_contract_revision_id=chapter_head.revision_id,
+                expected_free_trial_beats=expected_beats,
+            )
+            if missing_payoff and number == contract.free_trial_arc.chapter_count:
+                report = replace(
+                    report,
+                    free_trial_beats=tuple(
+                        beat for beat in report.free_trial_beats if beat != "local_payoff"
+                    ),
+                )
+            write_commercial_report(self.project, report)
+            if report.reader_value_update is not None:
+                proposal = ProposalStore(self.project).save(
+                    CanonDeltaProposal(
+                        chapter=number,
+                        agent_name="continuity_guardian",
+                        source_artifact_sha=report.artifact_sha256,
+                        delta={
+                            "reader_value_updates": [dict(report.reader_value_update)]
+                        },
+                    )
+                )
+                self.last_canon_proposal_ids = [proposal.proposal_id]
+            return report
+
+    FreeTrialFailureOrchestrator.calls = []
+    prompt = tmp_path / "free-trial-prompt.md"
+    prompt.write_text(
+        "# Free Trial Test\n\n" + commercial_story_block(contract),
+        encoding="utf-8",
+    )
+    manifest = PipelineRunner(
+        orchestrator_factory=FreeTrialFailureOrchestrator
+    ).run(
+        RunSpec(
+            project_path=str(tmp_path / "free-trial-project"),
+            prompt_path=str(prompt),
+            num_chapters=12,
+            target_words=240,
+            approval_policy="auto",
+            quality_policy="evidence_v1",
+            max_quality_repairs=0,
+            output_formats=("markdown",),
+        )
+    )
+    return manifest, list(FreeTrialFailureOrchestrator.calls)
+
+
+def test_pipeline_stops_before_chapter_four_when_free_window_blocks(tmp_path):
+    manifest, calls = run_with_free_trial_failure(tmp_path)
+
+    assert manifest.get("commercial.free_trial_review").status == "blocked"
+    assert ("chapter.plan", 4) not in calls
+    assert manifest.get("commercial.book_review") is None
+
+
+def test_pipeline_stops_before_compile_when_whole_book_review_blocks(tmp_path):
+    manifest, calls = run_with_free_trial_failure(tmp_path, missing_payoff=False)
+
+    assert manifest.get("commercial.free_trial_review").status == "done"
+    assert ("chapter.plan", 12) in calls
+    assert manifest.get("commercial.book_review").status == "blocked"
+    assert manifest.get("ending.preflight") is None
+    assert manifest.get("book.check") is None
+    assert manifest.get("compile") is None
 
 
 def _write_originality_sibling(project: Path, contract) -> None:

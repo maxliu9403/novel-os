@@ -60,10 +60,18 @@ from publication_source import (
 )
 from quality import EvaluationReport, EvaluationRequest, QualityLab
 from commercial_quality import (
+    CommercialBookReport,
     CommercialChapterReport,
+    CommercialFreeTrialReport,
     ChapterDesignReport,
+    commercial_book_input_hashes,
+    commercial_free_trial_input_hashes,
     chapter_design_input_hashes,
+    evaluate_commercial_book,
+    evaluate_commercial_free_trial,
     validate_chapter_design,
+    write_commercial_book_report,
+    write_commercial_free_trial_report,
     write_design_report,
 )
 from story_originality import (
@@ -652,8 +660,44 @@ class PipelineRunner:
                 self._validate_foundation_commit,
                 [foundation_receipt],
             )
+            commercial_review_enabled = (
+                commercial_story is not None
+                and manifest.spec.quality_policy == "evidence_v1"
+                and manifest.spec.num_chapters
+                >= commercial_story.free_trial_arc.chapter_count
+            )
+            free_trial_chapter = (
+                commercial_story.free_trial_arc.chapter_count
+                if commercial_review_enabled
+                else None
+            )
             for chapter in range(1, manifest.spec.num_chapters + 1):
                 self._run_chapter(manifest, project, store, orchestrator, chapter)
+                if commercial_review_enabled and chapter == free_trial_chapter:
+                    self._stage(
+                        manifest,
+                        project,
+                        store,
+                        "commercial.free_trial_review",
+                        None,
+                        lambda: self._evaluate_and_write_free_trial(project),
+                        self._validate_commercial_free_trial_result,
+                        ["outputs/quality/commercial-free-trial-report.json"],
+                    )
+
+            if commercial_review_enabled:
+                self._stage(
+                    manifest,
+                    project,
+                    store,
+                    "commercial.book_review",
+                    None,
+                    lambda: self._evaluate_and_write_book_review(
+                        project, manifest.spec.num_chapters
+                    ),
+                    self._validate_commercial_book_result,
+                    ["outputs/quality/commercial-book-report.json"],
+                )
 
             # The ending gate is opt-in for backward compatibility with older
             # projects. New Architect outputs include an enforced contract.
@@ -1393,6 +1437,14 @@ class PipelineRunner:
             return originality_input_hashes(project)
         if phase == "chapter.design_check":
             return chapter_design_input_hashes(project, chapter or 0)
+        if phase == "commercial.free_trial_review":
+            return commercial_free_trial_input_hashes(project)
+        if phase == "commercial.book_review":
+            if manifest is None:
+                raise PipelineError(
+                    "commercial book review requires a run manifest", blocked=True
+                )
+            return commercial_book_input_hashes(project, manifest.spec.num_chapters)
         inputs: Dict[str, list[str]] = {
             "outline": ["outputs/input/prompt.md", "outputs/input/brief.json"],
             "foundation.commit": ["outputs/input/foundation.json"],
@@ -1435,6 +1487,8 @@ class PipelineRunner:
             if (project / relative).is_file()
         }
         if manifest is None or phase not in {
+            "commercial.free_trial_review",
+            "commercial.book_review",
             "book.check",
             "publication.copy",
             "compile",
@@ -1645,6 +1699,50 @@ class PipelineRunner:
             )
 
     @staticmethod
+    def _evaluate_and_write_free_trial(project: Path) -> CommercialFreeTrialReport:
+        report = evaluate_commercial_free_trial(project)
+        write_commercial_free_trial_report(project, report)
+        return report
+
+    @staticmethod
+    def _evaluate_and_write_book_review(
+        project: Path, chapter_count: int
+    ) -> CommercialBookReport:
+        report = evaluate_commercial_book(project, chapter_count)
+        write_commercial_book_report(project, report)
+        return report
+
+    @staticmethod
+    def _validate_commercial_free_trial_result(value: Any) -> None:
+        if not isinstance(value, CommercialFreeTrialReport):
+            raise PipelineError(
+                "Commercial free-trial review returned no structured report",
+                blocked=True,
+            )
+        if value.status == "blocked":
+            details = "; ".join(item.message for item in value.blockers)
+            raise PipelineError(
+                "Commercial free-trial review blocked later chapter planning: "
+                + (details or "free-trial reader-value delivery failed"),
+                blocked=True,
+            )
+
+    @staticmethod
+    def _validate_commercial_book_result(value: Any) -> None:
+        if not isinstance(value, CommercialBookReport):
+            raise PipelineError(
+                "Commercial book review returned no structured report",
+                blocked=True,
+            )
+        if value.status == "blocked":
+            details = "; ".join(item.message for item in value.blockers)
+            raise PipelineError(
+                "Commercial book review blocked compile: "
+                + (details or "whole-book reader-value delivery failed"),
+                blocked=True,
+            )
+
+    @staticmethod
     def _foundation_idempotency_key(manifest: RunManifest, project: Path) -> str:
         foundation_sha = PipelineRunner._sha256(
             project / "outputs/input/foundation.json"
@@ -1698,6 +1796,24 @@ class PipelineRunner:
                 f"commercial_status:{value.status}",
                 f"commercial_report_id:{value.report_id}",
                 f"commercial_candidate_sha256:{value.artifact_sha256}",
+            ]
+
+        if result.phase == "commercial.free_trial_review" and isinstance(
+            value, CommercialFreeTrialReport
+        ):
+            result.findings = [item.to_dict() for item in value.findings]
+            result.decisions = [
+                f"commercial_free_trial_status:{value.status}",
+                f"commercial_free_trial_report_id:{value.report_id}",
+            ]
+
+        if result.phase == "commercial.book_review" and isinstance(
+            value, CommercialBookReport
+        ):
+            result.findings = [item.to_dict() for item in value.findings]
+            result.decisions = [
+                f"commercial_book_status:{value.status}",
+                f"commercial_book_report_id:{value.report_id}",
             ]
 
         if result.phase == "intake":
@@ -2154,6 +2270,26 @@ class PipelineRunner:
             try:
                 cls._load_publication_copy(manifest, project)
             except (PipelineError, ValueError, OSError, UnicodeError):
+                return False
+        if result.phase == "commercial.free_trial_review":
+            try:
+                path = project / PipelineRunner._commercial_free_trial_report()
+                report = CommercialFreeTrialReport.from_dict(
+                    json.loads(path.read_text(encoding="utf-8"))
+                )
+                if report.status == "blocked":
+                    return False
+            except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+                return False
+        if result.phase == "commercial.book_review":
+            try:
+                path = project / PipelineRunner._commercial_book_report()
+                report = CommercialBookReport.from_dict(
+                    json.loads(path.read_text(encoding="utf-8"))
+                )
+                if report.status == "blocked":
+                    return False
+            except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
                 return False
         if result.phase == "delivery.package" and manifest is not None:
             h5_metadata = [
@@ -3414,6 +3550,14 @@ class PipelineRunner:
     @staticmethod
     def _commercial_report(number: int) -> str:
         return f"outputs/quality/commercial/chapter_{number:03d}_report.json"
+
+    @staticmethod
+    def _commercial_free_trial_report() -> str:
+        return "outputs/quality/commercial-free-trial-report.json"
+
+    @staticmethod
+    def _commercial_book_report() -> str:
+        return "outputs/quality/commercial-book-report.json"
 
     @staticmethod
     def _format_extension(fmt: str) -> str:

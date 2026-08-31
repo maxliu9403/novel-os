@@ -41,6 +41,7 @@ from proposals import ProposalStore
 from commercial_story import CommercialStoryContract
 from commercial_quality import (
     CommercialChapterReport,
+    free_trial_beats_for_chapter,
     review_commercial_chapter as validate_commercial_chapter,
     write_commercial_report,
 )
@@ -2001,6 +2002,14 @@ Provide:
     ) -> str:
         """Build the machine-readable delivery review prompt."""
         commercial_payload = self.state.story_bible.get("commercial_story_contract")
+        commercial_contract = CommercialStoryContract.from_dict(commercial_payload or {})
+        expected_free_trial_beats = free_trial_beats_for_chapter(
+            commercial_contract, chapter_number
+        )
+        free_trial_shape = {
+            beat: {"status": "present", "quote": "...", "start": 0, "end": 1}
+            for beat in expected_free_trial_beats
+        }
         commercial_json = json.dumps(
             commercial_payload or {}, ensure_ascii=False, sort_keys=True, indent=2
         )
@@ -2039,7 +2048,7 @@ Every `present` delivery and every finding must quote an exact contiguous span.
   "ending_hook": {{"status": "present", "quote": "...", "start": 0, "end": 1}},
   "reader_jobs": {{"<declared job>": {{"status": "present", "quote": "...", "start": 0, "end": 1}}}},
   "belonging_anchors": {{}},
-  "free_trial_beats": [],
+  "free_trial_beats": {json.dumps(free_trial_shape, ensure_ascii=False)},
   "child_voice": {{"status": "not_applicable", "quote": null, "start": null, "end": null}},
   "institutional_plausibility": {{"status": "present", "quote": "...", "start": 0, "end": 1}},
   "findings": []
@@ -2062,6 +2071,12 @@ manuscript itself.
         candidate_text = candidate_path.read_text(encoding="utf-8")
         chapter_contract, story_revision_id, chapter_revision_id = self._commercial_contract_context(
             chapter_number
+        )
+        commercial_contract = CommercialStoryContract.from_dict(
+            self.state.story_bible.get("commercial_story_contract") or {}
+        )
+        expected_free_trial_beats = free_trial_beats_for_chapter(
+            commercial_contract, chapter_number
         )
         prompt = self._generate_commercial_review_prompt(
             chapter_number, candidate_text, chapter_contract
@@ -2105,6 +2120,7 @@ manuscript itself.
                 self._recent_reader_value_updates(chapter_number),
                 story_contract_revision_id=story_revision_id,
                 chapter_contract_revision_id=chapter_revision_id,
+                expected_free_trial_beats=expected_free_trial_beats,
             )
         except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
             raise LLMError(f"Commercial Guardian response failed strict validation: {exc}") from exc

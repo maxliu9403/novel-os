@@ -2,11 +2,18 @@ from __future__ import annotations
 
 from commercial_fixtures import (
     chapter_contract_v2,
+    commercial_project_with_reports,
     commercial_story_fixture,
     guardian_reader_value_payload,
     span,
 )
-from commercial_quality import review_commercial_chapter, validate_chapter_design
+from commercial_quality import (
+    evaluate_commercial_book,
+    evaluate_commercial_free_trial,
+    review_commercial_chapter,
+    validate_chapter_design,
+    write_commercial_free_trial_report,
+)
 
 
 def test_commercial_report_requires_exact_candidate_quotes():
@@ -26,6 +33,60 @@ def test_commercial_report_requires_exact_candidate_quotes():
 
     assert report.status == "blocked"
     assert "invalid_hook_evidence" in {item.code for item in report.blockers}
+
+
+def test_free_trial_beat_requires_exact_candidate_evidence():
+    text = "Megan signed the withdrawal. The lender froze the draw."
+    payload = guardian_reader_value_payload(
+        free_trial_beats={
+            "recognition_event": {
+                "status": "present",
+                "quote": "A missing sentence.",
+                "start": 0,
+                "end": 19,
+            }
+        }
+    )
+
+    report = review_commercial_chapter(
+        text,
+        chapter_contract_v2(),
+        payload,
+        (),
+        expected_free_trial_beats=("recognition_event",),
+    )
+
+    assert report.status == "blocked"
+    assert "invalid_free_trial_recognition_event_evidence" in {
+        item.code for item in report.blockers
+    }
+
+
+def test_free_trial_review_requires_complete_micro_arc(tmp_path):
+    project = commercial_project_with_reports(
+        tmp_path, missing_chapter_3_payoff=True
+    )
+
+    report = evaluate_commercial_free_trial(project)
+
+    assert report.status == "blocked"
+    assert "free_trial_local_payoff_missing" in {
+        item.code for item in report.blockers
+    }
+
+
+def test_book_review_requires_two_belonging_anchor_payoffs(tmp_path):
+    project = commercial_project_with_reports(
+        tmp_path, delivered_belonging=("self",)
+    )
+    free_trial = evaluate_commercial_free_trial(project)
+    write_commercial_free_trial_report(project, free_trial)
+
+    report = evaluate_commercial_book(project, chapter_count=12)
+
+    assert "belonging_payoff_incomplete" in {
+        item.code for item in report.blockers
+    }
 
 
 def test_design_gate_blocks_unseeded_resource_and_passive_turn():
