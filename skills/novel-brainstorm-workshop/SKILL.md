@@ -1,6 +1,6 @@
 ---
 name: novel-brainstorm-workshop
-description: "Turn a rough novel idea into a confirmed, causally sound story design and an executable Novel OS prompt, including country- and region-specific online audience research. Use this skill whenever a user mentions writing a novel, developing a story premise, researching readers, comparing markets, brainstorming characters, expanding a plot, building a story bible, tracking secrets or timelines, improving a novel prompt, starting a new book, developing an English-language novel, or strengthening commercial retention, the opening hook, the first three chapters, conflict variety, atmosphere, reader identification, or a paid-reading bridge. It is especially useful when the user has only a few scenes, a theme, a relationship conflict, or an ending idea and needs structured creative development before drafting."
+description: "Turn a rough novel idea into a confirmed, causally sound story design and an executable Novel OS prompt using a user-confirmed audience profile and local commercial-story mechanisms. Use this skill whenever a user mentions writing a novel, developing a story premise, researching readers, comparing markets, brainstorming characters, expanding a plot, building a story bible, tracking secrets or timelines, improving a novel prompt, starting a new book, developing an English-language novel, or strengthening commercial retention, the opening hook, the first three chapters, conflict variety, atmosphere, reader identification, or a paid-reading bridge. It is especially useful when the user has only a few scenes, a theme, a relationship conflict, or an ending idea and needs structured creative development before drafting."
 ---
 
 # Novel Brainstorm Workshop
@@ -9,13 +9,13 @@ Turn an incomplete novel idea into a deliberate story engine, a reviewed design,
 
 ## Operating contract
 
-- Use the user's requested output language and target-market register. Chinese and English are first-class paths; preserve each market's idiom, social context, and localization decisions in separate research branches when needed.
-- Use fictional setting names by default. Story-facing locations, cities, districts, institutions, and landmarks use invented names or abstract regional labels; real place names belong only in the separate market-research metadata and source records.
+- Use the user's requested output language and target-market register. Chinese and English are first-class paths; record market-specific idiom, social context, and localization decisions as approved design choices.
+- Use fictional setting names by default. Story-facing locations, cities, districts, institutions, and landmarks use invented names or abstract regional labels; real geography appears only in the user-confirmed market profile when needed.
 - Give every novel a short reader-facing story lead before chapter one. It previews the core conflict and an earned satisfaction path in the output language, but it does not replace chapter one's own hook or reveal the full ending.
 - Treat the user's rough idea as the source of intent, not as a finished outline. Preserve explicit decisions and label low-impact additions as assumptions.
 - Keep the interaction focused. Ask at most five high-impact questions, one question per message. Ask only when an answer could change the story identity, audience, causal engine, protagonist arc, or ending.
-- Treat the target audience as a required user decision. When the conversation and confirmed project scope do not identify the primary reader segment, ask who the novel is for before market research or creative branching; never fill this field as an assumption. Confirm at least the audience's age or life stage and primary genre expectation, reading motivation, or emotional need. Ask about gender tendency, platform, or purchasing context only when it materially changes the design.
-- For a new selection, lock the target market before creative branching: country, region or city culture, primary language, and single-market versus multi-market release. Run online audience research separately for each market and carry the evidence into the design and prompt.
+- Treat the target audience as a required user decision. When the conversation and confirmed project scope do not identify the primary reader segment, ask who the novel is for before creative branching; never fill this field as an assumption. Confirm at least the audience's age or life stage and primary genre expectation, reading motivation, or emotional need. Ask about gender tendency, platform, or purchasing context only when it materially changes the design.
+- For a new selection, lock the target market before creative branching: country, region or city culture, primary language, and single-market versus multi-market release. Carry this user-confirmed profile into the design without a default external-retrieval phase.
 - Present two or three materially different approaches before fixing the structure. Include a recommendation and the tradeoff behind it.
 - Present the design in reviewable sections. Wait for confirmation after each section before writing the final prompt.
 - Use positive quality targets. A prohibition belongs only beside a concrete replacement behaviour.
@@ -34,7 +34,7 @@ Select the narrowest branch before doing creative work:
 | Existing prompt that needs stronger structure | `prompt-revise` | Evidence-based prompt revision and validation |
 | Existing manuscript or project | `canon-aware` | Canon extraction, continuity-aware design or continuation prompt |
 | One chapter only | `chapter-shortcut` | Compact chapter contract or draft; skip full project design unless requested |
-| Commercial web fiction,爽文, retention, opening hook, first-three-chapter, conflict variety, atmosphere, reader identification, or paid-conversion request | Add `retention_first` profile to the narrowest branch | Cross-language opening contract, conflict braid, micro-arc, and retention review |
+| Commercial web fiction,爽文, retention, opening hook, first-three-chapter, conflict variety, atmosphere, reader identification, or paid-conversion request | Add `retention_first` and `commercial_story` profiles to the narrowest branch | Approved commercial contract, conflict braid, free micro-arc, and retention review |
 
 If the request is ambiguous, assume `workshop` and state the detected object in one compact `Current:` line.
 
@@ -59,65 +59,37 @@ Before asking a question, inspect the current workspace when it is available:
 
 Do not repeat facts already supplied. If a low-impact field is absent, write a conservative assumption and continue.
 
-## Phase 0.5: lock audience and market scope, then run online research
+## Phase 0.5: lock audience and apply the local commercial profile
 
-Run this phase for `workshop`, `expand`, and `prompt-revise` before comparing story approaches. It is part of the selection workflow, not an optional afterthought.
+Run this phase for `workshop`, `expand`, and `prompt-revise` before comparing
+story approaches.
 
-1. If the target audience is missing, ask one compact audience question before research or plot questions. The answer must identify:
-   - `primary_reader_segment`: who the story is primarily for;
-   - `age_or_life_stage`: the relevant age range or life stage;
-   - `reading_motivation`: the main genre expectation, emotional need, or satisfaction sought.
-   Record optional gender tendency, platform, and purchasing context when they materially affect the story or release strategy. This decision must come from the user rather than an inferred assumption.
-2. If country, region or city culture, primary language, or release scope is missing, ask one compact market question before asking plot questions. The answer must identify:
-   - `country`: the intended reader market;
-   - `region`: a state, province, city, diaspora, or cultural area when relevant;
-   - `language`: the language and notable register or localization needs;
-   - `release_scope`: one market or a named list of markets.
-3. Generate search terms from that scope and use the available online retrieval capability (web search, browser, or direct URL fetch). Search each market independently for reader behaviour, platform and genre signals, cultural context, language habits, emotional drivers, and relevant seasonal or social details. Do not generalize one market's findings to another.
-4. Prefer current, attributable sources in this order: official statistics and regulators; platform or publisher reports; universities and research institutes; established trade or news publications; clearly labelled creator or community observations. Record the URL or publication id, publisher, publication date, access date, market, population, and what the source directly supports.
-5. Separate evidence from interpretation. Mark every finding as `direct_data`, `reported_observation`, or `creative_inference`, and assign `high`, `medium`, or `low` confidence. When public data is thin, record `research_status: partial` and state the assumption instead of presenting an inference as a fact.
-6. Translate findings into creative decisions: vocabulary and register, names and honorifics, family and workplace norms, setting details, taboo or sensitivity boundaries, platform promise, opening hook, emotional rhythm, and localization risks. Each implication must cite the finding ids that caused it.
-7. Save the result in the handoff as structured `audience_research`; do not leave it only in conversational prose. Preserve all market branches when the release is multi-market.
-
-Use this minimum record for every market:
+1. If the target audience is missing, ask one compact question. Record the
+   user-confirmed primary segment, age or life stage, reading motivation, and
+   any material platform context.
+2. Confirm country or cultural region, output language and register, and release
+   scope only when they change character behavior, institutions, or idiom.
+3. For commercial or retention fiction, load
+   [references/commercial-story-design.md](references/commercial-story-design.md).
+   Use its default 35-60 female-reader profile only when the user confirms that
+   audience; another confirmed profile overrides it.
+4. If samples or a corpus informed the request, also load
+   [references/originality-isolation.md](references/originality-isolation.md)
+   and enforce mechanism-only isolation.
+5. Record the result as `audience_profile`; do not add a mandatory retrieval,
+   source-ledger, query-list, embedding, vector-search, or RAG step.
 
 ```yaml
-audience_research:
-  research_status: complete|partial|pending
-  target_audience:
-    primary_reader_segment: <user-confirmed segment>
-    age_or_life_stage: <user-confirmed range or stage>
-    reading_motivation: <genre expectation, emotional need, or satisfaction sought>
-    gender_platform_or_purchase_context: <user-confirmed value or not material>
-  market_scope:
-    country: <country>
-    region: <region or cultural area>
-    language: <language and register>
-    release_scope: <single market or named markets>
-  audience_age: <range or segment>
-  platform_signals: []
-  genre_signals: []
-  cultural_context: []
-  emotional_drivers: []
-  source_records:
-    - id: src_01
-      title: <source title>
-      publisher: <publisher>
-      url_or_id: <URL or publication id>
-      published_at: <date or unknown>
-      accessed_at: <date>
-      market: <country/region>
-      population: <sample or scope>
-      finding: <directly supported finding>
-      evidence_type: direct_data|reported_observation|creative_inference
-      confidence: high|medium|low
-  creative_implications:
-    - implication: <decision for this market>
-      source_ids: [src_01]
-      localization_risk: <risk or none>
+audience_profile:
+  primary_reader_segment: <user-confirmed segment>
+  age_or_life_stage: <user-confirmed range or stage>
+  reading_motivation: <genre expectation or emotional need>
+  country_or_cultural_region: <confirmed value or not material>
+  language_and_register: <confirmed output language and register>
+  release_scope: <single market or named markets>
+  platform_context: <confirmed value or not material>
+  creative_implications: []
 ```
-
-If no online retrieval tool is available, keep `research_status: pending`, list the exact queries to run, and label all interim guidance as assumptions. Do not invent sources, statistics, or browsing results.
 
 Maintain a parallel `workshop_trace` for the reasoning that led to the design:
 
@@ -126,7 +98,6 @@ workshop_trace:
   intake: <normalized user intent and explicit constraints>
   audience_decision: <user-confirmed primary segment, age/life stage, and reading motivation>
   market_decision: <country/region/language/release scope and date>
-  research_queries: []
   approach_options:
     - id: approach_a
       summary: <structure and pressure>
@@ -139,7 +110,6 @@ workshop_trace:
     section_d: <confirmed structure and opening>
     section_e: <confirmed quality gates and assumptions>
   open_assumptions: []
-  evidence_links: [src_01]
 ```
 
 Append to this trace after every user answer or section confirmation. Preserve
@@ -273,7 +243,7 @@ The completion criterion for design review is explicit approval of the design di
 
 ## Phase 4: build the prompt artifact
 
-After design approval, generate a complete prompt rather than a short summary. Load `references/prompt-contract.md` and the relevant sections of `references/genre-adapters.md` and `references/quality-gates.md` before writing. When `retention_first` is active, also load `references/retention-opening.md` and include its opening contract in the Prompt.
+After design approval, generate a complete prompt rather than a short summary. Load `references/prompt-contract.md` and the relevant sections of `references/genre-adapters.md` and `references/quality-gates.md` before writing. When `retention_first` or `commercial_story` is active, also load `references/retention-opening.md`, `references/commercial-story-design.md`, and `references/originality-isolation.md` and include the approved opening and commercial contracts in the Prompt.
 
 ### File and naming rules
 
@@ -283,7 +253,7 @@ After design approval, generate a complete prompt rather than a short summary. L
 4. Include a `## Assumptions` section in the prompt for details the user did not decide.
 5. Keep the prompt authoritative: repeat the locked title, language, genre, audience, tone, POV, chapter count, and word target in parseable `Key: Value` fields near the top.
 
-The prompt must instruct Novel OS to plan before drafting, preserve the structured `audience_research` record and its market branches, preserve the confirmed `workshop_trace` and decision history, maintain character/relationship/secret/timeline/resource ledgers, emit and preserve machine-readable `story_lead_contract` and `ending_contract` records, update a payoff ledger after every chapter, use a per-chapter causal contract, preserve POV and knowledge boundaries, rotate conflict and hook types, reserve the final 3-5 chapters for payoff, and produce a final reader-facing manuscript without agent commentary. It must also preserve `setting_policy.mode: fictionalized`, use invented or abstract story-facing place names, and keep real market/source locations inside audience-research metadata. Add exactly one schema-v2 JSON cover block using the `COVER_HANDOFF_BEGIN` and `COVER_HANDOFF_END` boundaries from `references/prompt-contract.md`; it records every required protagonist's confirmed age or age band, lived identity, wardrobe or environment, agency, relationships, decisive nodes, and source refs using only confirmed Sections A-E. The Scribe writes the story lead once at the start of chapter one's artifact, the Editor sharpens it without inventing unsupported promises, the Continuity Guardian checks its claims against the planned story, and the Style Curator preserves the output-language register. When `retention_first` is active, the prompt must also preserve the opening contract, first-screen evidence, conflict braid, satisfaction loop, atmosphere and identification decisions, first-three-chapter value map, and paid bridge.
+The prompt must instruct Novel OS to plan before drafting, preserve the structured `audience_profile`, preserve the confirmed `workshop_trace` and decision history, maintain character/relationship/secret/timeline/resource ledgers, emit and preserve machine-readable `story_lead_contract` and `ending_contract` records, update a payoff ledger after every chapter, use a per-chapter causal contract, preserve POV and knowledge boundaries, rotate conflict and hook types, reserve the final 3-5 chapters for payoff, and produce a final reader-facing manuscript without agent commentary. It must also preserve `setting_policy.mode: fictionalized` and use invented or abstract story-facing place names. Add exactly one schema-v2 JSON cover block using the `COVER_HANDOFF_BEGIN` and `COVER_HANDOFF_END` boundaries from `references/prompt-contract.md`; it records every required protagonist's confirmed age or age band, lived identity, wardrobe or environment, agency, relationships, decisive nodes, and source refs using only confirmed Sections A-E. For an active commercial profile, add exactly one `[COMMERCIAL_STORY_JSON]` block from the approved design and do not add a corpus lookup payload. The Scribe writes the story lead once at the start of chapter one's artifact, the Editor sharpens it without inventing unsupported promises, the Continuity Guardian checks its claims against the planned story, and the Style Curator preserves the output-language register. When `retention_first` is active, the prompt must also preserve the opening contract, first-screen evidence, conflict braid, satisfaction loop, atmosphere and identification decisions, first-three-chapter value map, and paid bridge.
 
 Use this exact machine-readable Markdown boundary in the chapter-one artifact so
 Novel OS can compile the lead without replacing chapter-one navigation:
@@ -332,9 +302,9 @@ allows formatting or appended detail in natural-language outcomes. An explicit
 permits an intentionally richer actual state. Put approved paraphrases in
 `required_outcome_aliases`; avoid fuzzy similarity for the quality gate.
 
-Keep `audience_research`, `workshop_trace`, `Personality_State_Updates`, and
+Keep `audience_profile`, `workshop_trace`, `Personality_State_Updates`, and
 the confirmed Section A-E decisions in working artifacts and reports so a
-project detail view can render the reasoning trail without re-running research.
+project detail view can render the reasoning trail without another design pass.
 
 ## Phase 5: validate the prompt
 
@@ -344,7 +314,7 @@ When `core/prompt_intake.py` exists, validate before handing off:
 PYTHONPATH=core ./venv/bin/python -c "from pathlib import Path; from prompt_intake import ingest_prompt; r=ingest_prompt(Path('PROMPT_VALIDATION_PROJECT'), Path('PROMPT_PATH')); print(r.brief)"
 ```
 
-Replace `PROMPT_VALIDATION_PROJECT` and `PROMPT_PATH` with the actual paths. Confirm that the parsed brief contains the locked title, genre, language, chapter count, word target, audience, tone, and premise. Also confirm that the prompt contains a market-scoped `audience_research` section with country, region, language, source records, evidence types, confidence, and creative implications, a `setting_policy` with `mode: fictionalized`, a `workshop_trace` with Section A-E decisions and open assumptions, plus personality fields for every principal character. Parse the cover block with `core.cover_handoff.parse_cover_handoff`; verify the exact title, user-confirmed audience, core conflict, decisive node, secondary task, fictional world signals, and forbidden elements. Use a temporary validation project when no project has been selected; keep a real project untouched until the user runs the command.
+Replace `PROMPT_VALIDATION_PROJECT` and `PROMPT_PATH` with the actual paths. Confirm that the parsed brief contains the locked title, genre, language, chapter count, word target, audience, tone, and premise. Also confirm that the prompt contains a user-confirmed `audience_profile`, a `setting_policy` with `mode: fictionalized`, a `workshop_trace` with Section A-E decisions and open assumptions, plus personality fields for every principal character. For an active commercial profile, parse exactly one `COMMERCIAL_STORY_JSON` block and verify that no raw sample, corpus path, embedding, vector-search, or nearest-match payload is present. Parse the cover block with `core.cover_handoff.parse_cover_handoff`; verify the exact title, user-confirmed audience, core conflict, decisive node, secondary task, fictional world signals, and forbidden elements. Use a temporary validation project when no project has been selected; keep a real project untouched until the user runs the command.
 
 Also run `git diff --check -- <prompt path>` when the file is inside a Git workspace. For every Prompt, verify that `story_lead_contract.required` is true, its language and length unit agree, its conflict/payoff/question fields are concrete, and the chapter-one output protocol uses the `STORY_LEAD:` marker before the real chapter heading. For a `retention_first` Prompt, also verify the opening contract, the first-screen signal list, at least two conflict dimensions, local value for chapters 1-3, and the paid bridge are present and internally consistent. Report parser output and any corrected field; do not claim validation from file existence alone.
 

@@ -22,7 +22,7 @@ Use actual values in the final artifact. `Audience` must come from a user-confir
 1. **Core task**: premise, scope, length, originality, and what the final reader sees.
 2. **Story contract**: event, relationship, emotional, and meaning promises.
 3. **Story engine**: external objective, relationship dilemma, internal misbelief, secret/question, and adaptive pressure.
-4. **Audience research and regional adaptation**: market scope for every country or region, language and register, audience segment, platform and genre signals, cultural context, emotional drivers, source records, evidence type, confidence, and creative implications. Keep market branches separate for multi-market releases.
+4. **Audience profile and regional adaptation**: user-confirmed audience segment, life stage, reading motivation, country or cultural region, language and register, release scope, platform context, and approved creative implications.
 5. **Character ledger**: public identity, desire, need, capability, limitation, fear, boundary, secret, resources, knowledge, pressure response, personality core, visible behaviours, decision style, speech habits, emotional expression, strengths, flaws, change evidence, and personality conflicts or complements.
 6. **Relationship ledger**: power, leverage, trust evidence, suspicion evidence, shared risk, boundaries, and next relationship-changing behaviour.
 7. **World/rules ledger**: realistic constraints or speculative triggers, limits, costs, exceptions, social consequences, and the fictional setting/place-name policy.
@@ -39,7 +39,7 @@ Use actual values in the final artifact. `Audience` must come from a user-confir
 18. **Quality gates**: continuity, knowledge boundaries, payoff, agency, timeline, resource, style, and ending checks.
 19. **Assumptions**: only details the user did not decide.
 20. **Cover handoff**: strict JSON derived from the approved story, audience, conflict, protagonist, decisive node, secondary task, and fictional world signals.
-21. **Final delivery**: story bible, market research and source ledger, machine-readable `workshop_trace` for intake, questions, alternatives, and Section A-E decisions, outline, complete chapters, reports, `book_completion_report.json`, and reader-facing manuscript.
+21. **Final delivery**: story bible, audience profile, machine-readable `workshop_trace` for intake, questions, alternatives, and Section A-E decisions, outline, complete chapters, reports, `book_completion_report.json`, and reader-facing manuscript.
 
 ## Required cover handoff
 
@@ -138,7 +138,7 @@ target audience, conflict, principal-character ages and lived identities,
 relationships, decisive nodes, and environment signals come from confirmed
 Sections A-E rather than new assumptions. Include every protagonist or
 co-protagonist whose arc is part of the reader promise. Keep real
-market geography only in `audience_research`; cover-facing places are fictional
+market geography only in `audience_profile`; cover-facing places are fictional
 or abstract. This block is production metadata and does not enter reader prose.
 
 ## Required story lead contract
@@ -231,51 +231,32 @@ register changes the reader promise.
 
 The opening micro-arc must show the premise in action, the cost of doing nothing, the protagonist's competence and vulnerability, a first self-directed action, one local payoff, and a concrete next target. Under `retention_first`, chapter 1 delivers a local reward or reveal, chapter 2 shows opposing feedback and an earned resource or relationship truth, and chapter 3 answers a short-term question before a costly irreversible step. Chapter three must complete a visible state change before it creates the next pressure. The first paid chapter opens on that direct consequence and delivers substantive progress before widening the story.
 
-## Audience research record
+## Commercial story contract
 
-The Architect must preserve one record per target market in the foundation and
-repeat the relevant branch in the prompt context. Use this shape so research
-can be rendered in a project detail view without re-running the web search:
+For commercial or retention fiction, follow
+`commercial-story-design.md` and include exactly one
+`[COMMERCIAL_STORY_JSON]...[/COMMERCIAL_STORY_JSON]` block. The JSON contains
+the approved reader contract, premise engine, five-level conflict ladder,
+three- or four-chapter free arc, and fixed quality budgets. Do not author a
+contract ID; Prompt Intake computes it. The block must not contain corpus
+paths, sample identities, source expression, embeddings, or retrieval results.
+
+## Audience profile
+
+Preserve the user-confirmed audience and market decisions in this compact form:
 
 ```yaml
-audience_research:
-  research_status: complete|partial|pending
-  target_audience:
-    primary_reader_segment: <user-confirmed segment>
-    age_or_life_stage: <user-confirmed range or stage>
-    reading_motivation: <genre expectation, emotional need, or satisfaction sought>
-    gender_platform_or_purchase_context: <user-confirmed value or not material>
-  market_scope:
-    country: <country>
-    region: <region or cultural area>
-    language: <language and register>
-    release_scope: <single market or named markets>
-  audience_age: <range or segment>
-  platform_signals: []
-  genre_signals: []
-  cultural_context: []
-  emotional_drivers: []
-  source_records:
-    - id: src_01
-      title: <source title>
-      publisher: <publisher>
-      url_or_id: <URL or publication id>
-      published_at: <date or unknown>
-      accessed_at: <date>
-      market: <country/region>
-      population: <sample or scope>
-      finding: <directly supported finding>
-      evidence_type: direct_data|reported_observation|creative_inference
-      confidence: high|medium|low
+audience_profile:
+  primary_reader_segment: <user-confirmed segment>
+  age_or_life_stage: <user-confirmed range or stage>
+  reading_motivation: <genre expectation, emotional need, or satisfaction sought>
+  country_or_cultural_region: <confirmed value or not material>
+  language_and_register: <confirmed output language and register>
+  release_scope: <single market or named markets>
+  platform_context: <confirmed value or not material>
   creative_implications:
-    - implication: <market-specific writing or packaging decision>
-      source_ids: [src_01]
-      localization_risk: <risk or none>
+    - <approved writing or localization decision>
 ```
-
-Each creative implication cites the source ids that caused it. Missing or
-conflicting public evidence is recorded as `partial` or `pending` with an
-explicit assumption and a list of queries for later retrieval.
 
 ## Fictional setting and place-name policy
 
@@ -294,13 +275,12 @@ Use invented names for cities, districts, towns, institutions, landmarks, and
 neighbourhoods in the story-facing setting, outline, chapter files, and
 manuscript. Abstract labels such as `the northern port`, `the capital district`,
 or `a coastal university town` are valid when a proper name adds no narrative
-value. Audience research may retain the real country, region, platform, or
-source location needed to explain market evidence; keep that metadata separate
-from the fictional world ledger.
+value. The audience profile may retain a real country or cultural region; keep
+that context separate from the fictional world ledger.
 
 ## Workshop decision trace
 
-Persist the reasoning trail alongside the audience research. Update it after
+Persist the reasoning trail alongside the audience profile. Update it after
 each answer and section confirmation so downstream agents and a project detail
 view can distinguish selected decisions from rejected options:
 
@@ -309,7 +289,6 @@ workshop_trace:
   intake: <normalized user intent and explicit constraints>
   audience_decision: <user-confirmed primary segment, age/life stage, and reading motivation>
   market_decision: <country/region/language/release scope and date>
-  research_queries: []
   approach_options:
     - id: approach_a
       summary: <structure and pressure>
@@ -322,7 +301,6 @@ workshop_trace:
     section_d: <confirmed structure and opening>
     section_e: <confirmed quality gates and assumptions>
   open_assumptions: []
-  evidence_links: [src_01]
 ```
 
 Keep rejected approaches and their tradeoffs as decision history. The final
@@ -366,8 +344,8 @@ Ending_Evidence: irreversible_change=<observable final state>; emotional_payoff=
 [/SCRIBE_STATE_UPDATE]
 ```
 
-Keep those blocks, the `story_lead_contract`, the market-scoped
-`audience_research`, the `workshop_trace`,
+Keep those blocks, the `story_lead_contract`, the user-confirmed
+`audience_profile`, the `workshop_trace`,
 and the confirmed Section A-E decisions in working artifacts and reports. The
 final reader-facing Markdown contains only the title, localized story-lead
 heading and prose, chapter headings, and chapter prose.

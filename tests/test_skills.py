@@ -31,6 +31,27 @@ def test_brainstorm_skill_emits_machine_readable_cover_handoff() -> None:
     assert "novel-cover-studio" in skill
 
 
+def test_brainstorm_skill_uses_local_commercial_profile_without_default_web_research() -> None:
+    skill = _read(BRAINSTORM / "SKILL.md")
+    commercial = _read(BRAINSTORM / "references" / "commercial-story-design.md")
+    originality = _read(BRAINSTORM / "references" / "originality-isolation.md")
+    prompt_contract = _read(BRAINSTORM / "references" / "prompt-contract.md")
+    quality = _read(BRAINSTORM / "references" / "quality-gates.md")
+    body = skill + prompt_contract + quality
+
+    assert "commercial-story-design.md" in skill
+    assert "originality-isolation.md" in skill
+    assert "[COMMERCIAL_STORY_JSON]" in commercial
+    assert "a5458ce1332e5b74c52889e4a5aed5b9809f69e6e1a8f09cde25c5ab974ee49f" in commercial
+    assert "run online audience research" not in body.casefold()
+    assert "audience_research" not in body
+    assert "research_status" not in body
+    assert "source_records" not in body
+    assert "research_queries" not in body
+    assert "never retrieve the nearest matching story" in originality.casefold()
+    assert "raw corpus prose" in originality.casefold()
+
+
 def test_cover_skill_requires_confirmed_design_and_distinct_concepts() -> None:
     skill = _read(COVER / "SKILL.md")
     handoff = _read(COVER / "references" / "cover-handoff.md")

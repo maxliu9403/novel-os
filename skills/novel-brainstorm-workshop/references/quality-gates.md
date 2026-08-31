@@ -93,7 +93,8 @@ threshold.
 ## Prompt handoff
 
 - The target audience is explicitly confirmed by the user and records the primary reader segment, age or life stage, and main reading motivation; it is not an inferred assumption.
-- The Prompt carries `setting_policy.mode: fictionalized` and keeps real market/source locations inside `audience_research` rather than the story-facing world ledger.
+- The Prompt carries `setting_policy.mode: fictionalized` and keeps real market context inside `audience_profile` rather than the story-facing world ledger.
+- A commercial Prompt carries exactly one valid `COMMERCIAL_STORY_JSON` block and no raw corpus, embedding, vector-search, or nearest-match payload.
 - The Prompt carries a complete `story_lead_contract` and assigns drafting, editing, continuity validation, and style preservation responsibilities for the lead.
 - Top-level fields contain one fixed title, chapter count, and total word target.
 - All approved decisions appear in the Prompt; assumptions are labeled in one section.
