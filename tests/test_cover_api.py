@@ -734,7 +734,7 @@ def test_approved_v2_direction_generates_four_independent_image2_candidates(
     assert image_client.calls == 4
     cover_set = client.get(f"/api/projects/{project['id']}/covers").json()[0]
     assert cover_set["brief_schema_version"] == 2
-    assert cover_set["compiler_version"] == "cover-compiler.v3"
+    assert cover_set["compiler_version"] == "cover-compiler.v6"
     assert cover_set["brief"]["principal_characters"][0]["age"] == 34
     assert [item["model"] for item in cover_set["candidates"]] == ["gpt-image-2"] * 4
     assert all(item["safe_request_parameters"]["n"] == 1 for item in cover_set["candidates"])

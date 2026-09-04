@@ -105,6 +105,15 @@ def test_docx_is_a_zip_with_the_parts_a_reader_requires():
     }
 
 
+def test_docx_uses_stable_zip_metadata_for_identical_compiled_input():
+    rendered = render_docx(_book(), StyleSheet())
+
+    assert render_docx(_book(), StyleSheet()) == rendered
+    assert {
+        info.date_time for info in _zip(rendered).infolist()
+    } == {(1980, 1, 1, 0, 0, 0)}
+
+
 def test_docx_parts_are_well_formed_xml():
     z = _zip(render_docx(_book(), StyleSheet()))
     for name in z.namelist():
@@ -180,7 +189,8 @@ def test_docx_projects_structured_copy_before_chapter_one():
         "word/document.xml"
     ).decode("utf-8")
     assert (
-        doc.index("Before the Story")
+        doc.index("Introduction")
+        < doc.index("Before the Story")
         < doc.index("Claire must confront Ethan")
         < doc.index("Claire discovers")
         < doc.index("Arrival")
@@ -279,6 +289,7 @@ def test_epub_uses_intro_description_language_and_chapter_only_navigation():
 
     assert names.index("OEBPS/intro.xhtml") < names.index("OEBPS/chap001.xhtml")
     intro = z.read("OEBPS/intro.xhtml").decode("utf-8")
+    assert intro.index("Introduction") < intro.index("Before the Story")
     assert intro.index("Before the Story") < intro.index("Claire must confront Ethan")
     assert intro.index("Claire must confront Ethan") < intro.index("Claire discovers")
 
@@ -334,6 +345,7 @@ def test_pdf_projects_structured_copy_before_chapter_one():
     encoded = [
         value.encode("utf-16-be").hex().upper().encode("ascii")
         for value in (
+            "Introduction",
             "Before the Story",
             "Claire must confront Ethan before his lies cost their daughter.",
             "Claire discovers that Ethan's lies reach far beyond one missed dinner.",
@@ -343,6 +355,7 @@ def test_pdf_projects_structured_copy_before_chapter_one():
     assert pdf.index(encoded[0]) < pdf.index(encoded[1])
     assert pdf.index(encoded[1]) < pdf.index(encoded[2])
     assert pdf.index(encoded[2]) < pdf.index(encoded[3])
+    assert pdf.index(encoded[3]) < pdf.index(encoded[4])
 
 
 def test_render_bytes_rejects_an_unknown_format_listing_all_of_them():

@@ -22,9 +22,24 @@ class JobRunner:
         self._jobs: dict[str, dict] = {}
         self._lock = threading.Lock()
 
-    def submit(self, kind: str, fn: Callable[[], None], meta: Optional[dict] = None) -> str:
-        job_id = uuid.uuid4().hex
+    def submit(
+        self,
+        kind: str,
+        fn: Callable[[], object],
+        meta: Optional[dict] = None,
+        *,
+        result_mapper: Callable[[object], dict] | None = None,
+        unique_key: str = "",
+    ) -> str:
         with self._lock:
+            if unique_key:
+                for existing in self._jobs.values():
+                    if (
+                        existing.get("_unique_key") == unique_key
+                        and existing.get("status") == "running"
+                    ):
+                        return str(existing["job_id"])
+            job_id = uuid.uuid4().hex
             self._jobs[job_id] = {
                 "job_id": job_id,
                 "kind": kind,
@@ -34,12 +49,17 @@ class JobRunner:
                 "finished_at": None,
                 "meta": dict(meta or {}),
                 **(meta or {}),
+                "_unique_key": unique_key,
             }
 
         def run() -> None:
             try:
                 result = fn()
-                result_meta = self._safe_result_meta(result)
+                result_meta = (
+                    result_mapper(result)
+                    if result_mapper is not None
+                    else self._safe_result_meta(result)
+                )
                 self._update(job_id, status="done", meta=result_meta)
             except Exception as e:  # noqa: BLE001 - surface any agent failure to the UI
                 self._update(job_id, status="error", error=f"{type(e).__name__}: {e}")
@@ -76,7 +96,12 @@ class JobRunner:
     def get(self, job_id: str) -> Optional[dict]:
         with self._lock:
             job = self._jobs.get(job_id)
-            return dict(job) if job else None
+            if job is None:
+                return None
+            result = dict(job)
+            result.pop("_unique_key", None)
+            result["meta"] = dict(job.get("meta") or {})
+            return result
 
 
 # Process-wide singleton.

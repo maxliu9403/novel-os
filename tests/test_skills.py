@@ -147,6 +147,17 @@ def test_cover_skill_requires_confirmed_design_and_distinct_concepts() -> None:
     assert "premium US commercial fiction magazine cover" in body
     assert "visible action, reaction, and stakes" in body
     assert "Western editorial typography" in body
+    assert "emotional consequence" in body
+    assert "causal relationship action" in body
+    assert "flat group portrait" in body
+
+
+def test_brainstorm_cover_handoff_includes_optional_cover_relevant_conflict_cast() -> None:
+    contract = _read(BRAINSTORM / "references" / "prompt-contract.md")
+
+    assert "cover-relevant conflict participants" in contract
+    assert "must_appear: false" in contract
+    assert "causal conflict tableau" in contract
 
 
 def test_cover_skill_detects_launcher_and_documents_host_sync() -> None:

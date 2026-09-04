@@ -183,6 +183,14 @@ payoff for at least two approved belonging anchors. It records factual
 distributions rather than a composite score. A blocker stops ending review,
 whole-book checks, publication copy, and compile.
 
+`publication.copy` owns the reader guide projected before chapter one. Every
+compiled Markdown, HTML, EPUB, PDF, and DOCX renders an explicit localized
+`Introduction` / `导读` section containing a one-sentence hook and a source-bound
+blurb. The copy must foreground the whole-book core conflict, promise at least
+two concrete protagonist-driven cathartic rewards, and end on a consequential
+open loop without revealing the ending. Policy or prompt-version changes
+invalidate the publication-copy checkpoint before downstream recompilation.
+
 Resume reuses either report only while all bound story/chapter contract heads,
 final artifact revisions and SHAs, chapter commercial reports, promotion
 receipts, and the free-window report remain unchanged. Retry the named blocked

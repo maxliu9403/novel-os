@@ -12,7 +12,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = 1
-POLICY_VERSION = "publication-copy-policy.v1"
+POLICY_VERSION = "publication-copy-policy.v2"
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _RFC3339 = re.compile(
@@ -770,8 +770,18 @@ def count_publication_units(text: str, language: str) -> tuple[str, int]:
 
 def _length_bounds(language: str) -> tuple[tuple[int, int], tuple[int, int]]:
     if (language or "").casefold().startswith(("zh", "ja", "ko")):
-        return (16, 36), (240, 360)
-    return (8, 20), (120, 180)
+        return (16, 60), (200, 650)
+    return (8, 30), (100, 320)
+
+
+def publication_length_policy(
+    language: str,
+) -> tuple[str, tuple[int, int], tuple[int, int]]:
+    """Return the public unit and bounds used by publication-copy validation."""
+
+    unit, _ = count_publication_units("", language)
+    hook_bounds, blurb_bounds = _length_bounds(language)
+    return unit, hook_bounds, blurb_bounds
 
 
 def _word_tokens(text: str) -> list[str]:

@@ -74,7 +74,6 @@ def test_legacy_webp_setting_migrates_to_jpeg_without_losing_endpoint() -> None:
         ("NOVEL_OS_COVER_SIZE", "1024x1024", "2:3"),
         ("NOVEL_OS_COVER_QUALITY", "ultra", "quality"),
         ("NOVEL_OS_COVER_FORMAT", "gif", "format"),
-        ("NOVEL_OS_COVER_MODEL", "dall-e-3", "gpt-image-2"),
         ("NOVEL_OS_COVER_TIMEOUT_SECONDS", "0", "timeout"),
     ],
 )
@@ -105,6 +104,14 @@ def test_cover_settings_allow_provider_native_portrait_resolution() -> None:
     })
 
     assert settings.size == "1024x1536"
+
+
+def test_cover_settings_allow_configured_image_model() -> None:
+    settings = studio_settings.resolve_cover_settings({
+        "NOVEL_OS_COVER_MODEL": "publisher/image-v3",
+    })
+
+    assert settings.model == "publisher/image-v3"
 
 
 def test_cover_director_settings_fall_back_to_writing_model_not_image_model() -> None:

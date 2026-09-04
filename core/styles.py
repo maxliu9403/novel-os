@@ -25,6 +25,7 @@ from typing import Any, Dict, List
 STYLE_ROLES = (
     "title",            # the book's title page
     "subtitle",         # byline / genre line under it
+    "story_lead_label", # explicit localized Introduction / 导读 section marker
     "story_lead_title", # reader-facing lead before chapter one
     "story_hook",       # one-line reader hook before the longer lead
     "story_lead",       # short conflict-and-payoff promise before chapter one
@@ -72,6 +73,10 @@ def default_styles() -> Dict[str, Style]:
                        space_after_em=0.5),
         "subtitle": Style(size_pt=13, align="center", italic=True,
                           space_after_em=3.0),
+        "story_lead_label": Style(size_pt=11, line_height=1.2, align="center",
+                                   bold=True, small_caps=True,
+                                   space_before_em=2.0, space_after_em=0.8,
+                                   page_break_before=True),
         "story_lead_title": Style(size_pt=15, line_height=1.3, align="center",
                                   bold=True, space_before_em=2.0,
                                   space_after_em=1.0),

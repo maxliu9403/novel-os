@@ -64,6 +64,7 @@ export default function ProjectDashboard() {
   const [edges, setEdges] = useState<RelationshipEdge[]>([]);
   const [continuity, setContinuity] = useState<ContinuityReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [externalRefreshKey, setExternalRefreshKey] = useState(0);
   const [entryOpen, setEntryOpen] = useState(false);
   const [editing, setEditing] = useState<CodexEntry | null>(null);
   const [linkOpen, setLinkOpen] = useState(false);
@@ -97,6 +98,30 @@ export default function ProjectDashboard() {
     load();
   }, [load]);
 
+  const refreshExternalProgress = useCallback(() => {
+    load();
+    setExternalRefreshKey((value) => value + 1);
+  }, [load]);
+
+  useEffect(() => {
+    let lastRefresh = Number.NEGATIVE_INFINITY;
+    const refresh = () => {
+      const now = performance.now();
+      if (now - lastRefresh < 250) return;
+      lastRefresh = now;
+      refreshExternalProgress();
+    };
+    const refreshVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refreshVisible);
+    };
+  }, [refreshExternalProgress]);
+
   // Deep link (?codex=…) switches the filter to that entry's type. Adjusted
   // during render so the entry is already on screen when we scroll to it.
   const focusEntry = focusCodexId ? codex.find((e) => e.id === focusCodexId) : undefined;
@@ -112,7 +137,7 @@ export default function ProjectDashboard() {
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [focusCodexId, codex]);
 
-  const { run, runningStage, isRunning } = useRunPhase(id, load);
+  const { run, runningStage, isRunning } = useRunPhase(id, refreshExternalProgress);
 
   const filtered = useMemo(
     () => (codexFilter === "all" ? codex : codex.filter((e) => e.entry_type === codexFilter)),
@@ -242,14 +267,16 @@ export default function ProjectDashboard() {
                 with where you are against your targets. */}
             {/* Structure is what Plan and Revise are for; Write keeps the
                 dashboard quiet so the writer goes to the manuscript. */}
-            {mode !== "write" && <BookShape projectId={id} />}
+            {mode !== "write" && (
+              <BookShape projectId={id} refreshKey={externalRefreshKey} />
+            )}
 
             {mode === "revise" ? (
               <>
                 <ContinuityHealth report={continuity} onRefresh={refreshContinuity} />
                 {/* Compiling is the last thing you do, and only in Revise. */}
                 <CompilePanel projectId={id} />
-                <ManuscriptStats projectId={id} />
+                <ManuscriptStats projectId={id} refreshKey={externalRefreshKey} />
                 <WritingTargets
                   projectId={id}
                   project={project}
@@ -265,7 +292,7 @@ export default function ProjectDashboard() {
                   wordCount={words}
                   onUpdated={setProject}
                 />
-                <ManuscriptStats projectId={id} />
+                <ManuscriptStats projectId={id} refreshKey={externalRefreshKey} />
                 <ContinuityHealth report={continuity} onRefresh={refreshContinuity} />
               </>
             )}

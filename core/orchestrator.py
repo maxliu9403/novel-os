@@ -40,9 +40,17 @@ from canon_ledger import CanonLedger, CanonLedgerEntry, CanonReconciliationEntry
 from proposals import ProposalStore
 from artifacts import ArtifactError, ArtifactStore
 from contracts import ChapterContract
-from commercial_story import CommercialStoryContract
+from commercial_story import (
+    BELONGING_ANCHORS,
+    HOOK_TYPES,
+    READER_JOBS,
+    RESOURCE_DIMENSIONS,
+    SATISFACTION_TYPES,
+    CommercialStoryContract,
+)
 from commercial_quality import (
     CommercialChapterReport,
+    CommercialFinding,
     free_trial_beats_for_chapter,
     review_commercial_chapter as validate_commercial_chapter,
     write_commercial_report,
@@ -1087,6 +1095,24 @@ Write the beat-sheet now. Outline only no prose.
         if self.quality_policy == "evidence_v1":
             if commercial_contract is not None:
                 commercial = commercial_contract
+                design_context = self._commercial_chapter_design_context(
+                    chapter.number
+                )
+                assigned_free_trial_beats = free_trial_beats_for_chapter(
+                    commercial, chapter.number
+                )
+                free_trial_arc = commercial.free_trial_arc.to_dict()
+                assigned_free_trial_text = "\n".join(
+                    f"- `{beat}`: {free_trial_arc[beat]}"
+                    for beat in assigned_free_trial_beats
+                ) or "- None"
+                visible_cost_instruction = (
+                    "If `visible_cost` is assigned, that cost must occur before "
+                    "the final hook. The ending must introduce fresh unresolved "
+                    "pressure after the cost instead of postponing the cost itself."
+                    if "visible_cost" in assigned_free_trial_beats
+                    else ""
+                )
                 prompt += f"""
 
 ## Commercial Reader-Value Contract (schema-v2 required)
@@ -1101,10 +1127,20 @@ major turn, and controlled resource IDs that are seeded or used in this chapter.
 The resource IDs must be stable lowercase snake_case identifiers. A used
 resource must be seeded in this or an earlier chapter.
 
+`belonging_anchors` may be declared only when `reader_jobs` includes `belonging`.
+Likewise, the `belonging` reader job requires at least one approved `belonging_anchors` value.
+Keep both fields empty when belonging is not a reader job for this chapter.
+
 Approved story anchors: {", ".join(commercial.premise_engine.belonging_anchors)}
 Approved boundary transfer: {commercial.premise_engine.boundary_transfer}
 Approved conflict ladder: {json.dumps([step.to_dict() for step in commercial.conflict_ladder], ensure_ascii=False)}
 Approved contract id: {commercial.contract_id}
+
+Assigned free-trial beats for this chapter (all must be delivered on-page):
+{assigned_free_trial_text}
+{visible_cost_instruction}
+
+{design_context}
 """
             prompt += f"""
 
@@ -1132,7 +1168,7 @@ After the Markdown outline, emit exactly one JSON object inside these tags:
   "resource_dimension": "name",
   "resource_change": "...",
   "satisfaction_type": "boundary",
-  "hook_type": "consequence",
+  "hook_type": "decision",
   "humiliation_scene": false,
   "protagonist_causes_turn": true,
   "seeded_resource_ids": ["license_record"],
@@ -1146,11 +1182,152 @@ After the Markdown outline, emit exactly one JSON object inside these tags:
                 prompt = prompt.replace(
                     '  "schema_version": 1,\n', "", 1
                 ).replace(
-                    '  "world_event_ids": ["..."],\n  "reader_jobs": ["recognition", "anger"],\n  "belonging_anchors": [],\n  "resource_dimension": "name",\n  "resource_change": "...",\n  "satisfaction_type": "boundary",\n  "hook_type": "consequence",\n  "humiliation_scene": false,\n  "protagonist_causes_turn": true,\n  "seeded_resource_ids": ["license_record"],\n  "used_resource_ids": ["license_record"]',
+                    '  "world_event_ids": ["..."],\n  "reader_jobs": ["recognition", "anger"],\n  "belonging_anchors": [],\n  "resource_dimension": "name",\n  "resource_change": "...",\n  "satisfaction_type": "boundary",\n  "hook_type": "decision",\n  "humiliation_scene": false,\n  "protagonist_causes_turn": true,\n  "seeded_resource_ids": ["license_record"],\n  "used_resource_ids": ["license_record"]',
                     '  "world_event_ids": ["..."]',
                     1,
                 )
         return prompt
+
+    def _commercial_chapter_design_context(self, chapter_number: int) -> str:
+        """Expose persisted resource continuity and relevant gate feedback."""
+        artifacts = ArtifactStore(self.project_path)
+        seeded_resources: set[str] = set()
+        prior_contracts: list[ChapterContract] = []
+        try:
+            for number in range(1, chapter_number):
+                head = artifacts.get_head(number, "chapter_contract")
+                if head is None:
+                    continue
+                contract = ChapterContract.from_dict(
+                    json.loads(artifacts.read_text(head.revision_id))
+                )
+                prior_contracts.append(contract)
+                seeded_resources.update(contract.seeded_resource_ids)
+
+            current_head = artifacts.get_head(chapter_number, "chapter_contract")
+            current_contract = (
+                ChapterContract.from_dict(
+                    json.loads(artifacts.read_text(current_head.revision_id))
+                )
+                if current_head is not None
+                else None
+            )
+        except (ArtifactError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"chapter {chapter_number} resource continuity is invalid"
+            ) from exc
+
+        commercial = CommercialStoryContract.from_dict(
+            self.state.story_bible.get("commercial_story_contract") or {}
+        )
+        all_hook_types = sorted(HOOK_TYPES)
+        unavailable_hook_types: list[str] = []
+        if prior_contracts:
+            last_hook = prior_contracts[-1].hook_type
+            trailing_count = 0
+            for contract in reversed(prior_contracts):
+                if contract.hook_type != last_hook:
+                    break
+                trailing_count += 1
+            maximum_consecutive = (
+                commercial.quality_budgets.identical_hook_type_max + 1
+            )
+            if trailing_count >= maximum_consecutive:
+                unavailable_hook_types.append(last_hook)
+        available_hook_types = [
+            value for value in all_hook_types if value not in unavailable_hook_types
+        ]
+
+        context = [
+            "## Controlled Contract Values",
+            "Allowed `reader_jobs` values: "
+            + json.dumps(sorted(READER_JOBS), ensure_ascii=False),
+            "Allowed `belonging_anchors` values: "
+            + json.dumps(sorted(BELONGING_ANCHORS), ensure_ascii=False),
+            "Allowed `resource_dimension` values: "
+            + json.dumps(sorted(RESOURCE_DIMENSIONS), ensure_ascii=False),
+            "Allowed `satisfaction_type` values: "
+            + json.dumps(sorted(SATISFACTION_TYPES), ensure_ascii=False),
+            "Allowed `hook_type` values: "
+            + json.dumps(all_hook_types, ensure_ascii=False),
+            "Recent `hook_type` sequence: "
+            + json.dumps(
+                [contract.hook_type for contract in prior_contracts[-6:]],
+                ensure_ascii=False,
+            ),
+            "Unavailable `hook_type` values this chapter: "
+            + json.dumps(unavailable_hook_types, ensure_ascii=False),
+            "Available `hook_type` values this chapter: "
+            + json.dumps(available_hook_types, ensure_ascii=False),
+            "Use one available value exactly as written; do not invent a synonym.",
+            "",
+            "## Resource Continuity",
+            "Previously seeded resource IDs: "
+            + json.dumps(sorted(seeded_resources), ensure_ascii=False),
+            "Every `used_resource_id` must appear in that list or in this "
+            "chapter's `seeded_resource_ids`. When introducing a new resource, "
+            "seed it in this chapter before or while using it.",
+        ]
+        if current_contract is not None:
+            current_known = seeded_resources.union(
+                current_contract.seeded_resource_ids
+            )
+            current_missing = sorted(
+                resource_id
+                for resource_id in current_contract.used_resource_ids
+                if resource_id not in current_known
+            )
+            if current_missing:
+                context.append(
+                    "Current contract uses unseeded resource IDs: "
+                    + json.dumps(current_missing, ensure_ascii=False)
+                )
+
+        report_path = (
+            self.outputs_dir
+            / "quality/commercial"
+            / f"chapter_{chapter_number:03d}_design.json"
+        )
+        if not report_path.is_file() or current_contract is None:
+            return "\n".join(context)
+        try:
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError(
+                f"chapter {chapter_number} design feedback is invalid"
+            ) from exc
+        if (
+            not isinstance(report, dict)
+            or report.get("status") != "blocked"
+            or report.get("chapter") != chapter_number
+            or report.get("chapter_contract_id") != current_contract.contract_id
+        ):
+            return "\n".join(context)
+
+        findings = report.get("findings")
+        if not isinstance(findings, list):
+            raise ValueError(
+                f"chapter {chapter_number} design feedback findings are invalid"
+            )
+        blocked_feedback = [
+            f"- {item.get('code')}: {item.get('message')}"
+            for item in findings
+            if isinstance(item, dict)
+            and item.get("severity") == "blocked"
+            and isinstance(item.get("code"), str)
+            and isinstance(item.get("message"), str)
+        ]
+        if blocked_feedback:
+            context.extend(
+                [
+                    "",
+                    "## Previous Design Gate Feedback",
+                    "The previous plan was blocked. Correct every finding in "
+                    "the replacement chapter contract:",
+                    *blocked_feedback,
+                ]
+            )
+        return "\n".join(context)
 
     # ===== Style Curation =====
 
@@ -2080,6 +2257,35 @@ manuscript itself.
         expected_free_trial_beats = free_trial_beats_for_chapter(
             commercial_contract, chapter_number
         )
+        chapter = self.state.get_chapter(chapter_number)
+        if chapter is None:
+            raise ValueError(f"Chapter {chapter_number} not found")
+        minimum_words, maximum_words = self._chapter_word_bounds(chapter)
+        candidate_word_count = len(candidate_text.split())
+        if not minimum_words <= candidate_word_count <= maximum_words:
+            report = CommercialChapterReport(
+                status="blocked",
+                chapter=chapter_number,
+                artifact_sha256=hashlib.sha256(
+                    candidate_text.encode("utf-8")
+                ).hexdigest(),
+                story_contract_revision_id=story_revision_id,
+                chapter_contract_revision_id=chapter_revision_id,
+                findings=(
+                    CommercialFinding(
+                        code="chapter_word_count_out_of_range",
+                        severity="blocked",
+                        message=(
+                            f"Chapter {chapter_number} has {candidate_word_count} words; "
+                            f"required range is {minimum_words}-{maximum_words}."
+                        ),
+                    ),
+                ),
+            )
+            report_path = write_commercial_report(self.project_path, report)
+            self._archive_commercial_report(chapter_number, report, raw=None)
+            print(f"✅ Commercial report saved: {report_path}")
+            return report
         prompt = self._generate_commercial_review_prompt(
             chapter_number, candidate_text, chapter_contract
         )
@@ -2098,21 +2304,9 @@ manuscript itself.
                 raise
             return None
         raw_path.write_text(raw, encoding="utf-8")
-        run_id = getattr(self, "pipeline_run_id", "")
-        run_commercial_dir = None
-        if run_id:
-            run_commercial_dir = (
-                self.outputs_dir
-                / "runs"
-                / str(run_id)
-                / "feedback"
-                / "commercial"
-                / f"chapter_{chapter_number:03d}"
-            )
-            run_commercial_dir.mkdir(parents=True, exist_ok=True)
-            (run_commercial_dir / f"guardian_{hashlib.sha256(raw.encode('utf-8')).hexdigest()}.json").write_text(
-                raw, encoding="utf-8"
-            )
+        run_commercial_dir = self._archive_commercial_report(
+            chapter_number, report=None, raw=raw
+        )
         try:
             payload = self._extract_json_object(raw)
             report = validate_commercial_chapter(
@@ -2146,6 +2340,57 @@ manuscript itself.
         print(f"✅ Commercial report saved: {report_path}")
         return report
 
+    def _archive_commercial_report(
+        self,
+        chapter_number: int,
+        report: CommercialChapterReport | None,
+        raw: str | None,
+    ) -> Path | None:
+        """Keep run-scoped Guardian inputs and superseded reports immutable."""
+        run_id = getattr(self, "pipeline_run_id", "")
+        if not run_id:
+            return None
+        run_commercial_dir = (
+            self.outputs_dir
+            / "runs"
+            / str(run_id)
+            / "feedback"
+            / "commercial"
+            / f"chapter_{chapter_number:03d}"
+        )
+        run_commercial_dir.mkdir(parents=True, exist_ok=True)
+        if raw is not None:
+            raw_sha = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+            (run_commercial_dir / f"guardian_{raw_sha}.json").write_text(
+                raw, encoding="utf-8"
+            )
+        if report is not None:
+            (run_commercial_dir / f"report_{report.artifact_sha256}.json").write_text(
+                json.dumps(report.to_dict(), ensure_ascii=False, sort_keys=True, indent=2)
+                + "\n",
+                encoding="utf-8",
+            )
+        return run_commercial_dir
+
+    def _chapter_word_bounds(self, chapter: ChapterState) -> tuple[int, int]:
+        """Resolve an explicit per-chapter range, or use the standard ±10%."""
+        target = max(1, int(chapter.target_word_count or 1))
+        prompt_path = self.outputs_dir / "input" / "prompt.md"
+        if prompt_path.is_file():
+            prompt_text = prompt_path.read_text(encoding="utf-8")
+            for match in re.finditer(
+                r"([\d,]+)\s*[-–]\s*([\d,]+)\s+words?\b",
+                prompt_text,
+                re.IGNORECASE,
+            ):
+                first = int(match.group(1).replace(",", ""))
+                second = int(match.group(2).replace(",", ""))
+                lower, upper = sorted((first, second))
+                if lower <= target <= upper:
+                    return lower, upper
+        tolerance = max(1, round(target * 0.10))
+        return max(1, target - tolerance), target + tolerance
+
     def repair_commercial_chapter(
         self,
         chapter_number: int,
@@ -2164,6 +2409,25 @@ manuscript itself.
             raise ValueError(f"Chapter {chapter_number} not found")
         chapter_contract, story_revision_id, chapter_revision_id = self._commercial_contract_context(
             chapter_number
+        )
+        minimum_words, maximum_words = self._chapter_word_bounds(chapter)
+        commercial_contract = CommercialStoryContract.from_dict(
+            self.state.story_bible.get("commercial_story_contract") or {}
+        )
+        assigned_free_trial_beats = free_trial_beats_for_chapter(
+            commercial_contract, chapter_number
+        )
+        free_trial_arc = commercial_contract.free_trial_arc.to_dict()
+        assigned_free_trial_text = "\n".join(
+            f"- `{beat}`: {free_trial_arc[beat]}"
+            for beat in assigned_free_trial_beats
+        ) or "- None"
+        visible_cost_instruction = (
+            "When `visible_cost` is assigned, deliver it before the final beat, "
+            "then end on fresh unresolved pressure consistent with the declared "
+            "hook type. Do not preserve a hook by deferring the required cost."
+            if "visible_cost" in assigned_free_trial_beats
+            else ""
         )
         feedback_text = str(report)
         if isinstance(report, CommercialChapterReport):
@@ -2194,6 +2458,22 @@ manuscript itself.
             + json.dumps(chapter_contract.to_dict(), ensure_ascii=False, sort_keys=True, indent=2)
             + "\n```\n"
         )
+        delivery_checklist = f"""## Non-regression Delivery Checklist
+- Target word count: {chapter.target_word_count}
+- Required prose range: {minimum_words}-{maximum_words} words (hard gate)
+- Agency/active choice: {chapter_contract.active_choice}
+- Resource change: {chapter_contract.resource_change}
+- Local payoff: {chapter_contract.local_payoff}
+- Ending hook: `{chapter_contract.hook_type}` — {chapter_contract.ending_pressure}
+- Reader jobs: {json.dumps(list(chapter_contract.reader_jobs), ensure_ascii=False)}
+- Belonging anchors: {json.dumps(list(chapter_contract.belonging_anchors), ensure_ascii=False)}
+- Assigned free-trial beats:
+{assigned_free_trial_text}
+
+Do not fix one delivery by deleting or deferring another. The complete replacement
+must satisfy the latest feedback and every checklist item at the same time.
+{visible_cost_instruction}
+"""
         prompt = f"""# STYLE CURATOR COMMERCIAL DELIVERY REPAIR: Chapter {chapter_number}
 
 This is automatic commercial delivery repair attempt {attempt}. Preserve the
@@ -2204,6 +2484,7 @@ unsupported reader-value delivery. Do not add commentary to the manuscript.
 {feedback_text}
 
 {contracts_text}
+{delivery_checklist}
 
 ## Current Candidate Final
 ```markdown
@@ -2235,6 +2516,12 @@ Return `[EDITOR_ANALYSIS]`, the complete replacement inside
         clean, _meta = sanitize_manuscript(manuscript)
         if not clean:
             raise LLMError("Style Curator commercial repair returned an empty candidate")
+        repaired_word_count = len(clean.split())
+        if not minimum_words <= repaired_word_count <= maximum_words:
+            raise LLMError(
+                f"Style Curator commercial repair word count {repaired_word_count} "
+                f"is outside required range {minimum_words}-{maximum_words}"
+            )
         candidate_path.write_text(clean, encoding="utf-8")
         if resolved_mode == "proposal_only":
             self._persist_canon_proposal(
@@ -2711,7 +2998,7 @@ Examples:
 
     if args.command in {'run', 'resume', 'run-status', 'retry'}:
         from pipeline_models import RunSpec
-        from pipeline_runner import PipelineRunner
+        from pipeline_runner import PipelineError, PipelineRunner
 
         runner = PipelineRunner(getattr(args, 'project', None))
         try:
@@ -2755,7 +3042,7 @@ Examples:
                 )
             else:
                 manifest = runner.inspect(args.run_id, args.project)
-        except (FileNotFoundError, ValueError) as exc:
+        except (FileNotFoundError, ValueError, PipelineError) as exc:
             print(f"❌ {exc}")
             return 1
 

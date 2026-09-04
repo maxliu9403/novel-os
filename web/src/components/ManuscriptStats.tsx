@@ -3,7 +3,13 @@ import { api, type ProjectStatistics } from "../api/client";
 import Icon from "./Icon";
 
 /** Style Curator surface: reading time, word frequency, echoes (P4). */
-export default function ManuscriptStats({ projectId }: { projectId: string }) {
+export default function ManuscriptStats({
+  projectId,
+  refreshKey = 0,
+}: {
+  projectId: string;
+  refreshKey?: number;
+}) {
   const [stats, setStats] = useState<ProjectStatistics | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -28,7 +34,7 @@ export default function ManuscriptStats({ projectId }: { projectId: string }) {
     setLoading(true);
   }
 
-  useEffect(() => { fetchStats(); }, [fetchStats]);
+  useEffect(() => { fetchStats(); }, [fetchStats, refreshKey]);
 
   /** Manual refresh from the button; event handlers may set state directly. */
   const load = useCallback(() => {

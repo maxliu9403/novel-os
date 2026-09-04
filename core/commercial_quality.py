@@ -254,6 +254,40 @@ def _finding(code: str, message: str, severity: str = "blocked") -> CommercialFi
     return CommercialFinding(code=code, severity=severity, message=message)
 
 
+def _resolve_evidence_span(
+    candidate_text: str,
+    artifact_sha256: str,
+    *,
+    quote: Any,
+    start: Any,
+    end: Any,
+) -> EvidenceSpan | None:
+    """Verify a quote and deterministically repair unreliable model offsets."""
+    if (
+        not isinstance(quote, str)
+        or not quote.strip()
+        or type(start) is not int
+        or type(end) is not int
+        or start < 0
+        or end <= start
+    ):
+        return None
+    if end <= len(candidate_text) and candidate_text[start:end] == quote:
+        resolved_start = start
+    else:
+        resolved_start = candidate_text.find(quote)
+        if resolved_start < 0:
+            return None
+        if candidate_text.find(quote, resolved_start + 1) >= 0:
+            return None
+    return EvidenceSpan(
+        artifact_sha256=artifact_sha256,
+        quote=quote,
+        start=resolved_start,
+        end=resolved_start + len(quote),
+    )
+
+
 def _verify_delivery(
     candidate_text: str, artifact_sha256: str, value: Any, label: str, *, required: bool = True
 ) -> tuple[list[CommercialFinding], EvidenceSpan | None]:
@@ -278,26 +312,17 @@ def _verify_delivery(
             )
         )
         return findings, None
-    quote = value.get("quote")
-    start, end = value.get("start"), value.get("end")
-    if (
-        not isinstance(quote, str)
-        or not quote.strip()
-        or type(start) is not int
-        or type(end) is not int
-        or start < 0
-        or end <= start
-        or end > len(candidate_text)
-        or candidate_text[start:end] != quote
-    ):
+    evidence = _resolve_evidence_span(
+        candidate_text,
+        artifact_sha256,
+        quote=value.get("quote"),
+        start=value.get("start"),
+        end=value.get("end"),
+    )
+    if evidence is None:
         findings.append(_finding(f"invalid_{label}_evidence", f"{label} evidence does not match the exact candidate"))
         return findings, None
-    return findings, EvidenceSpan(
-        artifact_sha256=artifact_sha256,
-        quote=quote,
-        start=start,
-        end=end,
-    )
+    return findings, evidence
 
 
 def _strict_guardian_payload(payload: Any) -> dict[str, Any]:
@@ -347,19 +372,17 @@ def _guardian_quality_findings(
                 valid = False
                 break
             try:
-                start, end, quote = item["start"], item["end"], item["quote"]
-                if (
-                    type(start) is not int
-                    or type(end) is not int
-                    or not isinstance(quote, str)
-                    or start < 0
-                    or end <= start
-                    or end > len(candidate_text)
-                    or candidate_text[start:end] != quote
-                ):
+                evidence_span = _resolve_evidence_span(
+                    candidate_text,
+                    artifact_sha256,
+                    quote=item["quote"],
+                    start=item["start"],
+                    end=item["end"],
+                )
+                if evidence_span is None:
                     valid = False
                     break
-                spans.append(EvidenceSpan(artifact_sha256=artifact_sha256, quote=quote, start=start, end=end))
+                spans.append(evidence_span)
             except (KeyError, TypeError, ValueError):
                 valid = False
                 break
@@ -1329,8 +1352,19 @@ def validate_chapter_design(
         for resource_id in previous.seeded_resource_ids
     }
     known_resources.update(contract.seeded_resource_ids)
-    if any(resource_id not in known_resources for resource_id in contract.used_resource_ids):
-        findings.append(_finding("unseeded_resource", "Every used resource must be seeded in this or an earlier chapter."))
+    missing_resources = sorted(
+        resource_id
+        for resource_id in contract.used_resource_ids
+        if resource_id not in known_resources
+    )
+    if missing_resources:
+        findings.append(
+            _finding(
+                "unseeded_resource",
+                "Every used resource must be seeded in this or an earlier "
+                f"chapter. Missing seeded resource IDs: {', '.join(missing_resources)}.",
+            )
+        )
     if not contract.protagonist_causes_turn:
         findings.append(_finding("protagonist_does_not_cause_turn", "The protagonist must cause the chapter's major turn."))
 

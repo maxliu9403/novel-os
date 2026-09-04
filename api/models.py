@@ -103,6 +103,111 @@ class StudioCoverStatus(BaseModel):
     error: str | None = None
 
 
+class ProviderTemplateOut(BaseModel):
+    id: str
+    label: str
+    auth_type: str
+    default_base_url: str
+    capabilities: list[str]
+    requires_api_key: bool
+    model_placeholder: str
+
+
+class ProviderConnectionInput(BaseModel):
+    name: str
+    provider: str
+    auth_type: str | None = None
+    base_url: str | None = None
+    image_base_url: str | None = None
+    capabilities: list[str] | None = None
+    secret_action: str = "keep"
+    api_key: str | None = None
+
+
+class ProviderConnectionOut(BaseModel):
+    id: str
+    name: str
+    provider: str
+    auth_type: str
+    base_url: str
+    image_base_url: str
+    capabilities: list[str]
+    has_api_key: bool
+    status: str
+    error: str
+    last_tested_at: str
+    last_test_ok: bool | None = None
+    last_test_error: str
+    discovered_models: list[str]
+
+
+class TextRouteInput(BaseModel):
+    id: str
+    connection_id: str = ""
+    model: str = ""
+    max_tokens: int = 8192
+    inherits_default: bool = False
+
+
+class TextRouteOut(TextRouteInput):
+    effective_connection_id: str
+    effective_connection_name: str
+    effective_model: str
+    effective_source: str
+    configured: bool
+
+
+class TextRoutesUpdate(BaseModel):
+    routes: list[TextRouteInput]
+
+
+class TextModelTestRequest(BaseModel):
+    prompt: str
+
+
+class ImageProfileUpdate(BaseModel):
+    connection_id: str
+    model: str
+    size: str = "2048x3072"
+    quality: str = "high"
+    output_format: str = "jpeg"
+    count: int = 4
+    timeout_seconds: float = 180.0
+
+
+class ImageProfileOut(ImageProfileUpdate):
+    id: str
+    connection_name: str
+    configured: bool
+    error: str
+
+
+class StudioModelConfigurationOut(BaseModel):
+    schema_version: int
+    source: str
+    templates: list[ProviderTemplateOut]
+    connections: list[ProviderConnectionOut]
+    text_routes: list[TextRouteOut]
+    image_profiles: dict[str, ImageProfileOut]
+
+
+class ProviderTestResult(BaseModel):
+    ok: bool
+    status: str
+    message: str
+    models: list[str]
+    tested_at: str
+
+
+class ImageTestResult(BaseModel):
+    ok: bool
+    data_url: str
+    width: int
+    height: int
+    model: str
+    request_id: str
+
+
 class ContinuityFinding(BaseModel):
     severity: str
     category: str

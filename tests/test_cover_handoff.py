@@ -136,9 +136,17 @@ def test_english_market_prompts_use_premium_western_story_cover_direction() -> N
     assert "Do not infer or invent ethnicity" in prompt
     assert "American white casting" not in prompt
     assert "premium US commercial fiction magazine cover" in prompt
+    assert "live-action theatrical film campaign poster" in prompt
+    assert "believable on-set publicity still" in prompt
     assert "one frozen cinematic story moment" in prompt
     assert "visible action, reaction, and stakes" in prompt
+    assert "principal characters immediately clear" in prompt
+    assert "core story atmosphere" in prompt.casefold()
     assert "Western editorial typography" in prompt
+    assert "centered title lockup" in prompt
+    assert "foreground carries the emotional consequence" in prompt
+    assert "background reveals the cause" in prompt
+    assert "generic sadness" in prompt
 
 
 def test_non_western_market_prompts_keep_market_neutral_casting() -> None:

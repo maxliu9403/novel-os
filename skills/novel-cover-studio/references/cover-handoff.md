@@ -54,9 +54,15 @@ COVER_HANDOFF_END
 
 ## V2 direction gate
 
-- Include all required protagonists in one continuous scene. For two or three,
-  every person is clear; for four or more, keep two or three foreground anchors
-  and stage the remaining required cast in middle/background action.
+- `principal_characters` contains every required protagonist with
+  `must_appear: true`. It may also contain a small number of story-confirmed,
+  cover-relevant conflict participants with `must_appear: false`; these are an
+  approved visual pool, not mandatory cast in every concept.
+- Include all required protagonists in one continuous scene. A concept may add
+  approved optional conflict participants when they make the emotional cause
+  legible. For four or more visible characters, keep one or two foreground
+  emotional anchors and stage the causal relationship action in the
+  middle/background rather than arranging a flat group portrait.
 - Every scene records cast IDs, evidence refs, frozen action, gaze graph,
   blocking, lived-environment anchors, primary prop, camera/depth/light, title
   safe zone, and a truthful `VisualHook`.

@@ -262,11 +262,11 @@ def test_structured_publication_copy_precedes_chapter_one_and_is_not_counted():
         publication_copy=publication_copy,
     )
 
-    assert [block.kind for block in book.blocks[:3]] == [
-        "story_lead_title", "story_hook", "story_lead",
+    assert [block.kind for block in book.blocks[:4]] == [
+        "story_lead_label", "story_lead_title", "story_hook", "story_lead",
     ]
-    assert all(block.chapter is None for block in book.blocks[:3])
-    assert book.blocks[3].kind == "chapter_title"
+    assert all(block.chapter is None for block in book.blocks[:4])
+    assert book.blocks[4].kind == "chapter_title"
     assert book.word_count == 1
     assert book.language == "en-US"
     assert book.publication_copy is publication_copy
@@ -282,6 +282,30 @@ def test_structured_publication_copy_precedes_chapter_one_and_is_not_counted():
         < html.index("Claire discovers")
         < html.index("One")
     )
+
+
+@pytest.mark.parametrize(
+    ("language", "label"),
+    (("en-US", "Introduction"), ("American English", "Introduction"), ("zh-CN", "导读")),
+)
+def test_structured_publication_copy_has_an_explicit_localized_reader_guide_label(
+    language, label,
+):
+    publication_copy = _PublicationCopyFixture(language=language)
+    book = gather(
+        title="T",
+        author="A",
+        genre="Family drama",
+        chapters=[{"number": 1, "title": "One", "text": "# One\n\nBody."}],
+        publication_copy=publication_copy,
+    )
+
+    assert book.blocks[0].kind == "story_lead_label"
+    assert book.blocks[0].text == label
+    assert book.blocks[0].chapter is None
+    markdown = render_markdown(book, StyleSheet())
+    assert markdown.index(f"## {label}") < markdown.index("## Before the Story")
+    assert markdown.index("## Before the Story") < markdown.index("## One")
 
 
 def test_structured_publication_copy_and_legacy_marker_block_compile():

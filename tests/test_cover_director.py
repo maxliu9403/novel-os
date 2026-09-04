@@ -136,6 +136,71 @@ def test_director_prompt_defines_exact_machine_readable_response_contract() -> N
         "character:char_mara", "character:char_oren", "node:door_choice",
         "signal:child_backpack",
     ]
+    field_rules = contract["plans"]["field_rules"]
+    assert "principal people" in field_rules["blocking"]
+    assert "faces" in field_rules["depth_plan"]
+    assert "centered title" in field_rules["title_safe_zone"]
+    assert "core story atmosphere" in field_rules["motivated_lighting"]
+
+
+def test_director_contract_makes_causal_conflict_staging_a_general_creative_rule() -> None:
+    payload = two_character_fixture()
+    optional = dict(payload["principal_characters"][1])
+    optional.update({
+        "character_id": "char_pressure",
+        "name": "Pressure Character",
+        "must_appear": False,
+        "relationships": ["char_mara"],
+    })
+    payload["principal_characters"].append(optional)
+    brief = CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+
+    request = json.loads(CoverArtDirector._user_prompt(brief, 4))
+    contract = request["response_contract"]
+    rules = contract["plans"]["field_rules"]
+
+    assert contract["optional_conflict_character_ids"] == ["char_pressure"]
+    assert "foreground emotional consequence" in contract["plans"]["portfolio_rules"][0]
+    assert "background causal relationship action" in contract["plans"]["portfolio_rules"][0]
+    assert "not a flat group pose" in rules["blocking"]
+    assert "literal words foreground and background" in rules["blocking"]
+    assert "cross depth planes" in rules["gaze_graph"]
+    assert "emotionally legible action" in rules["frozen_action"]
+
+
+def test_live_director_repairs_group_blocking_before_returning_direction() -> None:
+    brief = _brief(4)
+    invalid = director_fixture()
+    invalid["plans"] = [
+        {
+            **plan,
+            "cast": ["char_mara", "char_oren", "char_3", "char_4"],
+            "blocking": "four people arranged near the apartment door",
+            "depth_plan": "all faces readable around the doorway",
+        }
+        for plan in invalid["plans"]
+    ]
+    repaired = json.loads(json.dumps(invalid))
+    for plan in repaired["plans"]:
+        plan["blocking"] = (
+            "char_mara carries the consequence in the foreground while "
+            "char_oren, char_3, and char_4 reveal its cause in the background"
+        )
+    responses = iter((json.dumps(invalid), json.dumps(repaired)))
+    calls: list[str] = []
+
+    def complete(_system: str, user: str) -> str:
+        calls.append(user)
+        return next(responses)
+
+    direction = CoverArtDirector(complete=complete, model="fixture-director").plan(
+        brief, count=4
+    )
+
+    assert len(calls) == 2
+    assert "group_blocking" in calls[1]
+    assert "concept-1" in calls[1]
+    assert all("foreground" in plan.blocking for plan in direction.plans)
 
 
 def test_director_count_error_reports_requested_and_received_plans() -> None:

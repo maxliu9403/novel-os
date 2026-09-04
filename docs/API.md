@@ -222,12 +222,39 @@ in-memory `JobRunner`; poll `GET /api/jobs/{job_id}` until `status` is `done` or
 
 ### Cover model settings
 
+The versioned provider API is the preferred Studio contract:
+
+```http
+GET  /api/studio/models
+POST /api/studio/providers
+PATCH /api/studio/providers/{connection_id}
+DELETE /api/studio/providers/{connection_id}
+POST /api/studio/providers/{connection_id}/test
+GET  /api/studio/providers/{connection_id}/models
+PUT  /api/studio/model-routes
+POST /api/studio/model-routes/{route_id}/test
+GET  /api/studio/image-profiles/cover
+PUT  /api/studio/image-profiles/cover
+POST /api/studio/image-profiles/cover/test
+GET  /api/jobs/{job_id}
+```
+
+Provider metadata and task routes use schema version 2. API keys are write-only
+and live in an owner-readable secret file beside Studio settings. Codex
+connections keep authentication in the Codex credential store. The image test
+route performs one explicit, billable generation; provider connection tests do
+not generate an image. Text-response and image tests return `202` immediately
+with a job id. Poll the job endpoint until `status` is `done` or `error`; the
+text reply or image preview is then available in `meta`.
+
+The original endpoints remain as a compatibility projection:
+
 ```http
 GET /api/studio/cover
 PUT /api/studio/cover
 ```
 
-`PUT` accepts image fields (`base_url`, `api_key`, locked `model`, `size`,
+`PUT` accepts image fields (`base_url`, `api_key`, `model`, `size`,
 `quality`, `output_format`, `count`, `timeout_seconds`) and optional independent
 Art Director fields (`director_provider`, `director_model`, `director_base_url`,
 `director_api_key`, `director_timeout_seconds`). Responses expose only key

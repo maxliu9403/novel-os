@@ -294,6 +294,26 @@ def test_final_doc_legacy_conversion_is_read_only_until_receipted_save(tmp_path)
     assert db.get_artifact_doc(project_id, 1, "final") is not None
 
 
+def test_empty_legacy_doc_save_preserves_existing_final(tmp_path):
+    client, projects = _client(tmp_path)
+    project_id, project = _project(client, projects)
+    manuscript = project / "outputs/manuscript"
+    manuscript.mkdir(parents=True, exist_ok=True)
+    final_path = manuscript / "chapter_001_final.md"
+    original = "# One\n\nExisting chapter prose.\n"
+    final_path.write_text(original, encoding="utf-8")
+
+    saved = client.put(
+        f"/api/projects/{project_id}/chapters/1/final/doc",
+        json={"doc": richtext.empty_doc()},
+    )
+
+    assert saved.status_code == 400, saved.text
+    assert final_path.read_text(encoding="utf-8") == original
+    assert ArtifactStore(project).get_head(1, "final") is None
+    assert _quality(client, project_id)["promotion_receipts"] == []
+
+
 def test_snapshot_restore_creates_a_new_receipted_final(tmp_path):
     client, projects = _client(tmp_path)
     project_id, _project_path = _project(client, projects)

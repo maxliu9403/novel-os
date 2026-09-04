@@ -1,18 +1,21 @@
 """Styles and compile over the wire (P5.2 / P6)."""
 
+import hashlib
 import json
+import zipfile
+from io import BytesIO
 
 import pytest
 from fastapi.testclient import TestClient
 
 from api.main import create_app
+from tests.test_publication_copy import HOOK, valid_copy_payload
 
 CH1 = "She waited at the rail.\n\nThe tide came in.\n\n---\n\nHe did not come.\n"
 CH2 = "They left before dawn.\n"
 
 
-@pytest.fixture
-def client(tmp_path):
+def _project_client(tmp_path):
     root = tmp_path / "projects"
     proj = root / "book"
     (proj / "outputs" / "state").mkdir(parents=True)
@@ -31,7 +34,12 @@ def client(tmp_path):
     (ms / "chapter_002_final.md").write_text(CH2, encoding="utf-8")
     app = create_app(projects_root=root,
                      db_url=f"sqlite:///{(tmp_path / 'c.db').as_posix()}")
-    return TestClient(app)
+    return TestClient(app), proj
+
+
+@pytest.fixture
+def client(tmp_path):
+    return _project_client(tmp_path)[0]
 
 
 # ------------------------------------------------------------------ styles
@@ -105,6 +113,49 @@ def test_markdown_compile_is_offered_too(client):
     assert r.status_code == 200
     assert 'filename="book.md"' in r.headers["content-disposition"]
     assert r.text.startswith("# The Pier")
+
+
+def test_downloaded_markdown_and_epub_include_publication_intro_before_chapter_one(
+    tmp_path,
+):
+    client, project = _project_client(tmp_path)
+    payload = valid_copy_payload()
+    payload["title"] = "The Pier"
+    payload["whole_book_core_conflict"]["evidence"] = {
+        "opening": [{"chapter": 1, "source_quote": "She waited at the rail."}],
+        "middle": [{"chapter": 1, "source_quote": "The tide came in."}],
+        "late": [{"chapter": 2, "source_quote": "They left before dawn."}],
+    }
+    payload["source"]["chapters"] = [
+        {
+            "number": 1,
+            "revision_id": "legacy-final-001",
+            "sha256": hashlib.sha256(CH1.encode("utf-8")).hexdigest(),
+        },
+        {
+            "number": 2,
+            "revision_id": "legacy-final-002",
+            "sha256": hashlib.sha256(CH2.encode("utf-8")).hexdigest(),
+        },
+    ]
+    publication = project / "outputs/publication/publication-copy.json"
+    publication.parent.mkdir(parents=True)
+    publication.write_text(json.dumps(payload), encoding="utf-8")
+
+    markdown = client.get("/api/projects/book/compile?format=markdown")
+    epub = client.get("/api/projects/book/compile?format=epub")
+
+    assert markdown.status_code == 200, markdown.text
+    assert markdown.text.index("## Introduction") < markdown.text.index("## Arrival")
+    assert HOOK in markdown.text
+    assert epub.status_code == 200, epub.text
+    with zipfile.ZipFile(BytesIO(epub.content)) as archive:
+        intro = archive.read("OEBPS/intro.xhtml").decode("utf-8")
+        chapter_one = archive.read("OEBPS/chap001.xhtml").decode("utf-8")
+    assert "Introduction" in intro
+    assert HOOK in intro
+    assert "She waited at the rail." not in intro
+    assert "She waited at the rail." in chapter_one
 
 
 def test_docx_and_epub_are_served_as_downloadable_binaries(client):

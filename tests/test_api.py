@@ -105,6 +105,36 @@ def test_chapters_list(tmp_path):
     assert rows[0]["pov"] == "Lena"
 
 
+def test_project_progress_uses_final_prose_when_story_state_metrics_are_stale(tmp_path):
+    chapters = {
+        "1": {
+            "number": 1,
+            "title": "Opening",
+            "status": "complete",
+            "word_count": 0,
+            "pov_character": "Lena",
+        },
+        "2": {
+            "number": 2,
+            "title": "Decision",
+            "status": "complete",
+            "word_count": 0,
+            "pov_character": "Lena",
+        },
+    }
+    _seed_project(tmp_path, "p", "P", "Drama", chapters=chapters)
+    _seed_chapter_files(tmp_path, "p", 1, final="one two three")
+    _seed_chapter_files(tmp_path, "p", 2, final="four five six seven")
+    client = _client(tmp_path)
+
+    project = client.get("/api/projects/p").json()
+    rows = client.get("/api/projects/p/chapters").json()
+
+    assert project["chapter_count"] == 2
+    assert project["word_count"] == 7
+    assert [row["word_count"] for row in rows] == [3, 4]
+
+
 def test_chapter_detail_with_files(tmp_path):
     chapters = {"1": {"number": 1, "title": "Opening", "status": "drafted",
                       "word_count": 5, "pov_character": "Lena"}}

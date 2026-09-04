@@ -29,6 +29,24 @@ def _evidence_exists(brief: CoverBriefV2, reference: str) -> bool:
     return False
 
 
+def _has_layered_depth(plan: object) -> bool:
+    """Return whether a plan explicitly declares foreground/background staging.
+
+    Blocking describes character placement while depth_plan describes the same
+    composition's focus hierarchy.  Treating either field in isolation makes a
+    structurally valid plan fail based only on which JSON field the director
+    chose for the depth wording.
+    """
+    spatial_text = " ".join((
+        str(getattr(plan, "blocking", "")),
+        str(getattr(plan, "depth_plan", "")),
+    )).casefold()
+    return (
+        "foreground" in spatial_text
+        and any(marker in spatial_text for marker in ("middle", "background"))
+    )
+
+
 def validate_direction(
     brief: CoverBriefV2,
     direction: ArtDirectionSet,
@@ -54,12 +72,29 @@ def validate_direction(
         ))
     required = {item.character_id for item in brief.required_characters}
     known = {item.character_id for item in brief.principal_characters}
+    optional_conflict_cast = {
+        item.character_id for item in brief.principal_characters if not item.must_appear
+    }
     strategies = [item.visual_strategy.casefold() for item in direction.plans]
     hooks = [item.visual_hook.hook_type.casefold() for item in direction.plans]
     if len(set(strategies)) != len(strategies):
         findings.append(ValidationFinding("duplicate_strategy", "blocker", "Direction strategies must be distinct"))
     if len(set(hooks)) != len(hooks):
         findings.append(ValidationFinding("duplicate_hook", "blocker", "Visual hooks must be distinct"))
+    if optional_conflict_cast and not any(
+        set(plan.cast) & optional_conflict_cast
+        and _has_layered_depth(plan)
+        for plan in direction.plans
+    ):
+        findings.append(ValidationFinding(
+            "missing_causal_conflict_tableau",
+            "blocker",
+            (
+                "At least one direction must use approved optional conflict cast in a "
+                "foreground-to-background cause-and-consequence tableau"
+            ),
+            ", ".join(sorted(optional_conflict_cast)),
+        ))
     for plan in direction.plans:
         unknown_cast = set(plan.cast) - known
         if unknown_cast:
@@ -88,10 +123,11 @@ def validate_direction(
             findings.append(ValidationFinding(
                 "identity_invention", "blocker", "Direction contains an inferred identity or age claim",
             ))
-        if len(required) >= 4 and not any(
-            marker in plan.blocking.casefold() for marker in ("foreground", "middle", "background")
-        ):
+        if len(plan.cast) >= 4 and not _has_layered_depth(plan):
             findings.append(ValidationFinding(
-                "group_blocking", "blocker", "Four-plus protagonist direction needs foreground and middle/background depth",
+                "group_blocking",
+                "blocker",
+                "Four-plus character direction needs foreground and middle/background depth",
+                plan.concept_id,
             ))
     return tuple(findings)

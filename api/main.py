@@ -65,8 +65,9 @@ def create_app(projects_root: Optional[Path] = None, db_url: Optional[str] = Non
 
     # Apply Studio LLM settings (if any) before first agent job.
     try:
-        from core import studio_settings
+        from core import provider_settings, studio_settings
         studio_settings.apply_to_environ(studio_settings.load_settings())
+        provider_settings.apply_default_route_to_environ()
     except Exception:
         pass
 

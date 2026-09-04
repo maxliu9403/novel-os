@@ -295,9 +295,12 @@ def _western_market_direction() -> list[str]:
     return [
         "Market visual direction: target the United States and North American serialized-fiction market.",
         "Casting and identity: preserve only identity traits explicitly established in the approved story. Do not infer or invent ethnicity, nationality, or other identity traits from the release market.",
-        "Aesthetic: premium US commercial fiction magazine cover and entertainment key art, with polished editorial photography, cinematic production design, sophisticated color grading, realistic skin texture, and a high-end campaign finish; avoid a stock-photo look.",
+        "Aesthetic: premium US commercial fiction magazine cover expressed as a live-action theatrical film campaign poster, built around a believable on-set publicity still with cinematic production design, sophisticated color grading, realistic skin texture, and a high-end campaign finish; avoid a stock-photo or synthetic-composite look.",
+        "Character priority: keep the principal characters immediately clear, unobstructed, recognizable, and larger than environmental detail; faces, eyes, expression, hands, and the story-relevant gesture must remain readable at mobile thumbnail size.",
         "Story feeling: make the image feel like a scene, not a generic portrait; show one frozen cinematic story moment with visible action, reaction, and stakes, so the viewer can infer what just happened and what is about to happen.",
-        "Western editorial typography: choose a premium display serif or refined modern grotesk that fits the genre, with precise kerning, deliberate tracking, strong hierarchy, and generous title-safe space for mobile thumbnail readability.",
+        "Core story atmosphere: derive the mood from the approved conflict through expression, body distance, unfinished action, motivated light, lived setting, and one story-bearing prop rather than a generic filter or decorative symbolism.",
+        "Conflict staging: build emotional geography rather than generic sadness or a flat group portrait. The foreground carries the emotional consequence or decisive response while the background reveals the cause through an evidence-supported relationship action; connect the planes through gaze, gesture, distance, and interrupted movement.",
+        "Western editorial typography: choose a premium display serif or refined modern grotesk that fits the genre, with precise kerning, deliberate tracking, strong hierarchy, and a cinematic centered title lockup on the horizontal center axis within generous title-safe space for mobile thumbnail readability.",
     ]
 
 
@@ -366,7 +369,7 @@ def build_cover_concepts(brief: CoverBrief, *, count: int = 4) -> list[CoverConc
             palette=strategy["palette"],
             secondary_signal=strategy["secondary"],
             title_treatment=(
-                f"Render the exact {brief.language} title once in the "
+                f"Render the exact {brief.language} title once as a centered lockup in the "
                 f"{brief.title_direction.get('preferred_zone') or 'top'} area"
             ),
             generation_prompt=prompt,
@@ -391,8 +394,9 @@ def _generation_prompt(brief: CoverBrief, strategy: dict[str, str]) -> str:
         f"Use only one subordinate story signal: {strategy['secondary']}.",
         f"The emotional promise is {brief.emotional_promise}.",
         f'Render the exact title "{brief.title}" exactly once in {brief.language}.',
+        "Center the title lockup on the horizontal center axis; use deliberate line breaks and scale hierarchy rather than equal-size stacked lines.",
         "The title must be large, correctly spelled, and readable at thumbnail size.",
-        "Do not add an author name, subtitle, tagline, logo, watermark, or any other text.",
+        "Do not add an author name, subtitle, tagline, logo, watermark, movie billing block, release date, studio mark, or any other text.",
         f"Exclude: {forbidden}; real place names and identifiable real-city landmarks.",
         "Keep one dominant conflict. Do not create a collage or multiple competing scenes.",
     ]

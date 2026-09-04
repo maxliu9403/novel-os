@@ -137,7 +137,15 @@ The contents must be valid JSON after replacing every placeholder. Title,
 target audience, conflict, principal-character ages and lived identities,
 relationships, decisive nodes, and environment signals come from confirmed
 Sections A-E rather than new assumptions. Include every protagonist or
-co-protagonist whose arc is part of the reader promise. Keep real
+co-protagonist whose arc is part of the reader promise with `must_appear: true`.
+Also include a small number of cover-relevant conflict participants with
+`must_appear: false` when their presence lets a cover show the cause of the
+emotion—such as an opposing alliance, exclusion, divided loyalty, concealed
+choice, or public power move. These optional entries use the same confirmed age,
+lived-identity, agency, relationship, and evidence fields; they are not invented
+extras and are not mandatory in every concept. Prefer enough approved cast for
+at least one causal conflict tableau whose foreground shows the emotional cost
+and whose middle/background shows the story-supported cause. Keep real
 market geography only in `audience_profile`; cover-facing places are fictional
 or abstract. This block is production metadata and does not enter reader prose.
 

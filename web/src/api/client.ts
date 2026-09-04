@@ -59,6 +59,107 @@ export interface StudioCoverStatus {
   error: string | null;
 }
 
+export type ModelCapability = "text_generation" | "image_generation";
+
+export interface ProviderTemplate {
+  id: string;
+  label: string;
+  auth_type: "api_key" | "codex_session" | "none";
+  default_base_url: string;
+  capabilities: ModelCapability[];
+  requires_api_key: boolean;
+  model_placeholder: string;
+}
+
+export interface ProviderConnection {
+  id: string;
+  name: string;
+  provider: string;
+  auth_type: "api_key" | "codex_session" | "none";
+  base_url: string;
+  image_base_url: string;
+  capabilities: ModelCapability[];
+  has_api_key: boolean;
+  status: "ready" | "invalid" | "unavailable";
+  error: string;
+  last_tested_at: string;
+  last_test_ok: boolean | null;
+  last_test_error: string;
+  discovered_models: string[];
+}
+
+export interface TextModelRoute {
+  id: string;
+  connection_id: string;
+  model: string;
+  max_tokens: number;
+  inherits_default: boolean;
+  effective_connection_id: string;
+  effective_connection_name: string;
+  effective_model: string;
+  effective_source: string;
+  configured: boolean;
+}
+
+export interface ImageModelProfile {
+  id: string;
+  connection_id: string;
+  connection_name: string;
+  model: string;
+  size: string;
+  quality: "low" | "medium" | "high" | "auto";
+  output_format: "jpeg" | "png";
+  count: number;
+  timeout_seconds: number;
+  configured: boolean;
+  error: string;
+}
+
+export interface StudioModelConfiguration {
+  schema_version: number;
+  source: "legacy" | "v2";
+  templates: ProviderTemplate[];
+  connections: ProviderConnection[];
+  text_routes: TextModelRoute[];
+  image_profiles: { cover: ImageModelProfile };
+}
+
+export interface ProviderConnectionInput {
+  name: string;
+  provider: string;
+  auth_type?: string;
+  base_url?: string;
+  image_base_url?: string;
+  capabilities?: ModelCapability[];
+  secret_action?: "keep" | "replace" | "clear";
+  api_key?: string;
+}
+
+export interface ProviderTestResult {
+  ok: boolean;
+  status: string;
+  message: string;
+  models: string[];
+  tested_at: string;
+}
+
+export interface ImageTestResult {
+  ok: boolean;
+  data_url: string;
+  width: number;
+  height: number;
+  model: string;
+  request_id: string;
+}
+
+export interface TextTestResult {
+  route_id: string;
+  provider: string;
+  model: string;
+  reply: string;
+  duration_ms: number;
+}
+
 export interface CoverConcept {
   concept_id: string;
   visual_strategy: string;
@@ -148,12 +249,20 @@ export interface CoverDirection {
     field: string; proposed_value: string; reason: string;
     status: "pending_confirmation" | "approved"; critical: boolean;
   }>;
-  brief?: Record<string, any> & {
+  brief?: Record<string, unknown> & {
     title?: string;
     genre?: string;
     target_audience?: string;
-    principal_characters?: Array<Record<string, any>>;
-    lived_environment?: Record<string, any>;
+    principal_characters?: Array<Record<string, unknown> & {
+      character_id?: string;
+      name?: string;
+      age?: string | number;
+      age_band?: string;
+      occupation_and_status?: string;
+      lived_environment?: string;
+      daily_wardrobe?: string;
+    }>;
+    lived_environment?: Record<string, unknown>;
   };
 }
 
@@ -497,6 +606,27 @@ export const api = {
     director_base_url?: string; director_api_key?: string;
     director_timeout_seconds?: number;
   }) => send<StudioCoverStatus>("/api/studio/cover", "PUT", body),
+  studioModels: () => get<StudioModelConfiguration>("/api/studio/models"),
+  createProvider: (body: ProviderConnectionInput) =>
+    send<ProviderConnection>("/api/studio/providers", "POST", body),
+  updateProvider: (id: string, body: ProviderConnectionInput) =>
+    send<ProviderConnection>(`/api/studio/providers/${encodeURIComponent(id)}`, "PATCH", body),
+  deleteProvider: (id: string) =>
+    del(`/api/studio/providers/${encodeURIComponent(id)}`),
+  testProvider: (id: string) =>
+    send<ProviderTestResult>(`/api/studio/providers/${encodeURIComponent(id)}/test`, "POST"),
+  updateTextRoutes: (routes: Array<Pick<TextModelRoute, "id" | "connection_id" | "model" | "max_tokens" | "inherits_default">>) =>
+    send<TextModelRoute[]>("/api/studio/model-routes", "PUT", { routes }),
+  testTextRoute: (routeId: string, prompt: string) =>
+    send<JobStatus>(`/api/studio/model-routes/${encodeURIComponent(routeId)}/test`, "POST", { prompt }),
+  updateCoverProfile: (body: {
+    connection_id: string; model: string; size: string;
+    quality: ImageModelProfile["quality"];
+    output_format: ImageModelProfile["output_format"];
+    count: number; timeout_seconds: number;
+  }) => send<ImageModelProfile>("/api/studio/image-profiles/cover", "PUT", body),
+  testCoverProfile: () =>
+    send<JobStatus>("/api/studio/image-profiles/cover/test", "POST"),
   covers: (id: string) => get<CoverSet[]>(`/api/projects/${id}/covers`),
   cover: (id: string, coverSetId: string) =>
     get<CoverSet>(`/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}`),

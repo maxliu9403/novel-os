@@ -28,6 +28,17 @@ def test_family_ethics_profile_uses_relationship_geometry_and_evidence() -> None
     assert profile.primary_genre == "family_ethics"
     assert profile.submode == "public_exclusion"
     assert "evidence" in profile.relationship_motion
+    assert "foreground" in profile.relationship_motion
+    assert "background" in profile.relationship_motion
+    assert "isolated sad portrait" in profile.prohibited_shortcuts
+
+
+def test_betrayal_romance_profile_visualizes_cause_and_emotional_cost_in_separate_planes() -> None:
+    profile = resolve_genre_profile(_brief("contemporary romance", "betrayal_romance"))
+
+    assert "foreground" in profile.relationship_motion
+    assert "background" in profile.relationship_motion
+    assert "generic couple pose" in profile.prohibited_shortcuts
 
 
 def test_unknown_genre_uses_neutral_cinematic_baseline() -> None:
@@ -47,6 +58,9 @@ def test_title_typography_changes_voice_between_romance_and_family_ethics() -> N
     )
 
     assert romance.letterform_voice != family.letterform_voice
+    assert "centered" in romance.hierarchy
+    assert "centered" in family.hierarchy
     assert "calligraphic" in romance.expressive_detail
     assert "tension" in family.expressive_detail
     assert "generic Times-like typesetting" in family.prohibited_shortcuts
+    assert any("equal-size line stack" in item for item in family.prohibited_shortcuts)

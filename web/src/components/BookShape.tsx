@@ -16,14 +16,20 @@ import Icon from "./Icon";
  * No model is asked whether the book drags. In-house SVG, per the standing
  * rule that analytics visuals do not justify a chart library.
  */
-export default function BookShape({ projectId }: { projectId: string }) {
+export default function BookShape({
+  projectId,
+  refreshKey = 0,
+}: {
+  projectId: string;
+  refreshKey?: number;
+}) {
   const [report, setReport] = useState<BookShapeReport | null>(null);
 
   const load = useCallback(() => {
     api.bookShape(projectId).then(setReport).catch(() => setReport(null));
   }, [projectId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, refreshKey]);
 
   const chapters = report?.chapters ?? [];
   if (chapters.length === 0) return null;

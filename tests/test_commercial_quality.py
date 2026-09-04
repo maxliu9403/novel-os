@@ -35,6 +35,73 @@ def test_commercial_report_requires_exact_candidate_quotes():
     assert "invalid_hook_evidence" in {item.code for item in report.blockers}
 
 
+def test_commercial_report_reanchors_unique_exact_quote_with_wrong_offsets():
+    text = "Megan signed the withdrawal. The lender froze the draw."
+    payload = guardian_reader_value_payload(
+        agency_span={
+            "status": "present",
+            "quote": "Megan signed the withdrawal.",
+            "start": 7,
+            "end": 35,
+        }
+    )
+
+    report = review_commercial_chapter(text, chapter_contract_v2(), payload, ())
+
+    assert report.status == "pass"
+    assert report.blockers == ()
+
+
+def test_commercial_report_rejects_ambiguous_quote_with_wrong_offsets():
+    text = (
+        "Megan signed the withdrawal. The lender froze the draw. "
+        "The lender froze the draw."
+    )
+    payload = guardian_reader_value_payload(
+        hook_span={
+            "status": "present",
+            "quote": "The lender froze the draw.",
+            "start": 0,
+            "end": 27,
+        }
+    )
+
+    report = review_commercial_chapter(text, chapter_contract_v2(), payload, ())
+
+    assert report.status == "blocked"
+    assert "invalid_hook_evidence" in {item.code for item in report.blockers}
+
+
+def test_commercial_finding_reanchors_unique_exact_quote_with_wrong_offsets():
+    text = "Megan signed the withdrawal. The lender froze the draw."
+    quote = "The lender froze the draw."
+    payload = guardian_reader_value_payload(
+        findings=[
+            {
+                "category": "micro_tension",
+                "severity": "minor",
+                "message": "The consequence could land more sharply.",
+                "suggested_action": "Tighten the cited consequence.",
+                "evidence": [
+                    {
+                        "quote": quote,
+                        "start": 0,
+                        "end": len(quote),
+                    }
+                ],
+            }
+        ]
+    )
+
+    report = review_commercial_chapter(text, chapter_contract_v2(), payload, ())
+
+    assert report.status == "warning"
+    assert len(report.quality_findings) == 1
+    evidence = report.quality_findings[0].evidence[0]
+    assert evidence.start == text.index(quote)
+    assert evidence.end == evidence.start + len(quote)
+
+
 def test_free_trial_beat_requires_exact_candidate_evidence():
     text = "Megan signed the withdrawal. The lender froze the draw."
     payload = guardian_reader_value_payload(
@@ -102,6 +169,10 @@ def test_design_gate_blocks_unseeded_resource_and_passive_turn():
         "unseeded_resource",
         "protagonist_does_not_cause_turn",
     }
+    unseeded = next(
+        item for item in report.blockers if item.code == "unseeded_resource"
+    )
+    assert "license_record" in unseeded.message
 
 
 def test_design_gate_blocks_repeated_hook_and_third_humiliation_scene():

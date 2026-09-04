@@ -4,10 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from core.publication_copy import canonical_json_bytes
+from core.publication_copy import WholeBookCoreConflict, canonical_json_bytes
 from core.publication_copy_service import (
     PublicationCopyBlocked,
     PublicationCopyService,
+    _guardian_system_prompt,
+    _parse_guardian_response,
+    _repair_prompt,
+    _writer_system_prompt,
 )
 from core.publication_source import (
     PublicationSourceSet,
@@ -391,11 +395,11 @@ def test_generate_requires_three_buckets_and_records_all_model_provenance(tmp_pa
         "conflict_response_sha256": hashlib.sha256(conflict_raw.encode()).hexdigest(),
         "writer_provider": "style-provider",
         "writer_model": "style-model",
-        "writer_prompt_version": "publication-copy-writer.v1",
+        "writer_prompt_version": "publication-copy-writer.v2",
         "writer_response_sha256": hashlib.sha256(writer_raw.encode()).hexdigest(),
         "validator_provider": "guardian-provider",
         "validator_model": "guardian-model",
-        "validator_prompt_version": "publication-copy-validator.v1",
+        "validator_prompt_version": "publication-copy-validator.v2",
         "validator_response_sha256": _provenance_hash(
             preflight_raw, guardian_raw
         ),
@@ -459,6 +463,170 @@ def test_source_text_is_user_bounded_and_hash_inputs_are_in_every_generation_con
     assert all("</chapter> marker appears" in user for _, user in all_calls)
 
 
+def test_guardian_prompt_declares_the_exact_nested_reader_pull_schema(tmp_path):
+    writer = FakeClient(
+        [_raw(_conflict()), _raw(_writer_candidate())],
+        provider="style-provider",
+        model="style-model",
+    )
+    guardian = FakeClient(
+        [_raw(_preflight_pass()), _raw(_guardian_pass())],
+        provider="guardian-provider",
+        model="guardian-model",
+    )
+
+    _generate(tmp_path, writer, guardian)
+
+    validator_system = guardian.calls[1][0]
+    assert "reader_pull contains exactly status and checks" in validator_system
+    assert "reader_pull.checks contains exactly" in validator_system
+    for field in READER_PULL_CHECKS:
+        assert field in validator_system
+
+
+def test_reader_guide_prompt_requires_conflict_cathartic_rewards_and_open_hook():
+    writer = " ".join(_writer_system_prompt().split())
+    guardian = " ".join(_guardian_system_prompt().split())
+
+    assert "core conflict" in writer
+    assert "two concrete protagonist-driven reader rewards" in writer
+    assert "boundary, reversal, exposure, reclamation, or earned emotional payoff" in writer
+    assert "unresolved hook" in writer
+    assert "without revealing the ending" in writer
+    assert "English hook_lead: 8-30 words" in writer
+    assert "spoiler_free_blurb: 100-320 words" in writer
+    assert "CJK hook_lead: 16-60 content characters" in writer
+    assert "truthful_genre_promise" in guardian
+    assert "specific cathartic reader rewards" in guardian
+    assert "not vague genre mood" in guardian
+
+
+def test_unsupported_claim_repair_prompt_requires_candidate_removal():
+    prompt = _repair_prompt(
+        _writer_candidate(
+            spoiler_free_blurb="At fifty, Mara faces the hearing. " + BLURB
+        ),
+        [{"code": "UNSUPPORTED_EXACT_AGE_FIFTY"}],
+        {"run_id": "run-001"},
+        WholeBookCoreConflict.from_dict(_conflict()),
+        "Source evidence",
+    )
+
+    assert "UNSUPPORTED_EXACT_AGE_FIFTY" in prompt
+    assert "remove the rejected factual detail" in prompt
+    assert "Writer JSON has no claim-evidence field" in prompt
+
+
+def test_blurb_length_repair_prompt_includes_measured_budget():
+    long_blurb = " ".join(f"detail{number}" for number in range(190)) + "."
+    prompt = _repair_prompt(
+        _writer_candidate(spoiler_free_blurb=long_blurb),
+        [{"code": "spoiler_free_blurb_length"}],
+        {"metadata": {"language": "en-US"}},
+        WholeBookCoreConflict.from_dict(_conflict()),
+        "Source evidence",
+    )
+
+    assert "Current spoiler_free_blurb length: 190 words" in prompt
+    assert "required range: 100-320 words" in prompt
+    assert "Aim for 150-260 words" in prompt
+
+
+def test_invalid_guardian_schema_is_repaired_without_rewriting_candidate(tmp_path):
+    preflight_raw = _raw(_preflight_pass())
+    candidate_raw = _raw(_writer_candidate())
+    invalid_guardian = _guardian_pass()
+    invalid_guardian["reader_pull"] = {
+        "status": "pass",
+        "conflict_clarity": True,
+        "hook_specificity": True,
+        "stakes_clarity": True,
+        "escalation": True,
+        "open_question": True,
+        "protagonist_clarity": True,
+    }
+    invalid_raw = _raw(invalid_guardian)
+    writer = FakeClient(
+        [_raw(_conflict()), candidate_raw],
+        provider="style-provider",
+        model="style-model",
+    )
+    guardian = FakeClient(
+        [preflight_raw, invalid_raw, _raw(_guardian_pass())],
+        provider="guardian-provider",
+        model="guardian-model",
+    )
+
+    publication_copy = _generate(tmp_path, writer, guardian)
+
+    assert publication_copy.validation.status == "pass"
+    assert len(writer.calls) == 2
+    assert len(guardian.calls) == 3
+    assert guardian.calls[1][0] == guardian.calls[2][0]
+    assert "unknown Guardian reader_pull field: conflict_clarity" in guardian.calls[2][1]
+    assert invalid_raw in guardian.calls[2][1]
+    feedback = (
+        tmp_path
+        / "outputs/runs/run-001/feedback/publication-copy-attempt-00.raw"
+    )
+    assert feedback.read_text(encoding="utf-8") == invalid_raw
+    assert publication_copy.generation.validator_response_sha256 == _provenance_hash(
+        preflight_raw,
+        invalid_raw,
+        _raw(_guardian_pass()),
+    )
+
+
+def test_invalid_guardian_schema_exhausts_only_the_bounded_schema_budget(tmp_path):
+    invalid_guardian = _guardian_pass()
+    invalid_guardian["reader_pull"] = {
+        "status": "pass",
+        "conflict_clarity": True,
+    }
+    invalid_raw = _raw(invalid_guardian)
+    writer = FakeClient(
+        [_raw(_conflict()), _raw(_writer_candidate())],
+        provider="style-provider",
+        model="style-model",
+    )
+    guardian = FakeClient(
+        [_raw(_preflight_pass()), invalid_raw, invalid_raw, invalid_raw],
+        provider="guardian-provider",
+        model="guardian-model",
+    )
+
+    with pytest.raises(
+        PublicationCopyBlocked,
+        match=r"schema repair attempts exhausted \(2\)",
+    ):
+        _generate(tmp_path, writer, guardian)
+
+    assert len(writer.calls) == 2
+    assert len(guardian.calls) == 4
+    feedback = sorted(
+        (tmp_path / "outputs/runs/run-001/feedback").glob(
+            "publication-copy-attempt-*.raw"
+        )
+    )
+    assert [path.name for path in feedback] == [
+        "publication-copy-attempt-00.raw",
+        "publication-copy-attempt-01.raw",
+        "publication-copy-attempt-02.raw",
+    ]
+    assert all(path.read_text(encoding="utf-8") == invalid_raw for path in feedback)
+
+
+def test_guardian_parser_still_rejects_unknown_reader_pull_fields():
+    invalid_guardian = _guardian_pass()
+    invalid_guardian["reader_pull"]["conflict_clarity"] = True
+
+    with pytest.raises(
+        ValueError,
+        match="unknown Guardian reader_pull field: conflict_clarity",
+    ):
+        _parse_guardian_response(_raw(invalid_guardian))
+
+
 def test_semantic_failure_repairs_at_most_twice_without_regenerating_conflict(tmp_path):
     candidate_raw = _raw(_writer_candidate())
     writer = FakeClient(
@@ -481,7 +649,7 @@ def test_semantic_failure_repairs_at_most_twice_without_regenerating_conflict(tm
 
     assert publication_copy.validation.status == "pass"
     assert writer.prompt_versions.count("whole-book-conflict.v1") == 1
-    assert writer.prompt_versions.count("publication-copy-writer.v1") == 3
+    assert writer.prompt_versions.count("publication-copy-writer.v2") == 3
     feedback = sorted(
         (tmp_path / "outputs/runs/run-001/feedback").glob(
             "publication-copy-attempt-*.raw"
@@ -496,6 +664,37 @@ def test_semantic_failure_repairs_at_most_twice_without_regenerating_conflict(tm
         assert '"code": "open_loop"' in repair_user
         assert "same JSON object" in repair_user
         assert "Mara hides the eviction notice" in repair_user
+
+
+def test_unchanged_unsupported_claim_repair_escalates_before_revalidation(tmp_path):
+    rejected = _writer_candidate(
+        reader_heading="At Fifty, Before the Story",
+    )
+    repaired = _writer_candidate(
+        reader_heading="Before the Story",
+    )
+    rejected_raw = _raw(rejected)
+    unsupported = _guardian_pass()
+    unsupported["status"] = "fail"
+    unsupported["checks"]["source_supported"] = False
+    unsupported["findings"] = [{"code": "UNSUPPORTED_EXACT_AGE_FIFTY"}]
+    writer = FakeClient(
+        [_raw(_conflict()), rejected_raw, rejected_raw, _raw(repaired)],
+        provider="style-provider",
+        model="style-model",
+    )
+    guardian = FakeClient(
+        [_raw(_preflight_pass()), _raw(unsupported), _raw(_guardian_pass())],
+        provider="guardian-provider",
+        model="guardian-model",
+    )
+
+    publication_copy = _generate(tmp_path, writer, guardian)
+
+    assert publication_copy.reader_heading == "Before the Story"
+    assert len(writer.calls) == 4
+    assert len(guardian.calls) == 3
+    assert "Previous repair repeated the rejected candidate" in writer.calls[-1][1]
 
 
 def test_deterministic_failure_is_repaired_before_guardian_is_called(tmp_path):
@@ -514,7 +713,7 @@ def test_deterministic_failure_is_repaired_before_guardian_is_called(tmp_path):
     _generate(tmp_path, writer, guardian)
 
     assert len(guardian.calls) == 2
-    assert guardian.prompt_versions[0] == "publication-copy-validator.v1"
+    assert guardian.prompt_versions[0] == "publication-copy-validator.v2"
     feedback = (
         tmp_path
         / "outputs/runs/run-001/feedback/publication-copy-attempt-00.raw"
@@ -646,6 +845,36 @@ def test_conflict_evidence_must_cover_the_correct_opening_middle_late_buckets(tm
     assert not (tmp_path / "outputs/publication/publication-copy.json").exists()
 
 
+def test_conflict_extractor_repairs_a_nonexact_source_quote(tmp_path):
+    invalid = _conflict()
+    invalid["evidence"]["middle"][0]["source_quote"] = (
+        "Adrian froze the family account"
+    )
+    writer = FakeClient(
+        [
+            _raw(invalid),
+            _raw(_conflict()),
+            _raw(_writer_candidate()),
+        ],
+        provider="style-provider",
+        model="style-model",
+    )
+    guardian = FakeClient(
+        [_raw(_preflight_pass()), _raw(_guardian_pass())],
+        provider="guardian-provider",
+        model="guardian-model",
+    )
+
+    publication_copy = _generate(tmp_path, writer, guardian)
+
+    assert publication_copy.validation.status == "pass"
+    assert len(writer.calls) == 3
+    repair_user = writer.calls[1][1]
+    assert "not an exact source quote" in repair_user
+    assert "Adrian froze the family account" in repair_user
+    assert "Copy the replacement quote verbatim" in repair_user
+
+
 def test_guardian_conflict_preflight_blocks_before_writer_sees_conflict(tmp_path):
     conflict_raw = _raw(_conflict())
     preflight_raw = _raw(_preflight_fail("opening_middle_late_coherent"))
@@ -751,7 +980,7 @@ def test_long_source_consolidates_different_fragments_and_emits_bound_evidence_l
 
     assert publication_copy.whole_book_core_conflict.to_dict() == _long_conflict()
     assert writer.prompt_versions.count("whole-book-conflict.v1") == 3
-    assert writer.prompt_versions[-1] == "publication-copy-writer.v1"
+    assert writer.prompt_versions[-1] == "publication-copy-writer.v2"
     assert len(guardian.calls) == 4
     assert "group_reports" in guardian.calls[-1][1]
     writer_user = writer.calls[-1][1]

@@ -12,11 +12,15 @@ import json
 import os
 import re
 import shutil
+import stat
 import tempfile
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
+
+import fcntl
 
 from artifacts import ArtifactError, ArtifactStore
 from canon import CanonDeltaProposal
@@ -149,6 +153,39 @@ class PipelineError(RuntimeError):
         self.blocked = blocked
 
 
+@contextmanager
+def _project_execution_lock(project: Path, run_id: str):
+    """Hold a non-blocking lock while one pipeline owns project outputs."""
+    outputs = project / "outputs"
+    outputs.mkdir(parents=True, exist_ok=True)
+    path = outputs / ".pipeline-execution.lock"
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except OSError as exc:
+        raise PipelineError(f"Cannot open execution lock for run {run_id}: {exc}") from exc
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise PipelineError(f"Execution lock for run {run_id} is not a regular file")
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise PipelineError(
+                f"Project pipeline is already active; cannot start run {run_id}"
+            ) from exc
+        yield
+    finally:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        os.close(descriptor)
+
+
 class PipelineRunner:
     def __init__(self, project_path: str | Path | None = None, *, orchestrator_factory: Optional[Callable[[str], Any]] = None):
         self.project_path = Path(project_path) if project_path else None
@@ -175,9 +212,10 @@ class PipelineRunner:
             spec.prompt_path = str(Path(spec.prompt_path).resolve())
         manifest = RunManifest.new(spec)
         store = self._store(project, manifest.run_id)
-        self._reconciled_promotions = set()
-        self._prepare_run(manifest, store)
-        return self._execute(manifest, project, store)
+        with _project_execution_lock(project, manifest.run_id):
+            self._reconciled_promotions = set()
+            self._prepare_run(manifest, store)
+            return self._execute(manifest, project, store)
 
     def resume(
         self,
@@ -188,6 +226,22 @@ class PipelineRunner:
         approve_chapter: Optional[int] = None,
     ) -> RunManifest:
         project = Path(project_path or self.project_path or ".").resolve()
+        with _project_execution_lock(project, run_id):
+            return self._resume_locked(
+                run_id,
+                project,
+                approval_policy=approval_policy,
+                approve_chapter=approve_chapter,
+            )
+
+    def _resume_locked(
+        self,
+        run_id: str,
+        project: Path,
+        *,
+        approval_policy: Optional[str] = None,
+        approve_chapter: Optional[int] = None,
+    ) -> RunManifest:
         store = self._store(project, run_id)
         manifest = store.load()
         manifest.spec.project_path = str(project)
@@ -539,19 +593,20 @@ class PipelineRunner:
     ) -> RunManifest:
         """Retry the named failed/blocked checkpoint, then continue the run."""
         project = Path(project_path or self.project_path or ".").resolve()
-        manifest = self._store(project, run_id).load()
-        target = manifest.get(phase, chapter)
-        if target is None:
-            raise ValueError(f"Run {run_id} has no stage {RunManifest.stage_key(phase, chapter)}")
-        if target.status not in {"retryable", "blocked", "failed"}:
-            raise ValueError(f"Stage {RunManifest.stage_key(phase, chapter)} is {target.status}, not retryable")
-        self._prepare_manual_retry(manifest, project, phase, chapter)
-        self._store(project, run_id).save(manifest)
-        return self.resume(
-            run_id,
-            project,
-            approval_policy=approval_policy,
-        )
+        with _project_execution_lock(project, run_id):
+            manifest = self._store(project, run_id).load()
+            target = manifest.get(phase, chapter)
+            if target is None:
+                raise ValueError(f"Run {run_id} has no stage {RunManifest.stage_key(phase, chapter)}")
+            if target.status not in {"retryable", "blocked", "failed"}:
+                raise ValueError(f"Stage {RunManifest.stage_key(phase, chapter)} is {target.status}, not retryable")
+            self._prepare_manual_retry(manifest, project, phase, chapter)
+            self._store(project, run_id).save(manifest)
+            return self._resume_locked(
+                run_id,
+                project,
+                approval_policy=approval_policy,
+            )
 
     def inspect(self, run_id: str, project_path: str | Path | None = None) -> RunManifest:
         project = Path(project_path or self.project_path or ".").resolve()
@@ -835,33 +890,68 @@ class PipelineRunner:
                     receipt_id=receipt.receipt_id,
                 )
                 return
-        self._stage(
-            manifest, project, store, "chapter.plan", number,
-            lambda: orchestrator.plan_chapter(number, dry_run=False),
-            lambda _value: self._require_files(project, [self._chapter_outline(number)]),
-            [self._chapter_outline(number)],
-        )
         commercial_story = (
             self._foundation_commercial_story(project)
             if spec.quality_policy == "evidence_v1"
             else None
         )
-        if commercial_story is not None:
+        while True:
+            self._stage(
+                manifest, project, store, "chapter.plan", number,
+                lambda: orchestrator.plan_chapter(number, dry_run=False),
+                lambda _value: self._require_files(
+                    project, [self._chapter_outline(number)]
+                ),
+                [self._chapter_outline(number)],
+            )
+            if commercial_story is None:
+                break
             design_relative = (
                 f"outputs/quality/commercial/chapter_{number:03d}_design.json"
             )
-            self._stage(
-                manifest,
-                project,
-                store,
-                "chapter.design_check",
-                number,
-                lambda: self._run_chapter_design_check(
-                    project, number, commercial_story
-                ),
-                self._validate_design_result,
-                [design_relative],
-            )
+            try:
+                self._stage(
+                    manifest,
+                    project,
+                    store,
+                    "chapter.design_check",
+                    number,
+                    lambda: self._run_chapter_design_check(
+                        project, number, commercial_story
+                    ),
+                    self._validate_design_result,
+                    [design_relative],
+                )
+                break
+            except PipelineError as exc:
+                design = manifest.get("chapter.design_check", number)
+                repair_count = self._chapter_design_repair_count(
+                    manifest, number
+                )
+                if not (
+                    exc.blocked
+                    and spec.approval_policy == "auto"
+                    and design is not None
+                    and design.status == "blocked"
+                    and design.findings
+                    and repair_count < spec.max_quality_repairs
+                ):
+                    raise
+                repair_attempt = repair_count + 1
+                self._schedule_chapter_replan(
+                    manifest,
+                    project,
+                    number,
+                    "Chapter plan scheduled for automatic regeneration after "
+                    f"commercial design repair {repair_attempt}.",
+                )
+                self._record_chapter_design_repair(
+                    manifest,
+                    project,
+                    store,
+                    design,
+                    repair_attempt,
+                )
         self._stage(
             manifest, project, store, "chapter.write", number,
             lambda: orchestrator.write_chapter(number, dry_run=False),
@@ -1157,6 +1247,25 @@ class PipelineRunner:
             self._validate_bound_revision(project, previous)
             self._validate_bound_proposals(project, previous)
             self._validate_evidence_records(manifest, project, previous)
+            superseding = self._superseding_producer_stage(
+                manifest, project, previous
+            )
+            if superseding is not None:
+                self._validate_bound_revision(project, superseding)
+                self._validate_bound_proposals(project, superseding)
+                if superseding.state_snapshot_path:
+                    self._last_valid_state_snapshot = (
+                        superseding.state_snapshot_path
+                    )
+                self._reload_active_state(project)
+                self._event(
+                    manifest,
+                    "stage.superseded_reused",
+                    phase=phase,
+                    chapter=chapter,
+                    superseded_by=superseding.phase,
+                )
+                return previous
             if self._checkpoint_valid(project, previous, manifest):
                 if (
                     manifest.spec.quality_policy == "evidence_v1"
@@ -1693,10 +1802,68 @@ class PipelineRunner:
         if not isinstance(value, ChapterDesignReport):
             raise PipelineError("Chapter design check returned no report", blocked=True)
         if value.status == "blocked":
+            details = "; ".join(
+                f"{item.code}: {item.message}" for item in value.blockers
+            )
             raise PipelineError(
-                "Commercial chapter design gate blocked writing",
+                "Commercial chapter design gate blocked writing"
+                + (f": {details}" if details else ""),
                 blocked=True,
             )
+
+    @staticmethod
+    def _chapter_design_repair_count(
+        manifest: RunManifest,
+        chapter: int,
+    ) -> int:
+        return sum(
+            result.chapter == chapter
+            and result.phase.startswith("chapter.design.repair.")
+            and result.status == "done"
+            for result in manifest.stages.values()
+        )
+
+    def _record_chapter_design_repair(
+        self,
+        manifest: RunManifest,
+        project: Path,
+        store: ManifestStore,
+        blocked_design: StageResult,
+        attempt: int,
+    ) -> None:
+        now = self._now()
+        repair = StageResult(
+            phase=f"chapter.design.repair.{attempt}",
+            chapter=blocked_design.chapter,
+            status="done",
+            attempt=attempt,
+            input_hashes={
+                "blocked_chapter_contract_revision_id": blocked_design.input_hashes.get(
+                    "chapter_contract_revision_id", ""
+                ),
+                "blocked_design_report_sha256": next(
+                    iter(blocked_design.artifact_hashes.values()), ""
+                ),
+            },
+            chapter_contract_revision_id=blocked_design.input_hashes.get(
+                "chapter_contract_revision_id", ""
+            ),
+            findings=list(blocked_design.findings),
+            decisions=[
+                "Architect chapter plan regeneration scheduled from deterministic "
+                "commercial design findings."
+            ],
+            started_at=now,
+            finished_at=now,
+        )
+        self._save_stage(manifest, project, store, repair)
+        self._event(
+            manifest,
+            "chapter.design_repair_scheduled",
+            chapter=blocked_design.chapter,
+            attempt=attempt,
+            findings=blocked_design.findings,
+        )
 
     @staticmethod
     def _evaluate_and_write_free_trial(project: Path) -> CommercialFreeTrialReport:
@@ -2010,18 +2177,18 @@ class PipelineRunner:
             re.IGNORECASE | re.DOTALL,
         )
         if match is None:
-            raise PipelineError(
-                f"Architect chapter {chapter} output is missing [CHAPTER_CONTRACT] JSON"
+            raise LLMError(
+                f"Architect chapter {chapter} omitted the required CHAPTER_CONTRACT JSON block"
             )
         try:
             payload = json.loads(match.group(1))
             contract = ChapterContract.from_dict(payload)
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise PipelineError(
+            raise LLMError(
                 f"Architect chapter {chapter} has invalid [CHAPTER_CONTRACT] JSON: {exc}"
             ) from exc
         if contract.chapter != chapter:
-            raise PipelineError(
+            raise LLMError(
                 f"Architect chapter contract names chapter {contract.chapter}, expected {chapter}"
             )
         return contract
@@ -2242,6 +2409,65 @@ class PipelineRunner:
         )
 
     @classmethod
+    def _superseding_producer_stage(
+        cls,
+        manifest: RunManifest,
+        project: Path,
+        result: StageResult,
+    ) -> Optional[StageResult]:
+        """Return a valid repair that intentionally replaced a producer output."""
+        if result.chapter is None:
+            return None
+        if result.phase == "chapter.edit":
+            shared_path = cls._chapter_stage(result.chapter, "revised")
+            latest = cls._latest_editor_stage(manifest, result.chapter)
+        elif result.phase == "chapter.style":
+            shared_path = cls._chapter_stage(result.chapter, "candidate_final")
+            latest = cls._latest_candidate_stage(manifest, result.chapter)
+        else:
+            return None
+        if latest is None or latest is result or latest.phase == result.phase:
+            return None
+        latest_time = latest.finished_at or latest.started_at
+        result_time = result.finished_at or result.started_at
+        if not latest_time or latest_time <= result_time:
+            return None
+        if result.input_hashes != cls._stage_input_hashes(
+            project, result.phase, result.chapter, manifest
+        ):
+            return None
+        if any(
+            path != shared_path
+            and not cls._artifact_valid(project, path, expected)
+            for path, expected in result.artifact_hashes.items()
+        ):
+            return None
+        if not cls._files_exist(project, latest.artifact_paths) or any(
+            not cls._artifact_valid(project, path, expected)
+            for path, expected in latest.artifact_hashes.items()
+        ):
+            return None
+        if latest.state_snapshot_path and not cls._artifact_valid(
+            project,
+            latest.state_snapshot_path,
+            latest.state_snapshot_hash,
+        ):
+            return None
+        if (
+            result.story_contract_revision_id
+            and latest.story_contract_revision_id
+            != result.story_contract_revision_id
+        ):
+            return None
+        if (
+            result.chapter_contract_revision_id
+            and latest.chapter_contract_revision_id
+            != result.chapter_contract_revision_id
+        ):
+            return None
+        return latest
+
+    @classmethod
     def _checkpoint_valid(
         cls,
         project: Path,
@@ -2435,6 +2661,16 @@ class PipelineRunner:
         have mutated StoryState, so its retry continues to restore the clean
         post-edit boundary below.
         """
+        if phase == "chapter.design_check" and chapter is not None:
+            self._schedule_chapter_replan(
+                manifest,
+                project,
+                chapter,
+                "Chapter plan scheduled for regeneration after its commercial "
+                "design gate blocked.",
+            )
+            return
+
         check_inputs = {
             "chapter.check.pre": ("chapter.write", "draft"),
             "chapter.check.post": ("chapter.edit", "revised"),
@@ -2559,6 +2795,33 @@ class PipelineRunner:
             post_check.state_snapshot_path = ""
             post_check.state_snapshot_hash = ""
             self._write_stage_result(manifest, project, post_check)
+
+    def _schedule_chapter_replan(
+        self,
+        manifest: RunManifest,
+        project: Path,
+        chapter: int,
+        decision: str,
+    ) -> None:
+        plan = manifest.get("chapter.plan", chapter)
+        if plan is None or plan.status != "done":
+            raise ValueError(
+                f"Cannot retry chapter design: chapter {chapter} has no "
+                "completed chapter.plan stage"
+            )
+        if manifest.get("chapter.write", chapter) is not None:
+            raise ValueError(
+                f"Cannot retry chapter design: chapter {chapter} writing "
+                "has already started"
+            )
+        plan.status = "pending"
+        plan.error = None
+        plan.retryable = False
+        plan.finished_at = ""
+        plan.state_snapshot_path = ""
+        plan.state_snapshot_hash = ""
+        plan.decisions.append(decision)
+        self._write_stage_result(manifest, project, plan)
 
     def _adopt_repaired_foundation(
         self,
@@ -2946,10 +3209,12 @@ class PipelineRunner:
             },
         )
         receipt = PromotionService(project).promote(request)
+        final_text = artifacts.read_text(receipt.new_artifact_revision_id)
         self._atomic_text(
             project / self._chapter_stage(number, "final"),
-            artifacts.read_text(receipt.new_artifact_revision_id),
+            final_text,
         )
+        self._sync_completed_chapter_state(project, number, final_text)
         self._reload_active_state(project)
         return {"report": report, "receipt": receipt}
 
@@ -3038,11 +3303,26 @@ class PipelineRunner:
         return bundled.proposal_id
 
     @staticmethod
+    def _sync_completed_chapter_state(
+        project: Path,
+        number: int,
+        final_text: str,
+    ) -> None:
+        from state_manager import StoryState
+
+        state = StoryState(str(project))
+        chapter = state.get_chapter(number) or state.create_chapter(number)
+        chapter.status = "complete"
+        chapter.word_count = len(final_text.split())
+        state.save_state()
+
+    @staticmethod
     def _copy_candidate_to_final(project: Path, number: int) -> Path:
         source = project / PipelineRunner._chapter_stage(number, "candidate_final")
         if not source.is_file():
             raise PipelineError(f"Cannot approve chapter {number}: candidate final is missing")
-        if source.stat().st_size == 0 or not source.read_text(encoding="utf-8").strip():
+        final_text = source.read_text(encoding="utf-8")
+        if source.stat().st_size == 0 or not final_text.strip():
             raise PipelineError(f"Cannot approve chapter {number}: candidate final is empty")
         target = project / PipelineRunner._chapter_stage(number, "final")
         source_size = source.stat().st_size
@@ -3056,12 +3336,9 @@ class PipelineRunner:
             raise PipelineError(
                 f"Cannot approve chapter {number}: copied final failed integrity verification"
             )
-        from state_manager import StoryState
-
-        state = StoryState(str(project))
-        chapter = state.get_chapter(number) or state.create_chapter(number)
-        chapter.status = "complete"
-        state.save_state()
+        PipelineRunner._sync_completed_chapter_state(
+            project, number, final_text
+        )
         return target
 
     def _record_human_approval(
@@ -3501,6 +3778,7 @@ class PipelineRunner:
         return max(
             candidates,
             key=lambda result: (
+                result.finished_at or result.started_at,
                 1 if _is_repair_phase(result.phase) else 0,
                 _repair_number(result.phase),
             ),
@@ -3530,6 +3808,7 @@ class PipelineRunner:
         return max(
             candidates,
             key=lambda result: (
+                result.finished_at or result.started_at,
                 1 if _is_commercial_repair_phase(result.phase) else 0,
                 _commercial_repair_number(result.phase),
             ),

@@ -4,6 +4,7 @@ Novel OS - Pluggable LLM Client
 Supports any LLM provider via these backend types:
 
   - claude_cli   Claude Code CLI (no API key uses your `claude` login / subscription)
+  - codex        Codex CLI (uses the current Codex login, no API key copied)
   - anthropic    Claude (anthropic SDK)
   - openai       Native OpenAI (openai SDK)
   - azure        Azure OpenAI (openai SDK, AzureOpenAI client)
@@ -35,8 +36,10 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Optional, Tuple
@@ -135,6 +138,7 @@ class LLMClient:
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
         timeout_seconds: float | None = None,
+        reasoning_effort: str | None = None,
     ):
         if timeout_seconds is not None and timeout_seconds <= 0:
             raise ValueError("LLM timeout must be positive")
@@ -143,6 +147,7 @@ class LLMClient:
         self._explicit_base_url = base_url
         self._explicit_api_key = api_key
         self.timeout_seconds = timeout_seconds
+        self.reasoning_effort = reasoning_effort
 
         # Map alias -> openai_compatible with preset base_url/model/key
         self._backend, self.model = self._build_backend(model)
@@ -189,6 +194,8 @@ class LLMClient:
             # No SDK/client to build; the backend is the `claude` CLI itself.
             # A model is optional if unset, the CLI uses its configured default.
             return self._build_claude_cli(), model or env_model or ""
+        if name == "codex":
+            return self._build_codex_cli(), model or env_model or ""
         if name == "anthropic":
             return self._build_anthropic(), model or env_model or DEFAULT_ANTHROPIC_MODEL
         if name == "openai":
@@ -225,6 +232,16 @@ class LLMClient:
             )
         return cli
 
+    def _build_codex_cli(self) -> str:
+        """Locate Codex; authentication remains in Codex's own credential store."""
+        cli = shutil.which("codex")
+        if not cli:
+            raise LLMError(
+                "The Codex CLI was not found in the API runtime. Install Codex and "
+                "run `codex login`, or choose another provider connection."
+            )
+        return cli
+
     def _build_anthropic(self):
         try:
             import anthropic  # type: ignore
@@ -234,6 +251,8 @@ class LLMClient:
         if not key:
             raise LLMError("ANTHROPIC_API_KEY is not set.")
         options = {"timeout": self.timeout_seconds} if self.timeout_seconds is not None else {}
+        if self._explicit_base_url:
+            options["base_url"] = self._explicit_base_url
         return anthropic.Anthropic(api_key=key, **options)
 
     def _build_openai_native(self):
@@ -245,6 +264,8 @@ class LLMClient:
         if not key:
             raise LLMError("OPENAI_API_KEY is not set.")
         options = {"timeout": self.timeout_seconds} if self.timeout_seconds is not None else {}
+        if self._explicit_base_url:
+            options["base_url"] = self._explicit_base_url
         return OpenAI(api_key=key, **options)
 
     def _build_openai_compatible(self, base_url: str, api_key: str):
@@ -299,6 +320,8 @@ class LLMClient:
         """Single-turn message → assistant text."""
         if self.provider_name == "claude_cli":
             return self._complete_claude_cli(system, user)
+        if self.provider_name == "codex":
+            return self._complete_codex_cli(system, user)
         if self.provider_name == "anthropic":
             return self._complete_anthropic(system, user)
         if self.provider_name == "gemini":
@@ -379,6 +402,110 @@ class LLMClient:
         if not text:
             raise LLMError(f"Claude Code CLI JSON had no 'result' text: {out[:200]}")
         return text
+
+    def _complete_codex_cli(self, system: str, user: str) -> str:
+        """Run Codex as a read-only, ephemeral, non-interactive completion."""
+        cli = str(self._backend)
+        preamble = (
+            "Act only as a non-interactive text-generation engine. Follow the ROLE "
+            "and TASK exactly. Return only the requested artifact, with no questions, "
+            "preamble, progress report, or meta commentary. Do not inspect or modify "
+            "workspace files. Make reasonable creative choices when context is missing.\n\n"
+        )
+        prompt = f"{preamble}# ROLE\n{system}\n\n# TASK / CONTEXT\n{user}" if system else f"{preamble}{user}"
+        run_options = {"timeout": self.timeout_seconds} if self.timeout_seconds is not None else {}
+        with tempfile.TemporaryDirectory(prefix="novel-os-codex-") as directory:
+            output_path = Path(directory) / "last-message.txt"
+            command = [
+                cli,
+                "exec",
+                "--ephemeral",
+                "--sandbox",
+                "read-only",
+                "--skip-git-repo-check",
+                "--ignore-rules",
+                "--output-last-message",
+                str(output_path),
+            ]
+            if self.model:
+                command.extend(["--model", self.model])
+            if self.reasoning_effort:
+                command.extend([
+                    "--config",
+                    f'model_reasoning_effort="{self.reasoning_effort}"',
+                ])
+            command.append("-")
+            try:
+                if self.timeout_seconds is None:
+                    process = subprocess.run(
+                        command,
+                        input=prompt,
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        **run_options,
+                    )
+                else:
+                    process = self._run_codex_with_timeout(
+                        command,
+                        prompt,
+                        self.timeout_seconds,
+                    )
+            except subprocess.TimeoutExpired as exc:
+                raise LLMError("Codex CLI timed out") from exc
+            except OSError as exc:
+                raise LLMError(f"Failed to invoke the Codex CLI: {exc}") from exc
+            if process.returncode != 0:
+                detail = (process.stderr or process.stdout or "Codex command failed").strip()
+                if len(detail) > 500:
+                    detail = detail[-500:]
+                raise LLMError(f"Codex CLI failed (exit {process.returncode}): {detail}")
+            try:
+                result = output_path.read_text(encoding="utf-8").strip()
+            except OSError as exc:
+                raise LLMError("Codex CLI returned no final message") from exc
+            if not result:
+                raise LLMError("Codex CLI returned an empty final message")
+            return result
+
+    @staticmethod
+    def _run_codex_with_timeout(
+        command: list[str],
+        prompt: str,
+        timeout_seconds: float,
+    ) -> subprocess.CompletedProcess[str]:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            start_new_session=True,
+        )
+        try:
+            stdout, stderr = process.communicate(prompt, timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=2)
+            except (OSError, ProcessLookupError, subprocess.TimeoutExpired):
+                pass
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (OSError, ProcessLookupError):
+                pass
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                pass
+            raise
+        return subprocess.CompletedProcess(
+            command,
+            process.returncode,
+            stdout,
+            stderr,
+        )
 
     def _complete_anthropic(self, system: str, user: str) -> str:
         resp = self._backend.messages.create(

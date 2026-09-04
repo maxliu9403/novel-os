@@ -16,7 +16,7 @@ Turn the approved story design into 3-5 distinct commercial cover candidates. Pr
 
 ## Concept review
 
-Create 3-5 concepts with distinct focal scenes and visual strategies. Each concept states the protagonist action, power contrast, one secondary signal, composition, palette, and exact title treatment. Quote the exact title once; add no subtitle, author copy, logo, watermark, real place name, or unsupported spoiler. For the English / US profile, make the focal scene a consequential frozen action with visible reaction and stakes, and keep faces and the decisive prop clear of the title-safe zone.
+Create 3-5 concepts with distinct focal scenes and visual strategies. Each concept states the protagonist action, power contrast, one secondary signal, composition, palette, and exact title treatment. Treat conflict as emotional geography: the foreground carries the emotional consequence or decisive response, while an approved secondary depth plane reveals the causal relationship action. Link the planes with gaze, body direction, distance, and interrupted action; do not substitute a flat group portrait or an isolated sad face for a story event. Quote the exact title once; add no subtitle, author copy, logo, watermark, real place name, or unsupported spoiler. For the English / US profile, make the focal scene a consequential frozen action with visible reaction and stakes, and keep faces and the decisive prop clear of the title-safe zone.
 
 Show the concepts before billable image generation. Identify every visual assumption. Approval binds both `brief_sha256` and `direction_sha256`; a boolean confirmation or global skip flag is not approval.
 

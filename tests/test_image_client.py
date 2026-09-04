@@ -119,9 +119,12 @@ def test_generate_posts_exact_image2_contract_and_decodes_jpeg() -> None:
     assert result.request_size == "2048x3072"
 
 
-def test_client_rejects_non_image2_settings_before_request() -> None:
-    with pytest.raises(ImageClientError, match="gpt-image-2"):
-        ImageGenerationClient(replace(_settings("https://images.example/v1"), model="dall-e-3"))
+def test_client_accepts_configured_image_model() -> None:
+    client = ImageGenerationClient(
+        replace(_settings("https://images.example/v1"), model="publisher/image-v3")
+    )
+
+    assert client.settings.model == "publisher/image-v3"
 
 
 def test_generate_posts_png_when_configured() -> None:

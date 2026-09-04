@@ -198,6 +198,220 @@ def test_scribe_reader_value_prompt_contains_contract_but_no_corpus_material(tmp
     assert "/Users/max/workspace/批次-" not in prompt
 
 
+def test_commercial_chapter_plan_prompt_explains_belonging_invariant(tmp_path):
+    _project, orchestrator = _prepared_commercial_orchestrator(tmp_path)
+    chapter = orchestrator.state.get_chapter(1)
+    assert chapter is not None
+
+    prompt = orchestrator._generate_chapter_outline_prompt(chapter)
+
+    assert "declared only when `reader_jobs` includes `belonging`" in prompt
+    assert "requires at least one approved `belonging_anchors` value" in prompt
+
+
+def test_commercial_chapter_plan_prompt_includes_resource_history_and_gate_feedback(
+    tmp_path,
+):
+    project, orchestrator = _prepared_commercial_orchestrator(tmp_path)
+    chapter = orchestrator.state.create_chapter(2)
+    invalid_contract = chapter_contract_v2(
+        chapter=2,
+        used_resource_ids=("res_time",),
+        seeded_resource_ids=(),
+    )
+    artifacts = ArtifactStore(project)
+    revision = artifacts.put_json(
+        chapter=2,
+        kind="chapter_contract",
+        value=invalid_contract.to_dict(),
+        source="architect",
+    )
+    artifacts.set_head(
+        2,
+        "chapter_contract",
+        revision.revision_id,
+        expected_revision_id=None,
+    )
+    report = project / "outputs/quality/commercial/chapter_002_design.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        json.dumps(
+            {
+                "status": "blocked",
+                "chapter": 2,
+                "chapter_contract_id": invalid_contract.contract_id,
+                "findings": [
+                    {
+                        "code": "unseeded_resource",
+                        "severity": "blocked",
+                        "message": "Missing seeded resource IDs: res_time.",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    prompt = orchestrator._generate_chapter_outline_prompt(chapter)
+
+    assert 'Previously seeded resource IDs: ["license_record"]' in prompt
+    assert 'Current contract uses unseeded resource IDs: ["res_time"]' in prompt
+    assert "Missing seeded resource IDs: res_time." in prompt
+    assert "seed it in this chapter" in prompt
+
+
+def test_commercial_chapter_plan_lists_valid_and_available_hook_types(tmp_path):
+    project, orchestrator = _prepared_commercial_orchestrator(tmp_path)
+    artifacts = ArtifactStore(project)
+    orchestrator.state.create_chapter(2)
+    chapter = orchestrator.state.create_chapter(3)
+    second = artifacts.put_json(
+        chapter=2,
+        kind="chapter_contract",
+        value=chapter_contract_v2(chapter=2, hook_type="consequence").to_dict(),
+        source="architect",
+    )
+    artifacts.set_head(
+        2,
+        "chapter_contract",
+        second.revision_id,
+        expected_revision_id=None,
+    )
+
+    prompt = orchestrator._generate_chapter_outline_prompt(chapter)
+
+    assert (
+        'Allowed `hook_type` values: ["arrival", "consequence", "deadline", '
+        '"decision", "evidence", "relationship_shift"]'
+    ) in prompt
+    assert 'Unavailable `hook_type` values this chapter: ["consequence"]' in prompt
+    assert (
+        'Available `hook_type` values this chapter: ["arrival", "deadline", '
+        '"decision", "evidence", "relationship_shift"]'
+    ) in prompt
+    assert "Use one available value exactly as written" in prompt
+
+
+def test_final_free_trial_chapter_plan_requires_all_assigned_beats_before_fresh_hook(
+    tmp_path,
+):
+    _project, orchestrator = _prepared_commercial_orchestrator(tmp_path)
+    chapter = orchestrator.state.create_chapter(3)
+    chapter.target_word_count = 850
+
+    prompt = orchestrator._generate_chapter_outline_prompt(chapter)
+
+    assert "Assigned free-trial beats for this chapter" in prompt
+    assert "visible_cost" in prompt
+    assert "next_concrete_expectation" in prompt
+    assert "must occur before the final hook" in prompt
+    assert "fresh unresolved pressure" in prompt
+
+
+def test_commercial_repair_prompt_locks_all_deliveries_and_word_target(tmp_path):
+    project, orchestrator = _prepared_commercial_orchestrator(tmp_path)
+    chapter = orchestrator.state.create_chapter(3)
+    chapter.target_word_count = 850
+    orchestrator.state.save_state()
+
+    artifacts = ArtifactStore(project)
+    contract = chapter_contract_v2(
+        chapter=3,
+        hook_type="deadline",
+        ending_pressure="A follow-up deadline remains unresolved.",
+    )
+    revision = artifacts.put_json(
+        chapter=3,
+        kind="chapter_contract",
+        value=contract.to_dict(),
+        source="architect",
+    )
+    artifacts.set_head(
+        3,
+        "chapter_contract",
+        revision.revision_id,
+        expected_revision_id=None,
+    )
+    candidate = orchestrator.manuscript_dir / "chapter_003_candidate_final.md"
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    candidate.write_text("Megan left. The deadline remained.", encoding="utf-8")
+
+    orchestrator.repair_commercial_chapter(
+        3,
+        "The visible cost is missing.",
+        1,
+        dry_run=True,
+    )
+
+    prompt = (
+        project / "outputs/feedback/chapter_003_commercial_repair_01_prompt.md"
+    ).read_text(encoding="utf-8")
+    assert "Non-regression Delivery Checklist" in prompt
+    assert "Target word count: 850" in prompt
+    assert "Required prose range: 765-935 words" in prompt
+    for beat in (
+        "local_payoff",
+        "irreversible_choice",
+        "visible_cost",
+        "next_concrete_expectation",
+    ):
+        assert beat in prompt
+    assert "Do not fix one delivery by deleting or deferring another" in prompt
+    assert "deliver it before the final beat" in prompt
+
+    original = candidate.read_text(encoding="utf-8")
+    orchestrator._llm = FakeLLM()
+    with pytest.raises(LLMError, match="outside required range 765-935"):
+        orchestrator.repair_commercial_chapter(
+            3,
+            "The visible cost is missing.",
+            1,
+            dry_run=False,
+        )
+    assert candidate.read_text(encoding="utf-8") == original
+
+
+def test_commercial_repair_uses_explicit_prompt_word_range(tmp_path):
+    project, orchestrator = _prepared_commercial_orchestrator(tmp_path)
+    source_prompt = project / "outputs/input/prompt.md"
+    source_prompt.write_text(
+        source_prompt.read_text(encoding="utf-8")
+        + "\nEach chapter contains 800-900 words of story prose.\n",
+        encoding="utf-8",
+    )
+    chapter = orchestrator.state.get_chapter(1)
+    assert chapter is not None
+    chapter.target_word_count = 850
+
+    assert orchestrator._chapter_word_bounds(chapter) == (800, 900)
+
+
+def test_commercial_review_blocks_out_of_range_candidate_before_llm(tmp_path):
+    project, orchestrator = _prepared_commercial_orchestrator(tmp_path)
+    chapter = orchestrator.state.get_chapter(1)
+    assert chapter is not None
+    chapter.target_word_count = 100
+    candidate = orchestrator.manuscript_dir / "chapter_001_candidate_final.md"
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    candidate.write_text("Far too short.", encoding="utf-8")
+    fake = FakeLLM()
+    orchestrator._llm = fake
+
+    report = orchestrator.review_commercial_chapter(1)
+
+    assert report.status == "blocked"
+    assert {item.code for item in report.blockers} == {
+        "chapter_word_count_out_of_range"
+    }
+    assert fake.calls == []
+    persisted = json.loads(
+        (
+            project / "outputs/quality/commercial/chapter_001_report.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert persisted["artifact_sha256"] == report.artifact_sha256
+
+
 def test_review_prompts_keep_role_specific_quality_checks(tmp_path):
     _project, orchestrator = _prepared_commercial_orchestrator(tmp_path)
     chapter = orchestrator.state.get_chapter(1)

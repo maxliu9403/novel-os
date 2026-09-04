@@ -28,26 +28,36 @@ _ROMANCE = {
     ),
     "betrayal_romance": GenreEmotionProfile(
         "romance", "betrayal_romance", "warm remembered light against cool reality",
-        "recognition followed by protective anger", "one person discovers the rupture while another avoids it",
-        ("generic smiling couple", "rose collage", "unearned reconciliation"),
+        "recognition followed by protective anger",
+        "the injured or deciding person carries the foreground while the background relationship action reveals the rupture",
+        (
+            "generic smiling couple", "generic couple pose", "isolated sad portrait",
+            "rose collage", "unearned reconciliation",
+        ),
     ),
 }
 
 _FAMILY = {
     "accusation_triangle": GenreEmotionProfile(
         "family_ethics", "accusation_triangle", "plain domestic light with tense contrast",
-        "injustice and protectiveness", "an accusation tightens around a hesitant witness and a defender",
-        ("generic sad family portrait", "luxury mansion", "sentimental collage"),
+        "injustice and protectiveness",
+        "the foreground defender or accused person bears the pressure while a secondary plane exposes the accuser-witness alignment",
+        ("generic sad family portrait", "flat group portrait", "luxury mansion", "sentimental collage"),
     ),
     "public_exclusion": GenreEmotionProfile(
         "family_ethics", "public_exclusion", "bright public space with a cooler excluded foreground",
-        "exclusion and anger", "the protagonist and child are separated from a celebrating relationship; one evidence object makes the exclusion legible",
-        ("generic family portrait", "party collage", "unearned celebration"),
+        "exclusion and anger",
+        "the foreground shows who bears the exclusion while background relationship alignment and one evidence object make its cause legible",
+        (
+            "generic family portrait", "isolated sad portrait", "flat group portrait",
+            "party collage", "unearned celebration",
+        ),
     ),
     "domestic_betrayal": GenreEmotionProfile(
         "family_ethics", "domestic_betrayal", "ordinary household light with a visible temperature split",
-        "recognition of betrayal", "an everyday room contains an abnormal distance and a revealing object",
-        ("generic sad family portrait", "wedding imagery", "decorative luxury"),
+        "recognition of betrayal",
+        "the foreground reaction or boundary answers a background relationship action, with an everyday object confirming the rupture",
+        ("generic sad family portrait", "isolated sad portrait", "flat group portrait", "wedding imagery", "decorative luxury"),
     ),
     "boundary_and_departure": GenreEmotionProfile(
         "family_ethics", "boundary_and_departure", "honest practical light with controlled separation",
@@ -73,7 +83,7 @@ class TitleTypographyProfile:
 
 _TITLE_PROHIBITED_SHORTCUTS = (
     "generic Times-like typesetting",
-    "rigid centered block",
+    "mechanically centered equal-size line stack",
     "full-script or cursive title",
     "heavy outline, bevel, glow, or drop shadow",
     "distorted or symbol-replaced letters",
@@ -85,8 +95,8 @@ _ROMANCE_TITLE = TitleTypographyProfile(
         "and lightly hand-finished terminals"
     ),
     hierarchy=(
-        "an airy, intimate 2-4 line composition with supporting words held smaller "
-        "and emotional words given graceful scale"
+        "an airy, intimate centered 2-4 line composition with supporting words held "
+        "smaller and emotional words given graceful scale"
     ),
     expressive_detail=(
         "one restrained calligraphic entry stroke or extended terminal may suggest "
@@ -101,7 +111,7 @@ _FAMILY_TITLE = TitleTypographyProfile(
         "subtle asymmetry, and slightly hand-finished terminals"
     ),
     hierarchy=(
-        "a controlled asymmetric 2-4 line composition that lets the conflict-bearing "
+        "a controlled centered 2-4 line composition that lets the conflict-bearing "
         "words dominate while connector words remain quieter"
     ),
     expressive_detail=(
@@ -117,7 +127,7 @@ _NEUTRAL_TITLE = TitleTypographyProfile(
         "subtle hand-finished character"
     ),
     hierarchy=(
-        "a composed asymmetric 2-4 line arrangement with clear scale contrast between "
+        "a composed centered 2-4 line arrangement with clear scale contrast between "
         "supporting and story-bearing words"
     ),
     expressive_detail=(
@@ -147,7 +157,11 @@ def resolve_genre_profile(brief: CoverBriefV2) -> GenreEmotionProfile:
         profile,
         emotional_temperature=supplied.emotional_temperature or profile.emotional_temperature,
         desired_viewer_feeling=supplied.desired_viewer_feeling or profile.desired_viewer_feeling,
-        relationship_motion=supplied.relationship_motion or profile.relationship_motion,
+        relationship_motion=(
+            f"{supplied.relationship_motion}; visual grammar: {profile.relationship_motion}"
+            if supplied.relationship_motion and supplied.relationship_motion != profile.relationship_motion
+            else profile.relationship_motion
+        ),
     )
 
 

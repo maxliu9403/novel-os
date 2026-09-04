@@ -66,8 +66,8 @@ class CompiledBook:
         return sum(
             len(b.text.split()) for b in self.blocks
             if b.kind not in (
-                "scene_break", "chapter_title", "story_lead_title", "story_hook",
-                "story_lead",
+                "scene_break", "chapter_title", "story_lead_label",
+                "story_lead_title", "story_hook", "story_lead",
             )
         )
 
@@ -150,8 +150,22 @@ def parse_chapter(text: str, chapter: Optional[int] = None) -> List[Block]:
     return blocks
 
 
+def _reader_guide_label(language: str) -> str:
+    folded = str(language or "").strip().casefold()
+    if (
+        folded.startswith("zh")
+        or "chinese" in folded
+        or "中文" in folded
+        or "汉语" in folded
+        or "漢語" in folded
+    ):
+        return "导读"
+    return "Introduction"
+
+
 def _publication_blocks(copy: "PublicationCopy") -> List[Block]:
     return [
+        Block("story_lead_label", _reader_guide_label(copy.language)),
         Block("story_lead_title", copy.reader_heading),
         Block("story_hook", copy.hook_lead),
         Block("story_lead", copy.spoiler_free_blurb),
@@ -333,7 +347,7 @@ def render_html(book: CompiledBook, sheet: StyleSheet) -> str:
                 f'<p style="{css}" role="separator">'
                 f"{html.escape(sheet.scene_break_marker)}</p>"
             )
-        elif block.kind in ("chapter_title", "story_lead_title"):
+        elif block.kind in ("chapter_title", "story_lead_label", "story_lead_title"):
             out.append(f'<h2 style="{css}">{_inline(block.text)}</h2>')
         elif block.kind == "block_quote":
             out.append(f'<blockquote style="{css}">{_inline(block.text)}</blockquote>')
@@ -353,7 +367,7 @@ def render_markdown(book: CompiledBook, sheet: StyleSheet) -> str:
     for block in book.blocks:
         if block.kind == "scene_break":
             out += [sheet.scene_break_marker, ""]
-        elif block.kind in ("chapter_title", "story_lead_title"):
+        elif block.kind in ("chapter_title", "story_lead_label", "story_lead_title"):
             out += [f"## {block.text}", ""]
         elif block.kind == "block_quote":
             out += [f"> {block.text}", ""]

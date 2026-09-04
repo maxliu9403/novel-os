@@ -1,6 +1,8 @@
-import os
+import base64
 import hashlib
 import json
+import os
+import time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -27,6 +29,9 @@ from .models import (
     ProjectStatistics, OutlinerMetricsRefreshResult, UpdateCodexEntry,
     ArtifactRevisionOut, ChapterQualityOut, EvaluationReportOut, PromotionReceiptOut,
     CoverDirectionCreate, CoverDirectionApproval,
+    ImageProfileOut, ImageProfileUpdate,
+    ProviderConnectionInput, ProviderConnectionOut, ProviderTestResult,
+    StudioModelConfigurationOut, TextModelTestRequest, TextRouteOut, TextRoutesUpdate,
 )
 from .version import __version__
 from .services import (
@@ -67,11 +72,11 @@ def get_media_store() -> media_lib.MediaStore:
 def get_cover_service(
     store: media_lib.MediaStore = Depends(get_media_store),
 ) -> CoverService:
-    from core.image_client import ImageClientError, ImageGenerationClient
+    from core.image_client import ImageClientError, build_image_generation_client
     from core.studio_settings import resolve_cover_settings
 
     try:
-        client = ImageGenerationClient(resolve_cover_settings())
+        client = build_image_generation_client(resolve_cover_settings())
     except (ValueError, ImageClientError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return CoverService(
@@ -223,6 +228,206 @@ def put_studio_cover(body: StudioCoverUpdate):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     studio_settings.save_settings(patch)
     return studio_settings.cover_status()
+
+
+def _provider_settings_error(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/studio/models", response_model=StudioModelConfigurationOut)
+def get_studio_model_configuration():
+    from core import provider_settings
+
+    return provider_settings.configuration_status()
+
+
+@router.post(
+    "/studio/providers",
+    response_model=ProviderConnectionOut,
+    status_code=201,
+)
+def create_studio_provider(body: ProviderConnectionInput):
+    from core import provider_settings
+
+    try:
+        return provider_settings.save_connection(body.model_dump())
+    except provider_settings.ProviderSettingsError as exc:
+        raise _provider_settings_error(exc) from exc
+
+
+@router.patch("/studio/providers/{connection_id}", response_model=ProviderConnectionOut)
+def update_studio_provider(connection_id: str, body: ProviderConnectionInput):
+    from core import provider_settings
+
+    try:
+        return provider_settings.save_connection(body.model_dump(), connection_id)
+    except provider_settings.ProviderSettingsError as exc:
+        raise _provider_settings_error(exc) from exc
+
+
+@router.delete("/studio/providers/{connection_id}", status_code=204)
+def delete_studio_provider(connection_id: str):
+    from core import provider_settings
+
+    try:
+        provider_settings.delete_connection(connection_id)
+    except provider_settings.ProviderSettingsError as exc:
+        raise _provider_settings_error(exc) from exc
+    return Response(status_code=204)
+
+
+@router.post(
+    "/studio/providers/{connection_id}/test",
+    response_model=ProviderTestResult,
+)
+def test_studio_provider(connection_id: str):
+    from core import provider_settings
+
+    try:
+        return provider_settings.test_connection(connection_id)
+    except provider_settings.ProviderSettingsError as exc:
+        raise _provider_settings_error(exc) from exc
+
+
+@router.get("/studio/providers/{connection_id}/models", response_model=list[str])
+def get_studio_provider_models(connection_id: str):
+    from core import provider_settings
+
+    configuration = provider_settings.configuration_status()
+    for connection in configuration["connections"]:
+        if connection["id"] == connection_id:
+            return connection["discovered_models"]
+    raise HTTPException(status_code=404, detail="Provider connection not found")
+
+
+@router.put("/studio/model-routes", response_model=list[TextRouteOut])
+def put_studio_model_routes(body: TextRoutesUpdate):
+    from core import provider_settings
+
+    try:
+        return provider_settings.save_text_routes(
+            route.model_dump() for route in body.routes
+        )
+    except provider_settings.ProviderSettingsError as exc:
+        raise _provider_settings_error(exc) from exc
+
+
+def _mapping_job_result(result: object) -> dict:
+    if not isinstance(result, dict):
+        raise TypeError("Model test returned an invalid result")
+    return result
+
+
+@router.post(
+    "/studio/model-routes/{route_id}/test",
+    response_model=Job,
+    status_code=202,
+)
+def test_studio_text_route(route_id: str, body: TextModelTestRequest):
+    from core import provider_settings
+    from core.llm_client import LLMClient
+
+    prompt = body.prompt.strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Test prompt is required")
+    if len(prompt) > 4000:
+        raise HTTPException(status_code=400, detail="Test prompt is too long")
+    try:
+        route = provider_settings.resolve_text_route(route_id)
+    except provider_settings.ProviderSettingsError as exc:
+        raise _provider_settings_error(exc) from exc
+
+    def run_test() -> dict:
+        started = time.monotonic()
+        client = LLMClient(
+            provider=route["provider"] or None,
+            model=route["model"] or None,
+            base_url=route["base_url"] or None,
+            api_key=route["api_key"] or None,
+            max_tokens=min(int(route["max_tokens"]), 1024),
+            timeout_seconds=120,
+            reasoning_effort="low",
+        )
+        reply = client.complete(
+            "You are a model connectivity test. Answer the user's prompt directly and briefly.",
+            prompt,
+        )
+        return {
+            "route_id": route_id,
+            "provider": route["provider"],
+            "model": route["model"],
+            "reply": reply,
+            "duration_ms": round((time.monotonic() - started) * 1000),
+        }
+
+    fingerprint = hashlib.sha256(
+        f"{route_id}\0{route['connection_id']}\0{route['model']}\0{prompt}".encode("utf-8")
+    ).hexdigest()
+    job_id = runner.submit(
+        "studio_text_test",
+        run_test,
+        meta={"route_id": route_id},
+        result_mapper=_mapping_job_result,
+        unique_key=f"studio:text:{fingerprint}",
+    )
+    return runner.get(job_id)
+
+
+@router.get("/studio/image-profiles/cover", response_model=ImageProfileOut)
+def get_studio_cover_profile():
+    from core import provider_settings
+
+    return provider_settings.image_profile_status("cover")
+
+
+@router.put("/studio/image-profiles/cover", response_model=ImageProfileOut)
+def put_studio_cover_profile(body: ImageProfileUpdate):
+    from core import provider_settings
+
+    try:
+        return provider_settings.save_image_profile("cover", body.model_dump())
+    except (provider_settings.ProviderSettingsError, ValueError) as exc:
+        raise _provider_settings_error(exc) from exc
+
+
+@router.post(
+    "/studio/image-profiles/cover/test",
+    response_model=Job,
+    status_code=202,
+)
+def test_studio_cover_profile():
+    from core.image_client import ImageClientError, build_image_generation_client
+    from core.studio_settings import resolve_cover_settings
+
+    try:
+        settings = resolve_cover_settings()
+    except (ValueError, ImageClientError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    def run_test() -> dict:
+        generated = build_image_generation_client(settings).generate(
+            "A clean editorial book-cover test image with a single folded sheet of paper "
+            "on a neutral desk, no title, no logos, portrait composition."
+        )
+        encoded = base64.b64encode(generated.data).decode("ascii")
+        return {
+            "ok": True,
+            "data_url": f"data:{generated.content_type};base64,{encoded}",
+            "width": generated.width,
+            "height": generated.height,
+            "model": generated.model,
+            "request_id": generated.request_id,
+        }
+
+    fingerprint = hashlib.sha256(repr(settings).encode("utf-8")).hexdigest()
+    job_id = runner.submit(
+        "studio_image_test",
+        run_test,
+        meta={"profile_id": "cover"},
+        result_mapper=_mapping_job_result,
+        unique_key=f"studio:image:{fingerprint}",
+    )
+    return runner.get(job_id)
 
 
 @router.get("/projects", response_model=list[ProjectSummary])
@@ -835,7 +1040,10 @@ def create_cover_direction(
         if findings:
             raise ValueError(
                 "Cover direction validation failed: "
-                + "; ".join(item.code for item in findings)
+                + "; ".join(
+                    f"{item.code}[{item.evidence}]" if item.evidence else item.code
+                    for item in findings
+                )
             )
         created = CoverStore(project).create_direction(direction, brief=brief.to_dict())
     except CoverConflict as exc:
@@ -1566,6 +1774,8 @@ def save_final_doc(project_id: str, number: int, body: FinalDocSave,
         svc.save_final_doc(project_id, number, body.doc)
     except (ProjectNotFound, ChapterNotFound) as e:
         raise _not_found(project_id, number, e)
+    except BadRequest as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except (PromotionConflict, PromotionIntegrityFailure, PromotionUnavailable) as e:
         raise _promotion_http_error(e)
     markdown = richtext.to_markdown(body.doc)

@@ -70,8 +70,8 @@ def _stylesheet(sheet: StyleSheet) -> str:
     """One class per role, so the XHTML carries meaning rather than inline CSS."""
     return "\n".join(
         _rule(f".{role.replace('_', '-')}", sheet.get(role))
-        for role in ("title", "subtitle", "story_lead_title", "story_hook",
-                     "story_lead",
+        for role in ("title", "subtitle", "story_lead_label", "story_lead_title",
+                     "story_hook", "story_lead",
                      "chapter_title", "body", "first_paragraph", "block_quote",
                      "scene_break")
     )
@@ -110,7 +110,7 @@ def _blocks_to_xhtml(blocks: List[Block], sheet: StyleSheet) -> str:
                 f'<p class="{css_class}" role="separator">'
                 f"{escape(sheet.scene_break_marker)}</p>"
             )
-        elif block.kind in ("chapter_title", "story_lead_title"):
+        elif block.kind in ("chapter_title", "story_lead_label", "story_lead_title"):
             out.append(f'<h2 class="{css_class}">{_inline_xhtml(block.text)}</h2>')
         elif block.kind == "block_quote":
             out.append(
@@ -220,9 +220,17 @@ def render_epub(book: CompiledBook, sheet: StyleSheet) -> bytes:
     chapters = _chapter_files(book, sheet)
     names = list(chapters)
     intro_blocks = [block for block in book.blocks if block.chapter is None]
+    intro_title = next(
+        (
+            block.text
+            for block in intro_blocks
+            if block.kind == "story_lead_label"
+        ),
+        book.publication_copy.reader_heading if book.publication_copy else book.title,
+    )
     intro = (
         _page(
-            book.publication_copy.reader_heading if book.publication_copy else book.title,
+            intro_title,
             _blocks_to_xhtml(intro_blocks, sheet),
             book.language,
         )

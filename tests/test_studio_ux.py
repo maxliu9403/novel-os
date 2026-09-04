@@ -125,14 +125,14 @@ def test_cover_put_rejects_non_portrait_ratio(tmp_path, monkeypatch):
     assert "2:3" in response.json()["detail"]
 
 
-def test_cover_put_rejects_models_other_than_gpt_image_2(tmp_path, monkeypatch):
+def test_cover_put_accepts_configured_image_model(tmp_path, monkeypatch):
     client, settings = _client(tmp_path, monkeypatch)
 
-    response = client.put("/api/studio/cover", json={"model": "dall-e-3"})
+    response = client.put("/api/studio/cover", json={"model": "publisher/image-v3"})
 
-    assert response.status_code == 400
-    assert "gpt-image-2" in response.json()["detail"]
-    assert not settings.exists()
+    assert response.status_code == 200
+    assert response.json()["model"] == "publisher/image-v3"
+    assert json.loads(settings.read_text(encoding="utf-8"))["NOVEL_OS_COVER_MODEL"] == "publisher/image-v3"
 
 
 def test_legacy_webp_settings_keep_independent_endpoint_during_save(

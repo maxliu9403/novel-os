@@ -28,7 +28,12 @@ from core.cover_handoff import refresh_cover_concept_prompt
 from core.cover_store import CoverConflict, CoverStore
 from core.delivery_package import build_delivery_package
 from core.image_binary import aspect_ratio_matches, content_type, dimensions
-from core.image_client import GeneratedImage, ImageClientError, ImageGenerationClient
+from core.image_client import (
+    CodexImageGenerationClient,
+    GeneratedImage,
+    ImageClientError,
+    ImageGenerationClient,
+)
 from core.cover_quality import (
     UnavailableCoverVisualEvaluator,
     ThumbnailProjectionError,
@@ -51,7 +56,7 @@ class CoverService:
     def __init__(
         self,
         *,
-        image_client: ImageGenerationClient | None = None,
+        image_client: ImageGenerationClient | CodexImageGenerationClient | None = None,
         media_store: media_lib.MediaStore | None = None,
         media_add: Callable[..., object] | None = None,
         provider: str = "openai_compatible",

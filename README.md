@@ -283,7 +283,20 @@ cd Novel-OS
 pip install -r requirements.txt   # install only the SDKs you need
 ```
 
-### 0 Configure your LLM (one command)
+### 0 Configure model providers
+
+Open **Studio Settings -> Models & providers** to add Codex, OpenAI,
+OpenAI-compatible, Anthropic, OpenRouter, or Ollama connections. Assign a
+default text route, optional agent-specific overrides, and a cover image model.
+One connection can provide both text and image generation; API keys are stored
+separately from normal Studio metadata and are never returned by the API.
+
+With Codex installed and `codex login` completed, the Codex connection uses the
+existing login for text generation and the `gpt-image-2` image tool without
+copying credentials into Novel OS.
+
+For headless setup, the existing wizard and environment variables remain
+available:
 
 Let the setup wizard detect what you already have the Claude Code CLI, any API
 key, or a local model server test the connection, and write your `.env` for you:
@@ -299,21 +312,21 @@ python core/orchestrator.py setup        # or: python -m core.setup_wizard
 Prefer to configure by hand? `cp .env.example .env` and set your key(s). If you run a
 writing command with nothing configured, Novel OS offers the wizard automatically.
 
-For Sub2API or another OpenAI-compatible gateway:
+For an OpenAI-compatible gateway:
 
 ```bash
 NOVEL_OS_LLM_PROVIDER=openai_compatible
-NOVEL_OS_BASE_URL=https://your-sub2api-host.example/v1
+NOVEL_OS_BASE_URL=https://your-provider.example/v1
 NOVEL_OS_API_KEY=your-key
 NOVEL_OS_MODEL=your-model-id
 ```
 
-To generate commercial covers through Sub2API `gpt-image-2`, either reuse the
+To generate commercial covers through an Images API and `gpt-image-2`, either reuse the
 same endpoint and key or set an independent cover credential in the ignored
 `.env` file:
 
 ```dotenv
-NOVEL_OS_COVER_BASE_URL=https://your-sub2api-host.example/v1
+NOVEL_OS_COVER_BASE_URL=https://your-provider.example/v1
 NOVEL_OS_COVER_API_KEY=your-key
 NOVEL_OS_COVER_MODEL=gpt-image-2
 NOVEL_OS_COVER_SIZE=2048x3072
@@ -546,6 +559,12 @@ chmod +x ./deploy.sh
 
 #### 3. 配置模型提供商
 
+推荐在 **Studio Settings -> Models & providers** 中新增 Codex、OpenAI、
+OpenAI-compatible、Anthropic、OpenRouter 或 Ollama 连接，然后分别设置文本
+路由与封面图片模型。同一个连接可以同时承担文本和图片生成，API Key 与普通
+配置分开保存且不会通过 API 返回。Codex 连接直接复用 `codex login`，无需把
+登录凭据复制给 Novel OS。
+
 在新设备上创建独立配置：
 
 ```bash
@@ -561,7 +580,7 @@ NOVEL_OS_API_KEY=YOUR_API_KEY
 NOVEL_OS_MODEL=YOUR_MODEL
 ```
 
-封面可以复用上面的 endpoint 和 key；需要独立 Sub2API 凭据时增加：
+封面可以复用上面的连接；以下环境变量保留给无界面运行和旧配置：
 
 ```dotenv
 NOVEL_OS_COVER_BASE_URL=https://YOUR_ENDPOINT/v1

@@ -1,10 +1,14 @@
 import hashlib
 import json
+import os
 import tempfile
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
+
+if os.name == "posix":
+    import fcntl
 
 from artifacts import ArtifactStore
 from commercial_fixtures import (
@@ -23,7 +27,7 @@ from commercial_quality import (
 )
 from canon import CanonDeltaProposal
 from commercial_story import commercial_story_block
-from pipeline_models import RunSpec, StageResult
+from pipeline_models import RunManifest, RunSpec, StageResult
 from pipeline_runner import PipelineError, PipelineRunner
 from llm_client import LLMError
 from project_identity import ensure_project_instance_id
@@ -193,7 +197,7 @@ class _PublicationCompletionClient:
                     "late": [{"chapter": last, "source_quote": quote(last)}],
                 },
             })
-        if system.startswith("publication-copy-writer.v1"):
+        if system.startswith("publication-copy-writer.v2"):
             if self.owner.publication_writer_response is not None:
                 return self.owner.publication_writer_response
             return json.dumps({
@@ -402,6 +406,147 @@ def test_pipeline_repairs_commercial_candidate_at_most_twice():
     assert manifest.get("chapter.commercial.repair.1", 1).status == "done"
     assert manifest.get("chapter.commercial.repair.2", 1).status == "done"
     assert manifest.get("chapter.promote", 1).status == "done"
+
+
+def test_latest_candidate_stage_prefers_new_resume_cycle_over_higher_old_repair_number():
+    manifest = RunManifest.new(
+        RunSpec(project_path="/tmp/project", prompt_path="/tmp/prompt.md")
+    )
+    manifest.record(
+        StageResult(
+            phase="chapter.style",
+            chapter=1,
+            status="done",
+            revision_id="style-revision",
+            finished_at="2026-09-01T16:24:37+00:00",
+        )
+    )
+    manifest.record(
+        StageResult(
+            phase="chapter.commercial.repair.2",
+            chapter=1,
+            status="done",
+            revision_id="old-repair-2",
+            finished_at="2026-09-01T16:02:04+00:00",
+        )
+    )
+    manifest.record(
+        StageResult(
+            phase="chapter.commercial.repair.1",
+            chapter=1,
+            status="done",
+            revision_id="new-repair-1",
+            finished_at="2026-09-01T16:30:07+00:00",
+        )
+    )
+
+    latest = PipelineRunner._latest_candidate_stage(manifest, 1)
+
+    assert latest is not None
+    assert latest.revision_id == "new-repair-1"
+
+
+def test_latest_editor_stage_prefers_new_resume_cycle_over_higher_old_repair_number():
+    manifest = RunManifest.new(
+        RunSpec(project_path="/tmp/project", prompt_path="/tmp/prompt.md")
+    )
+    manifest.record(
+        StageResult(
+            phase="chapter.edit",
+            chapter=1,
+            status="done",
+            revision_id="edit-revision",
+            finished_at="2026-09-01T16:20:00+00:00",
+        )
+    )
+    manifest.record(
+        StageResult(
+            phase="chapter.repair.2",
+            chapter=1,
+            status="done",
+            revision_id="old-repair-2",
+            finished_at="2026-09-01T16:10:00+00:00",
+        )
+    )
+    manifest.record(
+        StageResult(
+            phase="chapter.repair.1",
+            chapter=1,
+            status="done",
+            revision_id="new-repair-1",
+            finished_at="2026-09-01T16:25:00+00:00",
+        )
+    )
+
+    latest = PipelineRunner._latest_editor_stage(manifest, 1)
+
+    assert latest is not None
+    assert latest.revision_id == "new-repair-1"
+
+
+def test_style_checkpoint_reuses_newer_repaired_candidate_on_resume(tmp_path: Path):
+    project = tmp_path / "project"
+    candidate_relative = "outputs/manuscript/chapter_001_candidate_final.md"
+    candidate = project / candidate_relative
+    candidate.parent.mkdir(parents=True)
+    candidate.write_text("Repaired candidate.\n", encoding="utf-8")
+
+    artifacts = ArtifactStore(project)
+    style_revision = artifacts.put_text(
+        chapter=1,
+        kind="final",
+        text="Style candidate.\n",
+        source="style_curator",
+    )
+    repair_revision = artifacts.put_text(
+        chapter=1,
+        kind="final",
+        text="Repaired candidate.\n",
+        source="style_curator",
+        parent_revision_id=style_revision.revision_id,
+    )
+    manifest = RunManifest.new(
+        RunSpec(project_path=str(project), prompt_path=str(tmp_path / "prompt.md"))
+    )
+    style = StageResult(
+        phase="chapter.style",
+        chapter=1,
+        status="done",
+        revision_id=style_revision.revision_id,
+        artifact_paths=[candidate_relative],
+        artifact_hashes={candidate_relative: style_revision.sha256},
+        finished_at="2026-09-01T16:24:37+00:00",
+    )
+    repair = StageResult(
+        phase="chapter.commercial.repair.1",
+        chapter=1,
+        status="done",
+        revision_id=repair_revision.revision_id,
+        artifact_paths=[candidate_relative],
+        artifact_hashes={candidate_relative: repair_revision.sha256},
+        finished_at="2026-09-01T16:30:07+00:00",
+    )
+    manifest.record(style)
+    manifest.record(repair)
+    store = PipelineRunner._store(project, manifest.run_id)
+    store.save(manifest)
+    runner = PipelineRunner()
+    runner._rerun_started = False
+    runner._last_valid_state_snapshot = ""
+
+    result = runner._stage(
+        manifest,
+        project,
+        store,
+        "chapter.style",
+        1,
+        lambda: pytest.fail("Style Curator must not rerun after a valid repair"),
+        lambda _value: None,
+        [candidate_relative],
+    )
+
+    assert result is style
+    assert candidate.read_text(encoding="utf-8") == "Repaired candidate.\n"
 
 
 def run_with_free_trial_failure(tmp_path: Path, *, missing_payoff: bool = True):
@@ -632,6 +777,111 @@ def test_runner_completes_two_chapter_book(tmp_path: Path):
     assert ("write", 2) in FakeOrchestrator.calls
 
 
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX flock")
+def test_run_rejects_concurrent_project_execution_without_creating_manifest(
+    tmp_path: Path,
+):
+    project = tmp_path / "project"
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test Book\n\nA story.", encoding="utf-8")
+    lock_path = project / "outputs/.pipeline-execution.lock"
+    lock_path.parent.mkdir(parents=True)
+    lock_path.touch()
+
+    with lock_path.open("r+") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(PipelineError, match="already active"):
+            PipelineRunner(orchestrator_factory=_factory).run(
+                RunSpec(
+                    project_path=str(project),
+                    prompt_path=str(prompt),
+                    num_chapters=1,
+                    target_words=20,
+                    dry_run=True,
+                )
+            )
+
+    assert not list((project / "outputs/runs").glob("*/run.json"))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX flock")
+def test_resume_rejects_concurrent_project_execution_without_mutating_manifest(
+    tmp_path: Path,
+):
+    project = tmp_path / "project"
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test Book\n\nA story.", encoding="utf-8")
+    manifest = RunManifest.new(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            dry_run=True,
+        ),
+        run_id="concurrent-run",
+    )
+    runner = PipelineRunner(orchestrator_factory=_factory)
+    store = runner._store(project, manifest.run_id)
+    store.save(manifest)
+    lock_path = project / "outputs/.pipeline-execution.lock"
+    lock_path.touch()
+    before = store.path.read_bytes()
+
+    with lock_path.open("r+") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(PipelineError, match="already active"):
+            runner.resume(manifest.run_id, project)
+
+    assert store.path.read_bytes() == before
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX flock")
+def test_retry_rejects_concurrent_execution_without_resetting_stage(
+    tmp_path: Path,
+):
+    project = tmp_path / "project"
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("# Test Book\n\nA story.", encoding="utf-8")
+    manifest = RunManifest.new(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            dry_run=True,
+        ),
+        run_id="concurrent-retry",
+    )
+    manifest.record(
+        StageResult(
+            phase="chapter.write",
+            chapter=1,
+            status="failed",
+            error="provider interrupted",
+        )
+    )
+    manifest.status = "failed"
+    runner = PipelineRunner(orchestrator_factory=_factory)
+    store = runner._store(project, manifest.run_id)
+    store.save(manifest)
+    lock_path = project / "outputs/.pipeline-execution.lock"
+    lock_path.touch()
+    before = store.path.read_bytes()
+
+    with lock_path.open("r+") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(PipelineError, match="already active"):
+            runner.retry(
+                manifest.run_id,
+                phase="chapter.write",
+                chapter=1,
+                project_path=project,
+            )
+
+    assert store.path.read_bytes() == before
+
+
 def test_stage_order_and_publication_inputs_are_source_bound(tmp_path: Path):
     FakeOrchestrator.calls = []
     FakeOrchestrator.publication_model_calls = []
@@ -666,7 +916,7 @@ def test_stage_order_and_publication_inputs_are_source_bound(tmp_path: Path):
         "publication_copy_policy_sha256",
     }
     assert publication.input_hashes["publication_copy_policy_sha256"] == hashlib.sha256(
-        b"publication-copy-policy.v1"
+        b"publication-copy-policy.v2"
     ).hexdigest()
     assert manifest.get("compile").artifact_paths == [
         "outputs/deliverables/book.md",
@@ -883,6 +1133,132 @@ def test_commercial_design_gate_blocks_before_scribe_on_contract_budget_violatio
     }
     assert (project / "outputs/quality/commercial/chapter_001_design.json").is_file()
     assert not any(call == ("write", 1) for call in InvalidDesignOrchestrator.calls)
+
+
+def test_retrying_blocked_design_gate_replans_chapter_before_rechecking(tmp_path: Path):
+    contract = commercial_story_fixture_variant()
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text(
+        "# Commercial Test\n\n" + commercial_story_block(contract),
+        encoding="utf-8",
+    )
+    project = tmp_path / "projects/candidate"
+    base = _commercial_factory(contract)
+
+    class RepairableDesignOrchestrator(base):
+        plan_attempts = 0
+        write_attempts = 0
+
+        def plan_chapter(self, number, summary="", pov="", dry_run=False):
+            super().plan_chapter(number, summary, pov, dry_run=dry_run)
+            type(self).plan_attempts += 1
+            outline = self.outputs / f"chapter_{number:03d}_outline.md"
+            payload = chapter_contract_v2_payload(chapter=number)
+            if type(self).plan_attempts == 1:
+                payload["reader_jobs"] = ["recognition"]
+                payload["belonging_anchors"] = ["child"]
+            with outline.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    "\n[CHAPTER_CONTRACT]\n"
+                    + json.dumps(payload)
+                    + "\n[/CHAPTER_CONTRACT]\n"
+                )
+
+        def write_chapter(self, number, dry_run=False):
+            type(self).write_attempts += 1
+            raise RuntimeError("stop after design recovery")
+
+    RepairableDesignOrchestrator.plan_attempts = 0
+    RepairableDesignOrchestrator.write_attempts = 0
+    runner = PipelineRunner(orchestrator_factory=RepairableDesignOrchestrator)
+    paused = runner.run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            approval_policy="auto",
+            quality_policy="evidence_v1",
+            max_retries=0,
+            max_quality_repairs=0,
+        )
+    )
+    assert paused.get("chapter.design_check", 1).status == "blocked"
+
+    recovered = runner.retry(
+        paused.run_id,
+        phase="chapter.design_check",
+        chapter=1,
+        project_path=project,
+    )
+
+    assert RepairableDesignOrchestrator.plan_attempts == 2
+    assert RepairableDesignOrchestrator.write_attempts == 1
+    assert recovered.get("chapter.design_check", 1).status == "done"
+    assert recovered.get("chapter.write", 1).status == "failed"
+
+
+def test_auto_mode_replans_blocked_chapter_design_before_writing(tmp_path: Path):
+    contract = commercial_story_fixture_variant()
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text(
+        "# Commercial Test\n\n" + commercial_story_block(contract),
+        encoding="utf-8",
+    )
+    project = tmp_path / "projects/candidate"
+    base = _commercial_factory(contract)
+
+    class AutoRepairableDesignOrchestrator(base):
+        plan_attempts = 0
+        write_attempts = 0
+
+        def plan_chapter(self, number, summary="", pov="", dry_run=False):
+            super().plan_chapter(number, summary, pov, dry_run=dry_run)
+            type(self).plan_attempts += 1
+            outline = self.outputs / f"chapter_{number:03d}_outline.md"
+            payload = chapter_contract_v2_payload(chapter=number)
+            if type(self).plan_attempts == 1:
+                payload["used_resource_ids"] = ["res_labor", "res_time"]
+                payload["seeded_resource_ids"] = ["res_labor"]
+            else:
+                payload["used_resource_ids"] = ["res_labor", "res_time"]
+                payload["seeded_resource_ids"] = ["res_labor", "res_time"]
+            with outline.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    "\n[CHAPTER_CONTRACT]\n"
+                    + json.dumps(payload)
+                    + "\n[/CHAPTER_CONTRACT]\n"
+                )
+
+        def write_chapter(self, number, dry_run=False):
+            type(self).write_attempts += 1
+            raise RuntimeError("stop after automatic design recovery")
+
+    AutoRepairableDesignOrchestrator.plan_attempts = 0
+    AutoRepairableDesignOrchestrator.write_attempts = 0
+    manifest = PipelineRunner(
+        orchestrator_factory=AutoRepairableDesignOrchestrator
+    ).run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=1,
+            target_words=20,
+            approval_policy="auto",
+            quality_policy="evidence_v1",
+            max_retries=0,
+            max_quality_repairs=1,
+        )
+    )
+
+    assert AutoRepairableDesignOrchestrator.plan_attempts == 2
+    assert AutoRepairableDesignOrchestrator.write_attempts == 1
+    assert manifest.get("chapter.design_check", 1).status == "done"
+    events = (
+        project / f"outputs/runs/{manifest.run_id}/events.jsonl"
+    ).read_text(encoding="utf-8")
+    assert '"event": "chapter.design_repair_scheduled"' in events
+    assert "res_time" in events
 
 
 def test_blocked_originality_report_prevents_foundation_commit(tmp_path: Path):
@@ -2176,3 +2552,17 @@ def test_run_cli_persists_quality_policy(tmp_path: Path):
     assert json.loads(run_files[0].read_text(encoding="utf-8"))["spec"][
         "quality_policy"
     ] == "evidence_v1"
+
+
+def test_invalid_architect_chapter_contract_is_retryable(tmp_path: Path):
+    path = tmp_path / "chapter_006_outline.md"
+    payload = chapter_contract_v2_payload(chapter=6, hook_type="question")
+    path.write_text(
+        "[CHAPTER_CONTRACT]\n"
+        + json.dumps(payload)
+        + "\n[/CHAPTER_CONTRACT]\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LLMError, match="hook_type has invalid value"):
+        PipelineRunner._parse_chapter_contract(path, 6)

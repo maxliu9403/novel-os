@@ -21,7 +21,7 @@ try:
     from .cover_prompt_compiler import COMPILER_VERSION, scene_to_cover_concept
     from .cover_store import CoverConflict, CoverStore
     from .cover_validator import validate_direction
-    from .image_client import ImageClientError, ImageGenerationClient
+    from .image_client import ImageClientError, build_image_generation_client
     from .studio_settings import resolve_cover_settings
 except ImportError:  # pragma: no cover - used by `python core/orchestrator.py`
     from cover_models_v2 import CoverBriefV2
@@ -29,7 +29,7 @@ except ImportError:  # pragma: no cover - used by `python core/orchestrator.py`
     from cover_prompt_compiler import COMPILER_VERSION, scene_to_cover_concept
     from cover_store import CoverConflict, CoverStore
     from cover_validator import validate_direction
-    from image_client import ImageClientError, ImageGenerationClient
+    from image_client import ImageClientError, build_image_generation_client
     from studio_settings import resolve_cover_settings
 
 
@@ -169,7 +169,7 @@ def _generation_service(settings) -> CoverService:
     db.configure(os.environ.get("NOVEL_OS_DB") or "sqlite:///./novel_os.db")
     media_root = Path(os.environ.get("NOVEL_OS_MEDIA_DIR", "./media"))
     return CoverService(
-        image_client=ImageGenerationClient(settings),
+        image_client=build_image_generation_client(settings),
         media_store=LocalMediaStore(media_root),
         media_add=db.media_add,
     )

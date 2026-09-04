@@ -61,6 +61,7 @@ def _validate_cover_size(size: str) -> str:
 class CoverSettings:
     base_url: str
     api_key: str
+    provider: str = "openai_compatible"
     model: str = "gpt-image-2"
     size: str = _COVER_SIZE
     quality: str = "high"
@@ -93,6 +94,25 @@ def resolve_cover_director_settings(
     source: Mapping[str, Any] | None = None,
 ) -> CoverDirectorSettings:
     """Resolve planning settings independently from the final image model."""
+    if source is None:
+        try:
+            from .provider_settings import load_configuration, resolve_text_route
+        except ImportError:  # pragma: no cover - legacy top-level imports
+            from provider_settings import load_configuration, resolve_text_route
+        configuration = load_configuration()
+        if configuration.get("source") == "v2":
+            route = resolve_text_route("cover_director")
+            director_route = configuration.get("text_routes", {}).get(
+                "cover_director", {}
+            )
+            return CoverDirectorSettings(
+                provider=str(route["provider"]),
+                model=str(route["model"]),
+                base_url=str(route["base_url"]).rstrip("/"),
+                api_key=str(route["api_key"]),
+                timeout_seconds=180.0,
+                inherits_writing=bool(director_route.get("inherits_default", True)),
+            )
     if source is None:
         values: dict[str, Any] = dict(os.environ)
         values.update(load_settings())
@@ -161,6 +181,26 @@ def cover_director_status(source: Mapping[str, Any] | None = None) -> dict[str, 
 def resolve_cover_settings(source: Mapping[str, Any] | None = None) -> CoverSettings:
     """Resolve image settings without mutating writing-model configuration."""
     if source is None:
+        try:
+            from .provider_settings import load_configuration, resolve_image_profile
+        except ImportError:  # pragma: no cover - legacy top-level imports
+            from provider_settings import load_configuration, resolve_image_profile
+        configuration = load_configuration()
+        if configuration.get("source") == "v2":
+            profile = resolve_image_profile("cover")
+            normalized = validate_cover_parameters(profile)
+            return CoverSettings(
+                base_url=str(profile.get("base_url") or "").rstrip("/"),
+                api_key=str(profile.get("api_key") or ""),
+                provider=str(profile.get("provider") or "openai_compatible"),
+                model=normalized["model"],
+                size=normalized["size"],
+                quality=normalized["quality"],
+                output_format=normalized["output_format"],
+                count=normalized["count"],
+                timeout_seconds=normalized["timeout_seconds"],
+            )
+    if source is None:
         values: dict[str, Any] = dict(os.environ)
         values.update(load_settings())
     else:
@@ -173,15 +213,40 @@ def resolve_cover_settings(source: Mapping[str, Any] | None = None) -> CoverSett
         values.get("NOVEL_OS_API_KEY") or values.get("OPENAI_API_KEY") or ""
     ).strip()
 
-    size = _validate_cover_size(str(values.get("NOVEL_OS_COVER_SIZE") or _COVER_SIZE))
+    normalized = validate_cover_parameters({
+        "model": values.get("NOVEL_OS_COVER_MODEL") or _COVER_MODEL,
+        "size": values.get("NOVEL_OS_COVER_SIZE") or _COVER_SIZE,
+        "quality": values.get("NOVEL_OS_COVER_QUALITY") or "high",
+        "output_format": values.get("NOVEL_OS_COVER_FORMAT") or "jpeg",
+        "count": values.get("NOVEL_OS_COVER_COUNT") or 4,
+        "timeout_seconds": values.get("NOVEL_OS_COVER_TIMEOUT_SECONDS") or 180,
+    })
 
-    quality = str(values.get("NOVEL_OS_COVER_QUALITY") or "high").strip().lower()
+    return CoverSettings(
+        base_url=(cover_base_url or writing_base_url or "https://api.openai.com/v1").rstrip("/"),
+        api_key=cover_api_key or writing_api_key,
+        model=normalized["model"],
+        size=normalized["size"],
+        quality=normalized["quality"],
+        output_format=normalized["output_format"],
+        count=normalized["count"],
+        timeout_seconds=normalized["timeout_seconds"],
+        inherits_base_url=not bool(cover_base_url) and bool(writing_base_url),
+        inherits_api_key=not bool(cover_api_key) and bool(writing_api_key),
+    )
+
+
+def validate_cover_parameters(source: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate and normalize cover-only generation parameters."""
+    size = _validate_cover_size(str(source.get("size") or _COVER_SIZE))
+
+    quality = str(source.get("quality") or "high").strip().lower()
     if quality not in _COVER_QUALITIES:
         raise ValueError(
             f"Unknown cover quality '{quality}'; choose {', '.join(sorted(_COVER_QUALITIES))}"
         )
 
-    output_format = str(values.get("NOVEL_OS_COVER_FORMAT") or "jpeg").strip().lower()
+    output_format = str(source.get("output_format") or "jpeg").strip().lower()
     if output_format == "webp":
         output_format = "jpeg"
     if output_format not in _COVER_FORMATS:
@@ -190,35 +255,32 @@ def resolve_cover_settings(source: Mapping[str, Any] | None = None) -> CoverSett
         )
 
     try:
-        count = int(values.get("NOVEL_OS_COVER_COUNT") or 4)
+        raw_count = source.get("count")
+        count = int(4 if raw_count in (None, "") else raw_count)
     except (TypeError, ValueError) as exc:
         raise ValueError("Cover count must be an integer between 3 and 5") from exc
     if count < 3 or count > 5:
         raise ValueError("Cover count must be between 3 and 5")
 
     try:
-        timeout = float(values.get("NOVEL_OS_COVER_TIMEOUT_SECONDS") or 180)
+        raw_timeout = source.get("timeout_seconds")
+        timeout = float(180 if raw_timeout in (None, "") else raw_timeout)
     except (TypeError, ValueError) as exc:
         raise ValueError("Cover timeout must be a positive number") from exc
     if timeout <= 0:
         raise ValueError("Cover timeout must be a positive number")
 
-    model = str(values.get("NOVEL_OS_COVER_MODEL") or _COVER_MODEL).strip()
-    if model != _COVER_MODEL:
-        raise ValueError(f"Cover model must be {_COVER_MODEL}")
-
-    return CoverSettings(
-        base_url=(cover_base_url or writing_base_url or "https://api.openai.com/v1").rstrip("/"),
-        api_key=cover_api_key or writing_api_key,
-        model=model,
-        size=size,
-        quality=quality,
-        output_format=output_format,
-        count=count,
-        timeout_seconds=timeout,
-        inherits_base_url=not bool(cover_base_url) and bool(writing_base_url),
-        inherits_api_key=not bool(cover_api_key) and bool(writing_api_key),
-    )
+    model = str(source.get("model") or _COVER_MODEL).strip()
+    if not model:
+        raise ValueError("Cover model is required")
+    return {
+        "model": model,
+        "size": size,
+        "quality": quality,
+        "output_format": output_format,
+        "count": count,
+        "timeout_seconds": timeout,
+    }
 
 
 def cover_status(source: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -248,8 +310,12 @@ def cover_status(source: Mapping[str, Any] | None = None) -> dict[str, Any]:
             "error": str(exc),
         }
     has_key = bool(settings.api_key)
+    configured = (
+        settings.provider == "codex"
+        or (has_key and bool(settings.base_url))
+    )
     return {
-        "configured": has_key and bool(settings.base_url),
+        "configured": configured,
         "has_api_key": has_key,
         "base_url": settings.base_url,
         "model": settings.model,
@@ -266,7 +332,7 @@ def cover_status(source: Mapping[str, Any] | None = None) -> dict[str, Any]:
         "director_has_api_key": director["has_api_key"],
         "director_timeout_seconds": director["timeout_seconds"],
         "director_inherits_writing": director["inherits_writing"],
-        "error": None if has_key else "Add a cover API key or configure the shared Sub2API key.",
+        "error": None if configured else "Add an image provider API key or reuse a shared connection.",
     }
 
 PRESETS: dict[str, dict[str, str]] = {
@@ -359,6 +425,11 @@ def llm_status() -> dict[str, Any]:
 
     saved = load_settings()
     apply_to_environ(saved)
+    try:
+        from .provider_settings import apply_default_route_to_environ
+    except ImportError:  # pragma: no cover - legacy top-level imports
+        from provider_settings import apply_default_route_to_environ
+    apply_default_route_to_environ()
     configured = True
     error: Optional[str] = None
     provider = os.environ.get("NOVEL_OS_LLM_PROVIDER") or ""

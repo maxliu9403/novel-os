@@ -204,7 +204,40 @@ class ProjectService:
         return self._project_dir(project_id)
 
     def _load(self, project_id: str) -> StoryState:
-        return StoryState(str(self._project_dir(project_id)))
+        project = self._project_dir(project_id)
+        state = StoryState(str(project))
+        self._hydrate_chapter_progress(project, state)
+        return state
+
+    @staticmethod
+    def _hydrate_chapter_progress(project: Path, state: StoryState) -> None:
+        """Project operational progress from the best available prose authority."""
+        artifacts = ArtifactStore(project)
+        for chapter in state.chapters.values():
+            number = chapter.number
+            nnn = f"{number:03d}"
+            manuscript = project / "outputs" / "manuscript"
+            text: str | None = None
+            final_exists = False
+            try:
+                head = artifacts.get_head(number, "final")
+                if head is not None:
+                    text = artifacts.read_text(head.revision_id)
+                    final_exists = True
+            except (ArtifactCorruptionError, ArtifactIntegrityError) as exc:
+                raise PromotionIntegrityFailure(str(exc)) from exc
+            if text is None:
+                final = manuscript / f"chapter_{nnn}_final.md"
+                text = _read(final)
+                final_exists = text is not None
+            if text is None:
+                text = _read(manuscript / f"chapter_{nnn}_revised.md")
+            if text is None:
+                text = _read(manuscript / f"chapter_{nnn}_draft.md")
+            if text is not None and text.strip():
+                chapter.word_count = len(text.split())
+            if final_exists:
+                chapter.status = "complete"
 
     def list_projects(self) -> list[ProjectSummary]:
         out: list[ProjectSummary] = []
@@ -215,7 +248,7 @@ class ProjectService:
             state_file = child / "outputs" / "state" / "story_state.json"
             if not state_file.exists():
                 continue
-            s = StoryState(str(child))
+            s = self._load(child.name)
             out.append(self._summary(child.name, s, state_file))
         return out
 
@@ -1396,9 +1429,14 @@ POV: {pov or "[unspecified]"}
         clean_doc = richtext.map_text(doc, strip_em_dashes)
         md = richtext.to_markdown(clean_doc)
         clean, meta = sanitize_manuscript(md)
+        existing_final = self.get_final_text(project_id, number)
+        if existing_final and not clean.strip():
+            raise BadRequest(
+                "Final chapter must contain prose before replacing an existing manuscript."
+            )
         legacy_migration = (
             db.get_artifact_doc(project_id, number, "final") is None
-            and bool(self.get_final_text(project_id, number))
+            and bool(existing_final)
         )
         wc, _receipt = self._promote_api_candidate(
             project_id,
@@ -2076,11 +2114,18 @@ Foreshadowing_Planted: …
                 "text": text or "",
             })
 
+        publication_copy = self._publication_copy_for_compile(
+            project_id,
+            metadata=s.metadata,
+            chapters=chapters,
+        )
+
         book = gather(
             title=s.metadata.get("title", "Untitled"),
             author=s.metadata.get("author", ""),
             genre=s.metadata.get("genre", ""),
             chapters=chapters,
+            publication_copy=publication_copy,
         )
         sheet = StyleSheet.from_dict(s.compile_styles)
         try:
@@ -2088,6 +2133,70 @@ Foreshadowing_Planted: …
         except ValueError as e:
             raise BadRequest(str(e))
         return body, CONTENT_TYPES.get(fmt, "text/plain"), EXTENSIONS.get(fmt, "txt")
+
+    def _publication_copy_for_compile(
+        self,
+        project_id: str,
+        *,
+        metadata: dict,
+        chapters: list[dict],
+    ):
+        """Load the validated reader introduction for on-demand downloads.
+
+        Pipeline compilation already supplies this artifact explicitly.  The
+        Web compile endpoint is a separate projection path, so it must load the
+        same artifact and reject it when its Final-chapter binding has drifted.
+        """
+        from publication_copy import parse_publication_copy  # noqa: E402
+
+        project = self._project_dir(project_id)
+        path = project / "outputs" / "publication" / "publication-copy.json"
+        if not path.is_file():
+            return None
+        try:
+            publication_copy = parse_publication_copy(path.read_bytes())
+        except (OSError, UnicodeError, ValueError) as exc:
+            raise BadRequest(f"Reader introduction artifact is invalid: {exc}") from exc
+
+        expected_title = str(metadata.get("title") or "Untitled")
+        expected_language = str(metadata.get("language") or "").strip()
+        if publication_copy.title != expected_title or (
+            expected_language and publication_copy.language != expected_language
+        ):
+            raise BadRequest("Reader introduction is stale for the current book metadata")
+
+        chapter_text = {
+            int(item["number"]): str(item.get("text") or "")
+            for item in chapters
+            if str(item.get("text") or "").strip()
+        }
+        source_refs = {item.number: item for item in publication_copy.source.chapters}
+        if set(source_refs) != set(chapter_text):
+            raise BadRequest("Reader introduction is stale for the current Final chapters")
+
+        artifacts = ArtifactStore(project)
+        try:
+            for number, source_ref in source_refs.items():
+                current_sha = hashlib.sha256(
+                    chapter_text[number].encode("utf-8")
+                ).hexdigest()
+                if current_sha != source_ref.sha256:
+                    raise BadRequest(
+                        "Reader introduction is stale for the current Final chapters"
+                    )
+                head = artifacts.get_head(number, "final")
+                if head is not None:
+                    revision = artifacts.get_revision(head.revision_id)
+                    if (
+                        head.revision_id != source_ref.revision_id
+                        or revision.sha256 != source_ref.sha256
+                    ):
+                        raise BadRequest(
+                            "Reader introduction is stale for the current Final chapters"
+                        )
+        except (ArtifactCorruptionError, ArtifactIntegrityError) as exc:
+            raise BadRequest(f"Final chapter binding is invalid: {exc}") from exc
+        return publication_copy
 
     def manuscript_statistics(self, project_id: str) -> dict:
         """Style Curator surface: frequency, echoes, reading time (deterministic)."""

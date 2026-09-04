@@ -59,7 +59,7 @@ class PipelineLLM:
                     "late": [{"chapter": last, "source_quote": quote(last)}],
                 },
             })
-        if system.startswith("publication-copy-writer.v1"):
+        if system.startswith("publication-copy-writer.v2"):
             return json.dumps({
                 "reader_heading": "Before the Story",
                 "hook_lead": (
@@ -445,6 +445,8 @@ def test_real_orchestrator_pipeline_completes_two_chapters(tmp_path: Path):
     final_state = StoryState(str(project))
     assert final_state.get_chapter(1).status == "complete"
     assert final_state.get_chapter(2).status == "complete"
+    assert final_state.get_chapter(1).word_count > 0
+    assert final_state.get_chapter(2).word_count > 0
     assert final_state.characters["char_001"].full_name == "Mara Vale"
     assert final_state.plot_threads["plot_001"].name == "Second Chance"
     book = (project / "outputs/deliverables/book.md").read_text(encoding="utf-8")
@@ -724,7 +726,7 @@ Voice_Strength: 9/10
 [REVISED_CHAPTER]
 # Chapter {number}
 
-Clara matched the signed minutes to the deposit timestamp and froze her authorization before Dean could move the memorial funds.
+Clara matched the signed minutes to the deposit timestamp and froze her authorization before Dean could move the memorial funds. She copied the choir secretary, placed the original record in the shared archive, and asked for written confirmation before sunset. When Dean demanded a private conversation, Clara kept the office door open and repeated that the membership would review every change.
 [/REVISED_CHAPTER]
 [STYLE_STATE_UPDATE]
 Maintained_Characteristics: [intimate resolve]
@@ -1429,8 +1431,8 @@ def test_resume_reloads_bound_canon_proposal_by_id(tmp_path: Path):
     assert all(
         call in {
             "whole-book-conflict.v1",
-            "publication-copy-writer.v1",
-            "publication-copy-validator.v1",
+            "publication-copy-writer.v2",
+            "publication-copy-validator.v2",
         }
         for call in PipelineLLM.calls[len(before_calls) :]
     )

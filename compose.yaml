@@ -9,6 +9,7 @@ services:
       - path: .env
         required: false
     environment:
+      CODEX_HOME: /root/.codex
       NOVEL_OS_PROJECTS_DIR: /data/projects
       NOVEL_OS_MEDIA_DIR: /data/media
       NOVEL_OS_DB: sqlite:////data/novel_os.db
@@ -28,6 +29,9 @@ services:
       NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS: ${NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS:-180}
     volumes:
       - ./docker-data:/data
+      # Codex must persist refreshed ChatGPT session tokens between requests.
+      - ${HOME}/.codex/auth.json:/root/.codex/auth.json
+      - ${HOME}/.codex/config.toml:/root/.codex/config.toml:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     init: true
