@@ -15,9 +15,9 @@ export default class ErrorBoundary extends Component<
       return (
         <div className="flex h-full items-center justify-center p-10">
           <div className="max-w-md rounded-2xl border border-paper-line bg-paper-card p-8 text-center shadow-[var(--shadow-paper)]">
-            <p className="font-display text-[22px] font-semibold text-ink-text">Something broke</p>
+            <p className="font-display text-[22px] font-semibold text-ink-text">页面出了点问题</p>
             <p className="mt-2 text-[14px] leading-relaxed text-ink-muted">
-              An unexpected error occurred while rendering this view. Your saved work is safe.
+              渲染此页面时发生意外错误，已保存的内容不会丢失。
             </p>
             <p className="mt-3 rounded-md bg-ink/5 px-3 py-2 font-mono text-[12px] text-ink-muted">
               {this.state.error.message}
@@ -27,7 +27,7 @@ export default class ErrorBoundary extends Component<
               onClick={() => window.location.reload()}
               className="btn-primary mt-5"
             >
-              Reload
+              重新加载
             </button>
           </div>
         </div>

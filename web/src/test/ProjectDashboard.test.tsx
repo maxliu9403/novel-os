@@ -32,8 +32,8 @@ test("shows project title and chapter cards", async () => {
   );
   expect(await screen.findByText("My Novel")).toBeInTheDocument();
   expect(screen.getByText("Opening")).toBeInTheDocument();
-  expect(screen.getByText(/drafted/i)).toBeInTheDocument();
-  expect(screen.getByPlaceholderText(/Add a synopsis/i)).toBeInTheDocument();
+  expect(screen.getByText("已有初稿")).toBeInTheDocument();
+  expect(screen.getByPlaceholderText("添加章节梗概…")).toBeInTheDocument();
 });
 
 test("refreshes externally generated chapter progress when the window regains focus", async () => {

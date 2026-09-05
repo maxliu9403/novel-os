@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from sqlalchemy import func
 from sqlmodel import Field, Session, SQLModel, create_engine, delete, select
 
 _CORE = Path(__file__).resolve().parent.parent / "core"
@@ -904,6 +905,64 @@ def projects_for_workspace(workspace_id: str) -> list[str]:
             select(ProjectOwnership).where(ProjectOwnership.workspace_id == workspace_id)
         ).all()
         return [r.project_id for r in rows]
+
+
+# Every table whose lifetime is bounded by a project.  Keep this explicit: the
+# production database must be fully removable even when foreign-key cascading
+# is disabled (as it is in many SQLite installations).
+_PROJECT_SCOPED_MODELS: tuple[tuple[str, type[SQLModel]], ...] = (
+    ("quality_findings", QualityFindingProjection),
+    ("evaluation_reports", EvaluationReportProjection),
+    ("promotion_receipts", PromotionReceiptProjection),
+    ("artifact_revisions", ArtifactRevisionProjection),
+    ("artifacts", Artifact),
+    ("snapshots", Snapshot),
+    ("comments", Comment),
+    ("media", Media),
+    ("chapters", Chapter),
+)
+
+
+def project_data_counts(project_id: str) -> dict[str, int]:
+    """Count all database rows owned by a project (SQLite/Postgres portable)."""
+    counts: dict[str, int] = {}
+    with _session() as s:
+        for label, model in _PROJECT_SCOPED_MODELS:
+            column = getattr(model, "project_id")
+            counts[label] = int(
+                s.exec(
+                    select(func.count()).select_from(model).where(
+                        column == project_id
+                    )
+                ).one()
+            )
+        counts["projects"] = 1 if s.get(Project, project_id) is not None else 0
+        counts["ownerships"] = (
+            1 if s.get(ProjectOwnership, project_id) is not None else 0
+        )
+    return counts
+
+
+def project_data_delete(project_id: str) -> dict[str, int]:
+    """Delete all project projections and ownership in one DB transaction.
+
+    Child tables are explicitly deleted before their logical parent so this
+    behaves identically with or without foreign-key cascade configuration.
+    The returned values are the rows present immediately before deletion.
+    """
+    before = project_data_counts(project_id)
+    with _session() as s:
+        for _label, model in _PROJECT_SCOPED_MODELS:
+            column = getattr(model, "project_id")
+            s.exec(delete(model).where(column == project_id))
+        s.exec(delete(Project).where(Project.id == project_id))
+        s.exec(
+            delete(ProjectOwnership).where(
+                ProjectOwnership.project_id == project_id
+            )
+        )
+        s.commit()
+    return before
 
 
 def _clear_all() -> None:

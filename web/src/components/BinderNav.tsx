@@ -56,7 +56,7 @@ export default function BinderNav({
         index,
       });
       setTree(updated);
-      toast("Chapter order updated", "success");
+      toast("章节顺序已更新", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     } finally {
@@ -88,7 +88,7 @@ export default function BinderNav({
   return (
     <div className="flex flex-col gap-0.5 px-2.5">
       {chapters.length === 0 && (
-        <p className="px-2.5 py-2 text-[12px] text-ink-muted">No chapters yet.</p>
+        <p className="px-2.5 py-2 text-[12px] text-ink-muted">暂无章节。</p>
       )}
       {chapters.map((c) => {
         const n = c.chapter_number!;
@@ -132,8 +132,8 @@ export default function BinderNav({
             <button
               type="button"
               draggable={busyId == null}
-              title="Drag to reorder"
-              aria-label={`Drag chapter ${n} to reorder`}
+              title="拖动调整顺序"
+              aria-label={`拖动第 ${n} 章调整顺序`}
               onDragStart={(e) => {
                 setDraggingId(c.id);
                 e.dataTransfer.effectAllowed = "move";
@@ -153,13 +153,13 @@ export default function BinderNav({
             >
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot(c.status)}`} />
               <span className="nums font-mono text-[11px] text-paper-muted">{n}</span>
-              <span className="truncate">{c.title || "Untitled"}</span>
+              <span className="truncate">{c.title || "未命名"}</span>
             </Link>
             <div className="flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
               <button
                 type="button"
-                title="Move up"
-                aria-label={`Move chapter ${n} up`}
+                title="上移"
+                aria-label={`上移第 ${n} 章`}
                 disabled={!canUp || busyId != null}
                 onClick={() => void move(c, -1)}
                 className="flex h-7 w-6 items-center justify-center rounded-lg text-[11px] font-semibold text-paper-muted hover:bg-white/80 hover:text-ink disabled:opacity-25"
@@ -168,8 +168,8 @@ export default function BinderNav({
               </button>
               <button
                 type="button"
-                title="Move down"
-                aria-label={`Move chapter ${n} down`}
+                title="下移"
+                aria-label={`下移第 ${n} 章`}
                 disabled={!canDown || busyId != null}
                 onClick={() => void move(c, 1)}
                 className="flex h-7 w-6 items-center justify-center rounded-lg text-[11px] font-semibold text-paper-muted hover:bg-white/80 hover:text-ink disabled:opacity-25"
@@ -182,7 +182,7 @@ export default function BinderNav({
       })}
       {chapters.length > 1 && (
         <p className="mt-1 px-2.5 text-[10.5px] leading-snug text-paper-muted">
-          Drag ⋮⋮ or use ↑↓ · chapter numbers stay fixed
+          拖动 ⋮⋮ 或使用 ↑↓ 调整顺序 · 章节编号保持不变
         </p>
       )}
     </div>

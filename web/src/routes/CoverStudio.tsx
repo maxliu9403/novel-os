@@ -123,7 +123,7 @@ export default function CoverStudio() {
       const preferredSetId = updateProgress(nextSets, context);
       applySets(nextSets, preferredSetId);
     }
-    if (job.status === "error") throw new Error(job.error || "Cover job failed");
+    if (job.status === "error") throw new Error(job.error || "封面任务失败");
   };
 
   const reconcileSets = async () => {
@@ -160,7 +160,7 @@ export default function CoverStudio() {
         { mode: "generate", total: settings.count, knownSetIds: new Set(sets.map((item) => item.cover_set_id)) },
       );
       applySets(await api.covers(id));
-      toast("Cover candidates ready", "success");
+      toast("封面候选图已生成", "success");
     } catch (cause) {
       await Promise.all([reconcileSets(), reconcileDirections()]);
       const message = cause instanceof Error ? cause.message : String(cause);
@@ -181,7 +181,7 @@ export default function CoverStudio() {
       setDirections((items) => items.map((item) => (
         item.direction_id === approved.direction_id ? approved : item
       )));
-      toast("Art direction approved", "success");
+      toast("美术方向已批准", "success");
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
@@ -201,7 +201,7 @@ export default function CoverStudio() {
         created,
         ...items.filter((item) => item.direction_id !== created.direction_id),
       ]);
-      toast("Art direction ready for review", "success");
+      toast("美术方向已生成，等待审核", "success");
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
@@ -229,7 +229,7 @@ export default function CoverStudio() {
         { mode: "retry", candidateNumber },
       );
       applySets(await api.covers(id));
-      toast("Candidate regenerated", "success");
+      toast("候选图已重新生成", "success");
     } catch (cause) {
       await reconcileSets();
       toast(cause instanceof Error ? cause.message : String(cause), "error");
@@ -243,11 +243,11 @@ export default function CoverStudio() {
     if (!current) return;
     const stale = current.status === "stale";
     const accepted = await confirm({
-      title: "Use this cover?",
+      title: "使用这张封面？",
       message: stale
-        ? "This candidate comes from an older story design. Use it as the delivery cover?"
-        : "Use this candidate as the delivery cover and rebuild the package?",
-      confirmLabel: "Use this cover",
+        ? "这张候选图基于旧版故事设计生成，仍将其设为交付封面吗？"
+        : "将这张候选图设为交付封面，并重新生成交付包吗？",
+      confirmLabel: "使用此封面",
     });
     if (!accepted) return;
     setBusy(candidate.candidate_id);
@@ -257,7 +257,7 @@ export default function CoverStudio() {
         current.revision, current.active_revision, stale,
       );
       applySets(sets.map((item) => item.cover_set_id === updated.cover_set_id ? updated : item));
-      toast("Delivery cover selected", "success");
+      toast("已选择交付封面", "success");
     } catch (cause) {
       await reconcileSets();
       toast(cause instanceof Error ? cause.message : String(cause), "error");
@@ -269,9 +269,9 @@ export default function CoverStudio() {
   const reject = async (candidate: CoverCandidate) => {
     if (!current) return;
     const accepted = await confirm({
-      title: "Reject this candidate?",
-      message: "Keep the other candidates and mark this direction as rejected?",
-      confirmLabel: "Reject candidate",
+      title: "拒绝这张候选图？",
+      message: "保留其他候选图，并将此方案标记为已拒绝吗？",
+      confirmLabel: "拒绝候选图",
       danger: true,
     });
     if (!accepted) return;
@@ -281,7 +281,7 @@ export default function CoverStudio() {
         id, current.cover_set_id, candidate.candidate_id, current.revision,
       );
       applySets(sets.map((item) => item.cover_set_id === updated.cover_set_id ? updated : item));
-      toast("Candidate rejected", "success");
+      toast("候选图已拒绝", "success");
     } catch (cause) {
       await reconcileSets();
       toast(cause instanceof Error ? cause.message : String(cause), "error");
@@ -294,22 +294,22 @@ export default function CoverStudio() {
 
   return (
     <Scene quiet>
-      <div className="mx-auto min-h-full max-w-[1240px] px-4 py-8 sm:px-8 lg:px-10">
+      <div className="workspace-page">
         <Link
           to={`/projects/${id}`}
           className="inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-muted transition-colors hover:text-ink-text"
         >
-          <Icon name="arrow-left" className="h-3.5 w-3.5" /> Project
+          <Icon name="arrow-left" className="h-3.5 w-3.5" /> 返回作品
         </Link>
 
         <header className="mt-6 flex flex-wrap items-end justify-between gap-5 border-b border-[rgba(74,91,133,0.14)] pb-6">
           <div className="min-w-0">
             <p className="eyebrow">{project?.title || id}</p>
             <h1 className="font-display text-[30px] font-semibold leading-tight text-ink-text sm:text-[34px]">
-              Cover Studio
+              封面工作室
             </h1>
             <p className="mt-2 text-[13px] text-ink-muted">
-              {settings?.model || "gpt-image-2"} · {settings?.size || "2048x3072"} · {settings?.quality || "high"}
+              {settings?.model || "gpt-image-2"} · {settings?.size || "2048x3072"} · {qualityLabel(settings?.quality || "high")}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -318,9 +318,9 @@ export default function CoverStudio() {
                 href={api.deliveryPackageUrl(id)}
                 download="book-package.zip"
                 className="btn-secondary"
-                aria-label="Download delivery package"
+                aria-label="下载交付包"
               >
-                <Icon name="download" className="h-4 w-4" /> Package
+                <Icon name="download" className="h-4 w-4" /> 交付包
               </a>
             )}
             {directionsLoaded && !directions[0] && (
@@ -329,10 +329,10 @@ export default function CoverStudio() {
                 className="btn-secondary"
                 disabled={Boolean(busy)}
                 onClick={createDirection}
-                aria-label="Create art direction"
+                aria-label="创建美术方向"
               >
                 <Icon name="sparkles" className="h-4 w-4" />
-                {busy === "direction:create" ? "Planning" : "Create direction"}
+                {busy === "direction:create" ? "规划中" : "创建方向"}
               </button>
             )}
             <button
@@ -340,10 +340,10 @@ export default function CoverStudio() {
               className="btn-primary"
               disabled={!generationAllowed || Boolean(busy)}
               onClick={generate}
-              aria-label={`Generate ${settings?.count || 4} covers`}
+              aria-label={`生成 ${settings?.count || 4} 张封面`}
             >
               <Icon name="sparkles" className="h-4 w-4" />
-              {busy === "generate" ? "Generating" : `Generate ${settings?.count || 4} covers`}
+              {busy === "generate" ? "生成中" : `生成 ${settings?.count || 4} 张封面`}
             </button>
           </div>
         </header>
@@ -359,9 +359,9 @@ export default function CoverStudio() {
 
         {!settings?.configured && (
           <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-[8px] border border-[#d6a85f] bg-[#fff7e8] px-4 py-3">
-            <p className="text-[13px] text-[#72511d]">{settings?.error || "Cover model configuration is incomplete."}</p>
-            <Link to="/settings" className="btn-secondary" aria-label="Configure cover model">
-              <Icon name="sparkles" className="h-4 w-4" /> Configure cover model
+            <p className="text-[13px] text-[#72511d]">{settings?.error || "封面模型配置尚未完成。"}</p>
+            <Link to="/settings" className="btn-secondary" aria-label="配置封面模型">
+              <Icon name="sparkles" className="h-4 w-4" /> 配置封面模型
             </Link>
           </div>
         )}
@@ -380,15 +380,15 @@ export default function CoverStudio() {
         <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-display text-[18px] font-semibold text-ink-text">
-              {current ? `${readyCount(current)} of ${current.requested_count} rendered` : "No cover set yet"}
+              {current ? `已生成 ${readyCount(current)}/${current.requested_count} 张` : "尚无封面方案"}
             </h2>
             <p className="mt-1 text-[12px] text-ink-muted">
-              {current ? statusLabel(current.status) : `${settings?.count || 4} candidate slots`}
+              {current ? statusLabel(current.status) : `${settings?.count || 4} 个候选图位置`}
             </p>
           </div>
           {sets.length > 1 && (
             <label className="flex items-center gap-2 text-[12px] text-ink-muted">
-              Version
+              版本
               <select
                 value={current?.cover_set_id || ""}
                 onChange={(event) => setSelectedSetId(event.target.value)}
@@ -396,7 +396,7 @@ export default function CoverStudio() {
               >
                 {sets.map((item, index) => (
                   <option key={item.cover_set_id} value={item.cover_set_id}>
-                    {index === 0 ? "Latest" : `Version ${sets.length - index}`} · {statusLabel(item.status)}
+                    {index === 0 ? "最新" : `版本 ${sets.length - index}`} · {statusLabel(item.status)}
                   </option>
                 ))}
               </select>
@@ -449,17 +449,17 @@ function DirectionWorkspace({
   ];
   return (
     <section
-      aria-label="Story facts and art direction"
+      aria-label="故事事实与美术方向"
       className="mt-7 border-y border-[rgba(74,91,133,0.14)] py-5"
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="eyebrow">Story facts</p>
+          <p className="eyebrow">故事事实</p>
           <h2 className="mt-1 font-display text-[18px] font-semibold text-ink-text">
-            Art direction review
+            美术方向审核
           </h2>
           <p className="mt-1 text-[12px] text-ink-muted">
-            {direction.brief?.genre || "Story-specific direction"} · {direction.brief?.target_audience || "Approved audience"}
+            {direction.brief?.genre || "基于故事的专属方向"} · {direction.brief?.target_audience || "目标受众待确认"}
           </p>
         </div>
         <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
@@ -469,7 +469,7 @@ function DirectionWorkspace({
               ? "border-[#df93a7] bg-[#fff1f4] text-[#96354e]"
               : "border-[#d6a85f] bg-[#fff7e8] text-[#72511d]"
         }`}>
-          {direction.status.replaceAll("_", " ")}
+          {directionStatusLabel(direction.status)}
         </span>
       </div>
 
@@ -479,11 +479,11 @@ function DirectionWorkspace({
             <div key={String(character.character_id)} className="rounded-[6px] border border-paper-line bg-white/65 p-3">
               <p className="text-[12px] font-semibold text-ink-text">{String(character.name || character.character_id)}</p>
               <p className="mt-1 text-[11px] leading-4 text-ink-muted">
-                {character.age ? `Age ${character.age}` : character.age_band ? `Age phase: ${character.age_band}` : "Age pending"}
+                {character.age ? `年龄 ${character.age}` : character.age_band ? `年龄阶段：${character.age_band}` : "年龄待补充"}
                 {character.occupation_and_status ? ` · ${character.occupation_and_status}` : ""}
               </p>
               <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-ink-muted">
-                {character.lived_environment || character.daily_wardrobe || "Lived environment pending"}
+                {character.lived_environment || character.daily_wardrobe || "生活环境待补充"}
               </p>
             </div>
           ))}
@@ -492,14 +492,14 @@ function DirectionWorkspace({
 
       {environment && Object.keys(environment).length > 0 && (
         <p className="mt-3 text-[11.5px] text-ink-muted">
-          Lived spaces: {Array.isArray(environment.primary_spaces) ? environment.primary_spaces.join(", ") : String(environment.primary_spaces || "pending")}
+          主要生活空间：{Array.isArray(environment.primary_spaces) ? environment.primary_spaces.join("、") : String(environment.primary_spaces || "待补充")}
         </p>
       )}
 
       {assumptions.length > 0 && (
         <div className="mt-3 border-l-2 border-[#d6a85f] bg-[#fff7e8] px-3 py-2.5 text-[11.5px] text-[#72511d]">
           <p className="font-semibold">
-            {assumptions.filter((item) => item.status === "pending_confirmation").length} visual assumptions included in this approval
+            本次审核包含 {assumptions.filter((item) => item.status === "pending_confirmation").length} 项待确认的视觉假设
           </p>
           <ul className="mt-1.5 space-y-1">
             {assumptions.map((item, index) => (
@@ -517,22 +517,22 @@ function DirectionWorkspace({
           <article key={plan.concept_id} className="rounded-[6px] border border-paper-line bg-white/65 p-3">
             <div className="flex items-start justify-between gap-3">
               <p className="text-[12px] font-semibold text-ink-text">
-                Direction {index + 1}: {formatStrategy(plan.portfolio_slot || plan.visual_strategy)}
+                方向 {index + 1}：{formatStrategy(plan.portfolio_slot || plan.visual_strategy)}
               </p>
               <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-ink-muted">{plan.visual_hook.hook_type.replaceAll("_", " ")}</span>
             </div>
             {plan.portfolio_slot && (
               <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 rounded-[5px] bg-[#f5f6fb] px-2.5 py-2 text-[10.5px] leading-4 text-ink-muted sm:grid-cols-3">
-                <div><dt className="font-semibold text-ink-text">Composition</dt><dd>{formatStrategy(plan.composition_family)}</dd></div>
-                <div><dt className="font-semibold text-ink-text">Scene</dt><dd>{formatStrategy(plan.scene_family)}</dd></div>
-                <div><dt className="font-semibold text-ink-text">Location</dt><dd>{plan.location_family}</dd></div>
-                <div><dt className="font-semibold text-ink-text">Art style</dt><dd>{formatStrategy(plan.art_style)}</dd></div>
-                <div><dt className="font-semibold text-ink-text">Emotion</dt><dd>{formatStrategy(plan.emotion_register)}</dd></div>
-                <div><dt className="font-semibold text-ink-text">Typography</dt><dd>{formatStrategy(plan.typography_style)}</dd></div>
+                <div><dt className="font-semibold text-ink-text">构图</dt><dd>{formatStrategy(plan.composition_family)}</dd></div>
+                <div><dt className="font-semibold text-ink-text">场景</dt><dd>{formatStrategy(plan.scene_family)}</dd></div>
+                <div><dt className="font-semibold text-ink-text">地点</dt><dd>{plan.location_family}</dd></div>
+                <div><dt className="font-semibold text-ink-text">美术风格</dt><dd>{formatStrategy(plan.art_style)}</dd></div>
+                <div><dt className="font-semibold text-ink-text">情绪</dt><dd>{formatStrategy(plan.emotion_register)}</dd></div>
+                <div><dt className="font-semibold text-ink-text">字体排版</dt><dd>{formatStrategy(plan.typography_style)}</dd></div>
               </dl>
             )}
             <p className="mt-2 text-[11.5px] leading-4 text-ink-muted">{plan.frozen_action}</p>
-            <p className="mt-1 text-[11px] leading-4 text-ink-muted">Cast: {plan.cast.join(", ")} · Prop: {plan.primary_prop}</p>
+            <p className="mt-1 text-[11px] leading-4 text-ink-muted">出场人物：{plan.cast.join("、")} · 核心道具：{plan.primary_prop}</p>
             <p className="mt-1 text-[11px] leading-4 text-ink-muted">{plan.visual_hook.open_question}</p>
           </article>
         ))}
@@ -545,18 +545,18 @@ function DirectionWorkspace({
             className="btn-primary"
             disabled={Boolean(busy)}
             onClick={() => onApprove(direction)}
-            aria-label="Approve art direction"
+            aria-label="批准美术方向"
           >
-            <Icon name="circle-check" className="h-4 w-4" /> Approve art direction
+            <Icon name="circle-check" className="h-4 w-4" /> 批准美术方向
           </button>
           <button
             type="button"
             className="btn-secondary"
             disabled={Boolean(busy)}
             onClick={onCreate}
-            aria-label="Replan cover directions"
+            aria-label="重新规划封面方向"
           >
-            <Icon name="sparkles" className="h-4 w-4" /> Replan directions
+            <Icon name="sparkles" className="h-4 w-4" /> 重新规划方向
           </button>
         </div>
       )}
@@ -566,22 +566,22 @@ function DirectionWorkspace({
           className="btn-secondary mt-4"
           disabled={Boolean(busy)}
           onClick={onCreate}
-          aria-label="Replan cover directions"
+          aria-label="重新规划封面方向"
         >
-          <Icon name="sparkles" className="h-4 w-4" /> Replan directions
+          <Icon name="sparkles" className="h-4 w-4" /> 重新规划方向
         </button>
       )}
       {direction.status === "stale" && (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[12px] font-medium text-[#96354e]">This direction is stale. Create a new direction from the current story facts.</p>
+          <p className="text-[12px] font-medium text-[#96354e]">此方向已过期，请根据当前故事事实创建新方向。</p>
           <button
             type="button"
             className="btn-secondary"
             disabled={Boolean(busy)}
             onClick={onCreate}
-            aria-label="Create new art direction"
+            aria-label="创建新的美术方向"
           >
-            <Icon name="sparkles" className="h-4 w-4" /> New direction
+            <Icon name="sparkles" className="h-4 w-4" /> 新方向
           </button>
         </div>
       )}
@@ -594,15 +594,15 @@ function GenerationProgress({ progress }: { progress: CoverProgress }) {
   const isPreparing = progress.phase === "preparing";
   const nextCover = Math.min(progress.completed + 1, progress.total);
   const title = isRetry
-    ? `Regenerating candidate ${progress.candidateNumber}`
+    ? `正在重新生成候选图 ${progress.candidateNumber}`
     : isPreparing
-      ? "Preparing cover generation"
+      ? "正在准备生成封面"
       : progress.completed >= progress.total
-        ? "Finishing cover set"
-        : `Generating cover ${nextCover} of ${progress.total}`;
+        ? "正在完成本组封面"
+        : `正在生成第 ${nextCover}/${progress.total} 张封面`;
   const completedLabel = isRetry
-    ? "One candidate is being rendered"
-    : `${progress.completed} of ${progress.total} complete`;
+    ? "正在渲染一张候选图"
+    : `已完成 ${progress.completed}/${progress.total} 张`;
   const percentage = progress.total > 0
     ? Math.round((progress.completed / progress.total) * 100)
     : 0;
@@ -611,7 +611,7 @@ function GenerationProgress({ progress }: { progress: CoverProgress }) {
     <section
       role="status"
       aria-live="polite"
-      aria-label="Cover generation progress"
+      aria-label="封面生成进度"
       className="mt-6 rounded-[8px] border border-[rgba(104,86,168,0.22)] bg-[#f8f6ff] px-4 py-3.5 text-ink-text shadow-[0_8px_22px_rgba(83,67,137,0.07)]"
     >
       <div className="flex items-start gap-3">
@@ -637,7 +637,7 @@ function GenerationProgress({ progress }: { progress: CoverProgress }) {
             />
           </div>
           <p className="mt-2 text-[11.5px] text-ink-muted">
-            {isPreparing ? "The preview will update as each image is returned." : "The preview is updating with the latest result."}
+            {isPreparing ? "每张图片返回后，预览会随即更新。" : "预览正在显示最新结果。"}
           </p>
         </div>
       </div>
@@ -659,7 +659,7 @@ function CandidateCard({
   onReject: () => void;
 }) {
   const imageUrl = api.assetUrl(candidate.url);
-  const label = `candidate ${index + 1}`;
+  const label = `候选图 ${index + 1}`;
   const repairCodes = candidate.quality_report?.repair_codes || [];
   const [repairCode, setRepairCode] = useState(repairCodes[0] || "");
   return (
@@ -673,7 +673,7 @@ function CandidateCard({
     >
       <div className="relative aspect-[2/3] w-full overflow-hidden bg-[#e9edf4]">
         {imageUrl ? (
-          <img src={imageUrl} alt={`Cover ${label}`} className="h-full w-full object-cover" />
+          <img src={imageUrl} alt={`封面${label}`} className="h-full w-full object-cover" />
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-5 text-center text-ink-muted">
             <span className={`flex h-10 w-10 items-center justify-center rounded-full ${
@@ -683,25 +683,25 @@ function CandidateCard({
             </span>
             <span className="text-[12px] font-medium">
               {generating
-                ? "Generating image..."
+                ? "正在生成图片…"
                 : busy
-                  ? "Regenerating"
+                  ? "重新生成中"
                   : candidate.status === "failed"
-                    ? "Generation failed"
-                    : `Candidate ${index + 1}`}
+                    ? "生成失败"
+                    : `候选图 ${index + 1}`}
             </span>
           </div>
         )}
         <span className={`absolute left-2 top-2 rounded-full border px-2 py-1 text-[10px] font-semibold capitalize backdrop-blur-md ${statusClass(candidate.status)}`}>
-          {generating ? "generating" : candidate.status}
+          {generating ? "生成中" : candidateStatusLabel(candidate.status)}
         </span>
         {imageUrl && (
           <a
             href={imageUrl}
             target="_blank"
             rel="noreferrer"
-            title={`View full resolution ${label}`}
-            aria-label={`View full resolution ${label}`}
+            title={`查看${label}原始尺寸`}
+            aria-label={`查看${label}原始尺寸`}
             className="absolute bottom-2 right-2 flex h-9 w-9 items-center justify-center rounded-full border border-white/50 bg-[#17213f]/75 text-white backdrop-blur-md transition-colors hover:bg-[#17213f]"
           >
             <Icon name="eye" className="h-4 w-4" />
@@ -710,10 +710,10 @@ function CandidateCard({
       </div>
       <div className="min-h-[142px] p-3.5">
         <p className="truncate text-[12px] font-semibold text-ink-text">
-          {formatStrategy(concept?.visual_strategy) || `Direction ${index + 1}`}
+          {formatStrategy(concept?.visual_strategy) || `方向 ${index + 1}`}
         </p>
         <p className="mt-1 line-clamp-2 min-h-[34px] text-[11.5px] leading-[17px] text-ink-muted">
-          {candidate.error || concept?.focal_scene || "Awaiting generation"}
+          {candidate.error || concept?.focal_scene || "等待生成"}
         </p>
         {candidate.quality_report && (
           <p className={`mt-2 text-[10.5px] font-semibold ${
@@ -728,23 +728,23 @@ function CandidateCard({
         )}
         <div className="mt-3 flex min-h-9 flex-wrap items-center gap-1.5">
           {candidate.status === "failed" && (
-            <button type="button" className="btn-secondary px-3 py-2 text-[11.5px]" onClick={() => onRetry()} disabled={disabled} aria-label={`Retry ${label}`}>
-              <Icon name="history" className="h-3.5 w-3.5" /> Retry
+            <button type="button" className="btn-secondary px-3 py-2 text-[11.5px]" onClick={() => onRetry()} disabled={disabled} aria-label={`重试${label}`}>
+              <Icon name="history" className="h-3.5 w-3.5" /> 重试
             </button>
           )}
           {candidate.status === "ready" && (
             <>
-              <button type="button" className="btn-primary px-3 py-2 text-[11.5px]" onClick={onSelect} disabled={disabled} aria-label={`Select ${label}`}>
-                <Icon name="circle-check" className="h-3.5 w-3.5" /> Select
+              <button type="button" className="btn-primary px-3 py-2 text-[11.5px]" onClick={onSelect} disabled={disabled} aria-label={`选择${label}`}>
+                <Icon name="circle-check" className="h-3.5 w-3.5" /> 选择
               </button>
-              <button type="button" className="btn-ghost px-2.5 py-2 text-[11.5px]" onClick={onReject} disabled={disabled} aria-label={`Reject ${label}`}>
-                Reject
+              <button type="button" className="btn-ghost px-2.5 py-2 text-[11.5px]" onClick={onReject} disabled={disabled} aria-label={`拒绝${label}`}>
+                拒绝
               </button>
             </>
           )}
           {candidate.status === "selected" && (
             <span className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-[#26714a]">
-              <Icon name="circle-check" className="h-3.5 w-3.5" /> Delivery cover
+              <Icon name="circle-check" className="h-3.5 w-3.5" /> 交付封面
             </span>
           )}
         </div>
@@ -753,7 +753,7 @@ function CandidateCard({
             <select
               value={repairCode}
               onChange={(event) => setRepairCode(event.target.value)}
-              aria-label={`Repair reason ${label}`}
+              aria-label={`${label}的修复原因`}
               className="min-w-0 flex-1 rounded-[6px] border border-paper-line bg-white px-2 py-1.5 text-[10.5px] text-ink-text"
             >
               {repairCodes.map((code) => (
@@ -765,9 +765,9 @@ function CandidateCard({
               className="btn-secondary px-2.5 py-1.5 text-[10.5px]"
               onClick={() => onRetry([repairCode])}
               disabled={disabled || !repairCode}
-              aria-label={`Regenerate ${label} with repair`}
+              aria-label={`按修复建议重新生成${label}`}
             >
-              <Icon name="history" className="h-3.5 w-3.5" /> Repair
+              <Icon name="history" className="h-3.5 w-3.5" /> 修复
             </button>
           </div>
         )}
@@ -779,8 +779,8 @@ function CandidateCard({
 function LoadingWorkspace() {
   return (
     <Scene quiet>
-      <div className="mx-auto max-w-[1240px] px-4 py-8 sm:px-8 lg:px-10">
-        <p className="text-[13px] text-ink-muted">Loading cover workspace</p>
+      <div className="workspace-page">
+        <p className="text-[13px] text-ink-muted">正在加载封面工作区</p>
         <div className="mt-7 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {emptyCandidates(4).map((candidate) => (
             <div key={candidate.candidate_id} data-testid="cover-slot" className="aspect-[2/3] animate-pulse rounded-[8px] border border-paper-line bg-white/55" />
@@ -804,7 +804,40 @@ function readyCount(coverSet: CoverSet) {
 }
 
 function statusLabel(status: CoverSet["status"]) {
-  return status.replaceAll("_", " ").replace(/^./, (value) => value.toUpperCase());
+  const labels: Record<CoverSet["status"], string> = {
+    generating: "生成中",
+    partial: "部分完成",
+    ready: "已就绪",
+    selected: "已选择",
+    failed: "生成失败",
+    stale: "已过期",
+  };
+  return labels[status] || status;
+}
+
+function directionStatusLabel(status: CoverDirection["status"]) {
+  const labels: Record<CoverDirection["status"], string> = {
+    awaiting_approval: "等待批准",
+    approved: "已批准",
+    stale: "已过期",
+    rejected: "已拒绝",
+  };
+  return labels[status] || status;
+}
+
+function candidateStatusLabel(status: CoverCandidate["status"]) {
+  const labels: Record<CoverCandidate["status"], string> = {
+    pending: "等待生成",
+    ready: "已就绪",
+    selected: "已选择",
+    rejected: "已拒绝",
+    failed: "生成失败",
+  };
+  return labels[status] || status;
+}
+
+function qualityLabel(quality: string) {
+  return ({ low: "低质量", medium: "中等质量", high: "高质量", auto: "自动" } as Record<string, string>)[quality] || quality;
 }
 
 function formatStrategy(value?: string) {
@@ -820,7 +853,7 @@ function statusClass(status: CoverCandidate["status"]) {
 }
 
 function qualityStatusLabel(status: NonNullable<CoverCandidate["quality_report"]>["status"]) {
-  if (status === "recommended_for_human_review") return "Recommended for review";
-  if (status === "human_review_required") return "Human review required";
-  return "Quality blockers found";
+  if (status === "recommended_for_human_review") return "建议人工审核";
+  if (status === "human_review_required") return "需要人工审核";
+  return "发现质量阻塞问题";
 }

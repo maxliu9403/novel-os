@@ -39,26 +39,26 @@ export default function BookShape({
 
   return (
     <section
-      aria-label="Shape of the book"
+      aria-label="全书节奏形态"
       className="mb-6 rounded-[24px] border border-[rgba(74,91,133,0.12)] bg-white/55 px-5 py-5 backdrop-blur-md"
     >
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-display text-[18px] font-semibold tracking-tight text-ink-text">
-            Shape of the book
+            全书节奏形态
           </h2>
           <p className="mt-0.5 text-[12.5px] text-ink-muted">
-            How much changes in each chapter · plot, character, information, threads
+            各章的变化量 · 情节、人物、信息与故事线
           </p>
         </div>
         <button type="button" onClick={load} className="btn-ghost text-[12px]">
-          Refresh
+          刷新
         </button>
       </div>
 
       <div
         role="list"
-        aria-label="Chapters"
+        aria-label="章节"
         className="flex items-end gap-[3px] overflow-x-auto pb-1"
       >
         {chapters.map((c) => {
@@ -72,14 +72,14 @@ export default function BookShape({
               to={`/projects/${projectId}/chapters/${c.number}`}
               role="listitem"
               aria-label={
-                `Chapter ${c.number}${c.title ? `: ${c.title}` : ""} — ` +
+                `第 ${c.number} 章${c.title ? `：${c.title}` : ""} — ` +
                 (c.written
-                  ? `${c.movement} changes${sagging ? ", part of a stalled run" : ""}`
-                  : "not written yet")
+                  ? `${c.movement} 项变化${sagging ? "，属于停滞区间" : ""}`
+                  : "尚未写作")
               }
               title={
-                `Ch ${c.number}${c.title ? ` · ${c.title}` : ""}\n` +
-                (c.written ? `${c.movement} changes` : "Not written yet")
+                `第 ${c.number} 章${c.title ? ` · ${c.title}` : ""}\n` +
+                (c.written ? `${c.movement} 项变化` : "尚未写作")
               }
               className="group flex w-[14px] shrink-0 flex-col items-center gap-1"
             >
@@ -101,7 +101,7 @@ export default function BookShape({
 
       {(report?.stalls.length ?? 0) > 0 && (
         <ul
-          aria-label="Stalled stretches"
+          aria-label="停滞区间"
           className="mt-4 space-y-1.5 border-t border-[rgba(74,91,133,0.1)] pt-3"
         >
           {report?.stalls.map((s) => (
@@ -114,7 +114,7 @@ export default function BookShape({
                 to={`/projects/${projectId}/chapters/${s.start}`}
                 className="font-medium text-ink-text underline-offset-2 hover:underline"
               >
-                Ch {s.start}–{s.end}
+                第 {s.start}–{s.end} 章
               </Link>
               <span className="text-ink-muted">{s.reason}.</span>
             </li>

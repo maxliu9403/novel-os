@@ -109,6 +109,42 @@ def _wait(client: TestClient, job_id: str) -> dict:
     raise AssertionError("cover job did not finish")
 
 
+def test_cover_art_director_uses_its_configured_reasoning_effort(monkeypatch) -> None:
+    from core import llm_client, studio_settings
+
+    captured = {}
+
+    class FakeClient:
+        model = "gpt-5.6-sol"
+        provider = "codex"
+
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def complete(self, _system: str, _user: str) -> str:
+            return "{}"
+
+    monkeypatch.setattr(llm_client, "LLMClient", FakeClient)
+    monkeypatch.setattr(
+        studio_settings,
+        "resolve_cover_director_settings",
+        lambda: studio_settings.CoverDirectorSettings(
+            provider="codex",
+            model="gpt-5.6-sol",
+            base_url="",
+            api_key="",
+            timeout_seconds=600,
+            reasoning_effort="high",
+        ),
+    )
+
+    director = routes.get_cover_art_director()
+
+    assert isinstance(director, CoverArtDirector)
+    assert captured["timeout_seconds"] == 600
+    assert captured["reasoning_effort"] == "high"
+
+
 class CanonAwareFixtureDirector:
     def plan(self, brief, *, count: int) -> ArtDirectionSet:
         payload = director_fixture()

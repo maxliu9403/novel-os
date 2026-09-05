@@ -15,6 +15,7 @@ from publication_source import (
     SourceChapter,
     build_evidence_ledger,
     build_publication_source_set,
+    conflict_evidence_bucket_contract,
     group_source_chapters,
     publication_source_input_hash,
     validate_conflict_evidence,
@@ -422,6 +423,14 @@ def test_grouping_preserves_a_whitespace_only_final_segment_exactly():
         == hashlib.sha256(item.text.encode("utf-8")).hexdigest()
         for item in segments
     )
+
+
+def test_conflict_evidence_bucket_contract_exposes_twenty_one_chapter_boundaries():
+    assert conflict_evidence_bucket_contract(21) == {
+        "opening": (1, 2, 3, 4, 5),
+        "middle": (6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
+        "late": (17, 18, 19, 20, 21),
+    }
 
 
 def test_conflict_evidence_requires_exact_quotes_from_each_proportional_bucket():

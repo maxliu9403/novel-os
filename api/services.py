@@ -13,6 +13,7 @@ from .models import (
     ChapterDetail, ChapterStages, ChapterSummary, CharacterSummary, CodexEntryOut,
     ProjectDetail, ProjectSummary, RelationshipOut, StageDiff, StageProvenance,
 )
+from .project_operations import ProjectMutationBlocked, project_operations
 
 # core/ modules import each other by top-level name; put core/ on the path once.
 _CORE = Path(__file__).resolve().parent.parent / "core"
@@ -1664,6 +1665,18 @@ Chapter {number} POV: {pov or "[unspecified]"} · Location: {location or "[unspe
     # In-memory consequence previews (single-user). Keyed by preview_id.
     _consequence_previews: dict[str, dict] = {}
 
+    @classmethod
+    def clear_consequence_previews(cls, project_id: str) -> int:
+        """Drop every uncommitted rewrite preview owned by a project."""
+        matching = [
+            preview_id
+            for preview_id, payload in cls._consequence_previews.items()
+            if payload.get("project_id") == project_id
+        ]
+        for preview_id in matching:
+            cls._consequence_previews.pop(preview_id, None)
+        return len(matching)
+
     def preview_consequence(
         self,
         project_id: str,
@@ -1878,20 +1891,56 @@ Foreshadowing_Planted: …
         label = _genre_label(normalized, genre)
         slug = _slugify(title)
         base = self.base_dir
-        folder = base / slug
         n = 2
-        while (folder / "outputs" / "state" / "story_state.json").exists():
-            folder = base / f"{slug}-{n}"
-            n += 1
+        folder = base / slug
+        while True:
+            state_file = folder / "outputs" / "state" / "story_state.json"
+            if state_file.exists() or project_operations.unavailable(folder):
+                folder = base / f"{slug}-{n}"
+                n += 1
+                continue
+            try:
+                with project_operations.mutation(folder):
+                    # A concurrent creator may have won between candidate
+                    # selection and the operation gate.
+                    if state_file.exists():
+                        folder = base / f"{slug}-{n}"
+                        n += 1
+                        continue
+                    return self._create_project_at(
+                        folder,
+                        title=title,
+                        author=author,
+                        normalized_genres=normalized,
+                        genre_label=label,
+                        premise=premise,
+                    )
+            except ProjectMutationBlocked:
+                folder = base / f"{slug}-{n}"
+                n += 1
+
+    def _create_project_at(
+        self,
+        folder: Path,
+        *,
+        title: str,
+        author: str,
+        normalized_genres: list[str],
+        genre_label: str,
+        premise: str,
+    ) -> ProjectSummary:
+        """Create one canonical project while its operation lease is held."""
         folder.mkdir(parents=True, exist_ok=True)
-        build_orchestrator(str(folder)).init_project(title, label or "Fiction", author)
+        build_orchestrator(str(folder)).init_project(
+            title, genre_label or "Fiction", author
+        )
         db.project_claim(folder.name, self.workspace.id if self.workspace
                          else tenancy.DEFAULT_WORKSPACE_ID)
         s = StoryState(str(folder))
-        if normalized:
-            s.set_metadata("genres", normalized)
-            s.set_metadata("genre", label)
-            s.update_story_bible("genre", label)
+        if normalized_genres:
+            s.set_metadata("genres", normalized_genres)
+            s.set_metadata("genre", genre_label)
+            s.update_story_bible("genre", genre_label)
         if premise.strip():
             s.set_metadata("premise", premise.strip())
             s.update_story_bible("premise", premise.strip())
@@ -1901,8 +1950,8 @@ Foreshadowing_Planted: …
                 text = bible.read_text(encoding="utf-8")
                 if "## Premise" not in text:
                     text = text.replace(
-                        f"## 📚 Genre\n{label or 'Fiction'}\n",
-                        f"## 📚 Genre\n{label or 'Fiction'}\n\n## Premise\n{premise.strip()}\n",
+                        f"## 📚 Genre\n{genre_label or 'Fiction'}\n",
+                        f"## 📚 Genre\n{genre_label or 'Fiction'}\n\n## Premise\n{premise.strip()}\n",
                         1,
                     )
                     bible.write_text(text, encoding="utf-8")
@@ -1911,13 +1960,19 @@ Foreshadowing_Planted: …
 
     def create_sample_project(self) -> ProjectSummary:
         """Seed a tiny demo manuscript for first-run tour (idempotent by slug)."""
-        from state_manager import Character, CodexEntry, ChapterState  # noqa: E402
-
         slug = "glass-harbor-sample"
         existing = self.base_dir / slug
         if (existing / "outputs" / "state" / "story_state.json").exists():
-            s = StoryState(str(existing))
-            return self._summary(slug, s, existing / "outputs" / "state" / "story_state.json")
+            try:
+                with project_operations.mutation(existing):
+                    state_file = existing / "outputs" / "state" / "story_state.json"
+                    if state_file.exists():
+                        s = StoryState(str(existing))
+                        return self._summary(slug, s, state_file)
+            except ProjectMutationBlocked:
+                # A deleting sample id must not be resurrected.  The normal
+                # creator below will allocate a safe suffixed id instead.
+                pass
 
         summary = self.create_project(
             "Glass Harbor (Sample)",
@@ -1930,6 +1985,13 @@ Foreshadowing_Planted: …
         )
         # create_project may have used a different slug if collision prefer returned id
         pid = summary.id
+        with project_operations.mutation(self.base_dir / pid):
+            return self._finish_sample_project(pid)
+
+    def _finish_sample_project(self, pid: str) -> ProjectSummary:
+        """Populate the sample while holding its project mutation lease."""
+        from state_manager import Character, CodexEntry, ChapterState  # noqa: E402
+
         s = self._load(pid)
 
         if not s.characters:

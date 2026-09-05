@@ -11,13 +11,13 @@ type RowMetrics = Partial<Record<MetricKey, number>>;
 
 const COLUMNS: { key: Key; label: string; align?: "right"; title?: string }[] = [
   { key: "number", label: "#" },
-  { key: "title", label: "Title" },
-  { key: "status", label: "Status" },
-  { key: "pov", label: "POV" },
-  { key: "word_count", label: "Words", align: "right" },
-  { key: "tension", label: "Tension", align: "right", title: "1–10 Style Curator heuristic" },
-  { key: "emotional_intensity", label: "Emotion", align: "right", title: "Emotional intensity 1–10" },
-  { key: "pacing", label: "Pace", align: "right", title: "Higher = faster pacing" },
+  { key: "title", label: "标题" },
+  { key: "status", label: "状态" },
+  { key: "pov", label: "视角人物" },
+  { key: "word_count", label: "字数", align: "right" },
+  { key: "tension", label: "张力", align: "right", title: "风格策展 1–10 启发式评分" },
+  { key: "emotional_intensity", label: "情绪", align: "right", title: "情绪强度 1–10" },
+  { key: "pacing", label: "节奏", align: "right", title: "分数越高，节奏越快" },
 ];
 
 function flattenChapters(nodes: BinderNode[]): BinderNode[] {
@@ -120,7 +120,7 @@ export default function Outliner({ id, chapters }: { id: string; chapters: Chapt
     setBusy(chapterNumber);
     try {
       await api.patchBinderNode(id, slot.nodeId, { synopsis: slot.text });
-      toast("Synopsis saved", "success");
+      toast("章节梗概已保存", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     } finally {
@@ -143,8 +143,8 @@ export default function Outliner({ id, chapters }: { id: string; chapters: Chapt
       setMetrics(next);
       toast(
         result.chapters.length
-          ? `Scored ${result.chapters.length} chapter${result.chapters.length === 1 ? "" : "s"}`
-          : "No chapters to score",
+          ? `已完成 ${result.chapters.length} 章评分`
+          : "没有可评分的章节",
         "success",
       );
     } catch (e) {
@@ -158,7 +158,7 @@ export default function Outliner({ id, chapters }: { id: string; chapters: Chapt
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <p className="text-[12.5px] text-ink-muted">
-          Outliner · sort any column · tension / emotion / pace from Style Curator heuristics
+          大纲表 · 点击表头排序 · 张力、情绪与节奏由风格策展启发式评估
         </p>
         <button
           type="button"
@@ -166,7 +166,7 @@ export default function Outliner({ id, chapters }: { id: string; chapters: Chapt
           onClick={() => void refreshMetrics()}
           className="rounded-full border border-[rgba(96,112,153,0.16)] bg-white/70 px-3 py-1.5 text-[12px] font-medium text-ink-muted transition-colors hover:text-[var(--color-violet)] disabled:opacity-40"
         >
-          {refreshing ? "Scoring…" : "Refresh metrics"}
+          {refreshing ? "正在评分…" : "刷新指标"}
         </button>
       </div>
       <div className="overflow-x-auto overflow-hidden rounded-2xl border border-paper-line bg-paper-card shadow-[var(--shadow-paper)]">
@@ -187,7 +187,7 @@ export default function Outliner({ id, chapters }: { id: string; chapters: Chapt
                 </th>
               ))}
               <th className="px-4 py-3 text-[12px] font-medium tracking-[-0.01em] text-ink-muted">
-                Synopsis
+                章节梗概
               </th>
             </tr>
           </thead>
@@ -209,12 +209,12 @@ export default function Outliner({ id, chapters }: { id: string; chapters: Chapt
                     className="cursor-pointer px-3 py-3 font-display text-[15px] text-ink-text sm:px-4"
                     onClick={() => navigate(`/projects/${id}/chapters/${c.number}`)}
                   >
-                    {c.title || "Untitled"}
+                    {c.title || "未命名"}
                   </td>
                   <td className="px-3 py-3 sm:px-4"><StatusPill status={c.status} /></td>
                   <td className="px-3 py-3 text-[13px] text-ink-muted sm:px-4">{c.pov || "—"}</td>
                   <td className="nums px-3 py-3 text-right text-[13px] text-ink-muted sm:px-4">
-                    {c.word_count.toLocaleString()}
+                    {c.word_count.toLocaleString("zh-CN")}
                   </td>
                   <td className="px-3 py-3 text-right sm:px-4"><ScoreCell value={m.tension} /></td>
                   <td className="px-3 py-3 text-right sm:px-4">
@@ -236,7 +236,7 @@ export default function Outliner({ id, chapters }: { id: string; chapters: Chapt
                         }))
                       }
                       onBlur={() => void saveSynopsis(c.number)}
-                      placeholder="Synopsis…"
+                      placeholder="章节梗概…"
                       className="w-full resize-y rounded-lg border border-[rgba(96,112,153,0.14)] bg-white/70 px-2.5 py-1.5 text-[12.5px] leading-relaxed text-ink-text placeholder:text-paper-muted focus:outline-none"
                     />
                   </td>

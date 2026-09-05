@@ -23,6 +23,31 @@ export interface ProjectDetail {
   target_word_count?: number; session_word_target?: number;
 }
 
+export interface ProjectDeletionInventory {
+  project_id: string;
+  title: string;
+  chapter_count: number;
+  exists: boolean;
+  counts: Record<string, number>;
+  project_files: number;
+  project_bytes: number;
+  media_files: number;
+  media_bytes: number;
+}
+
+export interface ProjectDeletionPreview extends ProjectDeletionInventory {
+  running_job_ids: string[];
+  can_delete: boolean;
+}
+
+export interface ProjectDeletionResult {
+  project_id: string;
+  status: "deleted" | "already_deleted";
+  before: ProjectDeletionInventory;
+  after: ProjectDeletionInventory;
+  cleared_consequence_previews: number;
+}
+
 export interface StudioPreset {
   id: string; label: string; hint: string;
   provider: string; model: string; mature_capable: boolean;
@@ -55,6 +80,7 @@ export interface StudioCoverStatus {
   director_base_url?: string;
   director_has_api_key?: boolean;
   director_timeout_seconds?: number;
+  director_reasoning_effort?: string;
   director_inherits_writing?: boolean;
   error: string | null;
 }
@@ -93,10 +119,12 @@ export interface TextModelRoute {
   connection_id: string;
   model: string;
   max_tokens: number;
+  reasoning_effort: "" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
   inherits_default: boolean;
   effective_connection_id: string;
   effective_connection_name: string;
   effective_model: string;
+  effective_reasoning_effort: string;
   effective_source: string;
   configured: boolean;
 }
@@ -547,9 +575,22 @@ export interface MediaItem {
   kind: MediaKind; alt: string; url: string; created_at: string;
 }
 
+async function responseError(resp: Response): Promise<string> {
+  const fallback = `请求失败（HTTP ${resp.status}）`;
+  try {
+    const body = await resp.json() as { detail?: unknown };
+    if (typeof body.detail === "string") return body.detail;
+    if (body.detail && typeof body.detail === "object") {
+      const message = (body.detail as { message?: unknown }).message;
+      if (typeof message === "string") return message;
+    }
+  } catch { /* ignore malformed error responses */ }
+  return fallback;
+}
+
 async function get<T>(path: string): Promise<T> {
   const resp = await fetch(`${BASE}${path}`);
-  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  if (!resp.ok) throw new Error(await responseError(resp));
   return resp.json() as Promise<T>;
 }
 
@@ -560,19 +601,22 @@ async function send<T>(path: string, method: "POST" | "PUT" | "PATCH", body?: un
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!resp.ok) {
-    let detail = `${resp.status} ${resp.statusText}`;
-    try {
-      const j = await resp.json();
-      if (j?.detail) detail = j.detail;
-    } catch { /* ignore */ }
-    throw new Error(detail);
+    throw new Error(await responseError(resp));
   }
   return resp.json() as Promise<T>;
 }
 
 async function del(path: string): Promise<void> {
   const resp = await fetch(`${BASE}${path}`, { method: "DELETE" });
-  if (!resp.ok && resp.status !== 204) throw new Error(`${resp.status} ${resp.statusText}`);
+  if (!resp.ok && resp.status !== 204) throw new Error(await responseError(resp));
+}
+
+async function destroy<T>(path: string): Promise<T> {
+  const resp = await fetch(`${BASE}${path}`, { method: "DELETE" });
+  if (!resp.ok) {
+    throw new Error(await responseError(resp));
+  }
+  return resp.json() as Promise<T>;
 }
 
 // Multipart upload. The browser must set its own Content-Type (it has to append
@@ -580,12 +624,7 @@ async function del(path: string): Promise<void> {
 async function upload<T>(path: string, form: FormData): Promise<T> {
   const resp = await fetch(`${BASE}${path}`, { method: "POST", body: form });
   if (!resp.ok) {
-    let detail = `${resp.status} ${resp.statusText}`;
-    try {
-      const j = await resp.json();
-      if (j?.detail) detail = j.detail;
-    } catch { /* ignore */ }
-    throw new Error(detail);
+    throw new Error(await responseError(resp));
   }
   return resp.json() as Promise<T>;
 }
@@ -593,6 +632,12 @@ async function upload<T>(path: string, form: FormData): Promise<T> {
 export const api = {
   projects: () => get<ProjectSummary[]>("/api/projects"),
   project: (id: string) => get<ProjectDetail>(`/api/projects/${id}`),
+  projectDeletionPreview: (id: string) =>
+    get<ProjectDeletionPreview>(`/api/projects/${encodeURIComponent(id)}/deletion-preview`),
+  deleteProject: (id: string, confirmTitle: string) =>
+    destroy<ProjectDeletionResult>(
+      `/api/projects/${encodeURIComponent(id)}?confirm_title=${encodeURIComponent(confirmTitle)}`,
+    ),
   updateProject: (id: string, body: {
     content_rating?: string; title?: string; genre?: string;
     genres?: string[]; premise?: string;
@@ -612,6 +657,7 @@ export const api = {
     director_provider?: string; director_model?: string;
     director_base_url?: string; director_api_key?: string;
     director_timeout_seconds?: number;
+    director_reasoning_effort?: string;
   }) => send<StudioCoverStatus>("/api/studio/cover", "PUT", body),
   studioModels: () => get<StudioModelConfiguration>("/api/studio/models"),
   createProvider: (body: ProviderConnectionInput) =>
@@ -622,7 +668,7 @@ export const api = {
     del(`/api/studio/providers/${encodeURIComponent(id)}`),
   testProvider: (id: string) =>
     send<ProviderTestResult>(`/api/studio/providers/${encodeURIComponent(id)}/test`, "POST"),
-  updateTextRoutes: (routes: Array<Pick<TextModelRoute, "id" | "connection_id" | "model" | "max_tokens" | "inherits_default">>) =>
+  updateTextRoutes: (routes: Array<Pick<TextModelRoute, "id" | "connection_id" | "model" | "max_tokens" | "reasoning_effort" | "inherits_default">>) =>
     send<TextModelRoute[]>("/api/studio/model-routes", "PUT", { routes }),
   testTextRoute: (routeId: string, prompt: string) =>
     send<JobStatus>(`/api/studio/model-routes/${encodeURIComponent(routeId)}/test`, "POST", { prompt }),

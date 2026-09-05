@@ -35,23 +35,45 @@ import type { IconName } from "../icons/registry";
 
 const ROLE_OPTIONS = (["protagonist", "antagonist", "supporting", "minor"] as const).map((r) => ({
   value: r,
-  label: r[0].toUpperCase() + r.slice(1),
+  label: ({
+    protagonist: "主角",
+    antagonist: "反派",
+    supporting: "配角",
+    minor: "次要角色",
+  })[r],
 }));
 
 const CODEX_FILTERS: { id: "all" | CodexEntryType; label: string; icon: IconName }[] = [
-  { id: "all", label: "All", icon: "layers" },
-  { id: "character", label: "Characters", icon: "users" },
-  { id: "location", label: "Locations", icon: "map-pin" },
-  { id: "worldbuilding", label: "World", icon: "landmark" },
-  { id: "item", label: "Items", icon: "package" },
+  { id: "all", label: "全部", icon: "layers" },
+  { id: "character", label: "人物", icon: "users" },
+  { id: "location", label: "地点", icon: "map-pin" },
+  { id: "worldbuilding", label: "世界设定", icon: "landmark" },
+  { id: "item", label: "物件", icon: "package" },
 ];
 
 const TYPE_OPTIONS: { value: CodexEntryType; label: string; icon: IconName; hint: string }[] = [
-  { value: "character", label: "Character", icon: "users", hint: "People" },
-  { value: "location", label: "Location", icon: "map-pin", hint: "Places" },
-  { value: "worldbuilding", label: "World", icon: "landmark", hint: "Systems" },
-  { value: "item", label: "Item", icon: "package", hint: "Objects" },
+  { value: "character", label: "人物", icon: "users", hint: "角色与人物" },
+  { value: "location", label: "地点", icon: "map-pin", hint: "场所与区域" },
+  { value: "worldbuilding", label: "世界设定", icon: "landmark", hint: "规则与体系" },
+  { value: "item", label: "物件", icon: "package", hint: "道具与物品" },
 ];
+
+const CODEX_TYPE_LABELS: Record<CodexEntryType, string> = {
+  character: "人物",
+  location: "地点",
+  worldbuilding: "世界设定",
+  item: "物件",
+};
+
+const ROLE_LABELS: Record<string, string> = Object.fromEntries(
+  ROLE_OPTIONS.map((option) => [option.value, option.label]),
+);
+
+const SEVERITY_LABELS: Record<string, string> = {
+  critical: "严重",
+  warning: "警告",
+  info: "提示",
+};
 
 export default function ProjectDashboard() {
   const { id = "" } = useParams();
@@ -151,9 +173,9 @@ export default function ProjectDashboard() {
   if (error)
     return (
       <Scene>
-        <div className="px-10 py-12">
+        <div className="workspace-page">
           <div className="glass-panel px-4 py-3 text-[13px] text-ink-text">
-            Failed to load: {error}
+            加载失败：{error}
           </div>
         </div>
       </Scene>
@@ -161,7 +183,7 @@ export default function ProjectDashboard() {
   if (!project)
     return (
       <Scene>
-        <div className="mx-auto max-w-5xl px-6 py-12 sm:px-10">
+        <div className="workspace-page">
           <div className="glass-shell p-4">
             <div className="glass-panel p-8">
               <div className="h-3.5 w-24 animate-pulse rounded bg-white/50" />
@@ -183,19 +205,19 @@ export default function ProjectDashboard() {
 
   return (
     <Scene>
-      <div className="mx-auto max-w-5xl px-6 py-10 sm:px-10">
+      <div className="workspace-page">
         <motion.div
           initial={{ opacity: 0, y: 18, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.45, ease: [0.2, 0.8, 0.2, 1] }}
           className="glass-shell p-3 sm:p-4"
         >
-          <div className="glass-panel px-6 py-8 sm:px-10 sm:py-10">
+          <div className="glass-panel px-5 py-7 sm:px-8 sm:py-9 lg:px-10">
             <Link
               to="/"
               className="mb-6 inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-muted transition-colors hover:text-[var(--color-violet)]"
             >
-              ← Library
+              ← 作品库
             </Link>
 
             <header className="mb-9">
@@ -203,7 +225,7 @@ export default function ProjectDashboard() {
               <h1 className="font-display text-[32px] font-semibold leading-tight tracking-[-0.035em] text-ink-text text-balance sm:text-[38px]">
                 {project.title}
               </h1>
-              <p className="mt-2 text-[14px] text-ink-muted">by {project.author || "Unknown"}</p>
+              <p className="mt-2 text-[14px] text-ink-muted">作者：{project.author || "未知"}</p>
               {project.premise ? (
                 <p className="mt-3 max-w-2xl text-[13.5px] leading-relaxed text-ink-muted">
                   {project.premise}
@@ -215,28 +237,28 @@ export default function ProjectDashboard() {
               </div>
 
               <div className="mt-7 flex flex-wrap gap-8">
-                <Stat label="Chapters" value={String(project.chapter_count)} />
-                <Stat label="Written" value={`${drafted}/${project.chapter_count || 0}`} />
-                <Stat label="Words" value={words.toLocaleString()} />
+                <Stat label="章节" value={String(project.chapter_count)} />
+                <Stat label="已完成" value={`${drafted}/${project.chapter_count || 0}`} />
+                <Stat label="字数" value={words.toLocaleString("zh-CN")} />
               </div>
 
               <div className="mt-7 flex flex-wrap items-center gap-2.5">
                 <Action onClick={() => run("plan_outline", { chapters: 12, words: 24000 })}
                         busy={runningStage === "plan_outline"} disabled={isRunning}>
-                  Plan Outline
+                  规划大纲
                 </Action>
                 <Action onClick={() => run("plan_chapter", { number: nextChapter })}
                         busy={runningStage === "plan_chapter"} disabled={isRunning}>
-                  Plan Chapter {nextChapter}
+                  规划第 {nextChapter} 章
                 </Action>
                 <a href={api.exportUrl(id)} download={`${id}.md`} className="btn-secondary">
-                  Export
+                  导出
                 </a>
                 <Link to={`/projects/${id}/covers`} className="btn-secondary inline-flex items-center gap-1.5">
-                  <Icon name="image" className="h-4 w-4" /> Cover Studio
+                  <Icon name="image" className="h-4 w-4" /> 封面工作室
                 </Link>
                 <ChoiceGroup
-                  label="Content rating"
+                  label="内容分级"
                   variant="segmented"
                   size="sm"
                   value={(project.content_rating === "mature" ? "mature" : "general") as "general" | "mature"}
@@ -244,20 +266,20 @@ export default function ProjectDashboard() {
                     try {
                       const p = await api.updateProject(id, { content_rating: next });
                       setProject(p);
-                      toast(next === "mature" ? "Marked Mature" : "Marked General", "success");
+                      toast(next === "mature" ? "已标记为成人内容" : "已标记为普通内容", "success");
                     } catch (e) {
                       toast(e instanceof Error ? e.message : String(e), "error");
                     }
                   }}
                   options={[
-                    { value: "general", label: "General" },
-                    { value: "mature", label: "Mature" },
+                    { value: "general", label: "普通" },
+                    { value: "mature", label: "成人" },
                   ]}
                 />
                 {isRunning && (
                   <span className="ml-1 inline-flex items-center gap-2 text-[12.5px] text-ink-muted" aria-live="polite">
                     <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-violet)]" />
-                    Agent running…
+                    智能体运行中…
                   </span>
                 )}
               </div>
@@ -303,7 +325,7 @@ export default function ProjectDashboard() {
 
             <div className="mb-5 mt-10 flex items-center justify-between">
               <h2 className="font-display text-[22px] font-semibold tracking-tight text-ink-text">
-                Chapters
+                章节
               </h2>
               <div className="flex overflow-hidden rounded-full border border-[rgba(96,112,153,0.16)] bg-white/45 p-0.5">
                 {(["board", "outline"] as const).map((v) => (
@@ -312,7 +334,7 @@ export default function ProjectDashboard() {
                             chapterView === v
                               ? "bg-[var(--color-violet)] text-white shadow-[0_6px_16px_rgba(104,103,234,0.28)]"
                               : "text-ink-muted hover:text-ink"}`}>
-                    {v === "outline" ? "Outliner" : "Corkboard"}
+                    {v === "outline" ? "大纲" : "章节看板"}
                   </button>
                 ))}
               </div>
@@ -326,21 +348,21 @@ export default function ProjectDashboard() {
             <div className="mt-12 mb-5 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="font-display text-[22px] font-semibold tracking-tight text-ink-text">
-                  Codex
+                  设定库
                 </h2>
                 <p className="mt-1 text-[13px] text-ink-muted">
-                  Click an avatar to add a portrait, place photo, or item image.
+                  点击头像可添加人物肖像、地点照片或物件图片。
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Link to={`/projects/${id}/research`} className="btn-ghost inline-flex items-center gap-1.5">
-                  <Icon name="image" className="h-3.5 w-3.5" /> Research
+                  <Icon name="image" className="h-3.5 w-3.5" /> 素材库
                 </Link>
                 <Link to={`/projects/${id}/chart`} className="btn-ghost inline-flex items-center gap-1.5">
-                  <Icon name="waypoints" className="h-3.5 w-3.5" /> Chart
+                  <Icon name="waypoints" className="h-3.5 w-3.5" /> 关系图
                 </Link>
                 <button type="button" onClick={() => setEntryOpen(true)} className="btn-secondary">
-                  + Add Entry
+                  + 添加条目
                 </button>
               </div>
             </div>
@@ -367,10 +389,10 @@ export default function ProjectDashboard() {
 
             {filtered.length === 0 ? (
               <div className="rounded-[24px] border border-dashed border-[rgba(74,91,133,0.18)] bg-white/45 px-8 py-10 text-center text-[13.5px] text-ink-muted">
-                No entries yet. Add characters, places, and world rules the Guardian can check against.
+                暂无条目。添加人物、地点和世界规则，供连续性守卫核对。
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                 {filtered.map((entry) => (
                   <div
                     key={`${entry.entry_type}-${entry.id}`}
@@ -448,21 +470,21 @@ function ContinuityHealth({
           </span>
           <div>
             <h3 className="font-display text-[17px] font-semibold tracking-tight text-ink-text">
-              Continuity health
+              连续性状态
             </h3>
             <p className="mt-0.5 text-[13px] text-ink-muted">
               {!report
-                ? "Running deterministic checks…"
+                ? "正在运行确定性检查…"
                 : healthy
                   ? total === 0
-                    ? "No findings story bible looks consistent."
-                    : `${info} informational note${info === 1 ? "" : "s"}; no blockers.`
-                  : `${critical} critical · ${warning} warning · ${info} info`}
+                    ? "未发现问题，故事圣经保持一致。"
+                    : `${info} 条提示；没有阻塞问题。`
+                  : `${critical} 个严重问题 · ${warning} 个警告 · ${info} 条提示`}
             </p>
           </div>
         </div>
         <button type="button" onClick={onRefresh} className="btn-ghost text-[12.5px]">
-          Refresh
+          刷新
         </button>
       </div>
       {report && report.findings.length > 0 && (
@@ -474,7 +496,7 @@ function ContinuityHealth({
                 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-muted"
               />
               <span>
-                <span className="capitalize text-ink-muted">{f.severity}</span>
+                <span className="capitalize text-ink-muted">{SEVERITY_LABELS[f.severity] || f.severity}</span>
                 {" · "}
                 {f.message}
               </span>
@@ -482,7 +504,7 @@ function ContinuityHealth({
           ))}
           {report.findings.length > 4 && (
             <li className="text-[12.5px] text-ink-muted">
-              +{report.findings.length - 4} more open Notes → Continuity on a chapter.
+              另有 {report.findings.length - 4} 条，请打开章节“笔记 → 连续性”查看。
             </li>
           )}
         </ul>
@@ -519,18 +541,18 @@ function CodexCard({
           size={isPerson ? "lg" : "md"}
           shape={isPerson || entry.entry_type === "location" ? (isPerson ? "circle" : "rounded") : "rounded"}
           label={
-            entry.entry_type === "location" ? "Place photo"
-              : entry.entry_type === "item" ? "Item image"
-                : entry.entry_type === "worldbuilding" ? "Reference"
-                  : "Portrait"
+            entry.entry_type === "location" ? "地点照片"
+              : entry.entry_type === "item" ? "物件图片"
+                : entry.entry_type === "worldbuilding" ? "参考图片"
+                  : "人物肖像"
           }
         />
         <div className="min-w-0 flex-1">
           <p className="truncate font-display text-[15px] font-medium text-ink-text">{entry.name}</p>
           <p className="mt-0.5 flex items-center gap-1 text-[12px] capitalize text-ink-muted">
             <Icon name={typeIcon} className="h-3 w-3" />
-            {entry.entry_type === "worldbuilding" ? "World" : entry.entry_type}
-            {entry.role ? ` · ${entry.role}` : ""}
+            {CODEX_TYPE_LABELS[entry.entry_type]}
+            {entry.role ? ` · ${ROLE_LABELS[entry.role] || entry.role}` : ""}
           </p>
           {entry.summary ? (
             <p className="mt-1 line-clamp-2 text-[12px] text-ink-muted">{entry.summary}</p>
@@ -539,8 +561,8 @@ function CodexCard({
         <button
           type="button"
           onClick={onEdit}
-          aria-label={`Edit ${entry.name}`}
-          title="Edit"
+          aria-label={`编辑${entry.name}`}
+          title="编辑"
           className="shrink-0 self-start rounded-lg p-1.5 text-ink-muted transition-colors hover:bg-[rgba(104,103,234,0.08)] hover:text-[var(--color-violet)]"
         >
           <Icon name="pencil" className="h-3.5 w-3.5" />
@@ -550,15 +572,15 @@ function CodexCard({
       {isPerson && (
         <div className="border-t border-[rgba(74,91,133,0.1)] pt-3">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="text-[11.5px] font-medium tracking-[-0.01em] text-ink-muted">Connections</p>
+            <p className="text-[11.5px] font-medium tracking-[-0.01em] text-ink-muted">人物关系</p>
             {onAddLink && (
               <button type="button" onClick={onAddLink} className="btn-ghost px-2 py-0.5 text-[11.5px]">
-                + Link
+                + 添加关系
               </button>
             )}
           </div>
           {edges.length === 0 ? (
-            <p className="text-[12px] text-paper-muted">No bonds yet</p>
+            <p className="text-[12px] text-paper-muted">暂无人物关系</p>
           ) : (
             <ul className="space-y-1.5">
               {edges.slice(0, 4).map((e) => {
@@ -576,24 +598,24 @@ function CodexCard({
                     <button
                       type="button"
                       className="shrink-0 text-[11px] text-ink-muted hover:text-[#c85177]"
-                      aria-label={`Remove link to ${other}`}
+                      aria-label={`删除与${other}的关系`}
                       onClick={async () => {
                         try {
                           await api.deleteRelationship(projectId, e.id);
-                          toast("Link removed", "success");
+                          toast("关系已删除", "success");
                           onUpdated();
                         } catch (err) {
                           toast(err instanceof Error ? err.message : String(err), "error");
                         }
                       }}
                     >
-                      Remove
+                      删除
                     </button>
                   </li>
                 );
               })}
               {edges.length > 4 && (
-                <li className="text-[11.5px] text-ink-muted">+{edges.length - 4} more on Chart</li>
+                <li className="text-[11.5px] text-ink-muted">关系图中还有 {edges.length - 4} 条</li>
               )}
             </ul>
           )}
@@ -616,7 +638,7 @@ function Action({
       disabled={disabled}
       className={variant === "primary" ? "btn-primary disabled:opacity-40" : "btn-secondary disabled:opacity-40"}
     >
-      {busy ? "Running…" : children}
+      {busy ? "运行中…" : children}
     </button>
   );
 }
@@ -658,7 +680,7 @@ function AddCodexModal({
         const media = await api.uploadMedia(id, file, kind, name.trim());
         await api.setPortrait(id, created.id, media.id, entryType);
       }
-      toast(`Added ${name}`, "success");
+      toast(`已添加${name}`, "success");
       setName("");
       setSummary("");
       setFile(null);
@@ -673,25 +695,25 @@ function AddCodexModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Add Codex Entry">
+    <Modal open={open} onClose={onClose} title="添加设定库条目">
       <form onSubmit={submit}>
-        <Field label="Type">
+        <Field label="类型">
           <ChoiceGroup
-            label="Type"
+            label="类型"
             variant="cards"
             value={entryType}
             onChange={setEntryType}
             options={TYPE_OPTIONS}
           />
         </Field>
-        <Field label="Name">
+        <Field label="名称">
           <input autoFocus className={fieldClass} value={name}
-                 onChange={(e) => setName(e.target.value)} placeholder="e.g. Mara Vale" />
+                 onChange={(e) => setName(e.target.value)} placeholder="例如：林澈" />
         </Field>
         {entryType === "character" && (
-          <Field label="Role">
+          <Field label="角色定位">
             <ChoiceGroup
-              label="Role"
+              label="角色定位"
               variant="chips"
               value={role}
               onChange={setRole}
@@ -700,16 +722,16 @@ function AddCodexModal({
           </Field>
         )}
         {entryType !== "character" && (
-          <Field label="Summary">
+          <Field label="简介">
             <textarea
               className={`${textareaClass} min-h-[72px]`}
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
-              placeholder="One or two sentences the Guardian can check against"
+              placeholder="用一两句话写明可供连续性守卫核对的事实"
             />
           </Field>
         )}
-        <Field label="Image (optional)">
+        <Field label="图片（可选）">
           <div className="flex items-center gap-3">
             <label className="flex h-16 w-16 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border border-dashed border-[rgba(74,91,133,0.25)] bg-white/50 text-ink-muted hover:border-[var(--color-violet)]">
               {preview ? (
@@ -725,19 +747,19 @@ function AddCodexModal({
               />
             </label>
             <p className="text-[12.5px] text-ink-muted">
-              {entryType === "character" ? "Character portrait"
-                : entryType === "location" ? "Place photo"
-                  : "Reference image"}
-              . You can add or change this later on the card.
+              {entryType === "character" ? "人物肖像"
+                : entryType === "location" ? "地点照片"
+                  : "参考图片"}
+              。之后仍可在卡片中添加或更换。
             </p>
           </div>
         </Field>
         <div className="mt-6 flex justify-end gap-3">
           <button type="button" onClick={onClose} className="btn-ghost">
-            Cancel
+            取消
           </button>
           <button type="submit" disabled={!name.trim() || busy} className="btn-primary disabled:opacity-40">
-            {busy ? "Adding…" : "Add"}
+            {busy ? "添加中…" : "添加"}
           </button>
         </div>
       </form>

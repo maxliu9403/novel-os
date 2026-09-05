@@ -47,10 +47,10 @@ export default function ManuscriptStats({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-display text-[18px] font-semibold tracking-tight text-ink-text">
-            Manuscript statistics
+            正文统计
           </h2>
           <p className="mt-1 text-[12.5px] text-ink-muted">
-            Style Curator · reading time, frequent words, nearby echoes
+            风格策展 · 阅读时长、高频词与近距离重复
           </p>
         </div>
         <button
@@ -59,7 +59,7 @@ export default function ManuscriptStats({
           disabled={loading}
           className="btn-ghost text-[12px]"
         >
-          {loading ? "Scanning…" : "Refresh"}
+          {loading ? "正在分析…" : "刷新"}
         </button>
       </div>
 
@@ -71,35 +71,35 @@ export default function ManuscriptStats({
         <>
           <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Stat
-              label="Words"
-              value={stats.word_count.toLocaleString()}
+              label="字数"
+              value={stats.word_count.toLocaleString("zh-CN")}
             />
             <Stat
-              label="Reading"
-              value={`~${stats.reading_minutes} min`}
+              label="阅读时长"
+              value={`约 ${stats.reading_minutes} 分钟`}
             />
             <Stat
-              label="Avg sentence"
+              label="平均句长"
               value={stats.avg_sentence_length ? `${stats.avg_sentence_length}` : "—"}
             />
             <Stat
-              label="With prose"
+              label="已有正文"
               value={`${stats.chapters_with_prose}/${stats.chapter_count}`}
             />
           </div>
 
           {stats.word_count === 0 ? (
             <p className="mt-5 text-[13px] text-ink-muted">
-              No draft/revised/final prose yet. Statistics appear once a chapter has text.
+              暂无初稿、修订稿或定稿正文。章节中出现文字后将显示统计数据。
             </p>
           ) : (
             <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
               <div>
                 <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
-                  Top content words
+                  高频实词
                 </h3>
                 {stats.top_words.length === 0 ? (
-                  <p className="text-[13px] text-ink-muted">Not enough content words yet.</p>
+                  <p className="text-[13px] text-ink-muted">实词数量不足，暂时无法统计。</p>
                 ) : (
                   <ul className="space-y-1.5">
                     {stats.top_words.slice(0, 12).map((w) => {
@@ -125,11 +125,11 @@ export default function ManuscriptStats({
               <div>
                 <h3 className="mb-2.5 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
                   <Icon name="triangle-alert" className="h-3.5 w-3.5" />
-                  Echoes
+                  近距离重复
                 </h3>
                 {stats.echoes.length === 0 ? (
                   <p className="text-[13px] text-ink-muted">
-                    No close repeats flagged. Echoes are content words that recur within ~40 words.
+                    未发现近距离重复。系统会标记约 40 字范围内重复出现的实词。
                   </p>
                 ) : (
                   <ul className="space-y-2">
@@ -140,7 +140,7 @@ export default function ManuscriptStats({
                       >
                         <span className="font-medium text-ink-text">{e.word}</span>
                         <span className="nums text-[12px] text-ink-muted">
-                          {e.count}× · {e.close_pairs} close
+                          {e.count}× · {e.close_pairs} 处相邻
                         </span>
                       </li>
                     ))}

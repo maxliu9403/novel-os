@@ -5,6 +5,7 @@ import ChoiceGroup from "./ChoiceGroup";
 import EntityPicker from "./EntityPicker";
 import { useToast } from "./toastContext";
 import { BOND_OPTIONS } from "../lib/bonds";
+import { displayLabel } from "../lib/displayLabels";
 
 
 /** Shared Add Relationship form (chart + Codex Connections). */
@@ -63,7 +64,7 @@ export default function AddRelationshipModal({
   const entityOptions = characters.map((c) => ({
     id: c.id,
     name: c.name,
-    meta: c.role || undefined,
+    meta: c.role ? displayLabel(c.role) : undefined,
   }));
 
   async function submit(e: React.FormEvent) {
@@ -76,7 +77,7 @@ export default function AddRelationshipModal({
         target_id: target,
         label: label === "other" ? (other.trim() || "unknown") : label,
       });
-      toast("Link added", "success");
+      toast("关系已添加", "success");
       onAdded();
       onClose();
     } catch (err) {
@@ -87,31 +88,31 @@ export default function AddRelationshipModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Add Relationship">
+    <Modal open={open} onClose={onClose} title="添加关系">
       <form onSubmit={submit}>
-        <Field label="From">
+        <Field label="关系起点">
           <EntityPicker
-            label="From"
+            label="关系起点"
             value={source}
             onChange={setSource}
             options={entityOptions}
             excludeId={target}
-            placeholder="Find who the bond starts with…"
+            placeholder="查找关系起点人物…"
           />
         </Field>
-        <Field label="To">
+        <Field label="关系终点">
           <EntityPicker
-            label="To"
+            label="关系终点"
             value={target}
             onChange={setTarget}
             options={entityOptions}
             excludeId={source}
-            placeholder="Find who they're linked to…"
+            placeholder="查找与其关联的人物…"
           />
         </Field>
-        <Field label="Bond">
+        <Field label="关系类型">
           <ChoiceGroup
-            label="Bond"
+            label="关系类型"
             variant="chips"
             size="sm"
             value={label}
@@ -120,23 +121,23 @@ export default function AddRelationshipModal({
           />
         </Field>
         {label === "other" && (
-          <Field label="Custom label">
+          <Field label="自定义关系">
             <input
               className={fieldClass}
               value={other}
               onChange={(e) => setOther(e.target.value)}
-              placeholder="e.g. childhood friends"
+              placeholder="例如：儿时好友"
             />
           </Field>
         )}
         <div className="mt-6 flex justify-end gap-3">
-          <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
+          <button type="button" onClick={onClose} className="btn-ghost">取消</button>
           <button
             type="submit"
             disabled={busy || !source || !target || source === target}
             className="btn-primary disabled:opacity-40"
           >
-            {busy ? "Saving…" : "Add"}
+            {busy ? "正在保存…" : "添加"}
           </button>
         </div>
       </form>

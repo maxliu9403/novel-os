@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { api, type CodexEntry, type RelationshipEdge } from "../api/client";
 import Icon from "./Icon";
+import { displayLabel, entityTypeLabel } from "../lib/displayLabels";
 
 /** Left-click popover on a Codex mention in Final (R1). */
 export default function EntityPopover({
@@ -78,9 +79,9 @@ export default function EntityPopover({
             </span>
             <div className="min-w-0">
               <p className="truncate font-display text-[15px] font-semibold text-ink-text">{entry.name}</p>
-              <p className="text-[12px] capitalize text-ink-muted">
-                {entry.entry_type === "worldbuilding" ? "World" : entry.entry_type}
-                {entry.role ? ` · ${entry.role}` : ""}
+              <p className="text-[12px] text-ink-muted">
+                {entityTypeLabel(entry.entry_type)}
+                {entry.role ? ` · ${displayLabel(entry.role)}` : ""}
               </p>
             </div>
           </div>
@@ -96,7 +97,7 @@ export default function EntityPopover({
                     : (e.source_name || e.source_id);
                 return (
                   <li key={e.id} className="truncate text-[12px] text-ink-muted">
-                    <span className="capitalize">{e.label}</span>
+                    <span>{displayLabel(e.label)}</span>
                     {" · "}
                     <span className="font-medium text-ink-text">{other}</span>
                   </li>
@@ -110,18 +111,18 @@ export default function EntityPopover({
               onClick={onClose}
               className="btn-secondary inline-flex items-center gap-1 px-2.5 py-1 text-[12px]"
             >
-              <Icon name="users" className="h-3 w-3" /> Open Codex
+              <Icon name="users" className="h-3 w-3" /> 打开设定库
             </Link>
             <Link
               to={`/projects/${projectId}/chart`}
               onClick={onClose}
               className="btn-ghost inline-flex items-center gap-1 px-2.5 py-1 text-[12px]"
             >
-              <Icon name="waypoints" className="h-3 w-3" /> Chart
+              <Icon name="waypoints" className="h-3 w-3" /> 关系图
             </Link>
             {onAddRelationship && (
               <button type="button" onClick={() => { onAddRelationship(); onClose(); }} className="btn-ghost px-2.5 py-1 text-[12px]">
-                Link…
+                添加关系…
               </button>
             )}
           </div>

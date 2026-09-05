@@ -34,6 +34,7 @@ _ENV_KEYS = (
     "NOVEL_OS_COVER_DIRECTOR_BASE_URL",
     "NOVEL_OS_COVER_DIRECTOR_API_KEY",
     "NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS",
+    "NOVEL_OS_COVER_DIRECTOR_REASONING_EFFORT",
     "OPENROUTER_API_KEY",
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
@@ -42,6 +43,7 @@ _ENV_KEYS = (
 
 _COVER_SIZE = "2048x3072"
 _COVER_MODEL = "gpt-image-2"
+_COVER_DIRECTOR_TIMEOUT_SECONDS = 600.0
 _COVER_QUALITIES = {"low", "medium", "high", "auto"}
 _COVER_FORMATS = {"png", "jpeg"}
 _COVER_SIZE_PATTERN = re.compile(r"^(\d+)x(\d+)$", re.IGNORECASE)
@@ -78,7 +80,8 @@ class CoverDirectorSettings:
     model: str
     base_url: str
     api_key: str
-    timeout_seconds: float = 180.0
+    timeout_seconds: float = _COVER_DIRECTOR_TIMEOUT_SECONDS
+    reasoning_effort: str = ""
     inherits_writing: bool = True
 
 
@@ -105,12 +108,15 @@ def resolve_cover_director_settings(
             director_route = configuration.get("text_routes", {}).get(
                 "cover_director", {}
             )
+            values: dict[str, Any] = dict(os.environ)
+            values.update(load_settings())
             return CoverDirectorSettings(
                 provider=str(route["provider"]),
                 model=str(route["model"]),
                 base_url=str(route["base_url"]).rstrip("/"),
                 api_key=str(route["api_key"]),
-                timeout_seconds=180.0,
+                timeout_seconds=_cover_director_timeout(values),
+                reasoning_effort=str(route.get("reasoning_effort") or ""),
                 inherits_writing=bool(director_route.get("inherits_default", True)),
             )
     if source is None:
@@ -140,12 +146,8 @@ def resolve_cover_director_settings(
         or (values.get(native_key_name) if native_key_name else "")
         or ""
     ).strip()
-    try:
-        timeout = float(values.get("NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS") or 180)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("Cover Director timeout must be a positive number") from exc
-    if timeout <= 0:
-        raise ValueError("Cover Director timeout must be a positive number")
+    timeout = _cover_director_timeout(values)
+    reasoning_effort = _cover_director_reasoning_effort(values, provider)
     independent = any(
         str(values.get(key) or "").strip()
         for key in (
@@ -161,8 +163,35 @@ def resolve_cover_director_settings(
         base_url=base_url,
         api_key=api_key,
         timeout_seconds=timeout,
+        reasoning_effort=reasoning_effort,
         inherits_writing=not independent,
     )
+
+
+def _cover_director_timeout(values: Mapping[str, Any]) -> float:
+    raw = values.get("NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS")
+    try:
+        timeout = float(
+            _COVER_DIRECTOR_TIMEOUT_SECONDS if raw in (None, "") else raw
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Cover Director timeout must be a positive number") from exc
+    if timeout <= 0:
+        raise ValueError("Cover Director timeout must be a positive number")
+    return timeout
+
+
+def _cover_director_reasoning_effort(
+    values: Mapping[str, Any], provider: str,
+) -> str:
+    effort = str(
+        values.get("NOVEL_OS_COVER_DIRECTOR_REASONING_EFFORT") or ""
+    ).strip().lower()
+    if not effort and provider.casefold() == "codex":
+        return "medium"
+    if effort not in {"", "low", "medium", "high", "xhigh", "max", "ultra"}:
+        raise ValueError("Cover Director reasoning effort is invalid")
+    return effort
 
 
 def cover_director_status(source: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -174,6 +203,7 @@ def cover_director_status(source: Mapping[str, Any] | None = None) -> dict[str, 
         "base_url": settings.base_url,
         "has_api_key": bool(settings.api_key),
         "timeout_seconds": settings.timeout_seconds,
+        "reasoning_effort": settings.reasoning_effort,
         "inherits_writing": settings.inherits_writing,
     }
 
@@ -305,7 +335,8 @@ def cover_status(source: Mapping[str, Any] | None = None) -> dict[str, Any]:
             "director_model": "",
             "director_base_url": "",
             "director_has_api_key": False,
-            "director_timeout_seconds": 180.0,
+            "director_timeout_seconds": _COVER_DIRECTOR_TIMEOUT_SECONDS,
+            "director_reasoning_effort": "",
             "director_inherits_writing": True,
             "error": str(exc),
         }
@@ -331,6 +362,7 @@ def cover_status(source: Mapping[str, Any] | None = None) -> dict[str, Any]:
         "director_base_url": director["base_url"],
         "director_has_api_key": director["has_api_key"],
         "director_timeout_seconds": director["timeout_seconds"],
+        "director_reasoning_effort": director["reasoning_effort"],
         "director_inherits_writing": director["inherits_writing"],
         "error": None if configured else "Add an image provider API key or reuse a shared connection.",
     }

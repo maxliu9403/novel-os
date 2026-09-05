@@ -9,11 +9,11 @@ type Msg = {
 };
 
 const SUGGESTIONS = [
-  "Raise the stakes in one beat",
-  "Shift into dialogue",
-  "Add a sensory detail",
-  "Plant a quiet hook",
-  "Reveal something she notices too late",
+  "在一个节拍内提升风险",
+  "转入对话",
+  "补充一处感官细节",
+  "埋下一个隐约的钩子",
+  "揭示一件她发现得太晚的事",
 ];
 
 /** Floating Scribe composer - ChatGPT-style, no full-width bar. */
@@ -55,7 +55,7 @@ export default function ContinueChat({
       toast(msg, "error");
       setMessages((m) => [
         ...m,
-        { id: `e-${Date.now()}`, role: "assistant", text: `Couldn't write that: ${msg}` },
+        { id: `e-${Date.now()}`, role: "assistant", text: `无法完成这次续写：${msg}` },
       ]);
     } finally {
       setBusy(false);
@@ -87,7 +87,7 @@ export default function ContinueChat({
           ))}
           {busy && (
             <p className="text-[12.5px] text-ink-muted" aria-live="polite">
-              Scribe is writing…
+              执笔者正在写作…
             </p>
           )}
           {lastProposal && (
@@ -97,13 +97,13 @@ export default function ContinueChat({
                 className="btn-primary"
                 onClick={() => {
                   onAccept(lastProposal);
-                  toast("Paragraph added to Final", "success");
+                  toast("段落已添加到定稿", "success");
                   setLastProposal(null);
                   setMessages([]);
                   setExpanded(false);
                 }}
               >
-                Accept into Final
+                接受到定稿
               </button>
               <button
                 type="button"
@@ -113,7 +113,7 @@ export default function ContinueChat({
                   setMessages((m) => m.slice(0, -1));
                 }}
               >
-                Discard
+                丢弃
               </button>
             </div>
           )}
@@ -148,15 +148,15 @@ export default function ContinueChat({
           onChange={(e) => setInput(e.target.value)}
           onFocus={() => setExpanded(true)}
           disabled={busy || disabled}
-          placeholder="Ask Scribe to write the next paragraph…"
-          aria-label="Scribe chat"
+          placeholder="让执笔者续写下一段…"
+          aria-label="执笔者对话"
           id="scribe-chat-input"
         />
         <button
           type="submit"
           disabled={busy || disabled || !input.trim()}
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-violet)] text-[15px] font-semibold text-white shadow-[0_8px_18px_rgba(104,103,234,0.35)] transition hover:brightness-105 disabled:opacity-35"
-          aria-label="Write"
+          aria-label="开始写作"
         >
           →
         </button>

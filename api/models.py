@@ -36,6 +36,31 @@ class ProjectDetail(BaseModel):
     session_word_target: int = 1000
 
 
+class ProjectDeletionInventory(BaseModel):
+    project_id: str
+    title: str
+    chapter_count: int
+    exists: bool
+    counts: dict[str, int]
+    project_files: int
+    project_bytes: int
+    media_files: int
+    media_bytes: int
+
+
+class ProjectDeletionPreview(ProjectDeletionInventory):
+    running_job_ids: list[str] = []
+    can_delete: bool
+
+
+class ProjectDeletionResult(BaseModel):
+    project_id: str
+    status: str
+    before: ProjectDeletionInventory
+    after: ProjectDeletionInventory
+    cleared_consequence_previews: int = 0
+
+
 class UpdateProject(BaseModel):
     content_rating: str | None = None
     title: str | None = None
@@ -80,6 +105,7 @@ class StudioCoverUpdate(BaseModel):
     director_base_url: str | None = None
     director_api_key: str | None = None
     director_timeout_seconds: float | None = None
+    director_reasoning_effort: str | None = None
 
 
 class StudioCoverStatus(BaseModel):
@@ -98,7 +124,8 @@ class StudioCoverStatus(BaseModel):
     director_model: str = ""
     director_base_url: str = ""
     director_has_api_key: bool = False
-    director_timeout_seconds: float = 180.0
+    director_timeout_seconds: float = 600.0
+    director_reasoning_effort: str = ""
     director_inherits_writing: bool = True
     error: str | None = None
 
@@ -146,6 +173,7 @@ class TextRouteInput(BaseModel):
     connection_id: str = ""
     model: str = ""
     max_tokens: int = 8192
+    reasoning_effort: str = ""
     inherits_default: bool = False
 
 
@@ -153,6 +181,7 @@ class TextRouteOut(TextRouteInput):
     effective_connection_id: str
     effective_connection_name: str
     effective_model: str
+    effective_reasoning_effort: str
     effective_source: str
     configured: bool
 

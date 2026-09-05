@@ -127,7 +127,7 @@ def test_cover_director_settings_fall_back_to_writing_model_not_image_model() ->
     assert settings.model == "story-planner-v2"
     assert settings.base_url == "https://text.example/v1"
     assert settings.api_key == "writing-secret"
-    assert settings.timeout_seconds == 180.0
+    assert settings.timeout_seconds == 600.0
     assert settings.inherits_writing is True
 
 
@@ -153,6 +153,40 @@ def test_cover_director_settings_allow_independent_provider_and_validate_timeout
         studio_settings.resolve_cover_director_settings({
             "NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS": "0",
         })
+
+
+def test_v2_cover_director_honors_the_persisted_timeout(
+    tmp_path, monkeypatch,
+) -> None:
+    from core import provider_settings
+
+    monkeypatch.setenv(
+        "NOVEL_OS_SETTINGS_PATH", str(tmp_path / "studio_settings.json")
+    )
+    connection = provider_settings.save_connection({
+        "name": "Director models",
+        "provider": "openai_compatible",
+        "auth_type": "api_key",
+        "base_url": "https://models.example/v1",
+        "image_base_url": "",
+        "capabilities": ["text_generation"],
+        "secret_action": "replace",
+        "api_key": "provider-secret",
+    })
+    provider_settings.save_text_routes([{
+        "id": "default",
+        "connection_id": connection["id"],
+        "model": "director-model",
+        "max_tokens": 8192,
+        "inherits_default": False,
+    }])
+    studio_settings.save_settings({
+        "NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS": 420,
+    })
+
+    settings = studio_settings.resolve_cover_director_settings()
+
+    assert settings.timeout_seconds == 420.0
 
 
 def test_cover_director_status_redacts_independent_key() -> None:

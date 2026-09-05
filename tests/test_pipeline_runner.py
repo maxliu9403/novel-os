@@ -170,7 +170,7 @@ class _PublicationCompletionClient:
 
     def complete(self, *, system, user):
         self.owner.publication_model_calls.append((self.role, system.splitlines()[0]))
-        if system.startswith("whole-book-conflict.v1"):
+        if system.startswith("whole-book-conflict.v2"):
             source = json.loads(user.rsplit("as canonical JSON:\n", 1)[1])
             chapters = source["chapters"]
             by_number = {item["number"]: item for item in chapters}
@@ -916,7 +916,7 @@ def test_stage_order_and_publication_inputs_are_source_bound(tmp_path: Path):
         "publication_copy_policy_sha256",
     }
     assert publication.input_hashes["publication_copy_policy_sha256"] == hashlib.sha256(
-        b"publication-copy-policy.v2"
+        b"publication-copy-policy.v3"
     ).hexdigest()
     assert manifest.get("compile").artifact_paths == [
         "outputs/deliverables/book.md",

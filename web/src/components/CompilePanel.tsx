@@ -18,21 +18,21 @@ import Select from "./Select";
  * not story truth.
  */
 const EDITABLE: { role: string; label: string; hint: string }[] = [
-  { role: "chapter_title", label: "Chapter title", hint: "Heading on each chapter" },
-  { role: "body", label: "Body", hint: "Ordinary prose" },
-  { role: "block_quote", label: "Block quote", hint: "Letters and epigraphs" },
+  { role: "chapter_title", label: "章节标题", hint: "每章开头的标题" },
+  { role: "body", label: "正文", hint: "普通正文段落" },
+  { role: "block_quote", label: "引用块", hint: "书信与题词" },
 ];
 
 const FONTS = [
-  { value: "serif", label: "Serif" },
-  { value: "sans", label: "Sans" },
-  { value: "mono", label: "Mono" },
+  { value: "serif", label: "衬线体" },
+  { value: "sans", label: "无衬线体" },
+  { value: "mono", label: "等宽体" },
 ];
 
 const ALIGNMENTS = [
-  { value: "left", label: "Left" },
-  { value: "center", label: "Center" },
-  { value: "justify", label: "Justified" },
+  { value: "left", label: "左对齐" },
+  { value: "center", label: "居中" },
+  { value: "justify", label: "两端对齐" },
 ];
 
 export default function CompilePanel({ projectId }: { projectId: string }) {
@@ -62,7 +62,7 @@ export default function CompilePanel({ projectId }: { projectId: string }) {
       // The API validates the whole sheet and rejects it entire, so the answer
       // it sends back is the truth about what is stored.
       setSheet(await api.saveStyles(projectId, sheet));
-      toast("Styles saved", "success");
+      toast("样式已保存", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     } finally {
@@ -72,21 +72,21 @@ export default function CompilePanel({ projectId }: { projectId: string }) {
 
   return (
     <section
-      aria-label="Compile"
+      aria-label="编译导出"
       className="mb-6 rounded-[24px] border border-[rgba(74,91,133,0.12)] bg-white/55 px-5 py-5 backdrop-blur-md"
     >
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-display text-[18px] font-semibold tracking-tight text-ink-text">
-            Compile
+            编译导出
           </h2>
           <p className="mt-0.5 text-[12.5px] text-ink-muted">
-            Named styles drive the export · change one, the whole book follows
+            使用命名样式控制导出 · 修改一次，全书同步
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Select
-            label="Format"
+            label="格式"
             size="sm"
             value={format}
             onChange={(v) => setFormat(v as CompileFormat)}
@@ -103,7 +103,7 @@ export default function CompilePanel({ projectId }: { projectId: string }) {
             download
             className="btn-primary inline-flex items-center gap-1.5"
           >
-            <Icon name="download" className="h-3.5 w-3.5" /> Compile
+            <Icon name="download" className="h-3.5 w-3.5" /> 编译导出
           </a>
         </div>
       </div>
@@ -123,28 +123,28 @@ export default function CompilePanel({ projectId }: { projectId: string }) {
               </div>
 
               <label className="flex items-center gap-1.5 text-[11.5px] text-ink-muted">
-                Size
+                字号
                 <input
                   type="number"
                   min={4}
                   max={96}
                   step={0.5}
                   value={style.size_pt}
-                  aria-label={`${label} size in points`}
+                  aria-label={`${label}字号（磅）`}
                   onChange={(e) => patch(role, { size_pt: Number(e.target.value) })}
                   className="w-16 rounded-lg border border-[rgba(96,112,153,0.2)] bg-white/80 px-2 py-1 text-[12px] text-ink-text"
                 />
               </label>
 
               <Select
-                label={`${label} font`}
+                label={`${label}字体`}
                 size="sm"
                 value={style.font}
                 onChange={(v) => patch(role, { font: v })}
                 options={FONTS}
               />
               <Select
-                label={`${label} alignment`}
+                label={`${label}对齐方式`}
                 size="sm"
                 value={style.align}
                 onChange={(v) => patch(role, { align: v })}
@@ -156,10 +156,10 @@ export default function CompilePanel({ projectId }: { projectId: string }) {
 
         <div className="flex flex-wrap items-center gap-3 pt-1">
           <label className="flex items-center gap-2 text-[12px] text-ink-muted">
-            Scene break
+            场景分隔符
             <input
               value={sheet.scene_break_marker}
-              aria-label="Scene break marker"
+              aria-label="场景分隔标记"
               onChange={(e) =>
                 setSheet((s) => (s ? { ...s, scene_break_marker: e.target.value } : s))
               }
@@ -172,7 +172,7 @@ export default function CompilePanel({ projectId }: { projectId: string }) {
             onClick={() => void save()}
             className="btn-secondary disabled:opacity-40"
           >
-            {busy ? "Saving…" : "Save styles"}
+            {busy ? "正在保存…" : "保存样式"}
           </button>
         </div>
       </div>

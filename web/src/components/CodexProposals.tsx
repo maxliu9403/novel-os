@@ -5,10 +5,10 @@ import Icon from "./Icon";
 import Select from "./Select";
 
 const TYPES: { value: CodexEntryType; label: string }[] = [
-  { value: "character", label: "Character" },
-  { value: "location", label: "Location" },
-  { value: "worldbuilding", label: "World" },
-  { value: "item", label: "Item" },
+  { value: "character", label: "人物" },
+  { value: "location", label: "地点" },
+  { value: "worldbuilding", label: "世界设定" },
+  { value: "item", label: "物件" },
 ];
 
 /**
@@ -71,18 +71,17 @@ export default function CodexProposals({
 
   return (
     <section
-      aria-label="Codex proposals"
+      aria-label="设定库条目建议"
       className="mb-6 rounded-[24px] border border-[rgba(104,103,234,0.22)] bg-[rgba(104,103,234,0.05)] px-5 py-4"
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-1.5 font-display text-[16px] font-semibold tracking-tight text-ink-text">
             <Icon name="sparkles" className="h-4 w-4 text-[var(--color-violet)]" />
-            Found in your manuscript
+            在正文中发现
           </h2>
           <p className="mt-0.5 text-[12.5px] text-ink-muted">
-            {visible.length} {visible.length === 1 ? "name" : "names"} not in your
-            Codex yet. Nothing is saved until you add it.
+            发现 {visible.length} 个尚未收录到设定库的名称。只有点击添加后才会保存。
           </p>
         </div>
         <div className="flex gap-2">
@@ -91,7 +90,7 @@ export default function CodexProposals({
             className="btn-ghost px-2.5 py-1 text-[12px]"
             onClick={() => setDismissed(new Set(proposals.map((p) => p.name)))}
           >
-            Dismiss all
+            全部忽略
           </button>
           <button
             type="button"
@@ -99,7 +98,7 @@ export default function CodexProposals({
             className="btn-ghost px-2.5 py-1 text-[12px]"
             onClick={() => setOpen((o) => !o)}
           >
-            {open ? "Hide" : "Show"}
+            {open ? "收起" : "展开"}
           </button>
         </div>
       </div>
@@ -122,7 +121,7 @@ export default function CodexProposals({
               </div>
 
               <Select
-                label={`Type for ${p.name}`}
+                label={`${p.name} 的类型`}
                 size="sm"
                 value={types[p.name] ?? p.entry_type}
                 onChange={(v) =>
@@ -134,20 +133,20 @@ export default function CodexProposals({
               <span className="flex shrink-0 gap-1">
                 <button
                   type="button"
-                  aria-label={`Dismiss ${p.name}`}
+                  aria-label={`忽略 ${p.name}`}
                   className="btn-ghost px-2 py-0.5 text-[12px]"
                   onClick={() => setDismissed((d) => new Set(d).add(p.name))}
                 >
-                  Dismiss
+                  忽略
                 </button>
                 <button
                   type="button"
-                  aria-label={`Add ${p.name} to Codex`}
+                  aria-label={`将 ${p.name} 添加到设定库`}
                   disabled={busy === p.name}
                   className="btn-secondary px-2 py-0.5 text-[12px] disabled:opacity-40"
                   onClick={() => void accept(p)}
                 >
-                  {busy === p.name ? "Adding…" : "Add"}
+                  {busy === p.name ? "正在添加…" : "添加"}
                 </button>
               </span>
             </li>

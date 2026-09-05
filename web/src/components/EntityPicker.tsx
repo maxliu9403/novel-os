@@ -15,7 +15,7 @@ export default function EntityPicker({
   value,
   onChange,
   options,
-  placeholder = "Search…",
+  placeholder = "搜索…",
   excludeId,
 }: {
   label: string;
@@ -53,7 +53,7 @@ export default function EntityPicker({
             onClick={() => onChange("")}
             className="text-[12px] text-ink-muted hover:text-ink"
           >
-            Clear
+            清除
           </button>
         </div>
       )}
@@ -73,7 +73,7 @@ export default function EntityPicker({
         className="mt-2 max-h-36 space-y-0.5 overflow-y-auto rounded-2xl border border-[rgba(74,91,133,0.1)] bg-white/70 p-1"
       >
         {filtered.length === 0 && (
-          <li className="px-3 py-4 text-center text-[12.5px] text-ink-muted">No matches</li>
+          <li className="px-3 py-4 text-center text-[12.5px] text-ink-muted">没有匹配结果</li>
         )}
         {filtered.map((o) => {
           const on = o.id === value;

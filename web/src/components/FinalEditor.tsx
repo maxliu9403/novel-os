@@ -25,6 +25,7 @@ import LinkCodexModal from "./LinkCodexModal";
 import EntityPopover from "./EntityPopover";
 import ConsequencePreviewModal from "./ConsequencePreview";
 import { type ConsequencePreview as ConsequencePreviewPayload } from "../api/client";
+import { stageLabel } from "../lib/displayLabels";
 
 const SIZES = [0.95, 1.075, 1.2, 1.35];
 const MEASURES: Record<string, string> = { narrow: "34rem", normal: "42rem", wide: "52rem" };
@@ -75,7 +76,7 @@ export default function FinalEditor(props: {
   // Attribution reuses the persona convention comments already follow. Single
   // writer today, so it labels rather than authenticates - real identities
   // arrive with P7 auth on the existing tenancy tables.
-  const [authorName] = usePersisted("novelos-author-name", "You");
+  const [authorName] = usePersisted("novelos-author-name", "作者");
   const [sizeIdx, setSizeIdx] = usePersisted("novelos-editor-size", 1);
   const [measure, setMeasure] = usePersisted<Measure>("novelos-editor-measure", "normal");
   const [readerFont, setReaderFontState] = useState<ReaderFont>(getReaderFont);
@@ -108,7 +109,7 @@ export default function FinalEditor(props: {
 
   async function acceptRewrite(preview: ConsequencePreviewPayload) {
     const ed = handleRef.current?.editor;
-    if (!ed || !rewriteSel) throw new Error("Editor selection lost.");
+    if (!ed || !rewriteSel) throw new Error("编辑器中的选区已丢失。");
     ed.chain()
       .focus()
       .setTextSelection({ from: rewriteSel.from, to: rewriteSel.to })
@@ -204,10 +205,10 @@ export default function FinalEditor(props: {
   if (!hasFinal) {
     return (
       <div className="manuscript-page mx-auto max-w-[680px] px-11 py-14 text-center">
-        <p className="font-display text-[20px] text-ink-text">No Final yet</p>
+        <p className="font-display text-[20px] text-ink-text">尚无定稿</p>
         <p className="mx-auto mt-2 max-w-md text-[14px] leading-relaxed text-ink-muted">
-          The Final is the human-reviewed, canonical chapter. Promote the latest AI stage to
-          start reviewing your drafts stay untouched as provenance.
+          定稿是经过人工审核的权威章节版本。将最新的 AI 阶段提升为定稿即可开始审核，
+          原有稿件仍会保留作为生成记录。
         </p>
         <button
           type="button"
@@ -215,7 +216,7 @@ export default function FinalEditor(props: {
           disabled={!canPromote || busy != null}
           className="btn-primary mt-6 disabled:opacity-40"
         >
-          {busy === "promoting" ? "Promoting…" : canPromote ? `Promote ${promoteFrom} → Final` : "Nothing to Promote Yet"}
+          {busy === "promoting" ? "正在提升…" : canPromote ? `将${stageLabel(promoteFrom)}提升为定稿` : "暂无可提升的版本"}
         </button>
       </div>
     );
@@ -227,39 +228,39 @@ export default function FinalEditor(props: {
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-2 text-[12px] font-medium tracking-[-0.01em] text-ink-muted">
             <span className="h-1.5 w-1.5 rounded-full bg-ink" />
-            Final · {mode === "write" ? "Editing" : "Preview"}
+            定稿 · {mode === "write" ? "编辑" : "预览"}
           </span>
-          <button type="button" onClick={onToggleFocus} className="btn-ghost" title="Focus mode">
-            {focus ? "Exit focus" : "Focus"}
+          <button type="button" onClick={onToggleFocus} className="btn-ghost" title="专注模式">
+            {focus ? "退出专注" : "专注"}
           </button>
         </div>
 
         <div className="flex items-center gap-3 text-[12.5px] text-ink-muted">
-          <span className="nums">{words.toLocaleString()} words</span>
+          <span className="nums">{words.toLocaleString("zh-CN")} 字</span>
           <span aria-live="polite" className="min-w-[78px] text-right">
-            {busy === "saving" ? <span className="text-paper-muted">Saving…</span>
-              : dirty ? <span className="text-ink-muted">● Unsaved</span>
-              : <span className="text-st-approved">● {lastSaved ? `Saved ${lastSaved}` : "Saved"}</span>}
+            {busy === "saving" ? <span className="text-paper-muted">正在保存…</span>
+              : dirty ? <span className="text-ink-muted">● 未保存</span>
+              : <span className="text-st-approved">● {lastSaved ? `已保存 ${lastSaved}` : "已保存"}</span>}
           </span>
 
           <div className="flex items-center overflow-hidden rounded-full border border-paper-line bg-[var(--color-surface-warm)]">
             <button type="button" onClick={() => setSizeIdx(Math.max(0, sizeIdx - 1))}
-                    className="px-2.5 py-1 text-ink-muted hover:text-ink" aria-label="Smaller text">A−</button>
+                    className="px-2.5 py-1 text-ink-muted hover:text-ink" aria-label="缩小文字">A−</button>
             <button type="button" onClick={() => setSizeIdx(Math.min(SIZES.length - 1, sizeIdx + 1))}
-                    className="border-l border-paper-line px-2.5 py-1 text-ink-muted hover:text-ink" aria-label="Larger text">A+</button>
+                    className="border-l border-paper-line px-2.5 py-1 text-ink-muted hover:text-ink" aria-label="放大文字">A+</button>
             <button type="button" onClick={() => setMeasure(measure === "wide" ? "narrow" : measure === "narrow" ? "normal" : "wide")}
                     className="border-l border-paper-line px-2.5 py-1 text-[11px] font-medium tracking-[-0.01em] text-ink-muted hover:text-ink"
-                    title="Reading width">{measure}</button>
+                    title="阅读宽度">{{ narrow: "窄", normal: "标准", wide: "宽" }[measure]}</button>
             <div className="border-l border-paper-line pl-1">
               <ChoiceGroup
-                label="Reading font"
+                label="阅读字体"
                 variant="segmented"
                 size="sm"
                 value={readerFont}
                 onChange={(v) => chooseFont(v)}
                 options={READER_FONTS.map((f) => ({
                   value: f.value,
-                  label: f.label,
+                  label: f.value === "serif" ? "衬线" : f.value === "mono" ? "等宽" : "无衬线",
                   preview: (
                     <span
                       style={{
@@ -284,40 +285,40 @@ export default function FinalEditor(props: {
               <button key={m} type="button" onClick={() => setMode(m)}
                       className={`rounded-full px-3 py-1 text-[12.5px] font-medium capitalize transition-colors ${
                         mode === m ? "bg-ink text-on-ink" : "text-ink-muted hover:text-ink"}`}>
-                {m}
+                {m === "write" ? "编辑" : "预览"}
               </button>
             ))}
           </div>
           <button type="button" onClick={onSave} disabled={!dirty || busy != null}
                   className="btn-primary disabled:opacity-40">
-            {busy === "saving" ? "Saving…" : "Save"}
+            {busy === "saving" ? "正在保存…" : "保存"}
           </button>
         </div>
       </div>
 
       {mode === "write" && (
         <div className="mb-2 flex items-center gap-1" style={{ maxWidth: MEASURES[measure], marginInline: "auto" }}>
-          <TBtn onClick={() => toggleBold(handleRef.current)} label="Bold"><b>B</b></TBtn>
-          <TBtn onClick={() => toggleItalic(handleRef.current)} label="Italic"><i>I</i></TBtn>
-          <TBtn onClick={() => setHeading(handleRef.current, 2)} label="Heading">H</TBtn>
-          <TBtn onClick={() => toggleBlockquote(handleRef.current)} label="Quote">”</TBtn>
-          <TBtn onClick={() => insertSceneBreak(handleRef.current)} label="Scene break">✦</TBtn>
+          <TBtn onClick={() => toggleBold(handleRef.current)} label="粗体"><b>B</b></TBtn>
+          <TBtn onClick={() => toggleItalic(handleRef.current)} label="斜体"><i>I</i></TBtn>
+          <TBtn onClick={() => setHeading(handleRef.current, 2)} label="标题">H</TBtn>
+          <TBtn onClick={() => toggleBlockquote(handleRef.current)} label="引用">”</TBtn>
+          <TBtn onClick={() => insertSceneBreak(handleRef.current)} label="场景分隔">✦</TBtn>
           <div className="mx-1 h-5 w-px bg-paper-line" />
           <button
             type="button"
             aria-pressed={suggesting}
             onClick={() => setSuggesting(!suggesting)}
-            title="Suggest mode — edits become tracked proposals"
+            title="建议模式 — 修改将作为可追踪的建议"
             className={`rounded-lg px-2 py-1 text-[12px] font-medium transition ${
               suggesting
                 ? "bg-[var(--color-violet)] text-white"
                 : "text-ink-muted hover:bg-paper-line/60"
             }`}
           >
-            Suggest
+            建议
           </button>
           <div className="mx-1 h-5 w-px bg-paper-line" />
-          <TBtn onClick={() => fileRef.current?.click()} label="Insert image">
+          <TBtn onClick={() => fileRef.current?.click()} label="插入图片">
             {uploading ? "…" : "▣"}
           </TBtn>
           <TBtn
@@ -325,7 +326,7 @@ export default function FinalEditor(props: {
               const sel = handleRef.current?.getSelection();
               if (sel) onCommentSelection?.(sel);
             }}
-            label="Comment on selection"
+            label="批注选中文字"
           >
             ¶
           </TBtn>

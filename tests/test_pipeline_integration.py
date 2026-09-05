@@ -32,7 +32,7 @@ class PipelineLLM:
 
     def complete(self, *, system, user):
         type(self).calls.append(system.splitlines()[0])
-        if system.startswith("whole-book-conflict.v1"):
+        if system.startswith("whole-book-conflict.v2"):
             source = json.loads(user.rsplit("as canonical JSON:\n", 1)[1])
             chapters = source["chapters"]
             by_number = {item["number"]: item for item in chapters}
@@ -1430,7 +1430,7 @@ def test_resume_reloads_bound_canon_proposal_by_id(tmp_path: Path):
     assert PipelineLLM.calls[: len(before_calls)] == before_calls
     assert all(
         call in {
-            "whole-book-conflict.v1",
+            "whole-book-conflict.v2",
             "publication-copy-writer.v2",
             "publication-copy-validator.v2",
         }

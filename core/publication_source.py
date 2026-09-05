@@ -258,6 +258,29 @@ def publication_source_input_hash(source_set: PublicationSourceSet) -> str:
     return _source_identity_hash(source_set.chapters)
 
 
+def conflict_evidence_bucket_contract(
+    chapter_count: int,
+) -> dict[str, tuple[int, ...]]:
+    """Return the canonical chapter membership for each evidence bucket."""
+
+    if type(chapter_count) is not int or chapter_count < 1:
+        raise PublicationSourceError(
+            "chapter_count must be a positive integer"
+        )
+    return {
+        bucket: tuple(
+            chapter_number
+            for chapter_number in range(1, chapter_count + 1)
+            if _chapter_matches_bucket(
+                chapter_number,
+                bucket=bucket,
+                chapter_count=chapter_count,
+            )
+        )
+        for bucket in _EVIDENCE_BUCKETS
+    }
+
+
 def group_source_chapters(
     source_set: PublicationSourceSet,
     max_codepoints: int = 120_000,

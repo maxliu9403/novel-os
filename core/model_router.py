@@ -78,6 +78,7 @@ class ModelRouter:
                     base_url=route["base_url"] or None,
                     api_key=route["api_key"] or None,
                     max_tokens=route["max_tokens"],
+                    reasoning_effort=route["reasoning_effort"] or None,
                 )
         except ProviderSettingsError:
             if configuration.get("source") == "v2":

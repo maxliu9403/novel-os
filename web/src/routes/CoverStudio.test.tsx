@@ -137,7 +137,7 @@ test("keeps four 2:3 slots stable while the workspace loads", () => {
   renderStudio();
 
   expect(screen.getAllByTestId("cover-slot")).toHaveLength(4);
-  expect(screen.getByText("Loading cover workspace")).toBeInTheDocument();
+  expect(screen.getByText("正在加载封面工作区")).toBeInTheDocument();
 });
 
 test("routes an unconfigured workspace to independent cover settings", async () => {
@@ -149,9 +149,9 @@ test("routes an unconfigured workspace to independent cover settings", async () 
 
   renderStudio();
 
-  expect(await screen.findByRole("heading", { name: "Cover Studio" })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Configure cover model" })).toHaveAttribute("href", "/settings");
-  expect(screen.getByRole("button", { name: "Generate 4 covers" })).toBeDisabled();
+  expect(await screen.findByRole("heading", { name: "封面工作室" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "配置封面模型" })).toHaveAttribute("href", "/settings");
+  expect(screen.getByRole("button", { name: "生成 4 张封面" })).toBeDisabled();
 });
 
 test("shows story facts and requires exact art direction approval before generation", async () => {
@@ -166,19 +166,19 @@ test("shows story facts and requires exact art direction approval before generat
 
   renderStudio();
 
-  expect(await screen.findByText("Art direction review")).toBeInTheDocument();
-  expect(screen.getByText("Age 34 · caregiver returning to paid work")).toBeInTheDocument();
+  expect(await screen.findByText("美术方向审核")).toBeInTheDocument();
+  expect(screen.getByText("年龄 34 · caregiver returning to paid work")).toBeInTheDocument();
   expect(screen.getByText("a lived-in apartment entry")).toBeInTheDocument();
   expect(screen.getByText("Asymmetric close plane")).toBeInTheDocument();
   expect(screen.getByText("Graphic editorial suspense")).toBeInTheDocument();
   expect(screen.getByText("Cathartic resolve")).toBeInTheDocument();
   expect(screen.getByText("Bold cinematic serif")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Generate 4 covers" })).toBeDisabled();
-  await user.click(screen.getByRole("button", { name: "Approve art direction" }));
+  expect(screen.getByRole("button", { name: "生成 4 张封面" })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: "批准美术方向" }));
   await waitFor(() => expect(approve).toHaveBeenCalledWith(
     project.id, pending.direction_id, pending.brief_sha256, pending.direction_sha256,
   ));
-  expect(screen.getByRole("button", { name: "Generate 4 covers" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "生成 4 张封面" })).toBeEnabled();
 });
 
 test("creates art direction from the persisted story facts before generation", async () => {
@@ -192,13 +192,13 @@ test("creates art direction from the persisted story facts before generation", a
 
   renderStudio();
 
-  await screen.findByRole("heading", { name: "Cover Studio" });
-  expect(screen.getByRole("button", { name: "Generate 4 covers" })).toBeDisabled();
-  await user.click(screen.getByRole("button", { name: "Create art direction" }));
+  await screen.findByRole("heading", { name: "封面工作室" });
+  expect(screen.getByRole("button", { name: "生成 4 张封面" })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: "创建美术方向" }));
 
   await waitFor(() => expect(create).toHaveBeenCalledWith(project.id, 4));
-  expect(await screen.findByText("Art direction review")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Approve art direction" })).toBeEnabled();
+  expect(await screen.findByText("美术方向审核")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "批准美术方向" })).toBeEnabled();
 });
 
 test("lets operations replace an approved legacy direction with a new portfolio", async () => {
@@ -214,10 +214,10 @@ test("lets operations replace an approved legacy direction with a new portfolio"
 
   renderStudio();
 
-  await user.click(await screen.findByRole("button", { name: "Replan cover directions" }));
+  await user.click(await screen.findByRole("button", { name: "重新规划封面方向" }));
   await waitFor(() => expect(create).toHaveBeenCalledWith(project.id, 4));
-  expect(screen.getByRole("button", { name: "Approve art direction" })).toBeEnabled();
-  expect(screen.getByRole("button", { name: "Generate 4 covers" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "批准美术方向" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "生成 4 张封面" })).toBeDisabled();
 });
 
 test("does not reuse an older approval when the newest direction awaits review", async () => {
@@ -231,8 +231,8 @@ test("does not reuse an older approval when the newest direction awaits review",
 
   renderStudio();
 
-  expect(await screen.findByText("Art direction review")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Generate 4 covers" })).toBeDisabled();
+  expect(await screen.findByText("美术方向审核")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "生成 4 张封面" })).toBeDisabled();
 });
 
 test("shows partial results and retries only the failed candidate", async () => {
@@ -249,10 +249,10 @@ test("shows partial results and retries only the failed candidate", async () => 
 
   expect(await screen.findByText("Provider timeout")).toBeInTheDocument();
   expect(screen.getAllByTestId("cover-slot")).toHaveLength(4);
-  expect(screen.getByRole("link", { name: "View full resolution candidate 1" })).toHaveAttribute(
+  expect(screen.getByRole("link", { name: "查看候选图 1原始尺寸" })).toHaveAttribute(
     "href", expect.stringContaining("/media/media-1/raw"),
   );
-  await user.click(screen.getByRole("button", { name: "Retry candidate 2" }));
+  await user.click(screen.getByRole("button", { name: "重试候选图 2" }));
   await waitFor(() => expect(retry).toHaveBeenCalledWith(
     project.id, partial.cover_set_id, "candidate-2", partial.revision,
   ));
@@ -282,9 +282,9 @@ test("offers only reported quality repair codes for a ready candidate", async ()
 
   renderStudio();
 
-  expect(await screen.findByText("Quality blockers found")).toBeInTheDocument();
-  expect(screen.getByRole("combobox", { name: "Repair reason candidate 1" })).toHaveValue("generic_ai_face");
-  await user.click(screen.getByRole("button", { name: "Regenerate candidate 1 with repair" }));
+  expect(await screen.findByText("发现质量阻塞问题")).toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "候选图 1的修复原因" })).toHaveValue("generic_ai_face");
+  await user.click(screen.getByRole("button", { name: "按修复建议重新生成候选图 1" }));
   await waitFor(() => expect(retry).toHaveBeenCalledWith(
     project.id, reviewed.cover_set_id, "candidate-1", reviewed.revision, ["generic_ai_face"],
   ));
@@ -299,16 +299,16 @@ test("requires confirmation before selection and exposes the delivery package", 
   const user = userEvent.setup();
 
   renderStudio();
-  await screen.findByRole("heading", { name: "Cover Studio" });
-  await user.click(screen.getByRole("button", { name: "Select candidate 1" }));
+  await screen.findByRole("heading", { name: "封面工作室" });
+  await user.click(screen.getByRole("button", { name: "选择候选图 1" }));
 
   expect(select).not.toHaveBeenCalled();
-  expect(screen.getByRole("dialog", { name: "Use this cover?" })).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Use this cover" }));
+  expect(screen.getByRole("dialog", { name: "使用这张封面？" })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "使用此封面" }));
   await waitFor(() => expect(select).toHaveBeenCalledWith(
     project.id, ready.cover_set_id, "candidate-1", ready.revision, ready.active_revision, false,
   ));
-  expect(screen.getByRole("link", { name: "Download delivery package" })).toHaveAttribute(
+  expect(screen.getByRole("link", { name: "下载交付包" })).toHaveAttribute(
     "href", expect.stringContaining("/deliverables/package"),
   );
 });
@@ -326,14 +326,14 @@ test("generates the configured candidate count from the persisted story handoff"
   const user = userEvent.setup();
 
   renderStudio();
-  await screen.findByRole("heading", { name: "Cover Studio" });
-  await user.click(screen.getByRole("button", { name: "Generate 4 covers" }));
+  await screen.findByRole("heading", { name: "封面工作室" });
+  await user.click(screen.getByRole("button", { name: "生成 4 张封面" }));
 
   await waitFor(() => expect(generate).toHaveBeenCalledWith(project.id, 4, {
     direction_id: approved.direction_id,
     approved_direction_sha256: approved.direction_sha256,
   }));
-  expect(await screen.findByText("2 of 4 rendered")).toBeInTheDocument();
+  expect(await screen.findByText("已生成 2/4 张")).toBeInTheDocument();
 });
 
 test("shows generation progress in the preview while candidates are rendering", async () => {
@@ -380,13 +380,13 @@ test("shows generation progress in the preview while candidates are rendering", 
   const user = userEvent.setup();
 
   renderStudio();
-  await screen.findByRole("heading", { name: "Cover Studio" });
-  await user.click(screen.getByRole("button", { name: "Generate 4 covers" }));
+  await screen.findByRole("heading", { name: "封面工作室" });
+  await user.click(screen.getByRole("button", { name: "生成 4 张封面" }));
 
-  expect(screen.getByText("Preparing cover generation")).toBeInTheDocument();
-  expect(await screen.findByText("Generating cover 2 of 4")).toBeInTheDocument();
+  expect(screen.getByText("正在准备生成封面")).toBeInTheDocument();
+  expect(await screen.findByText("正在生成第 2/4 张封面")).toBeInTheDocument();
   expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
-  expect(screen.getAllByText("Generating image...")).toHaveLength(3);
+  expect(screen.getAllByText("正在生成图片…")).toHaveLength(3);
 });
 
 test("keeps a generation failure visible in the cover workspace", async () => {
@@ -401,8 +401,8 @@ test("keeps a generation failure visible in the cover workspace", async () => {
   const user = userEvent.setup();
 
   renderStudio();
-  await screen.findByRole("heading", { name: "Cover Studio" });
-  await user.click(screen.getByRole("button", { name: "Generate 4 covers" }));
+  await screen.findByRole("heading", { name: "封面工作室" });
+  await user.click(screen.getByRole("button", { name: "生成 4 张封面" }));
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Legacy cover story data is incomplete",
@@ -425,15 +425,15 @@ test("requires confirmation before rejecting a ready candidate", async () => {
   const user = userEvent.setup();
 
   renderStudio();
-  await screen.findByRole("heading", { name: "Cover Studio" });
-  await user.click(screen.getByRole("button", { name: "Reject candidate 1" }));
+  await screen.findByRole("heading", { name: "封面工作室" });
+  await user.click(screen.getByRole("button", { name: "拒绝候选图 1" }));
 
   expect(reject).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("button", { name: "Reject candidate" }));
+  await user.click(screen.getByRole("button", { name: "拒绝候选图" }));
   await waitFor(() => expect(reject).toHaveBeenCalledWith(
     project.id, ready.cover_set_id, "candidate-1", ready.revision,
   ));
-  expect(screen.getByText("rejected")).toBeInTheDocument();
+  expect(screen.getByText("已拒绝")).toBeInTheDocument();
 });
 
 test("reloads cover revisions after a selection conflict", async () => {
@@ -448,9 +448,9 @@ test("reloads cover revisions after a selection conflict", async () => {
   const user = userEvent.setup();
 
   renderStudio();
-  await screen.findByRole("heading", { name: "Cover Studio" });
-  await user.click(screen.getByRole("button", { name: "Select candidate 1" }));
-  await user.click(screen.getByRole("button", { name: "Use this cover" }));
+  await screen.findByRole("heading", { name: "封面工作室" });
+  await user.click(screen.getByRole("button", { name: "选择候选图 1" }));
+  await user.click(screen.getByRole("button", { name: "使用此封面" }));
 
   await waitFor(() => expect(covers).toHaveBeenCalledTimes(2));
   expect(await screen.findByText("Cover set revision changed")).toBeInTheDocument();

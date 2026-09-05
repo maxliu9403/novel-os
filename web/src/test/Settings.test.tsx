@@ -45,10 +45,12 @@ function configuration() {
       connection_id: id === "default" ? "primary" : "",
       model: id === "default" ? "story-model" : "",
       max_tokens: 8192,
+      reasoning_effort: id === "cover_director" ? "medium" : "",
       inherits_default: id !== "default",
       effective_connection_id: "primary",
       effective_connection_name: "Primary models",
       effective_model: "story-model",
+      effective_reasoning_effort: id === "cover_director" ? "medium" : "",
       effective_source: id === "default" ? "default" : "default",
       configured: true,
     })),
@@ -124,24 +126,24 @@ describe("model provider settings", () => {
   it("shows provider connections and capability health", async () => {
     renderSettings();
 
-    expect(await screen.findByRole("heading", { name: "Models & providers" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "模型与服务商" })).toBeInTheDocument();
     expect(screen.getByText("Primary models")).toBeInTheDocument();
-    expect(screen.getByText("Text model ready")).toBeInTheDocument();
-    expect(screen.getByText("Image model ready")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Text routing" })).toBeInTheDocument();
+    expect(screen.getByText("文本模型已就绪")).toBeInTheDocument();
+    expect(screen.getByText("图像模型已就绪")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "文本路由" })).toBeInTheDocument();
   });
 
   it("creates a provider connection with explicit capabilities and a write-only key", async () => {
     const user = userEvent.setup();
     renderSettings();
 
-    await user.click(await screen.findByRole("button", { name: "Add connection" }));
-    await user.selectOptions(screen.getByLabelText("Provider"), "openai_compatible");
-    await user.clear(screen.getByLabelText("Connection name"));
-    await user.type(screen.getByLabelText("Connection name"), "Shared gateway");
-    await user.type(screen.getByLabelText("API base URL"), "https://gateway.example/v1");
-    await user.type(screen.getByLabelText("API key"), "write-only-secret");
-    await user.click(screen.getByRole("button", { name: "Save connection" }));
+    await user.click(await screen.findByRole("button", { name: "添加连接" }));
+    await user.selectOptions(screen.getByLabelText("服务商"), "openai_compatible");
+    await user.clear(screen.getByLabelText("连接名称"));
+    await user.type(screen.getByLabelText("连接名称"), "Shared gateway");
+    await user.type(screen.getByLabelText("API 基础地址"), "https://gateway.example/v1");
+    await user.type(screen.getByLabelText("API 密钥"), "write-only-secret");
+    await user.click(screen.getByRole("button", { name: "保存连接" }));
 
     await waitFor(() => {
       const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith("/api/studio/providers") && item[1]?.method === "POST");
@@ -160,23 +162,23 @@ describe("model provider settings", () => {
     const user = userEvent.setup();
     renderSettings();
 
-    await user.click(await screen.findByRole("button", { name: "Add connection" }));
-    await user.selectOptions(screen.getByLabelText("Provider"), "anthropic");
+    await user.click(await screen.findByRole("button", { name: "添加连接" }));
+    await user.selectOptions(screen.getByLabelText("服务商"), "anthropic");
 
-    expect(screen.getByRole("button", { name: "Image generation" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Text generation" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "图像生成" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "文本生成" })).toBeEnabled();
   });
 
   it("saves a configurable image model through the image profile", async () => {
     const user = userEvent.setup();
     renderSettings();
 
-    await user.click(await screen.findByRole("tab", { name: "Image generation" }));
-    const model = screen.getByLabelText("Image model");
+    await user.click(await screen.findByRole("tab", { name: "图像生成" }));
+    const model = screen.getByLabelText("图像模型");
     await user.clear(model);
     await user.type(model, "publisher/image-v3");
     await user.click(screen.getByRole("button", { name: "1024x1536" }));
-    await user.click(screen.getByRole("button", { name: "Save settings" }));
+    await user.click(screen.getByRole("button", { name: "保存设置" }));
 
     await waitFor(() => {
       const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith("/api/studio/image-profiles/cover") && item[1]?.method === "PUT");
@@ -192,9 +194,9 @@ describe("model provider settings", () => {
     const user = userEvent.setup();
     renderSettings();
 
-    await user.click(await screen.findByRole("tab", { name: "Text routing" }));
-    expect(screen.getByLabelText("Writer model")).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Save routes" }));
+    await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+    expect(screen.getByLabelText("执笔者模型")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "保存路由" }));
 
     await waitFor(() => {
       const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith("/api/studio/model-routes") && item[1]?.method === "PUT");
@@ -203,12 +205,31 @@ describe("model provider settings", () => {
     });
   });
 
+  it("saves Cover Director reasoning separately while its model stays inherited", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+    expect(screen.getByLabelText("封面指导模型")).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText("封面指导推理强度"), "high");
+    await user.click(screen.getByRole("button", { name: "保存路由" }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith("/api/studio/model-routes") && item[1]?.method === "PUT");
+      const routes = JSON.parse(String(call?.[1]?.body)).routes;
+      expect(routes.find((route: { id: string }) => route.id === "cover_director")).toMatchObject({
+        inherits_default: true,
+        reasoning_effort: "high",
+      });
+    });
+  });
+
   it("runs a real text response test as a background job", async () => {
     const user = userEvent.setup();
     renderSettings();
 
-    await user.click(await screen.findByRole("tab", { name: "Text routing" }));
-    await user.click(screen.getByRole("button", { name: "Test response" }));
+    await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+    await user.click(screen.getByRole("button", { name: "测试响应" }));
 
     expect(await screen.findByText("The connection is working.")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
@@ -221,11 +242,11 @@ describe("model provider settings", () => {
     const user = userEvent.setup();
     renderSettings();
 
-    await user.click(await screen.findByRole("tab", { name: "Image generation" }));
-    await user.click(screen.getByRole("button", { name: "Test image" }));
-    await user.click(screen.getByRole("button", { name: "Generate test" }));
+    await user.click(await screen.findByRole("tab", { name: "图像生成" }));
+    await user.click(screen.getByRole("button", { name: "测试图片" }));
+    await user.click(screen.getByRole("button", { name: "生成测试图片" }));
 
-    expect(await screen.findByRole("img", { name: "Generated provider test" })).toHaveAttribute(
+    expect(await screen.findByRole("img", { name: "服务商生成测试图" })).toHaveAttribute(
       "src",
       "data:image/png;base64,aW1hZ2U=",
     );

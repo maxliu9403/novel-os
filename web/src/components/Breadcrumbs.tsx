@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 
 export default function Breadcrumbs({ items }: { items: { label: string; to?: string }[] }) {
   return (
-    <nav aria-label="Breadcrumb" className="mb-3 flex items-center gap-1.5 text-[12.5px] text-ink-muted">
+    <nav aria-label="面包屑导航" className="mb-3 flex items-center gap-1.5 text-[12.5px] text-ink-muted">
       {items.map((it, i) => (
         <span key={i} className="flex items-center gap-1.5">
           {it.to ? (

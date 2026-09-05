@@ -452,7 +452,9 @@ class LLMClient:
                         self.timeout_seconds,
                     )
             except subprocess.TimeoutExpired as exc:
-                raise LLMError("Codex CLI timed out") from exc
+                raise LLMError(
+                    f"Codex CLI timed out after {self.timeout_seconds:g} seconds"
+                ) from exc
             except OSError as exc:
                 raise LLMError(f"Failed to invoke the Codex CLI: {exc}") from exc
             if process.returncode != 0:

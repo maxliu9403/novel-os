@@ -79,7 +79,7 @@ export default function ChapterBoard({
     try {
       const updated = await api.patchBinderNode(id, node.id, { synopsis: text });
       setTree(updated);
-      toast("Synopsis saved", "success");
+      toast("章节梗概已保存", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     } finally {
@@ -97,7 +97,7 @@ export default function ChapterBoard({
         index,
       });
       setTree(updated);
-      toast("Chapter order updated", "success");
+      toast("章节顺序已更新", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     } finally {
@@ -135,7 +135,7 @@ export default function ChapterBoard({
       const updated = await api.binder(id);
       setTree(updated);
       toast(
-        r.source === "architect" ? "Synopsis refreshed" : "Synopsis drafted from outline",
+        r.source === "architect" ? "章节梗概已刷新" : "已根据大纲生成章节梗概",
         "success",
       );
     } catch (e) {
@@ -148,9 +148,9 @@ export default function ChapterBoard({
   if (chapters.length === 0 && cards.length === 0) {
     return (
       <div className="rounded-[24px] border border-dashed border-[rgba(74,91,133,0.18)] bg-white/45 px-8 py-12 text-center">
-        <p className="font-display text-[16px] tracking-[-0.02em] text-ink-text">No chapters planned yet</p>
+        <p className="font-display text-[16px] tracking-[-0.02em] text-ink-text">尚未规划章节</p>
         <p className="mt-2 text-[12.5px] text-ink-muted">
-          Plan one with <code className="font-mono text-[11px]">plan chapter --number 1</code>
+          可使用 <code className="font-mono text-[11px]">plan chapter --number 1</code> 规划第一章
         </p>
       </div>
     );
@@ -174,7 +174,7 @@ export default function ChapterBoard({
   return (
     <div>
       <p className="mb-3 text-[12.5px] text-ink-muted">
-        Corkboard · edit synopses · drag cards or use ↑↓ to reorder
+        章节卡板 · 编辑梗概 · 拖动卡片或使用 ↑↓ 调整顺序
       </p>
       <motion.div
         variants={grid}
@@ -229,8 +229,8 @@ export default function ChapterBoard({
                     <button
                       type="button"
                       draggable={busyId == null}
-                      title="Drag to reorder"
-                      aria-label={`Drag chapter ${n} to reorder`}
+                      title="拖动调整顺序"
+                      aria-label={`拖动第 ${n} 章调整顺序`}
                       onDragStart={(e) => {
                         setDraggingId(node.id);
                         e.dataTransfer.effectAllowed = "move";
@@ -246,7 +246,7 @@ export default function ChapterBoard({
                     </button>
                   )}
                   <span className="text-[12px] font-medium tracking-[-0.01em] text-ink-muted">
-                    Chapter {n || "—"}
+                    第 {n || "—"} 章
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
@@ -257,15 +257,15 @@ export default function ChapterBoard({
                           ? "bg-[#ffeaf1] text-[#c85177]"
                           : "bg-[#fff2dc] text-[#c47a1b]"
                       }`}
-                      title="Continuity findings"
+                      title="连续性问题"
                     >
                       <Icon
                         name={badge.critical > 0 ? "shield-alert" : "triangle-alert"}
                         className="h-3 w-3"
                       />
                       {badge.critical > 0
-                        ? `${badge.critical} critical`
-                        : `${badge.warning} warning`}
+                        ? `${badge.critical} 个严重问题`
+                        : `${badge.warning} 个警告`}
                     </span>
                   )}
                   <StatusPill status={meta?.status || node.status || "planned"} />
@@ -276,7 +276,7 @@ export default function ChapterBoard({
                 to={`/projects/${id}/chapters/${n}`}
                 className="mt-2.5 font-display text-[17px] font-semibold leading-snug tracking-[-0.02em] text-ink-text transition-colors hover:text-[var(--color-violet)]"
               >
-                {node.title || meta?.title || "Untitled"}
+                {node.title || meta?.title || "未命名"}
               </Link>
 
               <textarea
@@ -284,7 +284,7 @@ export default function ChapterBoard({
                 disabled={!editable || busyId === node.id}
                 onChange={(e) => setDrafts((d) => ({ ...d, [node.id]: e.target.value }))}
                 onBlur={() => { if (editable) void saveSynopsis(node); }}
-                placeholder="Add a synopsis…"
+                placeholder="添加章节梗概…"
                 rows={4}
                 className="mt-3 w-full resize-y rounded-xl border border-[rgba(96,112,153,0.14)] bg-white/70 px-3 py-2.5 text-[13px] leading-relaxed text-ink-text placeholder:text-paper-muted focus:border-[rgba(104,103,234,0.45)] focus:outline-none disabled:opacity-60"
               />
@@ -295,16 +295,16 @@ export default function ChapterBoard({
                   disabled={!editable || busyId != null}
                   onClick={() => void refreshSynopsis(node)}
                   className="rounded-full border border-[rgba(96,112,153,0.16)] bg-white/70 px-2.5 py-1 text-[11px] font-medium text-ink-muted transition-colors hover:text-[var(--color-violet)] disabled:opacity-40"
-                  title="Architect writes a corkboard synopsis"
+                  title="由架构师生成章节卡梗概"
                 >
-                  {busyId === node.id ? "Refreshing…" : "Refresh with Architect"}
+                  {busyId === node.id ? "正在刷新…" : "由架构师刷新"}
                 </button>
                 {editable && (
                   <div className="flex shrink-0">
                     <button
                       type="button"
-                      title="Move earlier"
-                      aria-label={`Move chapter ${n} up`}
+                      title="前移"
+                      aria-label={`前移第 ${n} 章`}
                       disabled={!canUp || busyId != null}
                       onClick={() => void move(node, -1)}
                       className="flex h-7 w-6 items-center justify-center rounded-lg text-[11px] font-semibold hover:bg-white/80 disabled:opacity-25"
@@ -313,8 +313,8 @@ export default function ChapterBoard({
                     </button>
                     <button
                       type="button"
-                      title="Move later"
-                      aria-label={`Move chapter ${n} down`}
+                      title="后移"
+                      aria-label={`后移第 ${n} 章`}
                       disabled={!canDown || busyId != null}
                       onClick={() => void move(node, 1)}
                       className="flex h-7 w-6 items-center justify-center rounded-lg text-[11px] font-semibold hover:bg-white/80 disabled:opacity-25"
@@ -327,12 +327,12 @@ export default function ChapterBoard({
 
               <div className="mt-3 flex items-center gap-2 text-[11.5px] text-ink-muted">
                 <span className="nums">
-                  {(meta?.word_count ?? node.word_count ?? 0).toLocaleString()} words
+                  {(meta?.word_count ?? node.word_count ?? 0).toLocaleString("zh-CN")} 字
                 </span>
                 {(meta?.pov || node.pov) && (
                   <>
                     <span className="text-paper-muted">·</span>
-                    <span className="truncate">POV {meta?.pov || node.pov}</span>
+                    <span className="truncate">视角人物：{meta?.pov || node.pov}</span>
                   </>
                 )}
               </div>

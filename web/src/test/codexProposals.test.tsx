@@ -32,7 +32,7 @@ test("lists what was found with the evidence for each", async () => {
   render(<CodexProposals projectId="book" onAccepted={() => {}} />);
 
   expect(await screen.findByText("Mara")).toBeInTheDocument();
-  expect(screen.getByText(/2 names not in your Codex yet/)).toBeInTheDocument();
+  expect(screen.getByText(/发现 2 个尚未收录到设定库的名称/)).toBeInTheDocument();
   expect(screen.getByText(/12 mentions, speaks/)).toBeInTheDocument();
 });
 
@@ -49,7 +49,7 @@ test("adding sends the proposal and tells the parent to refresh", async () => {
   const onAccepted = vi.fn();
   render(<CodexProposals projectId="book" onAccepted={onAccepted} />);
 
-  await userEvent.click(await screen.findByRole("button", { name: "Add Mara to Codex" }));
+  await userEvent.click(await screen.findByRole("button", { name: "将 Mara 添加到设定库" }));
 
   await waitFor(() => expect(add).toHaveBeenCalledWith("book", expect.objectContaining({
     name: "Mara",
@@ -62,7 +62,7 @@ test("an accepted row leaves the queue without reordering the rest", async () =>
   vi.spyOn(api, "addCodexEntry").mockResolvedValue([]);
   render(<CodexProposals projectId="book" onAccepted={() => {}} />);
 
-  await userEvent.click(await screen.findByRole("button", { name: "Add Mara to Codex" }));
+  await userEvent.click(await screen.findByRole("button", { name: "将 Mara 添加到设定库" }));
 
   await waitFor(() => expect(screen.queryByText("Mara")).not.toBeInTheDocument());
   expect(screen.getByText("Grey Harbour")).toBeInTheDocument();
@@ -72,7 +72,7 @@ test("dismissing is as cheap as accepting and writes nothing", async () => {
   const add = vi.spyOn(api, "addCodexEntry").mockResolvedValue([]);
   render(<CodexProposals projectId="book" onAccepted={() => {}} />);
 
-  await userEvent.click(await screen.findByRole("button", { name: "Dismiss Mara" }));
+  await userEvent.click(await screen.findByRole("button", { name: "忽略 Mara" }));
 
   expect(screen.queryByText("Mara")).not.toBeInTheDocument();
   expect(add).not.toHaveBeenCalled();
@@ -81,7 +81,7 @@ test("dismissing is as cheap as accepting and writes nothing", async () => {
 test("dismiss all empties the panel", async () => {
   render(<CodexProposals projectId="book" onAccepted={() => {}} />);
 
-  await userEvent.click(await screen.findByRole("button", { name: "Dismiss all" }));
+  await userEvent.click(await screen.findByRole("button", { name: "全部忽略" }));
 
   expect(screen.queryByText("Mara")).not.toBeInTheDocument();
   expect(screen.queryByText("Grey Harbour")).not.toBeInTheDocument();

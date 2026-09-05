@@ -12,7 +12,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = 1
-POLICY_VERSION = "publication-copy-policy.v2"
+POLICY_VERSION = "publication-copy-policy.v3"
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _RFC3339 = re.compile(

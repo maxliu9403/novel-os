@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
@@ -104,12 +105,42 @@ class MediaStore(ABC):
     @abstractmethod
     def delete(self, project_id: str, sha: str, ext: str) -> bool: ...
 
+    @abstractmethod
+    def project_stats(self, project_id: str) -> tuple[int, int]:
+        """Return ``(file_count, byte_count)`` for a project namespace."""
+
+    @abstractmethod
+    def delete_project(self, project_id: str) -> bool:
+        """Delete every blob in a project's namespace."""
+
 
 class LocalMediaStore(MediaStore):
     """Filesystem store: <root>/<project>/<sha[:2]>/<sha><ext>."""
 
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
+
+    def _namespace(self, project_id: str) -> Path:
+        # Reuse the same project-id shape rules as `_path`, but do not require a
+        # digest when operating on the complete namespace.
+        if (
+            not isinstance(project_id, str)
+            or not project_id
+            or not project_id[0].isalnum()
+            or project_id in {".", ".."}
+            or "/" in project_id
+            or "\\" in project_id
+            or ":" in project_id
+            or any(ord(char) < 32 or ord(char) == 127 for char in project_id)
+            or Path(project_id).name != project_id
+        ):
+            raise MediaError("Invalid project id.", status=404)
+        root = self.root.resolve()
+        candidate = root / project_id
+        resolved = candidate.resolve()
+        if resolved != root and root not in resolved.parents:
+            raise MediaError("Invalid project id.", status=404)
+        return candidate
 
     def _path(self, project_id: str, sha: str, ext: str) -> Path:
         # Project folders are user-facing identifiers and may contain Unicode.
@@ -154,4 +185,26 @@ class LocalMediaStore(MediaStore):
         if not path.exists():
             return False
         path.unlink()
+        return True
+
+    def project_stats(self, project_id: str) -> tuple[int, int]:
+        namespace = self._namespace(project_id)
+        if not namespace.exists() and not namespace.is_symlink():
+            return 0, 0
+        files = 0
+        size = 0
+        for item in namespace.rglob("*"):
+            if item.is_file() or item.is_symlink():
+                files += 1
+                size += item.lstat().st_size
+        return files, size
+
+    def delete_project(self, project_id: str) -> bool:
+        namespace = self._namespace(project_id)
+        if namespace.is_symlink():
+            namespace.unlink()
+            return True
+        if not namespace.exists():
+            return False
+        shutil.rmtree(namespace)
         return True

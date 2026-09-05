@@ -42,28 +42,28 @@ beforeEach(() => {
 
 test("opens pre-filled with the entry as it stands", () => {
   renderModal();
-  expect(screen.getByLabelText("Name")).toHaveValue("Grey Harbour");
-  expect(screen.getByLabelText("Summary")).toHaveValue("A fogbound port.");
-  expect(screen.getByLabelText("Notes")).toHaveValue("Lanterns burn blue.");
+  expect(screen.getByLabelText("名称")).toHaveValue("Grey Harbour");
+  expect(screen.getByLabelText("摘要")).toHaveValue("A fogbound port.");
+  expect(screen.getByLabelText("备注")).toHaveValue("Lanterns burn blue.");
 });
 
 test("Role is offered for people and hidden for places", () => {
   const { unmount } = renderModal(PLACE);
-  expect(screen.queryByLabelText("Role")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("角色定位")).not.toBeInTheDocument();
   unmount();
 
   renderModal(PERSON);
-  expect(screen.getByLabelText("Role")).toHaveValue("protagonist");
+  expect(screen.getByLabelText("角色定位")).toHaveValue("protagonist");
 });
 
 test("sends only the field that changed", async () => {
   const save = vi.spyOn(api, "updateCodexEntry").mockResolvedValue(PLACE);
   renderModal();
 
-  const summary = screen.getByLabelText("Summary");
+  const summary = screen.getByLabelText("摘要");
   await userEvent.clear(summary);
   await userEvent.type(summary, "Quarantined.");
-  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await userEvent.click(screen.getByRole("button", { name: "保存" }));
 
   await waitFor(() => expect(save).toHaveBeenCalled());
   // Crucially: no `notes` key, so the endpoint leaves the notes alone.
@@ -74,7 +74,7 @@ test("saving without changing anything does not call the API", async () => {
   const save = vi.spyOn(api, "updateCodexEntry");
   renderModal();
 
-  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await userEvent.click(screen.getByRole("button", { name: "保存" }));
 
   expect(save).not.toHaveBeenCalled();
 });
@@ -83,22 +83,22 @@ test("an empty name is refused before it reaches the server", async () => {
   const save = vi.spyOn(api, "updateCodexEntry");
   renderModal();
 
-  await userEvent.clear(screen.getByLabelText("Name"));
-  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await userEvent.clear(screen.getByLabelText("名称"));
+  await userEvent.click(screen.getByRole("button", { name: "保存" }));
 
   expect(save).not.toHaveBeenCalled();
-  expect(await screen.findByText(/Name cannot be empty/)).toBeInTheDocument();
+  expect(await screen.findByText(/名称不能为空/)).toBeInTheDocument();
 });
 
 test("a rejected save surfaces the reason and keeps the edits", async () => {
   vi.spyOn(api, "updateCodexEntry").mockRejectedValue(new Error("Name cannot be empty."));
   renderModal();
 
-  await userEvent.type(screen.getByLabelText("Notes"), " More.");
-  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await userEvent.type(screen.getByLabelText("备注"), " More.");
+  await userEvent.click(screen.getByRole("button", { name: "保存" }));
 
   expect(await screen.findByText(/Name cannot be empty/)).toBeInTheDocument();
-  expect(screen.getByLabelText("Notes")).toHaveValue("Lanterns burn blue. More.");
+  expect(screen.getByLabelText("备注")).toHaveValue("Lanterns burn blue. More.");
 });
 
 test("a successful save tells the page to reload", async () => {
@@ -106,8 +106,8 @@ test("a successful save tells the page to reload", async () => {
   const onSaved = vi.fn();
   renderModal(PLACE, onSaved);
 
-  await userEvent.type(screen.getByLabelText("Name"), "!");
-  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await userEvent.type(screen.getByLabelText("名称"), "!");
+  await userEvent.click(screen.getByRole("button", { name: "保存" }));
 
   await waitFor(() => expect(onSaved).toHaveBeenCalled());
 });

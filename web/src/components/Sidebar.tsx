@@ -43,9 +43,9 @@ export default function Sidebar() {
           <button
             type="button"
             onClick={() => setCollapsed((c) => !c)}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={collapsed ? "展开侧边栏" : "收起侧边栏"}
             aria-expanded={!collapsed}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={collapsed ? "展开侧边栏" : "收起侧边栏"}
             className="flex h-8 w-8 items-center justify-center rounded-xl text-ink-muted transition-colors hover:bg-white/70 hover:text-ink-text"
           >
             <Icon
@@ -70,8 +70,8 @@ export default function Sidebar() {
       <nav className={`flex flex-col gap-1.5 ${compact ? "px-2" : "px-3"}`}>
         <button
           type="button"
-          title="Search"
-          aria-label="Search"
+          title="搜索"
+          aria-label="搜索"
           onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
           className={`flex h-11 items-center rounded-2xl text-[13px] font-medium text-ink-muted transition-colors duration-150 hover:bg-white/70 hover:text-ink-text ${
             compact ? "justify-center px-0" : "justify-between gap-3 px-3.5"
@@ -79,7 +79,7 @@ export default function Sidebar() {
         >
           <span className={`flex items-center ${compact ? "" : "gap-2.5"}`}>
             <Icon name="search" className="h-4 w-4" />
-            {!compact && "Search"}
+            {!compact && "搜索"}
           </span>
           {!compact && (
             <kbd className="rounded-md border border-[rgba(74,91,133,0.14)] bg-white/80 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-ink-muted shadow-sm">
@@ -87,13 +87,13 @@ export default function Sidebar() {
             </kbd>
           )}
         </button>
-        <SideLink to="/" label="Library" hint="Projects" icon="library" end collapsed={compact} />
-        <SideLink to="/settings" label="Settings" hint="Models" icon="sparkles" collapsed={compact} />
+        <SideLink to="/" label="作品库" hint="全部作品" icon="library" end collapsed={compact} />
+        <SideLink to="/settings" label="设置" hint="模型配置" icon="sparkles" collapsed={compact} />
         {projectPath && (
           <>
             <div className={`my-1 h-px bg-[rgba(74,91,133,0.12)] ${compact ? "mx-1" : "mx-2"}`} />
-            <SideLink to={projectPath} label="Project" hint="Dashboard" icon="layout-dashboard" end collapsed={compact} />
-            <SideLink to={`${projectPath}/covers`} label="Covers" hint="2K studio" icon="image" end collapsed={compact} />
+            <SideLink to={projectPath} label="作品概览" hint="工作台" icon="layout-dashboard" end collapsed={compact} />
+            <SideLink to={`${projectPath}/covers`} label="封面" hint="2K 工作室" icon="image" end collapsed={compact} />
           </>
         )}
       </nav>
@@ -107,7 +107,7 @@ export default function Sidebar() {
             className="glass-card rounded-[20px] px-3.5 py-3.5"
           >
             <p className="text-[12px] leading-relaxed text-ink-muted">
-              Structure first. Prose second. Continuity always.
+              结构先行，文字随后，连续性贯穿始终。
             </p>
           </motion.div>
         </div>

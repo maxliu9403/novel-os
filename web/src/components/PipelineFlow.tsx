@@ -1,26 +1,21 @@
 import type { ChapterStages, StageProvenance } from "../api/client";
 import Icon, { type IconName } from "./Icon";
+import { agentLabel as localizeAgent } from "../lib/displayLabels";
 
 export type StageKey = "outline" | "draft" | "revised" | "final";
 
 const STAGES: { key: StageKey; label: string; agent: string; icon: IconName }[] = [
-  { key: "outline", label: "Outline", agent: "Architect", icon: "compass" },
-  { key: "draft", label: "Draft", agent: "Scribe", icon: "pen-line" },
-  { key: "revised", label: "Revised", agent: "Editor", icon: "scissors" },
-  { key: "final", label: "Final", agent: "You", icon: "scroll-text" },
+  { key: "outline", label: "大纲", agent: "架构师", icon: "compass" },
+  { key: "draft", label: "初稿", agent: "执笔者", icon: "pen-line" },
+  { key: "revised", label: "修订稿", agent: "编辑", icon: "scissors" },
+  { key: "final", label: "定稿", agent: "你", icon: "scroll-text" },
 ];
 
 function agentLabel(fallback: string, prov?: StageProvenance) {
   const raw = (prov?.produced_by_agent || "").trim();
   if (!raw) return fallback;
-  const pretty: Record<string, string> = {
-    architect: "Architect",
-    scribe: "Scribe",
-    editor: "Editor",
-    continuity_guardian: "Guardian",
-    author: "You",
-  };
-  return pretty[raw] || raw;
+  if (raw === "author") return "你";
+  return localizeAgent(raw, raw);
 }
 
 /** Pipeline ribbon with P3.2 provenance (agent + model). */
@@ -41,14 +36,14 @@ export default function PipelineFlow({
         const present = stages[s.key] != null;
         const isSel = selected === s.key;
         const prov = provenance[s.key];
-        const who = present ? agentLabel(s.agent, prov) : "Not run";
+        const who = present ? agentLabel(s.agent, prov) : "尚未运行";
         const model = (prov?.produced_by_model || "").trim();
         const needsReview =
           present
           && (s.key === "draft" || s.key === "revised")
           && !(prov?.reviewed_by || "").trim();
         const sub = needsReview
-          ? `${who} · Needs review`
+          ? `${who} · 待审核`
           : model && present
             ? `${who} · ${model}`
             : who;
@@ -60,14 +55,14 @@ export default function PipelineFlow({
             title={
               present
                 ? [
-                    needsReview ? "Needs review" : null,
-                    prov?.updated_at ? `Updated ${prov.updated_at}` : null,
-                    prov?.reviewed_by ? `Reviewed by ${prov.reviewed_by}` : null,
-                    prov?.word_count ? `${prov.word_count} words` : null,
+                    needsReview ? "待审核" : null,
+                    prov?.updated_at ? `更新于 ${prov.updated_at}` : null,
+                    prov?.reviewed_by ? `审核人：${localizeAgent(prov.reviewed_by, prov.reviewed_by)}` : null,
+                    prov?.word_count ? `${prov.word_count} 字` : null,
                   ]
                     .filter(Boolean)
                     .join(" · ") || s.label
-                : `${s.label} not generated yet`
+                : `尚未生成${s.label}`
             }
             className={`group flex flex-1 flex-col items-start rounded-2xl px-3.5 py-2.5 text-left transition-all duration-200 ${
               isSel

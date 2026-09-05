@@ -55,7 +55,7 @@ export default function EditCodexModal({
     e.preventDefault();
     if (!entry || busy) return;
     if (!name.trim()) {
-      toast("Name cannot be empty.", "error");
+      toast("名称不能为空。", "error");
       return;
     }
 
@@ -74,7 +74,7 @@ export default function EditCodexModal({
     setBusy(true);
     try {
       await api.updateCodexEntry(projectId, entry.id, changes);
-      toast("Saved", "success");
+      toast("已保存", "success");
       onSaved();
       onClose();
     } catch (err) {
@@ -85,55 +85,55 @@ export default function EditCodexModal({
   }
 
   return (
-    <Modal open={open && entry != null} onClose={onClose} title={`Edit ${entry?.name ?? ""}`}>
+    <Modal open={open && entry != null} onClose={onClose} title={`编辑「${entry?.name ?? ""}」`}>
       <form onSubmit={save}>
-        <Field label="Name">
+        <Field label="名称">
           <input
             className={fieldClass}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            aria-label="Name"
+            aria-label="名称"
           />
         </Field>
 
         {isPerson && (
-          <Field label="Role">
+          <Field label="角色定位">
             <input
               className={fieldClass}
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              placeholder="protagonist, antagonist, supporting…"
-              aria-label="Role"
+              placeholder="例如：主角、反派、配角…"
+              aria-label="角色定位"
             />
           </Field>
         )}
 
-        <Field label="Summary">
+        <Field label="摘要">
           <textarea
             className={fieldClass}
             rows={2}
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
-            aria-label="Summary"
+            aria-label="摘要"
           />
         </Field>
 
-        <Field label="Notes">
+        <Field label="备注">
           <textarea
             className={fieldClass}
             rows={4}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            aria-label="Notes"
+            aria-label="备注"
           />
         </Field>
 
         <div className="mt-5 flex justify-end gap-3">
           <button type="button" className="btn-ghost" onClick={onClose}>
-            Cancel
+            取消
           </button>
           <button type="submit" className="btn-primary disabled:opacity-40" disabled={busy}>
-            {busy ? "Saving…" : "Save"}
+            {busy ? "正在保存…" : "保存"}
           </button>
         </div>
       </form>

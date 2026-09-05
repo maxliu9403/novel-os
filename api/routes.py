@@ -6,21 +6,22 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
 from fastapi import Response
 from fastapi.responses import PlainTextResponse
 
-from . import db, media as media_lib, richtext
+from . import db, media as media_lib, richtext, tenancy
 from .cover_service import CoverService, CoverServiceError
-from .jobs import runner
+from .jobs import ProjectJobBlocked, ProjectJobsRunning, runner
 from .models import (
     AddCharacter, AddCodexEntry, AddComment, AddRelationship, ChapterDetail, ChapterStages,
     CodexProposal, ContinuityExemption, ExemptFinding, BookShape, StyleSheetOut,
     ChapterSummary, CharacterSummary, CodexEntryOut, Comment, ConsequenceAccept,
     ConsequenceAcceptResult, ConsequencePreview, ConsequencePreviewRequest, ContinuityReport,
     ContinueParagraph, ContinueResult, CreateProject, CreateSnapshot, FinalDoc, FinalDocSave,
-    FinalResult, FinalSave, Job, MediaOut, ProjectDetail, ProjectSummary, RelationshipOut,
+    FinalResult, FinalSave, Job, MediaOut, ProjectDeletionPreview,
+    ProjectDeletionResult, ProjectDetail, ProjectSummary, RelationshipOut,
     RunPhase, CoverGenerateRequest, CoverCandidateMutation, SearchHit, CollectionOut,
     CreateCollection, SetPortrait, SnapshotMeta, SnapshotText, StageDiff, StageReviewRequest,
     StageReviewResult, StudioCoverStatus, StudioCoverUpdate, StudioLlmStatus,
@@ -38,13 +39,71 @@ from .services import (
     BadRequest, ChapterNotFound, NoSourceArtifact, ProjectNotFound, ProjectService,
     PromotionConflict, PromotionIntegrityFailure, PromotionUnavailable,
 )
-
-router = APIRouter(prefix="/api")
+from .project_deletion import (
+    ProjectDeletionConfirmationError,
+    ProjectDeletionError,
+    ProjectDeletionService,
+)
+from .project_operations import ProjectMutationBlocked, project_operations
 
 
 def get_service() -> ProjectService:
     root = Path(os.environ.get("NOVEL_OS_PROJECTS_DIR", "./projects"))
     return ProjectService(root)
+
+
+def _guard_project_mutation(
+    request: Request,
+    svc: ProjectService = Depends(get_service),
+):
+    """Gate every path-scoped synchronous write through one dependency.
+
+    The permanent project DELETE owns its exclusive lease inside the deletion
+    module, so it is the only project mutation intentionally excluded here.
+    """
+    project_id = request.path_params.get("project_id")
+    path_parts = request.url.path.strip("/").split("/")
+    stage_projection_get = (
+        request.method == "GET"
+        and len(path_parts) == 6
+        and path_parts[:2] == ["api", "projects"]
+        and path_parts[3] == "chapters"
+        and path_parts[5] == "stages"
+    )
+    if (
+        request.method not in {"POST", "PUT", "PATCH", "DELETE"}
+        and not stage_projection_get
+    ) or not project_id:
+        yield
+        return
+
+    if (
+        request.method == "DELETE"
+        and path_parts[:2] == ["api", "projects"]
+        and len(path_parts) == 3
+    ):
+        yield
+        return
+
+    try:
+        project_path = tenancy.project_dir(svc.root, project_id, svc.workspace)
+    except tenancy.TenancyError:
+        # Keep malformed ids indistinguishable from missing projects; the
+        # handler's ordinary resolver supplies the established 404 response.
+        yield
+        return
+
+    try:
+        with project_operations.mutation(project_path):
+            yield
+    except ProjectMutationBlocked as exc:
+        raise _project_job_blocked_http() from exc
+
+
+router = APIRouter(
+    prefix="/api",
+    dependencies=[Depends(_guard_project_mutation)],
+)
 
 
 def _promotion_http_error(error: Exception) -> HTTPException:
@@ -62,6 +121,16 @@ def _promotion_http_error(error: Exception) -> HTTPException:
             detail=f"Promotion integrity conflict: {error}",
         )
     return HTTPException(status_code=409, detail=f"Promotion conflict: {error}")
+
+
+def _project_job_blocked_http() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "project_deleting",
+            "message": "小说正在删除或已被删除，无法启动新任务。",
+        },
+    )
 
 
 def get_media_store() -> media_lib.MediaStore:
@@ -107,6 +176,9 @@ def get_cover_art_director():
             base_url=settings.base_url or None,
             api_key=settings.api_key or None,
             timeout_seconds=settings.timeout_seconds,
+            # Keep the Cover Director's route-level effort independent from
+            # the interactive Codex profile mounted into the container.
+            reasoning_effort=settings.reasoning_effort or None,
         )
     except (LLMError, ValueError) as exc:
         message = str(exc)
@@ -205,6 +277,7 @@ def put_studio_cover(body: StudioCoverUpdate):
         "director_base_url": "NOVEL_OS_COVER_DIRECTOR_BASE_URL",
         "director_api_key": "NOVEL_OS_COVER_DIRECTOR_API_KEY",
         "director_timeout_seconds": "NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS",
+        "director_reasoning_effort": "NOVEL_OS_COVER_DIRECTOR_REASONING_EFFORT",
     }
     patch: dict[str, object | None] = {}
     for field, key in field_keys.items():
@@ -463,6 +536,8 @@ def create_project(body: CreateProject, svc: ProjectService = Depends(get_servic
         )
     except BadRequest as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except ProjectMutationBlocked as exc:
+        raise _project_job_blocked_http() from exc
 
 
 @router.post("/projects/sample", response_model=ProjectSummary, status_code=201)
@@ -472,6 +547,66 @@ def create_sample_project(svc: ProjectService = Depends(get_service)):
         return svc.create_sample_project()
     except BadRequest as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except ProjectMutationBlocked as exc:
+        raise _project_job_blocked_http() from exc
+
+
+@router.get(
+    "/projects/{project_id}/deletion-preview",
+    response_model=ProjectDeletionPreview,
+)
+def project_deletion_preview(
+    project_id: str,
+    svc: ProjectService = Depends(get_service),
+    store: media_lib.MediaStore = Depends(get_media_store),
+):
+    try:
+        return ProjectDeletionService(svc, store, runner).preview(project_id)
+    except ProjectNotFound:
+        raise HTTPException(status_code=404, detail=f"未找到小说“{project_id}”。")
+
+
+@router.delete("/projects/{project_id}", response_model=ProjectDeletionResult)
+def delete_project(
+    project_id: str,
+    confirm_title: str,
+    svc: ProjectService = Depends(get_service),
+    store: media_lib.MediaStore = Depends(get_media_store),
+):
+    try:
+        return ProjectDeletionService(svc, store, runner).delete(
+            project_id,
+            confirm_title=confirm_title,
+        )
+    except ProjectNotFound:
+        raise HTTPException(status_code=404, detail=f"未找到小说“{project_id}”。")
+    except ProjectDeletionConfirmationError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "project_title_confirmation_mismatch",
+                "message": "小说标题已变化或确认标题不匹配，请重新预览后再删除。",
+                "current_title": exc.expected_title,
+            },
+        ) from exc
+    except ProjectJobsRunning as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "project_jobs_running",
+                "message": "项目仍有运行中的任务，请等待任务完成后重试。",
+                "running_job_ids": list(exc.job_ids),
+            },
+        ) from exc
+    except ProjectDeletionError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "project_deletion_incomplete",
+                "message": "小说数据未能完整删除，请重试。",
+                "reason": str(exc),
+            },
+        ) from exc
 
 
 def _continuity_report(raw: list[dict]) -> ContinuityReport:
@@ -560,11 +695,19 @@ def add_character(project_id: str, body: AddCharacter, svc: ProjectService = Dep
 def run_phase(project_id: str, body: RunPhase, svc: ProjectService = Depends(get_service)):
     try:
         fn = svc.make_phase_job(project_id, body.stage, body.params)
+        project_path = str(svc.project_path(project_id))
     except ProjectNotFound:
         raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
     except BadRequest as e:
         raise HTTPException(status_code=400, detail=str(e))
-    job_id = runner.submit(body.stage, fn, meta={"project_id": project_id})
+    try:
+        job_id = runner.submit(
+            body.stage,
+            fn,
+            meta={"project_id": project_id, "project_path": project_path},
+        )
+    except ProjectJobBlocked as exc:
+        raise _project_job_blocked_http() from exc
     return runner.get(job_id)
 
 
@@ -1214,13 +1357,20 @@ def generate_covers(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    job_id = runner.submit(
-        "cover.generate",
-        lambda: covers.generate(
-            project_id, project, brief, concepts, compiler_version=compiler_version,
-        ),
-        meta={"project_id": project_id, "direction_id": body.direction_id},
-    )
+    try:
+        job_id = runner.submit(
+            "cover.generate",
+            lambda: covers.generate(
+                project_id, project, brief, concepts, compiler_version=compiler_version,
+            ),
+            meta={
+                "project_id": project_id,
+                "project_path": str(project),
+                "direction_id": body.direction_id,
+            },
+        )
+    except ProjectJobBlocked as exc:
+        raise _project_job_blocked_http() from exc
     return runner.get(job_id)
 
 
@@ -1370,18 +1520,25 @@ def retry_cover_candidate(
                 status_code=400,
                 detail="Retry repair codes must be reported by the candidate quality report",
             )
-    job_id = runner.submit(
-        "cover.retry",
-        lambda: covers.retry_candidate(
-            project_id,
-            project,
-            cover_set_id,
-            candidate_id,
-            expected_revision=body.expected_revision,
-            repair_codes=body.repair_codes,
-        ),
-        meta={"project_id": project_id, "cover_set_id": cover_set_id},
-    )
+    try:
+        job_id = runner.submit(
+            "cover.retry",
+            lambda: covers.retry_candidate(
+                project_id,
+                project,
+                cover_set_id,
+                candidate_id,
+                expected_revision=body.expected_revision,
+                repair_codes=body.repair_codes,
+            ),
+            meta={
+                "project_id": project_id,
+                "project_path": str(project),
+                "cover_set_id": cover_set_id,
+            },
+        )
+    except ProjectJobBlocked as exc:
+        raise _project_job_blocked_http() from exc
     return runner.get(job_id)
 
 

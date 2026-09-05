@@ -139,10 +139,18 @@ def test_codex_login_can_back_text_and_image_profiles(monkeypatch) -> None:
     })
 
     text = provider_settings.resolve_text_route("writer")
+    cover_director = provider_settings.resolve_text_route("cover_director")
+    cover_director_status = next(
+        route
+        for route in provider_settings.text_routes_status()
+        if route["id"] == "cover_director"
+    )
     image = studio_settings.resolve_cover_settings()
 
     assert text["provider"] == "codex"
     assert text["api_key"] == ""
+    assert cover_director["reasoning_effort"] == "medium"
+    assert cover_director_status["effective_reasoning_effort"] == "medium"
     assert image.provider == "codex"
     assert image.api_key == ""
     assert studio_settings.cover_status()["configured"] is True
@@ -273,6 +281,7 @@ def test_model_router_uses_v2_role_override(monkeypatch) -> None:
             "connection_id": connection["id"],
             "model": "editor-specialist",
             "max_tokens": 4096,
+            "reasoning_effort": "high",
             "inherits_default": False,
         },
     ])
@@ -285,7 +294,45 @@ def test_model_router_uses_v2_role_override(monkeypatch) -> None:
         "base_url": "https://models.example/v1",
         "api_key": "provider-secret",
         "max_tokens": 4096,
+        "reasoning_effort": "high",
     }
+
+
+def test_inherited_cover_route_can_override_only_reasoning_effort(monkeypatch) -> None:
+    monkeypatch.setattr(provider_settings.shutil, "which", lambda _name: "/usr/local/bin/codex")
+    connection = provider_settings.save_connection({
+        "name": "Codex subscription",
+        "provider": "codex",
+        "auth_type": "codex_session",
+        "capabilities": ["text_generation", "image_generation"],
+    })
+    provider_settings.save_text_routes([
+        {
+            "id": "default",
+            "connection_id": connection["id"],
+            "model": "gpt-5.6-sol",
+            "reasoning_effort": "ultra",
+            "inherits_default": False,
+        },
+        {
+            "id": "cover_director",
+            "reasoning_effort": "medium",
+            "inherits_default": True,
+        },
+    ])
+
+    route = provider_settings.resolve_text_route("cover_director")
+    status = next(
+        item
+        for item in provider_settings.text_routes_status()
+        if item["id"] == "cover_director"
+    )
+
+    assert route["connection_id"] == connection["id"]
+    assert route["model"] == "gpt-5.6-sol"
+    assert route["reasoning_effort"] == "medium"
+    assert status["reasoning_effort"] == "medium"
+    assert status["effective_reasoning_effort"] == "medium"
 
 
 def test_legacy_settings_project_into_shared_connection() -> None:

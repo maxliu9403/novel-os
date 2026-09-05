@@ -42,6 +42,7 @@ TEXT_ROUTE_IDS = (
     "judge",
     "cover_director",
 )
+REASONING_EFFORTS = ("", "low", "medium", "high", "xhigh", "max", "ultra")
 
 PROVIDER_TEMPLATES: tuple[dict[str, Any], ...] = (
     {
@@ -180,13 +181,29 @@ def _integer(value: Any, default: int) -> int:
         return default
 
 
+def _reasoning_effort(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized not in REASONING_EFFORTS:
+        choices = ", ".join(item for item in REASONING_EFFORTS if item)
+        raise ProviderSettingsError(
+            f"Reasoning effort must be blank or one of: {choices}"
+        )
+    return normalized
+
+
 def _legacy_configuration(values: Mapping[str, Any]) -> dict[str, Any]:
     provider = str(values.get("NOVEL_OS_LLM_PROVIDER") or "").strip()
     model = str(values.get("NOVEL_OS_MODEL") or "").strip()
     base_url = str(values.get("NOVEL_OS_BASE_URL") or "").strip().rstrip("/")
     key = _legacy_key(values, provider)
     connections: list[dict[str, Any]] = []
-    routes = {route: {"inherits_default": route != "default"} for route in TEXT_ROUTE_IDS}
+    routes = {
+        route: {
+            "inherits_default": route != "default",
+            "reasoning_effort": "",
+        }
+        for route in TEXT_ROUTE_IDS
+    }
     max_tokens = _integer(values.get("NOVEL_OS_MAX_TOKENS"), 8192)
 
     if provider or model or base_url or key:
@@ -212,6 +229,7 @@ def _legacy_configuration(values: Mapping[str, Any]) -> dict[str, Any]:
             "connection_id": connection_id,
             "model": model,
             "max_tokens": max_tokens,
+            "reasoning_effort": "",
             "inherits_default": False,
         }
 
@@ -247,6 +265,9 @@ def _legacy_configuration(values: Mapping[str, Any]) -> dict[str, Any]:
         "model": str(values.get("NOVEL_OS_COVER_DIRECTOR_MODEL") or "").strip(),
         "base_url": str(values.get("NOVEL_OS_COVER_DIRECTOR_BASE_URL") or "").strip().rstrip("/"),
         "api_key": str(values.get("NOVEL_OS_COVER_DIRECTOR_API_KEY") or "").strip(),
+        "reasoning_effort": _reasoning_effort(
+            values.get("NOVEL_OS_COVER_DIRECTOR_REASONING_EFFORT")
+        ),
     }
     if any(director_values.values()) and connections:
         director_connection = connections[0]["id"]
@@ -279,6 +300,7 @@ def _legacy_configuration(values: Mapping[str, Any]) -> dict[str, Any]:
             "connection_id": director_connection,
             "model": director_values["model"] or model,
             "max_tokens": max_tokens,
+            "reasoning_effort": director_values["reasoning_effort"],
             "inherits_default": False,
         }
 
@@ -580,28 +602,42 @@ def text_routes_status(configuration: Mapping[str, Any] | None = None) -> list[d
     for route_id in TEXT_ROUTE_IDS:
         raw = routes.get(route_id) if isinstance(routes.get(route_id), dict) else {}
         source_id, effective = _route_effective(route_id, routes)
+        local_reasoning = _reasoning_effort(raw.get("reasoning_effort"))
+        effective_reasoning = local_reasoning or _reasoning_effort(
+            effective.get("reasoning_effort")
+        )
         connection_id = str(effective.get("connection_id") or "")
         connection_name = ""
+        connection_provider = ""
         configured = False
         if connection_id:
             try:
                 connection = _connection(config, connection_id)
                 connection_name = str(connection.get("name") or "")
+                connection_provider = str(connection.get("provider") or "")
                 configured = (
                     TEXT_CAPABILITY in set(connection.get("capabilities") or [])
                     and _connection_status(connection)[0] == "ready"
                 )
             except ProviderSettingsError:
                 configured = False
+        if (
+            not effective_reasoning
+            and route_id == "cover_director"
+            and connection_provider == "codex"
+        ):
+            effective_reasoning = "medium"
         result.append({
             "id": route_id,
             "connection_id": str(raw.get("connection_id") or ""),
             "model": str(raw.get("model") or ""),
             "max_tokens": int(raw.get("max_tokens") or 8192),
+            "reasoning_effort": local_reasoning,
             "inherits_default": bool(raw.get("inherits_default", route_id != "default")),
             "effective_connection_id": connection_id,
             "effective_connection_name": connection_name,
             "effective_model": str(effective.get("model") or ""),
+            "effective_reasoning_effort": effective_reasoning,
             "effective_source": source_id,
             "configured": configured,
         })
@@ -617,10 +653,14 @@ def save_text_routes(routes: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]
             if route_id not in TEXT_ROUTE_IDS:
                 raise ProviderSettingsError(f"Unknown text route '{route_id}'")
             inherits = bool(item.get("inherits_default", route_id != "default"))
+            reasoning_effort = _reasoning_effort(item.get("reasoning_effort"))
             if route_id == "default" and inherits:
                 raise ProviderSettingsError("The default route cannot inherit")
             if inherits:
-                current[route_id] = {"inherits_default": True}
+                current[route_id] = {
+                    "inherits_default": True,
+                    "reasoning_effort": reasoning_effort,
+                }
                 continue
             connection_id = str(item.get("connection_id") or "").strip()
             connection = _connection(configuration, connection_id)
@@ -638,6 +678,7 @@ def save_text_routes(routes: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]
                 "connection_id": connection_id,
                 "model": model,
                 "max_tokens": max_tokens,
+                "reasoning_effort": reasoning_effort,
                 "inherits_default": False,
             }
         if not current.get("default", {}).get("connection_id"):
@@ -656,6 +697,7 @@ def resolve_text_route(route_id: str) -> dict[str, Any]:
         raise ProviderSettingsError(f"Unknown text route '{route_id}'")
     configuration = load_configuration()
     routes = configuration.get("text_routes", {})
+    raw = routes.get(normalized) if isinstance(routes.get(normalized), dict) else {}
     _, route = _route_effective(normalized, routes)
     connection_id = str(route.get("connection_id") or "")
     if not connection_id:
@@ -666,6 +708,11 @@ def resolve_text_route(route_id: str) -> dict[str, Any]:
     status, error = _connection_status(connection)
     if status != "ready":
         raise ProviderSettingsError(error or "Selected connection is not ready")
+    reasoning_effort = _reasoning_effort(raw.get("reasoning_effort")) or _reasoning_effort(
+        route.get("reasoning_effort")
+    )
+    if not reasoning_effort and normalized == "cover_director" and connection.get("provider") == "codex":
+        reasoning_effort = "medium"
     return {
         "connection_id": connection_id,
         "provider": connection.get("provider", ""),
@@ -673,6 +720,7 @@ def resolve_text_route(route_id: str) -> dict[str, Any]:
         "base_url": connection.get("base_url", ""),
         "api_key": _connection_secret(connection),
         "max_tokens": int(route.get("max_tokens") or 8192),
+        "reasoning_effort": reasoning_effort,
     }
 
 
@@ -699,6 +747,7 @@ def apply_default_route_to_environ(configuration: Mapping[str, Any] | None = Non
 
 def _resolved_from(configuration: Mapping[str, Any], route_id: str) -> dict[str, Any]:
     routes = configuration.get("text_routes", {})
+    raw = routes.get(route_id) if isinstance(routes.get(route_id), dict) else {}
     _, route = _route_effective(route_id, routes)
     connection = _connection(configuration, str(route.get("connection_id") or ""))
     return {
@@ -707,6 +756,8 @@ def _resolved_from(configuration: Mapping[str, Any], route_id: str) -> dict[str,
         "base_url": connection.get("base_url", ""),
         "api_key": _connection_secret(connection),
         "max_tokens": int(route.get("max_tokens") or 8192),
+        "reasoning_effort": _reasoning_effort(raw.get("reasoning_effort"))
+        or _reasoning_effort(route.get("reasoning_effort")),
     }
 
 

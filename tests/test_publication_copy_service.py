@@ -159,6 +159,82 @@ def _long_source_set() -> PublicationSourceSet:
     )
 
 
+def _twenty_one_chapter_source_set() -> PublicationSourceSet:
+    texts = [
+        (
+            "Mara files her appeal while the family conflict remains unresolved."
+            if number == 2
+            else f"Chapter {number} conflict pressure remains unresolved."
+        )
+        for number in range(1, 22)
+    ]
+    chapters = tuple(
+        SourceChapter(
+            number=number,
+            title=f"Chapter {number}",
+            revision_id=hashlib.sha256(
+                f"twenty-one-revision-{number}".encode()
+            ).hexdigest(),
+            sha256=hashlib.sha256(text.encode()).hexdigest(),
+            text=text,
+            promotion_receipt_id=(
+                "promotion-receipt-"
+                + hashlib.sha256(
+                    f"twenty-one-receipt-{number}".encode()
+                ).hexdigest()
+            ),
+            finalized_at=FINISHED_AT,
+        )
+        for number, text in enumerate(texts, start=1)
+    )
+    identity = [
+        {
+            "chapter": chapter.number,
+            "revision_id": chapter.revision_id,
+            "sha256": chapter.sha256,
+        }
+        for chapter in chapters
+    ]
+    return PublicationSourceSet(
+        run_id="run-001",
+        chapters=chapters,
+        source_set_sha256=hashlib.sha256(canonical_json_bytes(identity)).hexdigest(),
+    )
+
+
+def _twenty_one_chapter_conflict(*, late_chapter: int) -> dict:
+    return {
+        "protagonist": "Mara Vale",
+        "goal": "Protect her place in the family",
+        "opposition": "Adrian's repeated betrayal",
+        "stakes": "Mara could lose the life she spent decades building",
+        "escalation": "Private pressure becomes a public final test",
+        "unresolved_choice": "Whether Mara will finally choose herself",
+        "evidence": {
+            "opening": [
+                {
+                    "chapter": 1,
+                    "source_quote": "Chapter 1 conflict pressure remains unresolved.",
+                }
+            ],
+            "middle": [
+                {
+                    "chapter": 10,
+                    "source_quote": "Chapter 10 conflict pressure remains unresolved.",
+                }
+            ],
+            "late": [
+                {
+                    "chapter": late_chapter,
+                    "source_quote": (
+                        f"Chapter {late_chapter} conflict pressure remains unresolved."
+                    ),
+                }
+            ],
+        },
+    }
+
+
 def _conflict() -> dict:
     return {
         "protagonist": "Mara Vale",
@@ -391,7 +467,7 @@ def test_generate_requires_three_buckets_and_records_all_model_provenance(tmp_pa
     assert publication_copy.generation.to_dict() == {
         "conflict_provider": "style-provider",
         "conflict_model": "style-model",
-        "conflict_prompt_version": "whole-book-conflict.v1",
+        "conflict_prompt_version": "whole-book-conflict.v2",
         "conflict_response_sha256": hashlib.sha256(conflict_raw.encode()).hexdigest(),
         "writer_provider": "style-provider",
         "writer_model": "style-model",
@@ -648,7 +724,7 @@ def test_semantic_failure_repairs_at_most_twice_without_regenerating_conflict(tm
     publication_copy = _generate(tmp_path, writer, guardian)
 
     assert publication_copy.validation.status == "pass"
-    assert writer.prompt_versions.count("whole-book-conflict.v1") == 1
+    assert writer.prompt_versions.count("whole-book-conflict.v2") == 1
     assert writer.prompt_versions.count("publication-copy-writer.v2") == 3
     feedback = sorted(
         (tmp_path / "outputs/runs/run-001/feedback").glob(
@@ -839,10 +915,38 @@ def test_conflict_evidence_must_cover_the_correct_opening_middle_late_buckets(tm
     guardian = FakeClient([], provider="guardian-provider", model="guardian-model")
 
     with pytest.raises(PublicationCopyBlocked, match="late.*bucket"):
-        _generate(tmp_path, writer, guardian)
+        _generate(tmp_path, writer, guardian, max_repairs=0)
 
     assert len(writer.calls) == 1
     assert not (tmp_path / "outputs/publication/publication-copy.json").exists()
+
+
+def test_conflict_extractor_repairs_a_twenty_one_chapter_late_bucket_boundary(
+    tmp_path,
+):
+    source = _twenty_one_chapter_source_set()
+    writer = FakeClient(
+        [
+            _raw(_twenty_one_chapter_conflict(late_chapter=16)),
+            _raw(_twenty_one_chapter_conflict(late_chapter=17)),
+            _raw(_writer_candidate()),
+        ],
+        provider="style-provider",
+        model="style-model",
+    )
+    guardian = FakeClient(
+        [_raw(_preflight_pass()), _raw(_guardian_pass())],
+        provider="guardian-provider",
+        model="guardian-model",
+    )
+
+    publication_copy = _generate(tmp_path, writer, guardian, source=source)
+
+    assert publication_copy.validation.status == "pass"
+    assert len(writer.calls) == 3
+    repair_user = writer.calls[1][1]
+    assert "late evidence chapter 16 is outside the late bucket" in repair_user
+    assert '"late":[17,18,19,20,21]' in repair_user
 
 
 def test_conflict_extractor_repairs_a_nonexact_source_quote(tmp_path):
@@ -979,7 +1083,7 @@ def test_long_source_consolidates_different_fragments_and_emits_bound_evidence_l
     publication_copy = _generate(tmp_path, writer, guardian, source=source)
 
     assert publication_copy.whole_book_core_conflict.to_dict() == _long_conflict()
-    assert writer.prompt_versions.count("whole-book-conflict.v1") == 3
+    assert writer.prompt_versions.count("whole-book-conflict.v2") == 3
     assert writer.prompt_versions[-1] == "publication-copy-writer.v2"
     assert len(guardian.calls) == 4
     assert "group_reports" in guardian.calls[-1][1]

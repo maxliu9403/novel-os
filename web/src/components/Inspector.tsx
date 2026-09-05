@@ -6,9 +6,10 @@ import { useToast } from "./toastContext";
 import { useConfirm } from "./confirmContext";
 import DiffView from "./DiffView";
 import Icon, { type IconName } from "./Icon";
+import { displayLabel } from "../lib/displayLabels";
 
 function when(iso: string) {
-  return new Date(iso).toLocaleString(undefined, {
+  return new Date(iso).toLocaleString("zh-CN", {
     month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
   });
 }
@@ -49,9 +50,9 @@ export default function Inspector({
   }
 
   const tabs: { id: Tab; label: string; icon: IconName }[] = [
-    { id: "versions", label: "Snapshots", icon: "history" },
-    { id: "comments", label: "Comments", icon: "message-square" },
-    { id: "continuity", label: "Continuity", icon: "shield-alert" },
+    { id: "versions", label: "版本快照", icon: "history" },
+    { id: "comments", label: "批注", icon: "message-square" },
+    { id: "continuity", label: "连续性", icon: "shield-alert" },
   ];
 
   return (
@@ -59,7 +60,7 @@ export default function Inspector({
       <div className="flex items-center gap-1.5 border-b border-[rgba(74,91,133,0.12)] px-2.5 py-2.5">
         <div
           role="tablist"
-          aria-label="Notes panel"
+          aria-label="批注面板"
           className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overflow-y-hidden rounded-full border border-[rgba(96,112,153,0.16)] bg-white/55 p-0.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         >
           {tabs.map((t) => {
@@ -89,8 +90,8 @@ export default function Inspector({
             type="button"
             onClick={onClose}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-white/70 hover:text-ink"
-            aria-label="Close notes"
-            title="Close notes"
+            aria-label="关闭批注面板"
+            title="关闭批注面板"
           >
             <Icon name="chevron-right" className="h-4 w-4" />
           </button>
@@ -134,9 +135,9 @@ function Snapshots({ id, num, currentText, flush, onRestored }: {
     setBusy(true);
     try {
       await flush(); // persist the current buffer so the snapshot reflects it
-      await api.createSnapshot(id, num, label.trim() || "Version");
+      await api.createSnapshot(id, num, label.trim() || "版本");
       setLabel("");
-      toast("Version saved", "success");
+      toast("版本已保存", "success");
       reload();
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
@@ -154,7 +155,7 @@ function Snapshots({ id, num, currentText, flush, onRestored }: {
   async function restore(sid: string) {
     try {
       const r = await api.restoreSnapshot(id, num, sid);
-      toast("Restored previous Final saved as a snapshot", "success");
+      toast("已恢复该版本，恢复前的定稿已保存为快照", "success");
       setViewing(null);
       onRestored(r.final);
       reload();
@@ -163,9 +164,9 @@ function Snapshots({ id, num, currentText, flush, onRestored }: {
 
   async function remove(sid: string) {
     const ok = await confirm({
-      title: "Delete version",
-      message: "This permanently deletes this snapshot. It can't be undone.",
-      confirmLabel: "Delete",
+      title: "删除版本",
+      message: "此操作将永久删除该版本快照，且无法撤销。",
+      confirmLabel: "删除",
       danger: true,
     });
     if (!ok) return;
@@ -179,36 +180,36 @@ function Snapshots({ id, num, currentText, flush, onRestored }: {
         <input
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          placeholder="Label (optional)…"
+          placeholder="版本名称（可选）…"
           className="min-w-0 flex-1 rounded-lg border border-paper-line bg-paper px-3 py-1.5 text-[13px] text-ink-text placeholder:text-paper-muted"
         />
         <button onClick={saveVersion} disabled={busy}
                 className="btn-primary shrink-0 disabled:opacity-40">
-          {busy ? "Saving…" : "Save version"}
+          {busy ? "正在保存…" : "保存版本"}
         </button>
       </div>
 
-      {list.length === 0 && <p className="py-6 text-center text-[13px] text-ink-muted">No versions yet.</p>}
+      {list.length === 0 && <p className="py-6 text-center text-[13px] text-ink-muted">暂无版本快照。</p>}
 
       {list.map((s) => (
         <div key={s.id} className="rounded-lg border border-paper-line bg-paper-card p-3">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="truncate text-[13.5px] font-semibold text-ink-text">{s.label}</p>
-              <p className="nums text-[11.5px] text-ink-muted">{when(s.created_at)} · {s.word_count.toLocaleString()} words</p>
+              <p className="nums text-[11.5px] text-ink-muted">{when(s.created_at)} · {s.word_count.toLocaleString("zh-CN")} 字</p>
             </div>
           </div>
           <div className="mt-2 flex gap-3 text-[12px] font-medium">
             <button onClick={() => view(s.id)} className="text-st-drafted hover:underline">
-              {viewing?.id === s.id ? "Hide diff" : "Diff"}
+              {viewing?.id === s.id ? "隐藏差异" : "查看差异"}
             </button>
-            <button onClick={() => restore(s.id)} className="text-ink-muted hover:underline">Restore</button>
-            <button onClick={() => remove(s.id)} className="text-ink-muted hover:text-ink">Delete</button>
+            <button onClick={() => restore(s.id)} className="text-ink-muted hover:underline">恢复</button>
+            <button onClick={() => remove(s.id)} className="text-ink-muted hover:text-ink">删除</button>
           </div>
           {viewing?.id === s.id && (
             <div className="mt-3 max-h-72 overflow-y-auto rounded-md border border-paper-line bg-paper p-3">
               <p className="mb-2 text-[12px] font-medium tracking-[-0.01em] text-paper-muted">
-                Snapshot → current
+                快照 → 当前内容
               </p>
               <DiffView oldText={viewing.text} newText={currentText} />
             </div>
@@ -265,7 +266,7 @@ function Comments({ id, num, pendingComment, onPendingCommentConsumed, onComment
 
   async function removeComment(cid: string) {
     const ok = await confirm({
-      title: "Delete note", message: "Delete this note?", confirmLabel: "Delete", danger: true,
+      title: "删除批注", message: "确定删除这条批注吗？", confirmLabel: "删除", danger: true,
     });
     if (ok) api.deleteComment(id, num, cid).then(reload).catch(() => {});
   }
@@ -280,9 +281,9 @@ function Comments({ id, num, pendingComment, onPendingCommentConsumed, onComment
   }
 
   const personas: { id: "author" | "editor" | "beta"; label: string }[] = [
-    { id: "author", label: "Author" },
-    { id: "editor", label: "Editor" },
-    { id: "beta", label: "Beta" },
+    { id: "author", label: "作者" },
+    { id: "editor", label: "编辑" },
+    { id: "beta", label: "试读者" },
   ];
 
   return (
@@ -308,28 +309,28 @@ function Comments({ id, num, pendingComment, onPendingCommentConsumed, onComment
           ))}
         </div>
         <input value={quote} onChange={(e) => setQuote(e.target.value)}
-               placeholder="Quote (optional)…"
+               placeholder="引用文字（可选）…"
                className="mb-2 w-full rounded-xl border border-[rgba(96,112,153,0.16)] bg-white/80 px-2.5 py-1.5 text-[12.5px] text-ink-text placeholder:text-paper-muted" />
         {fromPos != null && toPos != null && (
-          <p className="mb-2 text-[11px] text-ink-muted">Anchored · chars {fromPos}–{toPos}</p>
+          <p className="mb-2 text-[11px] text-ink-muted">已锚定 · 字符 {fromPos}–{toPos}</p>
         )}
         <textarea value={body} onChange={(e) => setBody(e.target.value)}
-                  placeholder={`Add a ${persona} note…`} rows={2}
+                  placeholder={`添加${displayLabel(persona)}批注…`} rows={2}
                   className="w-full resize-y rounded-xl border border-[rgba(96,112,153,0.16)] bg-white/80 px-3 py-2.5 text-[13px] leading-relaxed text-ink-text placeholder:text-paper-muted" />
         <div className="mt-2 flex justify-end">
           <button type="button" onClick={add} disabled={!body.trim()}
                   className="btn-primary disabled:opacity-40">
-            Add note
+            添加批注
           </button>
         </div>
       </div>
 
-      {list.length === 0 && <p className="py-6 text-center text-[13px] text-ink-muted">No notes yet.</p>}
+      {list.length === 0 && <p className="py-6 text-center text-[13px] text-ink-muted">暂无批注。</p>}
 
       {list.map((c) => (
         <div key={c.id} className={`rounded-2xl border border-[rgba(74,91,133,0.12)] p-3 ${c.resolved ? "bg-white/40 opacity-70" : "bg-white/70"}`}>
           <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-violet)]">
-            {c.persona || "author"}
+            {displayLabel(c.persona || "author")}
           </p>
           {c.quote && (
             <blockquote className="mb-1.5 border-l-2 border-[var(--color-violet)] pl-2 text-[12px] italic text-ink-muted">
@@ -337,7 +338,7 @@ function Comments({ id, num, pendingComment, onPendingCommentConsumed, onComment
             </blockquote>
           )}
           {c.anchor_status === "unresolved" && (
-            <p className="mb-1 text-[11px] font-medium text-[#c85177]">Anchor unresolved</p>
+            <p className="mb-1 text-[11px] font-medium text-[#c85177]">无法定位原文锚点</p>
           )}
           <p className={`text-[13.5px] text-ink-text ${c.resolved ? "line-through" : ""}`}>{c.body}</p>
           <div className="mt-2 flex flex-wrap items-center gap-3 text-[11.5px]">
@@ -345,15 +346,15 @@ function Comments({ id, num, pendingComment, onPendingCommentConsumed, onComment
             {c.from_pos != null && c.to_pos != null && c.anchor_status !== "unresolved" && (
               <button type="button" onClick={() => onJumpToComment?.(c)}
                       className="font-medium text-[var(--color-violet)] hover:underline">
-                Show
+                显示原文
               </button>
             )}
             <button type="button" onClick={() => api.updateComment(id, num, c.id, !c.resolved).then(reload)}
                     className="font-medium text-st-approved hover:underline">
-              {c.resolved ? "Reopen" : "Resolve"}
+              {c.resolved ? "重新打开" : "标为已解决"}
             </button>
             <button type="button" onClick={() => removeComment(c.id)}
-                    className="font-medium text-ink-muted hover:text-ink">Delete</button>
+                    className="font-medium text-ink-muted hover:text-ink">删除</button>
           </div>
         </div>
       ))}
@@ -386,7 +387,7 @@ function IntentionalButton({
     setBusy(true);
     try {
       await api.exemptFinding(projectId, finding.key, reason);
-      toast("Marked intentional — it won't be raised again", "success");
+      toast("已标记为有意为之，此问题不会再次提示", "success");
       setOpen(false);
       setReason("");
       onExempted();
@@ -404,7 +405,7 @@ function IntentionalButton({
         className="btn-ghost mt-2 px-2 py-0.5 text-[11.5px]"
         onClick={() => setOpen(true)}
       >
-        This is intentional
+        这是有意为之
       </button>
     );
   }
@@ -419,18 +420,18 @@ function IntentionalButton({
           if (e.key === "Enter") void submit();
           if (e.key === "Escape") setOpen(false);
         }}
-        placeholder="Why? e.g. she lies about it"
-        aria-label="Why is this intentional?"
+        placeholder="请说明原因，例如：她在这里说了谎"
+        aria-label="为什么这是有意为之？"
         className="min-w-0 flex-1 rounded-lg border border-[rgba(96,112,153,0.2)] bg-white/80 px-2 py-1 text-[12px] text-ink-text"
       />
       <button type="button" className="btn-ghost px-2 py-0.5 text-[11.5px]"
               onClick={() => setOpen(false)}>
-        Cancel
+        取消
       </button>
       <button type="button" disabled={busy}
               className="btn-secondary px-2 py-0.5 text-[11.5px] disabled:opacity-40"
               onClick={() => void submit()}>
-        {busy ? "Saving…" : "Dismiss"}
+        {busy ? "正在保存…" : "忽略问题"}
       </button>
     </div>
   );
@@ -463,28 +464,28 @@ function ContinuityPanel({ id, num }: { id: string; num: number }) {
     <div className="flex flex-col gap-3 px-4 py-4">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[12px] text-ink-muted">
-          Deterministic checks free and instant.
+          确定性检查免费且即时完成。
         </p>
-        <button type="button" onClick={load} className="btn-ghost text-[12px]">Refresh</button>
+        <button type="button" onClick={load} className="btn-ghost text-[12px]">刷新</button>
       </div>
       {findings && (
         <div className="flex gap-2 text-[11px]">
-          <span className="rounded-full bg-[#ffeaf1] px-2 py-0.5 text-[#c85177]">{counts.critical} critical</span>
-          <span className="rounded-full bg-[#fff2dc] px-2 py-0.5 text-[#c47a1b]">{counts.warning} warning</span>
-          <span className="rounded-full bg-[#e8f1ff] px-2 py-0.5 text-[#3974db]">{counts.info} info</span>
+          <span className="rounded-full bg-[#ffeaf1] px-2 py-0.5 text-[#c85177]">{counts.critical} 个严重问题</span>
+          <span className="rounded-full bg-[#fff2dc] px-2 py-0.5 text-[#c47a1b]">{counts.warning} 个警告</span>
+          <span className="rounded-full bg-[#e8f1ff] px-2 py-0.5 text-[#3974db]">{counts.info} 条提示</span>
         </div>
       )}
       {error && <p className="text-[13px] text-[#c85177]">{error}</p>}
-      {!error && !findings && <p className="py-6 text-center text-[13px] text-ink-muted">Running checks…</p>}
+      {!error && !findings && <p className="py-6 text-center text-[13px] text-ink-muted">正在检查…</p>}
       {findings && findings.length === 0 && (
-        <p className="py-8 text-center text-[13px] text-ink-muted">No continuity findings.</p>
+        <p className="py-8 text-center text-[13px] text-ink-muted">未发现连续性问题。</p>
       )}
       {findings?.map((f, i) => (
         <div key={`${f.category}-${i}`} className="rounded-2xl border border-[rgba(74,91,133,0.12)] bg-white/70 p-3">
           <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium capitalize text-ink-muted">
             <Icon name={iconFor(f.severity)} className="h-3.5 w-3.5" />
-            {f.severity} · {f.category.replace(/_/g, " ")}
-            {f.chapter != null && <> · Ch {f.chapter}</>}
+            {displayLabel(f.severity)} · {displayLabel(f.category)}
+            {f.chapter != null && <> · 第 {f.chapter} 章</>}
           </div>
           <p className="text-[13px] text-ink-text">{f.message}</p>
           {f.suggestion && (

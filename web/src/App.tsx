@@ -29,7 +29,7 @@ function AnimatedRoutes() {
         exit={{ opacity: 0, y: -8, scale: 0.99 }}
         className="h-full"
       >
-        <Suspense fallback={<div className="px-10 py-12 text-ink-muted">Loading…</div>}>
+        <Suspense fallback={<div className="px-10 py-12 text-ink-muted">正在加载…</div>}>
           <Routes location={location}>
             <Route path="/" element={<ProjectsList />} />
             <Route path="/settings" element={<Settings />} />
@@ -51,12 +51,12 @@ export default function App() {
       <MotionConfig reducedMotion="user">
         <ToastProvider>
           <ConfirmProvider>
-            <a href="#main" className="skip-link">Skip to content</a>
+            <a href="#main" className="skip-link">跳到正文</a>
             <CommandPalette />
             <ShortcutsHelp />
             <div className="flex h-full">
               <Sidebar />
-              <main id="main" className="h-full flex-1 overflow-y-auto">
+              <main id="main" className="h-full min-w-0 flex-1 overflow-y-auto">
                 <ErrorBoundary>
                   <AnimatedRoutes />
                 </ErrorBoundary>

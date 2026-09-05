@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Command } from "cmdk";
 import { AnimatePresence, motion } from "motion/react";
 import { api, type ProjectSummary, type ChapterSummary, type SearchHit } from "../api/client";
+import { displayLabel } from "../lib/displayLabels";
 
 function currentProjectId(pathname: string): string | null {
   const m = pathname.match(/^\/projects\/([^/]+)/);
@@ -98,35 +99,35 @@ export default function CommandPalette() {
             className="glass-shell relative w-full max-w-lg overflow-hidden p-2.5"
           >
             <div className="glass-panel overflow-hidden">
-              <Command label="Command Menu" className="flex flex-col" shouldFilter={visibleHits.length === 0}>
+              <Command label="命令菜单" className="flex flex-col" shouldFilter={visibleHits.length === 0}>
                 <Command.Input
                   autoFocus
                   value={query}
                   onValueChange={setQuery}
-                  placeholder={pid ? "Search Codex, chapters, or jump…" : "Jump to a project…"}
+                  placeholder={pid ? "搜索设定库或章节，也可快速跳转…" : "跳转到作品…"}
                   className="border-b border-[rgba(74,91,133,0.12)] bg-transparent px-5 py-4 text-[15px] text-ink-text outline-none placeholder:text-paper-muted"
                 />
                 <Command.List className="max-h-[52vh] overflow-y-auto p-2">
                   <Command.Empty className="px-3 py-6 text-center text-[13.5px] text-ink-muted">
-                    No matches.
+                    没有匹配结果。
                   </Command.Empty>
 
-                  <Group heading="Actions">
-                    <Item onSelect={() => go("/")}>Go to Library</Item>
+                  <Group heading="操作">
+                    <Item onSelect={() => go("/")}>前往作品库</Item>
                     {pid && (
-                      <Item onSelect={() => go(`/projects/${pid}/chart`)}>Open relationship chart</Item>
+                      <Item onSelect={() => go(`/projects/${pid}/chart`)}>打开关系图</Item>
                     )}
                   </Group>
 
                   {pid && visibleHits.length > 0 && (
-                    <Group heading="Search">
+                    <Group heading="搜索结果">
                       {visibleHits.map((h) => (
                         <Item
                           key={`${h.kind}-${h.id}`}
                           value={`${h.kind} ${h.label} ${h.subtitle || ""}`}
                           onSelect={() => openHit(h)}
                         >
-                          <span className="capitalize text-[11px] text-paper-muted">{h.kind}</span>
+                          <span className="text-[11px] text-paper-muted">{displayLabel(h.kind)}</span>
                           <span className="ml-2 truncate">{h.label}</span>
                         </Item>
                       ))}
@@ -134,18 +135,18 @@ export default function CommandPalette() {
                   )}
 
                   {pid && chapters.length > 0 && visibleHits.length === 0 && (
-                    <Group heading="Chapters">
+                    <Group heading="章节">
                       {chapters.map((c) => (
                         <Item key={c.number} value={`chapter ${c.number} ${c.title}`}
                               onSelect={() => go(`/projects/${pid}/chapters/${c.number}`)}>
-                          <span className="font-mono text-[11px] text-paper-muted">Ch {c.number}</span>
-                          <span className="ml-2">{c.title || "Untitled"}</span>
+                          <span className="font-mono text-[11px] text-paper-muted">第 {c.number} 章</span>
+                          <span className="ml-2">{c.title || "未命名"}</span>
                         </Item>
                       ))}
                     </Group>
                   )}
 
-                  <Group heading="Projects">
+                  <Group heading="作品">
                     {projects.map((p) => (
                       <Item key={p.id} value={`project ${p.title} ${p.genre}`}
                             onSelect={() => go(`/projects/${p.id}`)}>
@@ -157,7 +158,7 @@ export default function CommandPalette() {
                 </Command.List>
               </Command>
               <div className="flex items-center gap-3 border-t border-[rgba(74,91,133,0.12)] px-4 py-2 text-[11px] text-paper-muted">
-                <span>↑↓ navigate</span><span>↵ open</span><span>esc close</span>
+                <span>↑↓ 移动</span><span>↵ 打开</span><span>Esc 关闭</span>
               </div>
             </div>
           </motion.div>

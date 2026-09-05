@@ -106,7 +106,7 @@ def valid_copy_payload():
             "generated_at": "2026-08-31T00:00:00Z",
         },
         "validation": {
-            "policy_version": "publication-copy-policy.v2",
+            "policy_version": "publication-copy-policy.v3",
             "status": "pass",
             "length": {
                 "unit": "words",
