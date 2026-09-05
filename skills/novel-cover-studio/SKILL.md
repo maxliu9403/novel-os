@@ -11,16 +11,16 @@ Turn the approved story design into 3-5 distinct commercial cover candidates. Pr
 
 1. Locate the approved Prompt and normalize its single `COVER_HANDOFF_BEGIN` / `COVER_HANDOFF_END` JSON block to `CoverBriefV2`. Read [references/cover-handoff.md](references/cover-handoff.md) for the contract.
 2. Confirm Sections A-E are approved and every required protagonist has an age or age band, occupation/lived status, daily wardrobe or lived environment, agency signal, and evidence refs. Pending critical assumptions stop before image generation.
-3. Create 3-5 structured `CoverScenePlan` values through the Art Director, run the Canon Validator, and persist the resulting direction. Read [references/commercial-direction.md](references/commercial-direction.md) before reviewing it.
+3. Create one source-bound `CoreConflictVisualContract` and 3-5 structured `CoverScenePlan` values through the Art Director, run the Canon Validator, and persist the resulting direction. Read [references/commercial-direction.md](references/commercial-direction.md) before reviewing it.
 4. Show Story facts and Art direction in Cover Studio. Continue only after exact direction-hash approval; stale direction approval never carries across a changed brief.
 
 ## Concept review
 
-Create 3-5 concepts as one deliberately varied portfolio, not repeated variants of a single tableau. For the default four-cover set, assign four different expression systems: an intimate character reckoning, a deep-focus relationship tableau, an evidence-led editorial revelation, and a kinetic irreversible threshold. Each system must differ in composition family, depicted narrative beat, photographic art treatment, emotion register, and title typography; changing only crop, pose, palette, prop, lens, or camera angle is repetition. Use causal foreground/background emotional geography for the relationship tableau, while the other systems follow their own intimate, object-led, or motion-led grammar. Every concept still states the protagonist action, power contrast, one secondary signal, palette, and exact title treatment. Quote the exact title once; add no subtitle, author copy, logo, watermark, real place name, or unsupported spoiler. For the English / US profile, make every focal scene a consequential frozen action with visible reaction and stakes, and keep faces and the decisive prop clear of the title-safe zone.
+Create 3-5 concepts as one deliberately varied portfolio, not repeated variants of a single tableau. The conflict contract records the protagonist, pressure source, relationship/status stakes, visible cause, decisive consequence, approved pressure characters, evidence references, and spoiler boundary. Every plan must communicate that cause-and-consequence story at thumbnail size without prescribing one foreground/background formula. For a four-cover set, at least three plans show the causal pressure directly, at least two show the complete approved pressure-character relationship when people embody the cause, and at least three show an active protagonist response. At most one plan may be indirect or primarily symbolic, and it still carries specific causal evidence. Give every plan a distinct `conflict_delivery` as well as a different composition, scene, medium, emotion, and typography system. Quote the exact title once; add no subtitle, author copy, logo, watermark, real place name, or unsupported spoiler.
 
 The structured direction stores and displays the treatment ids for each plan: `portfolio_slot`, `composition_family`, `scene_family`, `location_family`, `art_style`, `emotion_register`, and `typography_style`. The v3 validator requires the assigned ids, unique scene families, unique frozen beats, the full portfolio hook order, and use of every approved primary location before any location repeats.
 
-Show the concepts before billable image generation. Identify every visual assumption. Approval binds both `brief_sha256` and `direction_sha256`; a boolean confirmation or global skip flag is not approval.
+Show the conflict contract and concepts before billable image generation. Identify every visual assumption. Approval binds both `brief_sha256` and `direction_sha256`; a boolean confirmation or global skip flag is not approval.
 
 ## Execute
 
@@ -52,7 +52,7 @@ Do not call `up`, `restart`, or `down` for an already healthy service. Do not ru
 
 ## Review and delivery
 
-Return candidate paths and `/projects/PROJECT/covers`. Use the Studio for full-resolution and mobile-thumbnail inspection, quality blockers, and explicit selection. An unavailable visual evaluator means `human_review_required`; it never invents scores. Retry a failed candidate directly, or retry a ready candidate only with repair codes present in its quality report. Every retry appends an immutable generation attempt.
+Return candidate paths and `/projects/PROJECT/covers`. Use the Studio for full-resolution and mobile-thumbnail inspection, quality blockers, and explicit selection. The configured multimodal review route compares the rendered image—not the prompt intent—against cast, core conflict, causal relationship, and protagonist agency. A missing cause, missing pressure relationship, or passive protagonist triggers one bounded corrective generation attempt and records both attempts. An unavailable visual evaluator means `human_review_required`; it never invents scores. Retry a failed candidate directly, or retry a ready candidate only with repair codes present in its quality report. Every retry appends an immutable generation attempt.
 
 After selection, verify non-empty `covers/selected-cover.*`, `covers/cover-set.json`, `package-manifest.json`, and `book-package.zip`. Report candidate status separately from package status.
 

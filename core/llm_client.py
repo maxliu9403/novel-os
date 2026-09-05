@@ -34,6 +34,7 @@ Provider-native keys also work as fallbacks:
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import signal
@@ -329,6 +330,31 @@ class LLMClient:
         # openai, azure, openai_compatible, and all aliases share the chat-completions shape
         return self._complete_openai_shape(system, user)
 
+    def complete_with_images(
+        self,
+        system: str,
+        user: str,
+        images: tuple[bytes, ...] | list[bytes],
+    ) -> str:
+        """Single-turn multimodal review used by the cover semantic gate.
+
+        Codex receives temporary local attachments. OpenAI-shaped providers
+        receive data URLs. Unsupported text-only routes fail explicitly so the
+        cover pipeline can preserve the candidate for human review.
+        """
+        payload = tuple(bytes(item) for item in images if item)
+        if not payload:
+            raise LLMError("Multimodal completion requires at least one image")
+        if self.provider_name == "codex":
+            return self._complete_codex_cli(system, user, images=payload)
+        if self.provider_name in {
+            "openai", "azure", "openai_compatible", *OPENAI_COMPAT_ALIASES.keys(),
+        }:
+            return self._complete_openai_shape_with_images(system, user, payload)
+        raise LLMError(
+            f"Provider '{self.provider_name}' is not configured for cover image review"
+        )
+
     def run_agent(self, agent_name: str, user: str, agents_dir: Optional[Path] = None) -> str:
         base = agents_dir or (Path(__file__).resolve().parent.parent / "agents")
         prompt_path = base / agent_name / "prompt.md"
@@ -403,7 +429,13 @@ class LLMClient:
             raise LLMError(f"Claude Code CLI JSON had no 'result' text: {out[:200]}")
         return text
 
-    def _complete_codex_cli(self, system: str, user: str) -> str:
+    def _complete_codex_cli(
+        self,
+        system: str,
+        user: str,
+        *,
+        images: tuple[bytes, ...] = (),
+    ) -> str:
         """Run Codex as a read-only, ephemeral, non-interactive completion."""
         cli = str(self._backend)
         preamble = (
@@ -434,6 +466,11 @@ class LLMClient:
                     "--config",
                     f'model_reasoning_effort="{self.reasoning_effort}"',
                 ])
+            for index, data in enumerate(images, start=1):
+                extension = ".jpg" if data.startswith(b"\xff\xd8\xff") else ".png"
+                image_path = Path(directory) / f"review-{index}{extension}"
+                image_path.write_bytes(data)
+                command.extend(["--image", str(image_path)])
             command.append("-")
             try:
                 if self.timeout_seconds is None:
@@ -557,6 +594,30 @@ class LLMClient:
         if progress_started:
             print(" done", flush=True)
         return "".join(parts)
+
+    def _complete_openai_shape_with_images(
+        self,
+        system: str,
+        user: str,
+        images: tuple[bytes, ...],
+    ) -> str:
+        content: list[dict[str, object]] = [{"type": "text", "text": user}]
+        for data in images:
+            mime = "image/jpeg" if data.startswith(b"\xff\xd8\xff") else "image/png"
+            encoded = base64.b64encode(data).decode("ascii")
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime};base64,{encoded}", "detail": "high"},
+            })
+        response = self._backend.chat.completions.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": content},
+            ],
+        )
+        return response.choices[0].message.content or ""
 
     def _complete_gemini(self, system: str, user: str) -> str:
         from google.genai import types  # type: ignore

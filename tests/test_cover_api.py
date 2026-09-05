@@ -13,7 +13,8 @@ from api import routes
 from api.routes import get_cover_art_director, get_cover_service
 from core.cover_director import CoverArtDirector
 from core.cover_models import CoverBrief, CoverConcept
-from core.cover_models_v2 import ArtDirectionSet
+from core.cover_models_v2 import ArtDirectionSet, CoverBriefV2, CoverQualityReport
+from core.cover_prompt_compiler import scene_to_cover_concept
 from core.image_client import GeneratedImage, ImageClientError
 from tests.test_cover_director import adaptive_director_fixture, director_fixture
 from tests.test_cover_models_v2 import two_character_fixture
@@ -393,6 +394,77 @@ def test_retry_endpoint_replaces_only_the_failed_candidate(tmp_path, monkeypatch
     assert {item["status"] for item in ready["candidates"]} == {"ready"}
 
 
+def test_generation_automatically_repairs_a_render_that_drops_the_causal_relationship(
+    tmp_path, monkeypatch,
+) -> None:
+    client, _ = _client(tmp_path, monkeypatch)
+    project = client.post(
+        "/api/projects", json={"title": "Conflict Audit", "genre": "Drama"}
+    ).json()
+    brief = CoverBriefV2.from_dict(two_character_fixture(), source_prompt_sha256="a" * 64)
+    direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(brief, count=4)
+    concepts = [
+        scene_to_cover_concept(
+            brief,
+            plan,
+            visual_identity=direction.visual_identity,
+            evidence_ledger=direction.evidence_ledger,
+            conflict_contract=direction.core_conflict_visual_contract,
+        )
+        for plan in direction.plans
+    ]
+
+    class Evaluator:
+        available = True
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def evaluate(self, **_kwargs):
+            self.calls += 1
+            common = dict(
+                canon_fidelity=92,
+                required_cast_coverage=92,
+                age_and_environment_fidelity=92,
+                medium_fidelity=92,
+                anatomy_and_physics=92,
+                core_conflict_fidelity=92,
+                causal_relationship_clarity=92,
+                protagonist_agency=92,
+            )
+            if self.calls == 1:
+                return CoverQualityReport(
+                    status="human_review_required",
+                    blockers=(),
+                    repair_codes=(),
+                    evidence=("The planned spouse is absent",),
+                    **{**common, "causal_relationship_clarity": 20},
+                )
+            return CoverQualityReport(status="human_review_required", **common)
+
+    image_client = ImageClient()
+    evaluator = Evaluator()
+    service = CoverService(
+        image_client=image_client,
+        media_store=LocalMediaStore(tmp_path / "media"),
+        media_add=db.media_add,
+        visual_evaluator=evaluator,
+        thumbnail_projector=lambda _image, **_size: b"thumbnail",
+    )
+
+    cover_set = service.generate(
+        project["id"], tmp_path / "projects" / project["id"], brief, concepts,
+    )
+
+    assert image_client.calls == 5
+    assert evaluator.calls == 5
+    repaired = cover_set.candidates[0]
+    assert repaired.prompt_revision == 2
+    assert len(repaired.attempt_history) == 2
+    assert repaired.attempt_history[1]["repair_codes"] == ["causal_relationship_missing"]
+    assert "Repair focus: causal relationship missing." in repaired.generation_prompt
+
+
 def test_selecting_existing_cover_does_not_require_image_api_key(tmp_path, monkeypatch) -> None:
     for key in (
         "NOVEL_OS_COVER_API_KEY", "NOVEL_OS_API_KEY", "OPENAI_API_KEY",
@@ -599,7 +671,7 @@ def test_adaptive_direction_binds_preface_and_final_prose_then_generates_image2_
 
     assert created_response.status_code == 201
     created = created_response.json()
-    assert created["profile_version"] == "cover-profiles.v4"
+    assert created["profile_version"] == "cover-profiles.v5"
     assert created["visual_identity"]["design_thesis"].startswith("Turn the shared doorway")
     assert "publication_intro" in {
         item["source_type"] for item in created["evidence_ledger"]["items"]
@@ -607,6 +679,7 @@ def test_adaptive_direction_binds_preface_and_final_prose_then_generates_image2_
     design_dir = project_path / "outputs" / "covers" / "design"
     assert design_dir.joinpath("visual-evidence-ledger.json").is_file()
     assert design_dir.joinpath("book-visual-identity.json").is_file()
+    assert design_dir.joinpath("core-conflict-visual-contract.json").is_file()
 
     approved = client.post(
         f"/api/projects/{project['id']}/covers/directions/{created['direction_id']}/approve",
@@ -628,7 +701,7 @@ def test_adaptive_direction_binds_preface_and_final_prose_then_generates_image2_
     assert image_client.calls == 4
     cover_set = client.get(f"/api/projects/{project['id']}/covers").json()[0]
     assert "lead book-cover designer" in cover_set["concepts"][0]["generation_prompt"]
-    assert cover_set["compiler_version"] == "cover-compiler.v8"
+    assert cover_set["compiler_version"] == "cover-compiler.v9"
 
 
 def test_adaptive_direction_becomes_stale_when_publication_intro_changes(
@@ -896,7 +969,7 @@ def test_approved_v2_direction_generates_four_independent_image2_candidates(
     assert image_client.calls == 4
     cover_set = client.get(f"/api/projects/{project['id']}/covers").json()[0]
     assert cover_set["brief_schema_version"] == 2
-    assert cover_set["compiler_version"] == "cover-compiler.v8"
+    assert cover_set["compiler_version"] == "cover-compiler.v9"
     assert cover_set["brief"]["principal_characters"][0]["age"] == 34
     assert [item["model"] for item in cover_set["candidates"]] == ["gpt-image-2"] * 4
     assert all(item["safe_request_parameters"]["n"] == 1 for item in cover_set["candidates"])

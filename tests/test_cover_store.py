@@ -121,5 +121,7 @@ def test_direction_store_persists_visual_identity_and_evidence_as_reviewable_art
     design = tmp_path / "outputs" / "covers" / "design"
     assert design.joinpath("visual-evidence-ledger.json").is_file()
     assert design.joinpath("book-visual-identity.json").is_file()
+    assert design.joinpath("core-conflict-visual-contract.json").is_file()
     assert design.joinpath(f"{created.direction_id}.evidence.json").is_file()
     assert design.joinpath(f"{created.direction_id}.identity.json").is_file()
+    assert design.joinpath(f"{created.direction_id}.conflict.json").is_file()

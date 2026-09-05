@@ -217,12 +217,75 @@ def test_v3_validator_requires_each_approved_location_before_reusing_the_clinic(
     assert validate_direction(brief, varied) == ()
 
 
-def test_v4_validator_accepts_book_specific_character_free_design_hypotheses() -> None:
+def test_v5_validator_accepts_distinct_design_hypotheses_with_conflict_coverage() -> None:
     direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(
         _brief(), count=4,
     )
 
     assert validate_direction(_brief(), direction) == ()
+
+
+def test_existing_v4_direction_remains_loadable_without_conflict_contract() -> None:
+    payload = adaptive_director_fixture()
+    payload["profile_version"] = "cover-profiles.v4"
+    payload.pop("core_conflict_visual_contract")
+    for plan in payload["plans"]:
+        for field in (
+            "causal_visibility", "conflict_delivery", "conflict_read", "cause_signal",
+            "consequence_signal", "conflict_character_ids", "protagonist_action_visible",
+        ):
+            plan.pop(field)
+    direction = CoverArtDirector.from_fixture(payload).plan(_brief(), count=4)
+
+    assert validate_direction(_brief(), direction) == ()
+    assert "core_conflict_visual_contract" not in direction.to_dict()
+
+
+def test_v5_validator_blocks_portfolio_that_only_shows_conflict_once() -> None:
+    payload = adaptive_director_fixture()
+    for plan in payload["plans"][1:]:
+        plan.update({
+            "causal_visibility": "indirect",
+            "conflict_character_ids": [],
+            "cast": ["char_mara"],
+            "gaze_graph": ["char_mara -> evidence of the missing key"],
+        })
+    direction = CoverArtDirector.from_fixture(payload).plan(_brief(), count=4)
+
+    codes = {item.code for item in validate_direction(_brief(), direction)}
+
+    assert "portfolio_conflict_undercoverage" in codes
+    assert "replacement_relationship_undercoverage" in codes
+
+
+def test_v5_validator_blocks_generic_aftermath_without_cause_and_consequence() -> None:
+    payload = adaptive_director_fixture()
+    payload["plans"][2].update({
+        "conflict_read": "",
+        "cause_signal": "",
+        "consequence_signal": "",
+    })
+    direction = CoverArtDirector.from_fixture(payload).plan(_brief(), count=4)
+
+    codes = {item.code for item in validate_direction(_brief(), direction)}
+
+    assert "missing_core_conflict" in codes
+
+
+def test_v5_validator_requires_named_core_conflict_characters_in_contract() -> None:
+    brief_payload = _brief().to_dict()
+    brief_payload["core_conflict"] = (
+        "Char Mara removes Char Oren's key after Char Oren threatens their home."
+    )
+    from core.cover_models_v2 import CoverBriefV2
+    brief = CoverBriefV2.from_dict(brief_payload, source_prompt_sha256="a" * 64)
+    payload = adaptive_director_fixture()
+    payload["core_conflict_visual_contract"]["pressure_character_ids"] = []
+    direction = CoverArtDirector.from_fixture(payload).plan(brief, count=4)
+
+    codes = {item.code for item in validate_direction(brief, direction)}
+
+    assert "conflict_actor_omitted" in codes
 
 
 def test_v4_validator_blocks_structurally_repeated_plans_without_prescribing_a_style() -> None:

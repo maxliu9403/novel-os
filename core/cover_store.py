@@ -111,6 +111,15 @@ class CoverStore:
                 self.design_dir / "book-visual-identity.json",
                 created.visual_identity.to_dict(),
             )
+        if created.core_conflict_visual_contract is not None:
+            self._write_json(
+                self.design_dir / f"{direction_id}.conflict.json",
+                created.core_conflict_visual_contract.to_dict(),
+            )
+            self._write_json(
+                self.design_dir / "core-conflict-visual-contract.json",
+                created.core_conflict_visual_contract.to_dict(),
+            )
         return created
 
     def load_direction(self, direction_id: str) -> ArtDirectionSet:

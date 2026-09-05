@@ -27,6 +27,9 @@ COVER_REPAIR_CODES = frozenset({
     "thumbnail_clutter",
     "reader_promise_mismatch",
     "title_failure",
+    "core_conflict_missing",
+    "causal_relationship_missing",
+    "protagonist_action_missing",
 })
 
 
@@ -49,6 +52,22 @@ def _mapping(value: Any, field_name: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"cover_brief_v2.{field_name} must be an object")
     return value
+
+
+def _boolean(value: Any, field_name: str, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"true", "yes", "1"}:
+            return True
+        if normalized in {"false", "no", "0"}:
+            return False
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    raise ValueError(f"{field_name} must be a boolean")
 
 
 def _sha(value: Any, field_name: str, *, optional: bool = False) -> str:
@@ -582,6 +601,98 @@ class CoverBriefV2:
 
 
 @dataclass(frozen=True)
+class CoreConflictVisualContract:
+    """Source-bound statement of what every cover must make emotionally causal.
+
+    The contract deliberately describes story meaning rather than a prescribed
+    composition.  A director may express it through a tableau, reflection,
+    threshold, typography, or evidence object, but may not reduce the book to a
+    generic isolated protagonist.
+    """
+
+    protagonist_character_id: str
+    conflict_kind: str
+    pressure_source: str
+    pressure_character_ids: tuple[str, ...]
+    relationship_stakes: str
+    visible_cause: str
+    decisive_consequence: str
+    required_visual_signals: tuple[str, ...]
+    evidence_refs: tuple[str, ...]
+    spoiler_boundary: str
+
+    def __post_init__(self) -> None:
+        for name in (
+            "protagonist_character_id", "conflict_kind", "pressure_source",
+            "relationship_stakes", "visible_cause", "decisive_consequence",
+            "spoiler_boundary",
+        ):
+            if not str(getattr(self, name) or "").strip():
+                raise ValueError(f"CoreConflictVisualContract.{name} is required")
+        if len(self.required_visual_signals) < 2:
+            raise ValueError(
+                "CoreConflictVisualContract.required_visual_signals requires at least two signals"
+            )
+        if not self.evidence_refs:
+            raise ValueError("CoreConflictVisualContract.evidence_refs is required")
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "CoreConflictVisualContract":
+        return cls(
+            protagonist_character_id=_text(
+                data.get("protagonist_character_id"),
+                "core_conflict_visual_contract.protagonist_character_id",
+            ),
+            conflict_kind=_text(
+                data.get("conflict_kind"), "core_conflict_visual_contract.conflict_kind"
+            ),
+            pressure_source=_text(
+                data.get("pressure_source"), "core_conflict_visual_contract.pressure_source"
+            ),
+            pressure_character_ids=_texts(
+                data.get("pressure_character_ids"),
+                "core_conflict_visual_contract.pressure_character_ids",
+            ),
+            relationship_stakes=_text(
+                data.get("relationship_stakes"),
+                "core_conflict_visual_contract.relationship_stakes",
+            ),
+            visible_cause=_text(
+                data.get("visible_cause"), "core_conflict_visual_contract.visible_cause"
+            ),
+            decisive_consequence=_text(
+                data.get("decisive_consequence"),
+                "core_conflict_visual_contract.decisive_consequence",
+            ),
+            required_visual_signals=_texts(
+                data.get("required_visual_signals"),
+                "core_conflict_visual_contract.required_visual_signals",
+            ),
+            evidence_refs=_texts(
+                data.get("evidence_refs"), "core_conflict_visual_contract.evidence_refs"
+            ),
+            spoiler_boundary=_text(
+                data.get("spoiler_boundary"),
+                "core_conflict_visual_contract.spoiler_boundary",
+            ),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "protagonist_character_id": self.protagonist_character_id,
+            "conflict_kind": self.conflict_kind,
+            "pressure_source": self.pressure_source,
+            "pressure_character_ids": list(self.pressure_character_ids),
+            "relationship_stakes": self.relationship_stakes,
+            "visible_cause": self.visible_cause,
+            "decisive_consequence": self.decisive_consequence,
+            "required_visual_signals": list(self.required_visual_signals),
+            "evidence_refs": list(self.evidence_refs),
+            "spoiler_boundary": self.spoiler_boundary,
+        }
+
+
+@dataclass(frozen=True)
 class VisualHook:
     hook_type: str
     first_glance_subject: str
@@ -665,6 +776,13 @@ class CoverScenePlan:
     typography_rationale: str = ""
     novelty_rationale: str = ""
     visual_signature: str = ""
+    causal_visibility: str = ""
+    conflict_delivery: str = ""
+    conflict_read: str = ""
+    cause_signal: str = ""
+    consequence_signal: str = ""
+    conflict_character_ids: tuple[str, ...] = ()
+    protagonist_action_visible: bool = False
 
     def __post_init__(self) -> None:
         for name in (
@@ -751,6 +869,26 @@ class CoverScenePlan:
             visual_signature=_text(
                 data.get("visual_signature"), f"{prefix}.visual_signature", required=False
             ),
+            causal_visibility=_text(
+                data.get("causal_visibility"), f"{prefix}.causal_visibility", required=False
+            ),
+            conflict_delivery=_text(
+                data.get("conflict_delivery"), f"{prefix}.conflict_delivery", required=False
+            ),
+            conflict_read=_text(
+                data.get("conflict_read"), f"{prefix}.conflict_read", required=False
+            ),
+            cause_signal=_text(
+                data.get("cause_signal"), f"{prefix}.cause_signal", required=False
+            ),
+            consequence_signal=_text(
+                data.get("consequence_signal"), f"{prefix}.consequence_signal", required=False
+            ),
+            conflict_character_ids=values("conflict_character_ids"),
+            protagonist_action_visible=_boolean(
+                data.get("protagonist_action_visible"),
+                f"{prefix}.protagonist_action_visible",
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -792,6 +930,16 @@ class CoverScenePlan:
             "visual_signature": self.visual_signature,
         }
         payload.update({key: value for key, value in optional_treatment.items() if value})
+        if self.causal_visibility:
+            payload.update({
+                "causal_visibility": self.causal_visibility,
+                "conflict_delivery": self.conflict_delivery,
+                "conflict_read": self.conflict_read,
+                "cause_signal": self.cause_signal,
+                "consequence_signal": self.consequence_signal,
+                "conflict_character_ids": list(self.conflict_character_ids),
+                "protagonist_action_visible": self.protagonist_action_visible,
+            })
         return payload
 
 
@@ -806,6 +954,7 @@ class ArtDirectionSet:
     visual_identity: BookVisualIdentity | None = None
     evidence_ledger: VisualEvidenceLedger | None = None
     novelty_report: tuple[dict[str, Any], ...] = ()
+    core_conflict_visual_contract: CoreConflictVisualContract | None = None
     status: str = "awaiting_approval"
     direction_id: str = ""
     direction_sha256: str = ""
@@ -862,6 +1011,11 @@ class ArtDirectionSet:
             novelty_report=tuple(
                 dict(item) for item in raw_novelty if isinstance(item, Mapping)
             ),
+            core_conflict_visual_contract=(
+                CoreConflictVisualContract.from_dict(data["core_conflict_visual_contract"])
+                if isinstance(data.get("core_conflict_visual_contract"), Mapping)
+                else None
+            ),
             status=str(data.get("status") or "awaiting_approval"),
             direction_id=str(data.get("direction_id") or "").strip(),
             direction_sha256=str(data.get("direction_sha256") or "").strip(),
@@ -887,6 +1041,10 @@ class ArtDirectionSet:
             payload["evidence_ledger"] = self.evidence_ledger.to_dict()
         if self.novelty_report:
             payload["novelty_report"] = [dict(item) for item in self.novelty_report]
+        if self.core_conflict_visual_contract is not None:
+            payload["core_conflict_visual_contract"] = (
+                self.core_conflict_visual_contract.to_dict()
+            )
         return payload
 
     def content_hash(self) -> str:
@@ -954,6 +1112,9 @@ class CoverQualityReport:
     genre_emotion: int | None = None
     thumbnail_clarity: int | None = None
     hook_promise_alignment: int | None = None
+    core_conflict_fidelity: int | None = None
+    causal_relationship_clarity: int | None = None
+    protagonist_agency: int | None = None
     title_legibility_advisory: int | None = None
     blockers: tuple[str, ...] = ()
     repair_codes: tuple[str, ...] = ()
@@ -967,6 +1128,7 @@ class CoverQualityReport:
         "canon_fidelity", "required_cast_coverage", "age_and_environment_fidelity",
         "medium_fidelity", "photorealism", "anatomy_and_physics", "cinematic_storytelling", "genre_emotion",
         "thumbnail_clarity", "hook_promise_alignment", "title_legibility_advisory",
+        "core_conflict_fidelity", "causal_relationship_clarity", "protagonist_agency",
     )
 
     @property

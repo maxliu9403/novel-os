@@ -130,7 +130,7 @@ def test_compile_is_deterministic_and_contains_age_environment_and_hook() -> Non
     second = compile_cover_prompt(brief_fixture(), scene_fixture())
 
     assert first.text == second.text
-    assert first.compiler_version == "cover-compiler.v8"
+    assert first.compiler_version == "cover-compiler.v9"
     assert [name for name in first.modules] == [
         "ROLE AND OUTPUT", "STORY TRUTH", "CAST LOCK", "SINGLE CINEMATIC MOMENT",
         "HERO SUBJECT AND CORE STORY ATMOSPHERE",
@@ -521,6 +521,7 @@ def test_adaptive_compile_gives_image2_authority_and_keeps_human_anchor_in_objec
         scene,
         visual_identity=direction.visual_identity,
         evidence_ledger=direction.evidence_ledger,
+        conflict_contract=direction.core_conflict_visual_contract,
     )
 
     assert "lead book-cover designer" in compiled.modules["ROLE AND OUTPUT"]
@@ -528,6 +529,13 @@ def test_adaptive_compile_gives_image2_authority_and_keeps_human_anchor_in_objec
     assert "clear, emotionally active human anchor" in compiled.modules["CAST LOCK"]
     assert "Mara" in compiled.modules["CAST LOCK"]
     assert "MEDIUM FIDELITY REQUIREMENTS" in compiled.modules
+    assert "CORE CONFLICT VISUAL CONTRACT" in compiled.modules
+    assert "Oren's withdrawal threatens Mara's place" in compiled.modules[
+        "CORE CONFLICT VISUAL CONTRACT"
+    ]
+    assert "handled evidence with watching spouse" in compiled.modules[
+        "CORE CONFLICT VISUAL CONTRACT"
+    ]
     assert "PHOTOREALISM REQUIREMENTS" not in compiled.modules
     assert "overhead ritual still life" in compiled.modules[
         "CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY"

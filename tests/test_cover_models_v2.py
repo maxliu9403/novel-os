@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.cover_models_v2 import CoverBriefV2
+from core.cover_models_v2 import CoreConflictVisualContract, CoverBriefV2
 
 
 def _character(character_id: str, *, age: int | None = 34, age_band: str = "") -> dict:
@@ -126,6 +126,41 @@ def test_v2_requires_identity_anchor_for_required_character() -> None:
 
     with pytest.raises(ValueError, match="lived identity"):
         CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+
+
+def test_core_conflict_visual_contract_round_trip_preserves_causal_cast_and_signals() -> None:
+    payload = {
+        "protagonist_character_id": "char_mara",
+        "conflict_kind": "interpersonal exclusion",
+        "pressure_source": "Her spouse redirects loyalty away from the home",
+        "pressure_character_ids": ["char_oren"],
+        "relationship_stakes": "belonging and care",
+        "visible_cause": "he turns away while still asking for the shared key",
+        "decisive_consequence": "she removes his access",
+        "required_visual_signals": ["his divided attention", "her removed key"],
+        "evidence_refs": ["node:door_choice"],
+        "spoiler_boundary": "do not reveal the final relationship outcome",
+    }
+
+    contract = CoreConflictVisualContract.from_dict(payload)
+
+    assert contract.to_dict() == payload
+
+
+def test_core_conflict_visual_contract_requires_drawable_cause_and_consequence_signals() -> None:
+    with pytest.raises(ValueError, match="at least two signals"):
+        CoreConflictVisualContract.from_dict({
+            "protagonist_character_id": "char_mara",
+            "conflict_kind": "interpersonal exclusion",
+            "pressure_source": "withdrawal",
+            "pressure_character_ids": ["char_oren"],
+            "relationship_stakes": "belonging",
+            "visible_cause": "he turns away",
+            "decisive_consequence": "she removes access",
+            "required_visual_signals": ["a key"],
+            "evidence_refs": ["node:door_choice"],
+            "spoiler_boundary": "final outcome",
+        })
 
 
 def test_v2_accepts_four_required_characters_for_group_composition() -> None:

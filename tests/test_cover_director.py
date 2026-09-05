@@ -106,7 +106,7 @@ def adaptive_director_fixture() -> dict:
     payload = {
         "schema_version": 1,
         "director_model": "fixture-designer",
-        "profile_version": "cover-profiles.v4",
+        "profile_version": "cover-profiles.v5",
         "visual_identity": {
             "design_thesis": "Turn the shared doorway into a measure of who still belongs.",
             "dominant_emotional_contradiction": "domestic warmth held against irreversible separation",
@@ -123,6 +123,21 @@ def adaptive_director_fixture() -> dict:
             "spoiler_boundary": ["do not reveal the final custody or reconciliation outcome"],
         },
         "evidence_ledger": evidence_ledger_from_brief(brief).to_dict(),
+        "core_conflict_visual_contract": {
+            "protagonist_character_id": "char_mara",
+            "conflict_kind": "interpersonal home-and-belonging rupture",
+            "pressure_source": "Oren's withdrawal threatens Mara's place and the family's home",
+            "pressure_character_ids": ["char_oren"],
+            "relationship_stakes": "whether Mara and her child still belong safely in their home",
+            "visible_cause": "Oren avoids Mara while still expecting access through the shared key",
+            "decisive_consequence": "Mara removes his key and closes the boundary herself",
+            "required_visual_signals": [
+                "Oren's withdrawal or expectation of access",
+                "Mara actively removing the key or closing the threshold",
+            ],
+            "evidence_refs": ["node:door_choice", "character:char_mara", "character:char_oren"],
+            "spoiler_boundary": "Do not reveal the final custody or reconciliation outcome",
+        },
         "plans": [],
         "visual_assumptions": [],
     }
@@ -147,9 +162,9 @@ def adaptive_director_fixture() -> dict:
             "art_style": "tactile editorial still-life photography",
             "emotion_register": "quiet alarm",
             "typography_style": "measured evidence-label grotesk",
-            "cast": ["char_mara"],
+            "cast": ["char_mara", "char_oren"],
             "focal_character_id": "char_mara",
-            "gaze_graph": ["char_mara -> gap in the key ring"],
+            "gaze_graph": ["char_mara -> gap in the key ring", "char_oren -> removed key"],
             "primary_prop": "key ring beside the child's backpack",
             "visual_signature": "one removed key leaves a bright gap in an ordinary family arrangement",
         },
@@ -160,9 +175,9 @@ def adaptive_director_fixture() -> dict:
             "art_style": "restrained architectural campaign photography",
             "emotion_register": "protective emptiness",
             "typography_style": "quiet spatial modern serif",
-            "cast": ["char_mara"],
+            "cast": ["char_mara", "char_oren"],
             "focal_character_id": "char_mara",
-            "gaze_graph": ["char_mara -> nearly closed doorway"],
+            "gaze_graph": ["char_mara -> nearly closed doorway", "char_oren -> blocked threshold"],
             "primary_prop": "child backpack waiting inside the closed door",
             "visual_signature": "warm occupied interior visible beneath a nearly closed cool doorway",
         },
@@ -196,6 +211,18 @@ def adaptive_director_fixture() -> dict:
             "evidence_summary": "the key, doorway, and backpack are all approved story evidence",
             "typography_rationale": f"lettering system {index} translates access and separation into type",
             "novelty_rationale": f"hypothesis {index} changes subject, topology, medium treatment, and title behavior",
+            "causal_visibility": "direct" if index <= 3 else "indirect",
+            "conflict_delivery": [
+                "live threshold opposition",
+                "handled evidence with watching spouse",
+                "architectural access denial",
+                "title-integrated trace of removed access",
+            ][index - 1],
+            "conflict_read": "Mara ends Oren's expected access after his withdrawal threatens their home.",
+            "cause_signal": "Oren's visible withdrawal and expectation that the shared key still grants access",
+            "consequence_signal": "Mara removes the key and establishes a boundary",
+            "conflict_character_ids": ["char_oren"] if index <= 3 else [],
+            "protagonist_action_visible": index <= 3,
         })
         payload["plans"].append(plan)
     return payload
@@ -215,13 +242,14 @@ def test_fixture_director_builds_four_distinct_scene_plans() -> None:
 def test_adaptive_fixture_can_mix_character_object_environment_and_type_led_plans() -> None:
     direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(_brief(), count=4)
 
-    assert direction.profile_version == "cover-profiles.v4"
+    assert direction.profile_version == "cover-profiles.v5"
     assert direction.visual_identity is not None
     assert direction.evidence_ledger is not None
     assert [plan.focal_strategy.split("-")[0] for plan in direction.plans] == [
         "character", "object", "environment", "typography",
     ]
-    assert [len(plan.cast) for plan in direction.plans] == [2, 1, 1, 1]
+    assert [len(plan.cast) for plan in direction.plans] == [2, 2, 2, 1]
+    assert direction.to_dict()["plans"][3]["protagonist_action_visible"] is False
 
 
 def test_director_rejects_provider_json_that_is_not_an_object() -> None:
@@ -246,7 +274,7 @@ def test_live_director_repairs_invalid_json_shape_before_semantic_review() -> No
     assert len(calls) == 2
     assert "cover director response must be a JSON object" in calls[1]
     assert direction.visual_identity is not None
-    assert direction.profile_version == "cover-profiles.v4"
+    assert direction.profile_version == "cover-profiles.v5"
 
 
 def test_director_rejects_provider_failure_before_image_generation() -> None:
@@ -277,8 +305,11 @@ def test_director_prompt_defines_exact_machine_readable_response_contract() -> N
         "portfolio_slot", "composition_family", "scene_family", "location_family", "art_style",
         "emotion_register", "typography_style", "focal_strategy", "design_rationale",
         "evidence_summary", "typography_rationale", "novelty_rationale", "visual_signature",
+        "causal_visibility", "conflict_delivery", "conflict_read", "cause_signal",
+        "consequence_signal", "conflict_character_ids", "protagonist_action_visible",
     }
-    assert contract["fixed_values"]["profile_version"] == "cover-profiles.v4"
+    assert contract["fixed_values"]["profile_version"] == "cover-profiles.v5"
+    assert "core_conflict_visual_contract" in contract["top_level_required_fields"]
     assert "visual_identity" in contract["top_level_required_fields"]
     assert contract["allowed_character_ids"] == ["char_mara", "char_oren"]
     assert contract["base_evidence_refs"] == [

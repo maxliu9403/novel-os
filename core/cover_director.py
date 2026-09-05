@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import math
+import re
 from dataclasses import replace
 from typing import Any, Callable, Mapping, Sequence
 
@@ -25,7 +27,7 @@ class CoverArtDirector:
         *,
         complete: Callable[[str, str], str] | None = None,
         model: str = "",
-        profile_version: str = "cover-profiles.v4",
+        profile_version: str = "cover-profiles.v5",
         fixture: Mapping[str, Any] | None = None,
     ) -> None:
         self._complete = complete
@@ -212,7 +214,7 @@ class CoverArtDirector:
         count: int,
         previous_payload: Mapping[str, Any],
         findings: tuple[ValidationFinding, ...],
-        profile_version: str = "cover-profiles.v4",
+        profile_version: str = "cover-profiles.v5",
         evidence_ledger: VisualEvidenceLedger | None = None,
         recent_fingerprints: Sequence[Mapping[str, Any]] = (),
     ) -> str:
@@ -249,9 +251,11 @@ class CoverArtDirector:
                     "For missing_design_reasoning, complete the evidence, design, typography, novelty, and visual-signature fields.",
                     "For missing_human_anchor or missing_reader_anchor, keep the current concept but stage the approved reader-anchor protagonist as a clear, emotionally active person inside it.",
                     "Object, environment, absence, and typography may lead the idea, while the reader-anchor protagonist remains visibly present and meaningful.",
+                    "For conflict findings, preserve the distinct design hypothesis while making the approved pressure source, protagonist consequence, and protagonist action legible at thumbnail size.",
+                    "Across the portfolio, use direct causal visibility in at least three quarters of plans and the complete approved pressure-character group in at least half; use reflection, spatial division, embedded typography, or another book-specific grammar instead of repeating one foreground/background tableau.",
                     "Preserve plan count, approved character ids, exact evidence references, and spoiler boundaries.",
                 ]
-                if profile_version.casefold().startswith("cover-profiles.v4")
+                if profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5"))
                 else [
                     "Use concept_or_evidence to repair the named concept rather than rewriting unrelated plans.",
                     "For group_blocking, state foreground and background explicitly across blocking and depth_plan.",
@@ -266,12 +270,16 @@ class CoverArtDirector:
         return (
             "You are the lead book-cover designer for a world-class publishing studio, not a template filler. "
             "First derive a visual identity that could belong only to this novel from the supplied source-bound "
-            "evidence. Then privately explore at least eight design hypotheses and return the strongest, most "
+            "evidence. Next derive one core conflict visual contract: who the reader identifies with, what source "
+            "of pressure causes the wound, what relationship or status is at stake, and what visible action or "
+            "consequence makes the protagonist's response active. Then privately explore at least eight design "
+            "hypotheses and return the strongest, most "
             "structurally different portfolio. Choose character-led, relationship-led, object-led, environment-led, "
             "absence-led, typographic, graphic, illustrated, photographic, or hybrid language according to the "
             "story rather than a fixed hierarchy. Every direction must show the approved reader-anchor protagonist "
             "as a clear, emotionally active human subject whose face, posture, and story action read at thumbnail "
-            "size. A dominant close-up is optional; foreground/background causality is optional. "
+            "size. Every plan must communicate the same source-bound cause-and-consequence story, but through a "
+            "different visual language. A dominant close-up is optional; foreground/background causality is optional. "
             "Composition, medium, palette, emotional register, and lettering must grow from the novel's own motifs. "
             "Treat title typography as authored visual storytelling, not a generic text overlay. "
             "Return exactly one JSON object that "
@@ -285,7 +293,7 @@ class CoverArtDirector:
         brief: CoverBriefV2,
         count: int,
         *,
-        profile_version: str = "cover-profiles.v4",
+        profile_version: str = "cover-profiles.v5",
         evidence_ledger: VisualEvidenceLedger | None = None,
         recent_fingerprints: Sequence[Mapping[str, Any]] = (),
     ) -> str:
@@ -297,7 +305,10 @@ class CoverArtDirector:
                 "hypotheses, not variations: changing only crop, pose, palette, prop, location, or camera angle "
                 "is a repeated concept. Do not default to a large hurt protagonist in front of a smaller causal "
                 "relationship. Keep the reader-anchor protagonist visibly present in every plan, then select the "
-                "strongest focal strategy independently for each plan."
+                "strongest focal strategy independently for each plan. Do not confuse an emotional aftermath with "
+                "the core conflict: each thumbnail must preserve a readable cause, consequence, and protagonist "
+                "decision. When approved characters embody the causal pressure, show them directly in at least "
+                "three quarters of the portfolio and show the complete causal relationship in at least half."
             ),
             "count": count,
             "brief": brief.to_dict(),
@@ -315,9 +326,9 @@ class CoverArtDirector:
         brief: CoverBriefV2,
         count: int,
         *,
-        profile_version: str = "cover-profiles.v4",
+        profile_version: str = "cover-profiles.v5",
     ) -> dict[str, Any]:
-        if profile_version.casefold().startswith("cover-profiles.v4"):
+        if profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5")):
             return CoverArtDirector._adaptive_response_contract(brief, count, profile_version)
         treatments = portfolio_blueprint(count)
         hook_types = [item.hook_type for item in treatments]
@@ -473,7 +484,6 @@ class CoverArtDirector:
                 "rule": "use an empty array when no new visual assumptions are needed",
             },
         }
-
     @staticmethod
     def _adaptive_response_contract(
         brief: CoverBriefV2,
@@ -487,7 +497,18 @@ class CoverArtDirector:
             *(f"node:{item.node_id}" for item in brief.decisive_story_nodes),
             *(f"signal:{item.signal_id}" for item in brief.secondary_signals),
         ]
-        return {
+        conflict_profile = profile_version.casefold().startswith("cover-profiles.v5")
+        explicitly_named_conflict_ids = [
+            item.character_id
+            for item in brief.principal_characters
+            if item.character_id != reader_anchor_id
+            and item.name.strip()
+            and re.search(
+                rf"(?<!\w){re.escape(item.name.casefold())}(?!\w)",
+                brief.core_conflict.casefold(),
+            )
+        ]
+        contract: dict[str, Any] = {
             "top_level_required_fields": [
                 "schema_version", "director_model", "profile_version", "visual_identity",
                 "plans", "visual_assumptions",
@@ -576,3 +597,49 @@ class CoverArtDirector:
                 "rule": "use an empty array when no new visual assumptions are needed",
             },
         }
+        if not conflict_profile:
+            return contract
+
+        contract["top_level_required_fields"].insert(5, "core_conflict_visual_contract")
+        contract["core_conflict_visual_contract"] = {
+            "required_fields": [
+                "protagonist_character_id", "conflict_kind", "pressure_source",
+                "pressure_character_ids", "relationship_stakes", "visible_cause",
+                "decisive_consequence", "required_visual_signals", "evidence_refs",
+                "spoiler_boundary",
+            ],
+            "rules": [
+                "Derive the contract from the approved core conflict and evidence ledger before designing plans.",
+                f"protagonist_character_id must be {reader_anchor_id}.",
+                "pressure_character_ids contains only approved named characters who visibly embody the cause; it may be empty for non-human pressure.",
+                "Do not soften a confirmed betrayal, exclusion, concealed choice, abuse of power, or competing family structure into generic distance.",
+                "Do not strengthen ambiguity into romance, infidelity, violence, or another unsupported fact.",
+                "required_visual_signals contains at least two concrete, drawable cause-and-consequence signals.",
+                "evidence_refs uses exact approved evidence references and spoiler_boundary protects the resolution.",
+            ],
+            "characters_explicitly_named_in_core_conflict": explicitly_named_conflict_ids,
+            "explicit_character_rule": "Every listed character must appear in pressure_character_ids.",
+        }
+        plan_contract = contract["plans"]
+        plan_contract["required_fields"].extend([
+            "causal_visibility", "conflict_delivery", "conflict_read", "cause_signal",
+            "consequence_signal", "conflict_character_ids", "protagonist_action_visible",
+        ])
+        plan_contract["portfolio_rules"].extend([
+            "Every plan communicates the core conflict contract at thumbnail size; atmosphere or sadness alone is insufficient.",
+            f"At least {math.ceil(count * 0.75)} of {count} plans use causal_visibility=direct and visibly cast approved pressure characters when the contract names them.",
+            f"At least {math.ceil(count * 0.5)} of {count} plans show the complete pressure-character relationship when the contract names people.",
+            f"At least {math.ceil(count * 0.75)} of {count} plans set protagonist_action_visible=true and depict a concrete active response.",
+            "At most one plan may use causal_visibility=indirect; it must still show specific source-bound evidence of the cause and a readable protagonist consequence.",
+            "Use a different conflict_delivery in every plan, such as direct event, spatial opposition, reflection, embedded typography, environmental trace, or another story-specific solution; these are examples, not a fixed template.",
+        ])
+        plan_contract["field_rules"].update({
+            "causal_visibility": "exactly direct or indirect; direct means the source of pressure itself is visually readable, not merely inferred from sadness",
+            "conflict_delivery": "one concise, plan-specific description of how cause and consequence share the visual reading path; unique across the portfolio",
+            "conflict_read": "the one-sentence story understood from the thumbnail, naming cause and consequence without revealing the ending",
+            "cause_signal": "specific visible person, relationship action, institution, environmental force, or evidence object causing the protagonist's emotion",
+            "consequence_signal": "specific visible emotional or practical consequence carried by the protagonist",
+            "conflict_character_ids": "approved pressure_character_ids actually visible in this plan; each id must also appear in cast",
+            "protagonist_action_visible": "boolean; true only when the protagonist performs a concrete story-supported response rather than posing with a mood",
+        })
+        return contract

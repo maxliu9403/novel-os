@@ -141,17 +141,33 @@ def get_media_store() -> media_lib.MediaStore:
 def get_cover_service(
     store: media_lib.MediaStore = Depends(get_media_store),
 ) -> CoverService:
+    from core.cover_quality import build_llm_visual_evaluator, unavailable_evaluator
     from core.image_client import ImageClientError, build_image_generation_client
-    from core.studio_settings import resolve_cover_settings
+    from core.llm_client import LLMClient, LLMError
+    from core.studio_settings import resolve_cover_director_settings, resolve_cover_settings
 
     try:
         client = build_image_generation_client(resolve_cover_settings())
     except (ValueError, ImageClientError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        review_settings = resolve_cover_director_settings()
+        review_client = LLMClient(
+            provider=review_settings.provider or None,
+            model=review_settings.model or None,
+            base_url=review_settings.base_url or None,
+            api_key=review_settings.api_key or None,
+            timeout_seconds=review_settings.timeout_seconds,
+            reasoning_effort=review_settings.reasoning_effort or None,
+        )
+        visual_evaluator = build_llm_visual_evaluator(review_client)
+    except (LLMError, ValueError) as exc:
+        visual_evaluator = unavailable_evaluator(str(exc))
     return CoverService(
         image_client=client,
         media_store=store,
         media_add=db.media_add,
+        visual_evaluator=visual_evaluator,
     )
 
 
@@ -1194,7 +1210,7 @@ def create_cover_direction(
             brief, direction,
             recent_fingerprints=(
                 recent_fingerprints
-                if direction.profile_version.casefold().startswith("cover-profiles.v4")
+                if direction.profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5"))
                 else ()
             ),
         )
@@ -1356,6 +1372,7 @@ def generate_covers(
                     plan,
                     visual_identity=direction.visual_identity,
                     evidence_ledger=direction.evidence_ledger,
+                    conflict_contract=direction.core_conflict_visual_contract,
                 )
                 for plan in direction.plans
             ]

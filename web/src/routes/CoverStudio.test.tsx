@@ -82,7 +82,7 @@ function coverDirection(status: CoverDirection["status"] = "awaiting_approval"):
     direction_id: "direction-" + "a".repeat(32),
     schema_version: 1,
     director_model: "fixture-director",
-    profile_version: "cover-profiles.v3",
+    profile_version: "cover-profiles.v5",
     brief_sha256: "a".repeat(64),
     direction_sha256: "b".repeat(64),
     status,
@@ -114,6 +114,18 @@ function coverDirection(status: CoverDirection["status"] = "awaiting_approval"):
         visual_tags: ["reader hook"],
       }],
     },
+    core_conflict_visual_contract: {
+      protagonist_character_id: "char_mara",
+      conflict_kind: "interpersonal boundary rupture",
+      pressure_source: "Her estranged spouse still expects access after withdrawing from the family.",
+      pressure_character_ids: ["char_oren"],
+      relationship_stakes: "Mara and her child's safe belonging in the home",
+      visible_cause: "His attention avoids her while his hand remains extended for the key",
+      decisive_consequence: "Mara removes the key and closes the threshold",
+      required_visual_signals: ["his expected access", "her active boundary"],
+      evidence_refs: ["node:door_choice"],
+      spoiler_boundary: "Do not reveal the final relationship outcome",
+    },
     brief: {
       schema_version: 2,
       title: project.title,
@@ -142,6 +154,13 @@ function coverDirection(status: CoverDirection["status"] = "awaiting_approval"):
       typography_rationale: "The title rhythm echoes access and separation.",
       novelty_rationale: "The subject, topology, and title behavior differ from the other plans.",
       visual_signature: "One removed key changes the shape of the home.",
+      causal_visibility: index < 3 ? "direct" : "indirect",
+      conflict_delivery: `distinct conflict language ${index + 1}`,
+      conflict_read: "A woman closes access after her spouse withdraws from the family.",
+      cause_signal: "His visible expectation of access",
+      consequence_signal: "Her hand removes the shared key",
+      conflict_character_ids: index < 3 ? ["char_oren"] : [],
+      protagonist_action_visible: index < 3,
       cast: ["char_mara"], focal_character_id: "char_mara",
       frozen_action: "Mara removes the shared key before the door closes",
       blocking: "Mara foreground right at the threshold",
@@ -207,6 +226,8 @@ test("shows story facts and requires exact art direction approval before generat
   expect(screen.getByText("Cathartic resolve")).toBeInTheDocument();
   expect(screen.getByText("Bold cinematic serif")).toBeInTheDocument();
   expect(screen.getByText("本书视觉语言")).toBeInTheDocument();
+  expect(screen.getByText("核心冲突视觉契约")).toBeInTheDocument();
+  expect(screen.getAllByText(/缩略图故事：A woman closes access/)).toHaveLength(4);
   expect(screen.getByText("Turn the shared doorway into a measure of who still belongs.")).toBeInTheDocument();
   expect(screen.getByText("1 条故事证据 · 1 类来源")).toBeInTheDocument();
   expect(screen.getAllByText(/This hypothesis turns a different layer/)).toHaveLength(4);

@@ -13,6 +13,7 @@ try:
         COVER_REPAIR_CODES,
         CompiledCoverPrompt,
         CoverBriefV2,
+        CoreConflictVisualContract,
         CoverScenePlan,
         PrincipalCharacter,
     )
@@ -28,6 +29,7 @@ except ImportError:  # pragma: no cover - legacy CLI imports core modules top-le
         COVER_REPAIR_CODES,
         CompiledCoverPrompt,
         CoverBriefV2,
+        CoreConflictVisualContract,
         CoverScenePlan,
         PrincipalCharacter,
     )
@@ -39,7 +41,7 @@ except ImportError:  # pragma: no cover - legacy CLI imports core modules top-le
     )
 
 
-COMPILER_VERSION = "cover-compiler.v8"
+COMPILER_VERSION = "cover-compiler.v9"
 MAX_PROMPT_CODEPOINTS = 12_000
 _MARKETING_SHORTCUTS = ("viral", "high ctr", "high conversion", "click-through", "masterpiece")
 _FORBIDDEN_NEGATIONS = (
@@ -183,6 +185,18 @@ def _validate_scene(
             raise ValueError("adaptive cover scene must include the reader-anchor protagonist")
         if scene.focal_character_id != reader_anchor_id:
             raise ValueError("adaptive cover scene must keep the reader-anchor protagonist focal")
+        if scene.causal_visibility:
+            if scene.causal_visibility not in {"direct", "indirect"}:
+                raise ValueError("adaptive cover scene causal visibility must be direct or indirect")
+            if not all((
+                scene.conflict_delivery,
+                scene.conflict_read,
+                scene.cause_signal,
+                scene.consequence_signal,
+            )):
+                raise ValueError("conflict-led cover scene requires cause-and-consequence fields")
+            if not set(scene.conflict_character_ids).issubset(cast):
+                raise ValueError("cover scene conflict characters must also appear in cast")
     if cast and scene.focal_character_id not in cast:
         raise ValueError("cover scene focal character must be in cast")
     if any(
@@ -373,6 +387,7 @@ def _adaptive_modules(
     *,
     visual_identity: BookVisualIdentity | None,
     evidence_ledger: VisualEvidenceLedger | None,
+    conflict_contract: CoreConflictVisualContract | None,
 ) -> dict[str, str]:
     identity = visual_identity or BookVisualIdentity.from_brief(brief)
     profile = resolve_genre_profile(brief)
@@ -402,6 +417,23 @@ def _adaptive_modules(
     evidence = _selected_evidence(brief, scene, evidence_ledger)
     gaze = "; ".join(_gaze_instruction(item) for item in scene.gaze_graph) or "not applicable to this character-free design"
     blacklist = tuple(dict.fromkeys((*identity.cliche_blacklist, *profile.prohibited_shortcuts)))
+    if conflict_contract is not None:
+        conflict_contract_text = (
+            f"Conflict kind: {conflict_contract.conflict_kind}. Pressure source: "
+            f"{conflict_contract.pressure_source}. Relationship or status at stake: "
+            f"{conflict_contract.relationship_stakes}. Visible cause: "
+            f"{conflict_contract.visible_cause}. Decisive consequence: "
+            f"{conflict_contract.decisive_consequence}. Required visual signals: "
+            f"{'; '.join(conflict_contract.required_visual_signals)}. This plan communicates it through "
+            f"{scene.conflict_delivery}; causal visibility is {scene.causal_visibility}. Thumbnail story: "
+            f"{scene.conflict_read}. Cause signal: {scene.cause_signal}. Consequence signal: "
+            f"{scene.consequence_signal}. Do not reveal: {conflict_contract.spoiler_boundary}."
+        )
+    else:
+        conflict_contract_text = (
+            f"Preserve the approved core conflict: {brief.core_conflict}. Show a readable cause, protagonist "
+            "consequence, and active response through this plan's own visual language."
+        )
     modules = {
         "ROLE AND OUTPUT": (
             "You are Image2 acting as the lead book-cover designer, not a scene-rendering operator. Produce a "
@@ -421,6 +453,7 @@ def _adaptive_modules(
             f"Core conflict: {brief.core_conflict}. Hero's task: {brief.core_task}. "
             f"Emotional promise: {brief.emotional_promise}. Evidence interpretation: {scene.evidence_summary}."
         ),
+        "CORE CONFLICT VISUAL CONTRACT": conflict_contract_text,
         "EVIDENCE ANCHORS": evidence or "Use the approved brief evidence references exactly as supplied.",
         "CAST LOCK": f"{cast_lock}\n{identity.cast_policy} {subject_direction} Never invent identity traits.",
         "SINGLE CINEMATIC MOMENT": (
@@ -432,7 +465,8 @@ def _adaptive_modules(
         "HERO SUBJECT AND CORE STORY ATMOSPHERE": (
             f"Focal strategy: {scene.focal_strategy}. Visual signature: {scene.visual_signature}. "
             f"First read: {scene.visual_hook.first_glance_subject}. {subject_direction} Make the core conflict and "
-            "emotional contradiction legible without relying on generic sadness, glamour, or a stock genre pose."
+            "emotional contradiction legible without relying on generic sadness, glamour, or a stock genre pose. "
+            f"Protagonist action visible: {scene.protagonist_action_visible}."
         ),
         "CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY": (
             f"Composition family: {scene.composition_family}. Scene family: {scene.scene_family}. "
@@ -442,7 +476,8 @@ def _adaptive_modules(
         ),
         "RELATIONSHIP BLOCKING": (
             f"Visible attention, gesture, or reading-path logic: {gaze}. Depth and hierarchy: {scene.depth_plan}. "
-            "Connect all elements through one deliberate reading path at thumbnail size."
+            f"Approved causal characters visible in this plan: {', '.join(scene.conflict_character_ids) or 'none; use approved evidence instead'}. "
+            "Connect cause, consequence, and response through one deliberate reading path at thumbnail size."
         ),
         "LIVED ENVIRONMENT AND PRIMARY PROP": (
             f"Primary field or setting: {location}. Environment anchors: {', '.join(scene.environment_anchors)}. "
@@ -501,10 +536,12 @@ def _modules(
     *,
     visual_identity: BookVisualIdentity | None = None,
     evidence_ledger: VisualEvidenceLedger | None = None,
+    conflict_contract: CoreConflictVisualContract | None = None,
 ) -> dict[str, str]:
     if scene.focal_strategy:
         return _adaptive_modules(
             brief, scene, visual_identity=visual_identity, evidence_ledger=evidence_ledger,
+            conflict_contract=conflict_contract,
         )
     return _legacy_modules(brief, scene)
 
@@ -517,6 +554,7 @@ _ADAPTIVE_MODULE_BUDGETS = {
     "ROLE AND OUTPUT": 550,
     "BOOK VISUAL IDENTITY": 850,
     "STORY TRUTH": 600,
+    "CORE CONFLICT VISUAL CONTRACT": 950,
     "EVIDENCE ANCHORS": 900,
     "CAST LOCK": 1100,
     "SINGLE CINEMATIC MOMENT": 600,
@@ -576,10 +614,12 @@ def compile_cover_prompt(
     compiler_version: str = COMPILER_VERSION,
     visual_identity: BookVisualIdentity | None = None,
     evidence_ledger: VisualEvidenceLedger | None = None,
+    conflict_contract: CoreConflictVisualContract | None = None,
 ) -> CompiledCoverPrompt:
     _validate_scene(brief, scene, evidence_ledger)
     modules = _modules(
         brief, scene, visual_identity=visual_identity, evidence_ledger=evidence_ledger,
+        conflict_contract=conflict_contract,
     )
     text = _render(modules)
     if scene.focal_strategy and len(text) > MAX_PROMPT_CODEPOINTS:
@@ -596,16 +636,20 @@ def scene_to_cover_concept(
     compiler_version: str = COMPILER_VERSION,
     visual_identity: BookVisualIdentity | None = None,
     evidence_ledger: VisualEvidenceLedger | None = None,
+    conflict_contract: CoreConflictVisualContract | None = None,
 ) -> CoverConcept:
     compiled = compile_cover_prompt(
         brief, scene, compiler_version=compiler_version,
         visual_identity=visual_identity, evidence_ledger=evidence_ledger,
+        conflict_contract=conflict_contract,
     )
     scene_payload = scene.to_dict()
     if visual_identity is not None:
         scene_payload["_visual_identity"] = visual_identity.to_dict()
     if evidence_ledger is not None:
         scene_payload["_evidence_ledger"] = evidence_ledger.to_dict()
+    if conflict_contract is not None:
+        scene_payload["_core_conflict_visual_contract"] = conflict_contract.to_dict()
     return CoverConcept(
         concept_id=scene.concept_id,
         visual_strategy=scene.visual_strategy,
@@ -648,6 +692,23 @@ _REPAIR_MODULES = {
         "EVIDENCE ANCHORS",
         "CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY",
     ),
+    "core_conflict_missing": (
+        "CORE CONFLICT VISUAL CONTRACT",
+        "SINGLE CINEMATIC MOMENT",
+        "CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY",
+        "MOBILE COMMERCIAL COVER OBJECTIVE",
+    ),
+    "causal_relationship_missing": (
+        "CORE CONFLICT VISUAL CONTRACT",
+        "CAST LOCK",
+        "RELATIONSHIP BLOCKING",
+        "CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY",
+    ),
+    "protagonist_action_missing": (
+        "CORE CONFLICT VISUAL CONTRACT",
+        "SINGLE CINEMATIC MOMENT",
+        "HERO SUBJECT AND CORE STORY ATMOSPHERE",
+    ),
     "title_failure": ("TITLE AND SAFE ZONE", "TITLE ART DIRECTION"),
 }
 assert set(_REPAIR_MODULES) == COVER_REPAIR_CODES
@@ -661,6 +722,7 @@ def compile_repair_prompt(
     *,
     visual_identity: BookVisualIdentity | None = None,
     evidence_ledger: VisualEvidenceLedger | None = None,
+    conflict_contract: CoreConflictVisualContract | None = None,
 ) -> CompiledCoverPrompt:
     unknown = [code for code in repair_codes if code not in _REPAIR_MODULES]
     if unknown:
@@ -668,6 +730,7 @@ def compile_repair_prompt(
     fresh = compile_cover_prompt(
         brief, scene, compiler_version=prior.compiler_version,
         visual_identity=visual_identity, evidence_ledger=evidence_ledger,
+        conflict_contract=conflict_contract,
     )
     modules = dict(prior.modules)
     for code in repair_codes:

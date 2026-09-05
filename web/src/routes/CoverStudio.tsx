@@ -443,6 +443,7 @@ function DirectionWorkspace({
   const environment = direction.brief?.lived_environment || {};
   const identity = direction.visual_identity;
   const evidenceLedger = direction.evidence_ledger;
+  const conflictContract = direction.core_conflict_visual_contract;
   const assumptions = [
     ...(Array.isArray(direction.brief?.visual_assumptions)
       ? direction.brief.visual_assumptions
@@ -545,6 +546,34 @@ function DirectionWorkspace({
         </div>
       )}
 
+      {conflictContract && (
+        <div className="mt-4 rounded-[8px] border border-[#dfb3bd] bg-[#fff6f7] p-4" aria-label="核心冲突视觉契约">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="max-w-3xl">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#96354e]">核心冲突视觉契约</p>
+              <p className="mt-1.5 text-[13px] font-semibold leading-5 text-ink-text">{conflictContract.pressure_source}</p>
+              <p className="mt-1 text-[11.5px] leading-5 text-ink-muted">
+                可见原因：{conflictContract.visible_cause}
+              </p>
+              <p className="mt-1 text-[11.5px] leading-5 text-ink-muted">
+                主角后果：{conflictContract.decisive_consequence}
+              </p>
+            </div>
+            <span className="rounded-full border border-[#dfb3bd] bg-white px-2.5 py-1 text-[10.5px] font-semibold text-[#96354e]">
+              {formatStrategy(conflictContract.conflict_kind)}
+            </span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {conflictContract.required_visual_signals.map((signal) => (
+              <span key={signal} className="rounded-full bg-white px-2 py-1 text-[10.5px] text-ink-muted">{signal}</span>
+            ))}
+          </div>
+          <p className="mt-2 text-[10.5px] leading-4 text-ink-muted">
+            关系压力人物：{conflictContract.pressure_character_ids.join("、") || "非人物压力"} · 边界：{conflictContract.spoiler_boundary}
+          </p>
+        </div>
+      )}
+
       {assumptions.length > 0 && (
         <div className="mt-3 border-l-2 border-[#d6a85f] bg-[#fff7e8] px-3 py-2.5 text-[11.5px] text-[#72511d]">
           <p className="font-semibold">
@@ -582,6 +611,22 @@ function DirectionWorkspace({
               </dl>
             )}
             <p className="mt-2 text-[11.5px] leading-4 text-ink-muted">{plan.frozen_action}</p>
+            {plan.conflict_read && (
+              <div className="mt-2 rounded-[5px] border border-[#ead0d6] bg-[#fff8f9] px-2.5 py-2 text-[10.5px] leading-4 text-ink-muted">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className={`rounded-full px-2 py-0.5 font-semibold ${
+                    plan.causal_visibility === "direct"
+                      ? "bg-[#f7dce3] text-[#96354e]"
+                      : "bg-[#eeeaf8] text-[#66518f]"
+                  }`}>
+                    {plan.causal_visibility === "direct" ? "直接冲突" : "间接证据"}
+                  </span>
+                  <span>{plan.conflict_delivery}</span>
+                </div>
+                <p className="mt-1 font-medium text-ink-text">缩略图故事：{plan.conflict_read}</p>
+                <p className="mt-1">原因：{plan.cause_signal} · 后果：{plan.consequence_signal}</p>
+              </div>
+            )}
             <p className="mt-1 text-[11px] leading-4 text-ink-muted">出场人物：{plan.cast.length ? plan.cast.join("、") : "无人物方案"} · 核心道具/意象：{plan.primary_prop}</p>
             <p className="mt-1 text-[11px] leading-4 text-ink-muted">{plan.visual_hook.open_question}</p>
             {plan.design_rationale && (

@@ -264,6 +264,13 @@ export interface CoverDirectionPlan {
   typography_rationale?: string;
   novelty_rationale?: string;
   visual_signature?: string;
+  causal_visibility?: "direct" | "indirect";
+  conflict_delivery?: string;
+  conflict_read?: string;
+  cause_signal?: string;
+  consequence_signal?: string;
+  conflict_character_ids?: string[];
+  protagonist_action_visible?: boolean;
   cast: string[];
   focal_character_id: string;
   frozen_action: string;
@@ -276,6 +283,19 @@ export interface CoverDirectionPlan {
     reader_promise: string;
     expected_thumbnail_read: string;
   };
+}
+
+export interface CoreConflictVisualContract {
+  protagonist_character_id: string;
+  conflict_kind: string;
+  pressure_source: string;
+  pressure_character_ids: string[];
+  relationship_stakes: string;
+  visible_cause: string;
+  decisive_consequence: string;
+  required_visual_signals: string[];
+  evidence_refs: string[];
+  spoiler_boundary: string;
 }
 
 export interface BookVisualIdentity {
@@ -321,6 +341,7 @@ export interface CoverDirection {
   plans: CoverDirectionPlan[];
   visual_identity?: BookVisualIdentity;
   evidence_ledger?: VisualEvidenceLedger;
+  core_conflict_visual_contract?: CoreConflictVisualContract;
   novelty_report?: Array<Record<string, unknown>>;
   visual_assumptions: Array<{
     field: string; proposed_value: string; reason: string;

@@ -50,6 +50,7 @@ COVER_HANDOFF_END
 - Preserve title spelling and language exactly. Candidate prompts render the exact title once and no other copy.
 - Story-facing `world_signals` use invented or abstract locations. Real market locations stay in `audience_research` and never enter cover prompts.
 - Use only confirmed story facts. Visual styling may interpret mood, composition, lighting, and palette, but not invent identity, relationships, spoilers, or world rules.
+- State `core_conflict` as a concrete cause-and-consequence relationship. Preserve a confirmed betrayal, exclusion, divided loyalty, concealed choice, competing family structure, institutional pressure, or environmental threat precisely; do not collapse it into generic sadness or distance, and do not strengthen ambiguity into an unsupported affair or other event.
 - Derive 3-5 concepts. A count outside that range is a validation error before any provider call.
 
 ## V2 direction gate
@@ -71,3 +72,9 @@ COVER_HANDOFF_END
 - Compile facts before style and reject critical assumptions, invented identity,
   unknown evidence, extra text, real landmarks, collage scenes, and prompts over
   12,000 Unicode code points before calling `gpt-image-2`.
+- New directions use `cover-profiles.v5`. They derive a source-bound core-conflict
+  visual contract, require cause and consequence in every plan, direct causal
+  visibility in at least three quarters of the portfolio, complete approved
+  pressure-character coverage in at least half, and visible protagonist action
+  in at least three quarters. These are semantic coverage rules, not a fixed
+  demand for foreground/background staging.

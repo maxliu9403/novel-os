@@ -8,6 +8,8 @@ report instead of inventing scores or silently approving an image.
 from __future__ import annotations
 
 import hashlib
+import json
+import re
 from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any, Callable, Mapping
@@ -199,6 +201,78 @@ def unavailable_evaluator(reason: str = "No compatible visual evaluator is confi
     return UnavailableCoverVisualEvaluator(reason)
 
 
+def build_llm_visual_evaluator(client: Any) -> CoverVisualEvaluator:
+    """Bind a multimodal LLM client to the strict cover review contract."""
+
+    def complete(
+        image: bytes,
+        thumbnail: bytes,
+        brief: CoverBriefV2,
+        scene: CoverScenePlan,
+    ) -> Mapping[str, Any]:
+        system = (
+            "You are a forensic book-cover art director. Compare the first attached full cover and the "
+            "second attached mobile thumbnail against the supplied source-bound scene contract. Judge only "
+            "what is visibly present. Do not reward prompt intent that the image failed to render. Return one "
+            "JSON object and no Markdown."
+        )
+        user = json.dumps({
+            "task": "Audit cover semantics, cast, story causality, craft, anatomy, title, and thumbnail reading.",
+            "story": {
+                "title": brief.title,
+                "genre": brief.genre,
+                "core_conflict": brief.core_conflict,
+                "emotional_promise": brief.emotional_promise,
+            },
+            "approved_characters": [item.to_dict() for item in brief.principal_characters],
+            "scene_contract": scene.to_dict(),
+            "required_output": {
+                "status": "blocked when any semantic or fidelity blocker exists; otherwise human_review_required",
+                "scores_0_to_100": list(CoverQualityReport._DIMENSIONS),
+                "blockers": "array of visible failure codes",
+                "repair_codes": sorted(COVER_REPAIR_CODES),
+                "evidence": "short array describing visible evidence in the images",
+                "findings": [{
+                    "code": "stable code",
+                    "severity": "blocker, warning, or info",
+                    "message": "specific visible finding",
+                    "evidence": "where it appears",
+                }],
+                "evaluator_provider": str(getattr(client, "provider", "multimodal")),
+                "evaluator_model": str(getattr(client, "model", "")),
+                "evaluated_at": _now(),
+            },
+            "semantic_rules": [
+                "core_conflict_fidelity measures whether the image communicates both cause and consequence, not generic sadness",
+                "causal_relationship_clarity measures whether the planned pressure person, group, institution, force, or evidence is actually legible",
+                "protagonist_agency measures whether the protagonist visibly acts, chooses, refuses, discovers, confronts, or departs rather than merely poses",
+                "when causal_visibility is direct and planned conflict characters are absent or unreadable, add blocker and repair code causal_relationship_missing",
+                "when the cover reads only as separation, loneliness, or atmosphere instead of the planned conflict, add core_conflict_missing",
+                "when the protagonist has no readable action, add protagonist_action_missing",
+                "use only repair codes relevant to visible failures",
+            ],
+        }, ensure_ascii=False, sort_keys=True)
+        raw = client.complete_with_images(system, user, (image, thumbnail))
+        text = str(raw or "").strip()
+        fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
+        if fenced:
+            text = fenced.group(1)
+        payload = json.loads(text)
+        if not isinstance(payload, Mapping):
+            raise ValueError("cover visual evaluator response must be a JSON object")
+        result = dict(payload)
+        result["evaluator_provider"] = str(getattr(client, "provider", "multimodal"))
+        result["evaluator_model"] = str(getattr(client, "model", ""))
+        result["evaluated_at"] = _now()
+        return result
+
+    return CoverVisualEvaluator(
+        complete=complete,
+        provider=str(getattr(client, "provider", "multimodal")),
+        model=str(getattr(client, "model", "")),
+    )
+
+
 def human_review_report(reason: str) -> CoverQualityReport:
     return CoverQualityReport(
         status="human_review_required",
@@ -240,6 +314,7 @@ __all__ = [
     "CoverVisualEvaluator",
     "MAX_COVER_BYTES",
     "UnavailableCoverVisualEvaluator",
+    "build_llm_visual_evaluator",
     "evaluate_binary_cover",
     "human_review_report",
     "project_cover_thumbnail",

@@ -57,7 +57,7 @@ COVER_HANDOFF_BEGIN
   "target_audience": "<user-confirmed primary audience>",
   "market_scope": "<release market branch>",
   "core_task": "<reader-facing premise and protagonist objective>",
-  "core_conflict": "<specific opposition and stakes>",
+  "core_conflict": "<specific source of pressure, concrete choice or injustice, affected relationship/status, stakes, and protagonist consequence>",
   "emotional_promise": "<dominant emotion and earned payoff>",
   "principal_characters": [{
     "character_id": "<stable story character id>",
@@ -138,14 +138,18 @@ target audience, conflict, principal-character ages and lived identities,
 relationships, decisive nodes, and environment signals come from confirmed
 Sections A-E rather than new assumptions. Include every protagonist or
 co-protagonist whose arc is part of the reader promise with `must_appear: true`.
-Also include a small number of cover-relevant conflict participants with
+Also include cover-relevant conflict participants with
 `must_appear: false` when their presence lets a cover show the cause of the
 emotion—such as an opposing alliance, exclusion, divided loyalty, concealed
 choice, or public power move. These optional entries use the same confirmed age,
 lived-identity, agency, relationship, and evidence fields; they are not invented
 extras and are not mandatory in every concept. Prefer enough approved cast for
-at least one causal conflict tableau whose foreground shows the emotional cost
-and whose middle/background shows the story-supported cause. Keep real
+multiple structurally distinct causal-conflict designs rather than one repeated
+causal conflict tableau. Record confirmed betrayal,
+parallel-family, concealed-choice, exclusion, or power-abuse facts explicitly in
+`core_conflict`; preserve story ambiguity when the evidence remains ambiguous.
+Do not reduce the handoff to a generic statement such as “the relationship is
+damaged.” Keep real
 market geography only in `audience_profile`; cover-facing places are fictional
 or abstract. This block is production metadata and does not enter reader prose.
 

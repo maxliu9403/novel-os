@@ -22,6 +22,7 @@ from core.cover_models_v2 import (
     CoverGenerationAttempt,
     CoverQualityReport,
     CoverScenePlan,
+    CoreConflictVisualContract,
     QualityFinding,
 )
 from core.cover_handoff import refresh_cover_concept_prompt
@@ -46,6 +47,11 @@ from core.cover_quality import (
 
 _GENERATION_EXTENSIONS = {"image/png": ".png", "image/jpeg": ".jpg"}
 _STORED_EXTENSIONS = {**_GENERATION_EXTENSIONS, "image/webp": ".webp"}
+_AUTO_SEMANTIC_REPAIR_CODES = frozenset({
+    "core_conflict_missing",
+    "causal_relationship_missing",
+    "protagonist_action_missing",
+})
 
 
 class CoverServiceError(ValueError):
@@ -90,6 +96,39 @@ class CoverService:
             current = self._attempt_candidate(
                 project_id, project, store, current, candidate.candidate_id
             )
+            reviewed = self._candidate(current, candidate.candidate_id)
+            repair_codes = tuple(
+                code for code in (
+                    (reviewed.quality_report or {}).get("repair_codes") or ()
+                )
+                if code in _AUTO_SEMANTIC_REPAIR_CODES
+            )
+            if reviewed.status == "ready" and repair_codes:
+                repaired = self._repair_concept(
+                    current.brief,
+                    next(
+                        item for item in current.concepts
+                        if item.concept_id == reviewed.concept_id
+                    ),
+                    reviewed,
+                    repair_codes,
+                )
+                current = replace(
+                    current,
+                    concepts=tuple(
+                        repaired if item.concept_id == repaired.concept_id else item
+                        for item in current.concepts
+                    ),
+                )
+                current = self._attempt_candidate(
+                    project_id,
+                    project,
+                    store,
+                    current,
+                    candidate.candidate_id,
+                    repair_codes=repair_codes,
+                    prompt_revision=reviewed.prompt_revision + 1,
+                )
         current = self._finalize(store, current)
         build_delivery_package(project, cover_set=current)
         return current
@@ -331,11 +370,16 @@ class CoverService:
         scene_payload = dict(concept.scene_plan)
         identity_raw = scene_payload.get("_visual_identity")
         ledger_raw = scene_payload.get("_evidence_ledger")
+        conflict_raw = scene_payload.get("_core_conflict_visual_contract")
         visual_identity = (
             BookVisualIdentity.from_dict(identity_raw) if isinstance(identity_raw, dict) else None
         )
         evidence_ledger = (
             VisualEvidenceLedger.from_dict(ledger_raw) if isinstance(ledger_raw, dict) else None
+        )
+        conflict_contract = (
+            CoreConflictVisualContract.from_dict(conflict_raw)
+            if isinstance(conflict_raw, dict) else None
         )
         if not repair_codes:
             if isinstance(brief, CoverBriefV2) and scene_payload:
@@ -346,6 +390,7 @@ class CoverService:
                     brief, scene,
                     visual_identity=visual_identity,
                     evidence_ledger=evidence_ledger,
+                    conflict_contract=conflict_contract,
                 )
             return replace(
                 concept,
@@ -366,12 +411,14 @@ class CoverService:
             brief, scene,
             visual_identity=visual_identity,
             evidence_ledger=evidence_ledger,
+            conflict_contract=conflict_contract,
         )
         prior = replace(baseline, revision=max(1, candidate.prompt_revision))
         compiled = compile_repair_prompt(
             brief, scene, prior, requested,
             visual_identity=visual_identity,
             evidence_ledger=evidence_ledger,
+            conflict_contract=conflict_contract,
         )
         return replace(concept, generation_prompt=compiled.text, scene_plan=scene_payload)
 
@@ -423,6 +470,39 @@ class CoverService:
             ),))
         except Exception as exc:
             return human_review_report(str(exc))
+        blockers = list(report.blockers)
+        repair_codes = list(report.repair_codes)
+        if scene.causal_visibility:
+            semantic_failures = (
+                (
+                    "core_conflict_missing",
+                    report.core_conflict_fidelity,
+                    True,
+                ),
+                (
+                    "causal_relationship_missing",
+                    report.causal_relationship_clarity,
+                    scene.causal_visibility == "direct",
+                ),
+                (
+                    "protagonist_action_missing",
+                    report.protagonist_agency,
+                    scene.protagonist_action_visible,
+                ),
+            )
+            for code, score, applies in semantic_failures:
+                if applies and score is not None and score < 70:
+                    if code not in blockers:
+                        blockers.append(code)
+                    if code not in repair_codes:
+                        repair_codes.append(code)
+        if tuple(blockers) != report.blockers or tuple(repair_codes) != report.repair_codes:
+            report = replace(
+                report,
+                status="blocked" if blockers else report.status,
+                blockers=tuple(blockers),
+                repair_codes=tuple(repair_codes),
+            )
         blockers = tuple(report.blockers)
         if blockers and report.status != "blocked":
             report = replace(report, status="blocked")
@@ -431,9 +511,15 @@ class CoverService:
             report.age_and_environment_fidelity, report.render_fidelity,
             report.anatomy_and_physics,
         )
+        if scene.causal_visibility:
+            required_scores = (*required_scores,
+                report.core_conflict_fidelity,
+                report.causal_relationship_clarity,
+                report.protagonist_agency,
+            )
         if not blockers and all(score is not None and score >= 80 for score in required_scores):
             report = replace(report, status="recommended_for_human_review")
-        elif not blockers and report.status == "blocked":
+        elif not blockers:
             report = replace(report, status="human_review_required")
         return report
 

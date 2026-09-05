@@ -6,6 +6,7 @@ from io import BytesIO
 from PIL import Image
 
 from core.cover_quality import (
+    build_llm_visual_evaluator,
     evaluate_binary_cover,
     project_cover_thumbnail,
     unavailable_evaluator,
@@ -13,6 +14,7 @@ from core.cover_quality import (
 from core.image_binary import dimensions
 from core.cover_models_v2 import CoverQualityReport
 from tests.test_cover_director import _brief, director_fixture
+from tests.test_cover_director import adaptive_director_fixture
 from core.cover_director import CoverArtDirector
 
 
@@ -88,3 +90,59 @@ def test_non_photographic_cover_uses_medium_fidelity_for_recommendation() -> Non
 
     assert report.render_fidelity == 91
     assert CoverQualityReport.from_dict(report.to_dict()) == report
+
+
+def test_multimodal_visual_evaluator_audits_rendered_conflict_not_prompt_intent() -> None:
+    class Client:
+        provider = "codex"
+        model = "fixture-vision"
+
+        def __init__(self) -> None:
+            self.images = ()
+            self.user = ""
+
+        def complete_with_images(self, _system, user, images):
+            self.images = images
+            self.user = user
+            return "```json\n" + __import__("json").dumps({
+                "status": "blocked",
+                "canon_fidelity": 72,
+                "required_cast_coverage": 45,
+                "age_and_environment_fidelity": 90,
+                "medium_fidelity": 88,
+                "photorealism": 88,
+                "anatomy_and_physics": 91,
+                "cinematic_storytelling": 70,
+                "genre_emotion": 83,
+                "thumbnail_clarity": 76,
+                "hook_promise_alignment": 52,
+                "core_conflict_fidelity": 40,
+                "causal_relationship_clarity": 20,
+                "protagonist_agency": 84,
+                "title_legibility_advisory": 90,
+                "blockers": ["causal_relationship_missing"],
+                "repair_codes": ["causal_relationship_missing"],
+                "evidence": ["Only the protagonist is visible in the thumbnail"],
+                "findings": [],
+                "evaluator_provider": "codex",
+                "evaluator_model": "fixture-vision",
+                "evaluated_at": "2026-09-05T00:00:00Z"
+            }) + "\n```"
+
+    client = Client()
+    brief = _brief()
+    direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(brief, count=4)
+
+    report = build_llm_visual_evaluator(client).evaluate(
+        image=b"full-image",
+        thumbnail=b"thumbnail",
+        brief=brief,
+        scene=direction.plans[0],
+    )
+
+    assert report.status == "blocked"
+    assert report.causal_relationship_clarity == 20
+    assert report.repair_codes == ("causal_relationship_missing",)
+    assert client.images == (b"full-image", b"thumbnail")
+    assert "Judge only" not in client.user
+    assert "causal_visibility" in client.user

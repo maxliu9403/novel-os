@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import re
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
@@ -177,6 +179,18 @@ def _validate_adaptive_portfolio(
             "Adaptive cover direction must remain bound to its source evidence ledger",
         ))
 
+    conflict_contract = direction.core_conflict_visual_contract
+    conflict_profile = direction.profile_version.casefold().startswith("cover-profiles.v5")
+    if conflict_profile:
+        if conflict_contract is None:
+            findings.append(ValidationFinding(
+                "missing_core_conflict_contract",
+                "blocker",
+                "Conflict-led cover direction requires a source-bound core conflict visual contract",
+            ))
+        else:
+            findings.extend(_validate_core_conflict_contract(brief, direction))
+
     required_reasoning = (
         "focal_strategy", "composition_family", "scene_family", "art_style",
         "emotion_register", "typography_style", "design_rationale",
@@ -232,7 +246,56 @@ def _validate_adaptive_portfolio(
                 plan.concept_id,
             ))
 
-    if len(brief.principal_characters) > 1 and not any(
+        if conflict_profile:
+            missing_conflict_fields = [
+                field for field in (
+                    "causal_visibility", "conflict_delivery", "conflict_read",
+                    "cause_signal", "consequence_signal",
+                )
+                if not str(getattr(plan, field, "") or "").strip()
+            ]
+            if missing_conflict_fields:
+                findings.append(ValidationFinding(
+                    "missing_core_conflict",
+                    "blocker",
+                    "Every cover plan must state a thumbnail-legible cause and consequence",
+                    f"{plan.concept_id}: {', '.join(missing_conflict_fields)}",
+                ))
+            if plan.causal_visibility not in {"direct", "indirect"}:
+                findings.append(ValidationFinding(
+                    "invalid_causal_visibility",
+                    "blocker",
+                    "causal_visibility must be direct or indirect",
+                    f"{plan.concept_id}: {plan.causal_visibility or '<missing>'}",
+                ))
+            if conflict_contract is not None:
+                unknown_conflict = (
+                    set(plan.conflict_character_ids)
+                    - set(conflict_contract.pressure_character_ids)
+                )
+                if unknown_conflict:
+                    findings.append(ValidationFinding(
+                        "conflict_actor_mismatch",
+                        "blocker",
+                        "Plan conflict characters must come from the approved pressure-character contract",
+                        f"{plan.concept_id}: {', '.join(sorted(unknown_conflict))}",
+                    ))
+                if not set(plan.conflict_character_ids).issubset(set(plan.cast)):
+                    findings.append(ValidationFinding(
+                        "conflict_actor_not_cast",
+                        "blocker",
+                        "Every declared conflict character must be visibly cast in that plan",
+                        plan.concept_id,
+                    ))
+                if not set(plan.story_evidence_refs).intersection(conflict_contract.evidence_refs):
+                    findings.append(ValidationFinding(
+                        "missing_conflict_evidence",
+                        "blocker",
+                        "Every plan must cite evidence used by the book-level core conflict contract",
+                        plan.concept_id,
+                    ))
+
+    if not conflict_profile and len(brief.principal_characters) > 1 and not any(
         len(plan.cast) >= 2 for plan in direction.plans
     ):
         findings.append(ValidationFinding(
@@ -241,6 +304,9 @@ def _validate_adaptive_portfolio(
             "At least one adaptive direction must show the central relationship conflict",
             reader_anchor_id,
         ))
+
+    if conflict_profile and conflict_contract is not None:
+        findings.extend(_validate_core_conflict_coverage(direction))
 
     for collision in portfolio_collisions(direction.plans):
         findings.append(ValidationFinding(
@@ -266,6 +332,135 @@ def _validate_adaptive_portfolio(
     if len(set(frozen_actions)) != len(frozen_actions):
         findings.append(ValidationFinding(
             "duplicate_story_beat", "blocker", "Every plan must use a distinct story beat",
+        ))
+    return findings
+
+
+def _validate_core_conflict_contract(
+    brief: CoverBriefV2,
+    direction: ArtDirectionSet,
+) -> list[ValidationFinding]:
+    contract = direction.core_conflict_visual_contract
+    if contract is None:
+        return []
+    findings: list[ValidationFinding] = []
+    known = {item.character_id for item in brief.principal_characters}
+    reader_anchor_id = brief.reader_anchor_character.character_id
+    if contract.protagonist_character_id != reader_anchor_id:
+        findings.append(ValidationFinding(
+            "conflict_protagonist_mismatch",
+            "blocker",
+            "Core conflict contract must anchor the approved reader protagonist",
+            f"expected {reader_anchor_id}; received {contract.protagonist_character_id}",
+        ))
+    unknown_pressure = set(contract.pressure_character_ids) - known
+    if unknown_pressure:
+        findings.append(ValidationFinding(
+            "identity_invention",
+            "blocker",
+            "Core conflict contract references unapproved pressure characters",
+            ", ".join(sorted(unknown_pressure)),
+        ))
+    if reader_anchor_id in contract.pressure_character_ids:
+        findings.append(ValidationFinding(
+            "conflict_pressure_self_reference",
+            "blocker",
+            "The protagonist cannot also be classified as the visible opposing pressure",
+            reader_anchor_id,
+        ))
+
+    # If the approved core-conflict sentence explicitly names another principal
+    # character, the director may not omit that person from the causal contract.
+    conflict_text = brief.core_conflict.casefold()
+    explicitly_named = {
+        item.character_id
+        for item in brief.principal_characters
+        if item.character_id != reader_anchor_id
+        and item.name.strip()
+        and re.search(
+            rf"(?<!\w){re.escape(item.name.casefold())}(?!\w)", conflict_text
+        )
+    }
+    omitted = explicitly_named - set(contract.pressure_character_ids)
+    if omitted:
+        findings.append(ValidationFinding(
+            "conflict_actor_omitted",
+            "blocker",
+            "The conflict contract omits characters explicitly named in the approved core conflict",
+            ", ".join(sorted(omitted)),
+        ))
+    for reference in contract.evidence_refs:
+        if not _evidence_exists(brief, direction, reference):
+            findings.append(ValidationFinding(
+                "unknown_conflict_evidence",
+                "blocker",
+                "Core conflict contract references unknown story evidence",
+                reference,
+            ))
+    return findings
+
+
+def _validate_core_conflict_coverage(
+    direction: ArtDirectionSet,
+) -> list[ValidationFinding]:
+    contract = direction.core_conflict_visual_contract
+    if contract is None:
+        return []
+    findings: list[ValidationFinding] = []
+    plans = direction.plans
+    count = len(plans)
+    direct_minimum = math.ceil(count * 0.75)
+    action_minimum = math.ceil(count * 0.75)
+    ensemble_minimum = math.ceil(count * 0.5)
+    pressure = set(contract.pressure_character_ids)
+
+    direct = [plan for plan in plans if plan.causal_visibility == "direct"]
+    if len(direct) < direct_minimum:
+        findings.append(ValidationFinding(
+            "portfolio_conflict_undercoverage",
+            "blocker",
+            "Most cover directions must show the causal pressure directly while preserving different compositions",
+            f"direct {len(direct)}/{count}; required {direct_minimum}",
+        ))
+    actions = [plan for plan in plans if plan.protagonist_action_visible]
+    if len(actions) < action_minimum:
+        findings.append(ValidationFinding(
+            "protagonist_action_undercoverage",
+            "blocker",
+            "Most cover directions must show the protagonist making or enacting a decision",
+            f"visible action {len(actions)}/{count}; required {action_minimum}",
+        ))
+    deliveries = [" ".join(plan.conflict_delivery.casefold().split()) for plan in plans]
+    if all(deliveries) and len(set(deliveries)) != len(deliveries):
+        findings.append(ValidationFinding(
+            "duplicate_conflict_delivery",
+            "blocker",
+            "Every plan must use a distinct visual method to communicate the same core conflict",
+        ))
+
+    if not pressure:
+        return findings
+    for plan in direct:
+        declared = set(plan.conflict_character_ids)
+        if not declared or not declared.issubset(set(plan.cast)) or not declared.intersection(pressure):
+            findings.append(ValidationFinding(
+                "missing_causal_relationship",
+                "blocker",
+                "A direct-conflict plan must visibly cast and identify an approved source of pressure",
+                plan.concept_id,
+            ))
+    full_ensemble = [
+        plan for plan in plans
+        if plan.causal_visibility == "direct"
+        and pressure.issubset(set(plan.cast))
+        and pressure.issubset(set(plan.conflict_character_ids))
+    ]
+    if len(full_ensemble) < ensemble_minimum:
+        findings.append(ValidationFinding(
+            "replacement_relationship_undercoverage",
+            "blocker",
+            "At least half the portfolio must make the complete approved causal relationship legible",
+            f"complete relationship {len(full_ensemble)}/{count}; required {ensemble_minimum}",
         ))
     return findings
 
@@ -297,7 +492,7 @@ def validate_direction(
         ))
     required = {item.character_id for item in brief.required_characters}
     known = {item.character_id for item in brief.principal_characters}
-    adaptive = direction.profile_version.casefold().startswith("cover-profiles.v4")
+    adaptive = direction.profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5"))
     optional_conflict_cast = {
         item.character_id for item in brief.principal_characters if not item.must_appear
     }
