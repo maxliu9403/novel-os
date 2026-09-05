@@ -43,7 +43,7 @@ export default function CodexImageButton({
         entry.name,
       );
       await api.setPortrait(projectId, entry.id, media.id, entry.entry_type);
-      toast("Image saved", "success");
+      toast("图片已保存", "success");
       onUpdated();
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
@@ -57,7 +57,7 @@ export default function CodexImageButton({
     setBusy(true);
     try {
       await api.setPortrait(projectId, entry.id, "", entry.entry_type);
-      toast("Image removed", "success");
+      toast("图片已移除", "success");
       onUpdated();
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
@@ -67,16 +67,16 @@ export default function CodexImageButton({
   }
 
   const emptyHint =
-    entry.entry_type === "location" ? "Add place photo"
-      : entry.entry_type === "item" ? "Add item image"
-        : entry.entry_type === "worldbuilding" ? "Add reference"
-          : "Add portrait";
+    entry.entry_type === "location" ? "添加地点照片"
+      : entry.entry_type === "item" ? "添加物件图片"
+        : entry.entry_type === "worldbuilding" ? "添加参考图"
+          : "添加人物肖像";
 
   return (
     <div className="flex flex-col items-center gap-1.5">
       <button
         type="button"
-        title={src ? "Replace image" : emptyHint}
+        title={src ? "替换图片" : emptyHint}
         disabled={busy}
         onClick={() => inputRef.current?.click()}
         className={`group relative flex ${dim} shrink-0 items-center justify-center overflow-hidden ${radius} bg-gradient-to-br from-[#eeedff] to-[#e7e7ff] text-[var(--color-violet)] transition hover:ring-2 hover:ring-[rgba(104,103,234,0.35)] disabled:opacity-50`}
@@ -118,7 +118,7 @@ export default function CodexImageButton({
               onClick={() => inputRef.current?.click()}
               className="text-[11.5px] font-medium text-[var(--color-violet)] hover:underline disabled:opacity-40"
             >
-              {src ? "Replace" : label}
+              {src ? "替换" : label}
             </button>
           )}
           {src && (
@@ -128,7 +128,7 @@ export default function CodexImageButton({
               onClick={() => void clear()}
               className="text-[11.5px] text-ink-muted hover:text-[#c85177] disabled:opacity-40"
             >
-              Remove
+              移除
             </button>
           )}
         </div>

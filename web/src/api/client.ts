@@ -23,6 +23,31 @@ export interface ProjectDetail {
   target_word_count?: number; session_word_target?: number;
 }
 
+export interface ProjectDeletionInventory {
+  project_id: string;
+  title: string;
+  chapter_count: number;
+  exists: boolean;
+  counts: Record<string, number>;
+  project_files: number;
+  project_bytes: number;
+  media_files: number;
+  media_bytes: number;
+}
+
+export interface ProjectDeletionPreview extends ProjectDeletionInventory {
+  running_job_ids: string[];
+  can_delete: boolean;
+}
+
+export interface ProjectDeletionResult {
+  project_id: string;
+  status: "deleted" | "already_deleted";
+  before: ProjectDeletionInventory;
+  after: ProjectDeletionInventory;
+  cleared_consequence_previews: number;
+}
+
 export interface StudioPreset {
   id: string; label: string; hint: string;
   provider: string; model: string; mature_capable: boolean;
@@ -36,6 +61,307 @@ export interface StudioLlmStatus {
   error: string | null;
   presets: StudioPreset[];
   onboarding_completed: boolean;
+}
+
+export interface StudioCoverStatus {
+  configured: boolean;
+  has_api_key: boolean;
+  base_url: string;
+  model: string;
+  size: string;
+  quality: "low" | "medium" | "high" | "auto";
+  output_format: "png" | "jpeg";
+  count: number;
+  timeout_seconds: number;
+  inherits_base_url: boolean;
+  inherits_api_key: boolean;
+  director_provider?: string;
+  director_model?: string;
+  director_base_url?: string;
+  director_has_api_key?: boolean;
+  director_timeout_seconds?: number;
+  director_reasoning_effort?: string;
+  director_inherits_writing?: boolean;
+  error: string | null;
+}
+
+export type ModelCapability = "text_generation" | "image_generation";
+
+export interface ProviderTemplate {
+  id: string;
+  label: string;
+  auth_type: "api_key" | "codex_session" | "none";
+  default_base_url: string;
+  capabilities: ModelCapability[];
+  requires_api_key: boolean;
+  model_placeholder: string;
+}
+
+export interface ProviderConnection {
+  id: string;
+  name: string;
+  provider: string;
+  auth_type: "api_key" | "codex_session" | "none";
+  base_url: string;
+  image_base_url: string;
+  capabilities: ModelCapability[];
+  has_api_key: boolean;
+  status: "ready" | "invalid" | "unavailable";
+  error: string;
+  last_tested_at: string;
+  last_test_ok: boolean | null;
+  last_test_error: string;
+  discovered_models: string[];
+}
+
+export interface TextModelRoute {
+  id: string;
+  connection_id: string;
+  model: string;
+  max_tokens: number;
+  reasoning_effort: "" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
+  inherits_default: boolean;
+  effective_connection_id: string;
+  effective_connection_name: string;
+  effective_model: string;
+  effective_reasoning_effort: string;
+  effective_source: string;
+  configured: boolean;
+}
+
+export interface ImageModelProfile {
+  id: string;
+  connection_id: string;
+  connection_name: string;
+  model: string;
+  size: string;
+  quality: "low" | "medium" | "high" | "auto";
+  output_format: "jpeg" | "png";
+  count: number;
+  timeout_seconds: number;
+  configured: boolean;
+  error: string;
+}
+
+export interface StudioModelConfiguration {
+  schema_version: number;
+  source: "legacy" | "v2";
+  templates: ProviderTemplate[];
+  connections: ProviderConnection[];
+  text_routes: TextModelRoute[];
+  image_profiles: { cover: ImageModelProfile };
+}
+
+export interface ProviderConnectionInput {
+  name: string;
+  provider: string;
+  auth_type?: string;
+  base_url?: string;
+  image_base_url?: string;
+  capabilities?: ModelCapability[];
+  secret_action?: "keep" | "replace" | "clear";
+  api_key?: string;
+}
+
+export interface ProviderTestResult {
+  ok: boolean;
+  status: string;
+  message: string;
+  models: string[];
+  tested_at: string;
+}
+
+export interface ImageTestResult {
+  ok: boolean;
+  data_url: string;
+  width: number;
+  height: number;
+  model: string;
+  request_id: string;
+}
+
+export interface TextTestResult {
+  route_id: string;
+  provider: string;
+  model: string;
+  reply: string;
+  duration_ms: number;
+}
+
+export interface CoverConcept {
+  concept_id: string;
+  visual_strategy: string;
+  focal_scene: string;
+  composition: string;
+  palette: string;
+  secondary_signal: string;
+  title_treatment: string;
+  generation_prompt?: string;
+}
+
+export interface CoverCandidate {
+  candidate_id: string;
+  concept_id: string;
+  status: "pending" | "ready" | "failed" | "rejected" | "selected";
+  url: string | null;
+  relative_path: string;
+  media_id: string;
+  sha256: string;
+  width: number;
+  height: number;
+  content_type: string;
+  error: string;
+  prompt_revision?: number;
+  attempt_history?: Array<Record<string, unknown>>;
+  quality_report?: {
+    status: "blocked" | "human_review_required" | "recommended_for_human_review";
+    medium_fidelity?: number | null;
+    photorealism?: number | null;
+    blockers: string[];
+    repair_codes: string[];
+    evidence: string[];
+    [key: string]: unknown;
+  } | null;
+}
+
+export interface CoverSet {
+  cover_set_id: string;
+  project_id: string;
+  brief: Record<string, unknown> & {
+    title?: string;
+    target_audience?: string;
+    core_conflict?: string;
+    decisive_story_node?: string;
+  };
+  concepts: CoverConcept[];
+  candidates: CoverCandidate[];
+  source_prompt_sha256: string;
+  foundation_sha256: string;
+  status: "generating" | "partial" | "ready" | "selected" | "failed" | "stale";
+  requested_count: number;
+  selected_candidate_id: string;
+  revision: number;
+  active_revision: number;
+  created_at: string;
+  updated_at: string;
+  brief_schema_version?: number;
+  compiler_version?: string;
+}
+
+export interface CoverDirectionPlan {
+  concept_id: string;
+  visual_strategy: string;
+  portfolio_slot?: string;
+  composition_family?: string;
+  scene_family?: string;
+  location_family?: string;
+  art_style?: string;
+  emotion_register?: string;
+  typography_style?: string;
+  focal_strategy?: string;
+  design_rationale?: string;
+  evidence_summary?: string;
+  typography_rationale?: string;
+  novelty_rationale?: string;
+  visual_signature?: string;
+  causal_visibility?: "direct" | "indirect";
+  conflict_delivery?: string;
+  conflict_read?: string;
+  cause_signal?: string;
+  consequence_signal?: string;
+  conflict_character_ids?: string[];
+  protagonist_action_visible?: boolean;
+  cast: string[];
+  focal_character_id: string;
+  frozen_action: string;
+  blocking: string;
+  primary_prop: string;
+  visual_hook: {
+    hook_type: string;
+    first_glance_subject: string;
+    open_question: string;
+    reader_promise: string;
+    expected_thumbnail_read: string;
+  };
+}
+
+export interface CoreConflictVisualContract {
+  protagonist_character_id: string;
+  conflict_kind: string;
+  pressure_source: string;
+  pressure_character_ids: string[];
+  relationship_stakes: string;
+  visible_cause: string;
+  decisive_consequence: string;
+  required_visual_signals: string[];
+  evidence_refs: string[];
+  spoiler_boundary: string;
+}
+
+export interface BookVisualIdentity {
+  design_thesis: string;
+  dominant_emotional_contradiction: string;
+  story_signatures: string[];
+  visual_grammar: string[];
+  material_language: string[];
+  palette_logic: string;
+  lighting_logic: string;
+  spatial_logic: string;
+  typography_voice: string;
+  cast_policy: string;
+  cliche_blacklist: string[];
+  uniqueness_anchors: string[];
+  spoiler_boundary: string[];
+}
+
+export interface VisualEvidenceLedger {
+  schema_version: number;
+  source_bundle_sha256: string;
+  source_files: Record<string, string>;
+  items: Array<{
+    evidence_id: string;
+    source_type: string;
+    source_ref: string;
+    summary: string;
+    story_function: string;
+    spoiler_level: "safe" | "tease" | "late_spoiler";
+    visual_tags: string[];
+  }>;
+}
+
+export interface CoverDirection {
+  direction_id: string;
+  schema_version: number;
+  director_model: string;
+  profile_version: string;
+  brief_sha256: string;
+  direction_sha256: string;
+  created_at?: string;
+  status: "awaiting_approval" | "approved" | "stale" | "rejected";
+  plans: CoverDirectionPlan[];
+  visual_identity?: BookVisualIdentity;
+  evidence_ledger?: VisualEvidenceLedger;
+  core_conflict_visual_contract?: CoreConflictVisualContract;
+  novelty_report?: Array<Record<string, unknown>>;
+  visual_assumptions: Array<{
+    field: string; proposed_value: string; reason: string;
+    status: "pending_confirmation" | "approved"; critical: boolean;
+  }>;
+  brief?: Record<string, unknown> & {
+    title?: string;
+    genre?: string;
+    target_audience?: string;
+    principal_characters?: Array<Record<string, unknown> & {
+      character_id?: string;
+      name?: string;
+      age?: string | number;
+      age_band?: string;
+      occupation_and_status?: string;
+      lived_environment?: string;
+      daily_wardrobe?: string;
+    }>;
+    lived_environment?: Record<string, unknown>;
+  };
 }
 
 export interface ContinuityFinding {
@@ -205,6 +531,7 @@ export interface FinalResult {
 export interface JobStatus {
   job_id: string; kind: string;
   status: "running" | "done" | "error"; error: string | null;
+  meta?: Record<string, unknown>;
 }
 export interface SnapshotMeta {
   id: string; label: string; created_at: string; word_count: number; source: string;
@@ -311,9 +638,22 @@ export interface MediaItem {
   kind: MediaKind; alt: string; url: string; created_at: string;
 }
 
+async function responseError(resp: Response): Promise<string> {
+  const fallback = `请求失败（HTTP ${resp.status}）`;
+  try {
+    const body = await resp.json() as { detail?: unknown };
+    if (typeof body.detail === "string") return body.detail;
+    if (body.detail && typeof body.detail === "object") {
+      const message = (body.detail as { message?: unknown }).message;
+      if (typeof message === "string") return message;
+    }
+  } catch { /* ignore malformed error responses */ }
+  return fallback;
+}
+
 async function get<T>(path: string): Promise<T> {
   const resp = await fetch(`${BASE}${path}`);
-  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  if (!resp.ok) throw new Error(await responseError(resp));
   return resp.json() as Promise<T>;
 }
 
@@ -324,19 +664,22 @@ async function send<T>(path: string, method: "POST" | "PUT" | "PATCH", body?: un
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!resp.ok) {
-    let detail = `${resp.status} ${resp.statusText}`;
-    try {
-      const j = await resp.json();
-      if (j?.detail) detail = j.detail;
-    } catch { /* ignore */ }
-    throw new Error(detail);
+    throw new Error(await responseError(resp));
   }
   return resp.json() as Promise<T>;
 }
 
 async function del(path: string): Promise<void> {
   const resp = await fetch(`${BASE}${path}`, { method: "DELETE" });
-  if (!resp.ok && resp.status !== 204) throw new Error(`${resp.status} ${resp.statusText}`);
+  if (!resp.ok && resp.status !== 204) throw new Error(await responseError(resp));
+}
+
+async function destroy<T>(path: string): Promise<T> {
+  const resp = await fetch(`${BASE}${path}`, { method: "DELETE" });
+  if (!resp.ok) {
+    throw new Error(await responseError(resp));
+  }
+  return resp.json() as Promise<T>;
 }
 
 // Multipart upload. The browser must set its own Content-Type (it has to append
@@ -344,12 +687,7 @@ async function del(path: string): Promise<void> {
 async function upload<T>(path: string, form: FormData): Promise<T> {
   const resp = await fetch(`${BASE}${path}`, { method: "POST", body: form });
   if (!resp.ok) {
-    let detail = `${resp.status} ${resp.statusText}`;
-    try {
-      const j = await resp.json();
-      if (j?.detail) detail = j.detail;
-    } catch { /* ignore */ }
-    throw new Error(detail);
+    throw new Error(await responseError(resp));
   }
   return resp.json() as Promise<T>;
 }
@@ -357,6 +695,12 @@ async function upload<T>(path: string, form: FormData): Promise<T> {
 export const api = {
   projects: () => get<ProjectSummary[]>("/api/projects"),
   project: (id: string) => get<ProjectDetail>(`/api/projects/${id}`),
+  projectDeletionPreview: (id: string) =>
+    get<ProjectDeletionPreview>(`/api/projects/${encodeURIComponent(id)}/deletion-preview`),
+  deleteProject: (id: string, confirmTitle: string) =>
+    destroy<ProjectDeletionResult>(
+      `/api/projects/${encodeURIComponent(id)}?confirm_title=${encodeURIComponent(confirmTitle)}`,
+    ),
   updateProject: (id: string, body: {
     content_rating?: string; title?: string; genre?: string;
     genres?: string[]; premise?: string;
@@ -368,6 +712,90 @@ export const api = {
     preset?: string; provider?: string; model?: string;
     api_key?: string; base_url?: string; onboarding_completed?: boolean;
   }) => send<StudioLlmStatus>("/api/studio/llm", "PUT", body),
+  studioCover: () => get<StudioCoverStatus>("/api/studio/cover"),
+  updateStudioCover: (body: {
+    base_url?: string; api_key?: string; model?: string; size?: string;
+    quality?: string; output_format?: string; count?: number;
+    timeout_seconds?: number;
+    director_provider?: string; director_model?: string;
+    director_base_url?: string; director_api_key?: string;
+    director_timeout_seconds?: number;
+    director_reasoning_effort?: string;
+  }) => send<StudioCoverStatus>("/api/studio/cover", "PUT", body),
+  studioModels: () => get<StudioModelConfiguration>("/api/studio/models"),
+  createProvider: (body: ProviderConnectionInput) =>
+    send<ProviderConnection>("/api/studio/providers", "POST", body),
+  updateProvider: (id: string, body: ProviderConnectionInput) =>
+    send<ProviderConnection>(`/api/studio/providers/${encodeURIComponent(id)}`, "PATCH", body),
+  deleteProvider: (id: string) =>
+    del(`/api/studio/providers/${encodeURIComponent(id)}`),
+  testProvider: (id: string) =>
+    send<ProviderTestResult>(`/api/studio/providers/${encodeURIComponent(id)}/test`, "POST"),
+  updateTextRoutes: (routes: Array<Pick<TextModelRoute, "id" | "connection_id" | "model" | "max_tokens" | "reasoning_effort" | "inherits_default">>) =>
+    send<TextModelRoute[]>("/api/studio/model-routes", "PUT", { routes }),
+  testTextRoute: (routeId: string, prompt: string) =>
+    send<JobStatus>(`/api/studio/model-routes/${encodeURIComponent(routeId)}/test`, "POST", { prompt }),
+  updateCoverProfile: (body: {
+    connection_id: string; model: string; size: string;
+    quality: ImageModelProfile["quality"];
+    output_format: ImageModelProfile["output_format"];
+    count: number; timeout_seconds: number;
+  }) => send<ImageModelProfile>("/api/studio/image-profiles/cover", "PUT", body),
+  testCoverProfile: () =>
+    send<JobStatus>("/api/studio/image-profiles/cover/test", "POST"),
+  covers: (id: string) => get<CoverSet[]>(`/api/projects/${id}/covers`),
+  cover: (id: string, coverSetId: string) =>
+    get<CoverSet>(`/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}`),
+  coverQuality: (id: string, coverSetId: string) =>
+    get<Record<string, unknown>>(
+      `/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}/quality`,
+    ),
+  generateCovers: (id: string, count?: number, direction?: {
+    direction_id: string;
+    approved_direction_sha256: string;
+  }) =>
+    send<JobStatus>(`/api/projects/${id}/covers/generate`, "POST", direction
+      ? { count, ...direction }
+      : { count }),
+  coverDirections: (id: string) =>
+    get<CoverDirection[]>(`/api/projects/${id}/covers/directions`),
+  createCoverDirection: (id: string, count = 4) =>
+    send<CoverDirection>(`/api/projects/${id}/covers/directions`, "POST", { count }),
+  approveCoverDirection: (
+    id: string, directionId: string, briefSha256: string, directionSha256: string,
+  ) => send<CoverDirection>(
+    `/api/projects/${id}/covers/directions/${encodeURIComponent(directionId)}/approve`,
+    "POST",
+    { expected_brief_sha256: briefSha256, approved_direction_sha256: directionSha256 },
+  ),
+  selectCover: (
+    id: string, coverSetId: string, candidateId: string,
+    expectedRevision: number, expectedActiveRevision: number, confirmStale = false,
+  ) => send<CoverSet>(
+    `/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}/candidates/${encodeURIComponent(candidateId)}/select`,
+    "POST",
+    {
+      expected_revision: expectedRevision,
+      expected_active_revision: expectedActiveRevision,
+      confirm_stale: confirmStale,
+    },
+  ),
+  rejectCover: (
+    id: string, coverSetId: string, candidateId: string, expectedRevision: number,
+  ) => send<CoverSet>(
+    `/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}/candidates/${encodeURIComponent(candidateId)}/reject`,
+    "POST",
+    { expected_revision: expectedRevision },
+  ),
+  retryCover: (
+    id: string, coverSetId: string, candidateId: string, expectedRevision: number,
+    repairCodes: string[] = [],
+  ) => send<JobStatus>(
+    `/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}/candidates/${encodeURIComponent(candidateId)}/retry`,
+    "POST",
+    { expected_revision: expectedRevision, repair_codes: repairCodes },
+  ),
+  deliveryPackageUrl: (id: string) => `${BASE}/api/projects/${id}/deliverables/package`,
   continuity: (id: string) => get<ContinuityReport>(`/api/projects/${id}/continuity`),
   /** Edit an entry. Send only what changed - absent fields are left alone. */
   updateCodexEntry: (

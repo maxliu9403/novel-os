@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import hashlib
 import re
-import struct
+import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
+
+from core.image_binary import dimensions as image_dimensions
 
 # SVG is deliberately absent: it can carry script and would execute if served
 # inline. If vector art is needed later it must be sanitised first.
@@ -84,57 +86,9 @@ def dimensions(data: bytes) -> tuple[int, int]:
     header bytes keeps Pillow out of the dependency list; an unrecognised or
     truncated header simply yields (0, 0) and the caller lays out fluidly.
     """
-    try:
-        if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
-            w, h = struct.unpack(">II", data[16:24])
-            return int(w), int(h)
-
-        if data[:6] in (b"GIF87a", b"GIF89a"):
-            w, h = struct.unpack("<HH", data[6:10])
-            return int(w), int(h)
-
-        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-            return _webp_dimensions(data)
-
-        if data[:2] == b"\xff\xd8":
-            return _jpeg_dimensions(data)
-    except (struct.error, IndexError, ValueError):
-        pass
-    return 0, 0
-
-
-def _webp_dimensions(data: bytes) -> tuple[int, int]:
-    fourcc = data[12:16]
-    if fourcc == b"VP8X":
-        w = int.from_bytes(data[24:27], "little") + 1
-        h = int.from_bytes(data[27:30], "little") + 1
-        return w, h
-    if fourcc == b"VP8 ":
-        w, h = struct.unpack("<HH", data[26:30])
-        return w & 0x3FFF, h & 0x3FFF
-    if fourcc == b"VP8L":
-        bits = int.from_bytes(data[21:25], "little")
-        return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
-    return 0, 0
-
-
-def _jpeg_dimensions(data: bytes) -> tuple[int, int]:
-    i = 2
-    n = len(data)
-    while i + 9 < n:
-        if data[i] != 0xFF:
-            i += 1
-            continue
-        marker = data[i + 1]
-        # SOF0-SOF15, excluding the non-frame markers DHT/JPG/DAC.
-        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
-            h, w = struct.unpack(">HH", data[i + 5:i + 9])
-            return int(w), int(h)
-        if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
-            i += 2
-            continue
-        i += 2 + struct.unpack(">H", data[i + 2:i + 4])[0]
-    return 0, 0
+    if data[:6] in (b"GIF87a", b"GIF89a") and len(data) >= 10:
+        return int.from_bytes(data[6:8], "little"), int.from_bytes(data[8:10], "little")
+    return image_dimensions(data)
 
 
 # ------------------------------------------------------------------------ stores
@@ -151,6 +105,14 @@ class MediaStore(ABC):
     @abstractmethod
     def delete(self, project_id: str, sha: str, ext: str) -> bool: ...
 
+    @abstractmethod
+    def project_stats(self, project_id: str) -> tuple[int, int]:
+        """Return ``(file_count, byte_count)`` for a project namespace."""
+
+    @abstractmethod
+    def delete_project(self, project_id: str) -> bool:
+        """Delete every blob in a project's namespace."""
+
 
 class LocalMediaStore(MediaStore):
     """Filesystem store: <root>/<project>/<sha[:2]>/<sha><ext>."""
@@ -158,14 +120,51 @@ class LocalMediaStore(MediaStore):
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
 
+    def _namespace(self, project_id: str) -> Path:
+        # Reuse the same project-id shape rules as `_path`, but do not require a
+        # digest when operating on the complete namespace.
+        if (
+            not isinstance(project_id, str)
+            or not project_id
+            or not project_id[0].isalnum()
+            or project_id in {".", ".."}
+            or "/" in project_id
+            or "\\" in project_id
+            or ":" in project_id
+            or any(ord(char) < 32 or ord(char) == 127 for char in project_id)
+            or Path(project_id).name != project_id
+        ):
+            raise MediaError("Invalid project id.", status=404)
+        root = self.root.resolve()
+        candidate = root / project_id
+        resolved = candidate.resolve()
+        if resolved != root and root not in resolved.parents:
+            raise MediaError("Invalid project id.", status=404)
+        return candidate
+
     def _path(self, project_id: str, sha: str, ext: str) -> Path:
-        # Both components are validated: project ids are slugs and sha is hex,
-        # so neither can escape the root.
-        if not re.fullmatch(r"[A-Za-z0-9._-]+", project_id or ""):
+        # Project folders are user-facing identifiers and may contain Unicode.
+        # Match tenancy.valid_project_id's path-shape rules while keeping this
+        # storage module independent from the API tenancy layer.
+        if (
+            not isinstance(project_id, str)
+            or not project_id
+            or not project_id[0].isalnum()
+            or project_id in {".", ".."}
+            or "/" in project_id
+            or "\\" in project_id
+            or ":" in project_id
+            or any(ord(char) < 32 or ord(char) == 127 for char in project_id)
+            or Path(project_id).name != project_id
+        ):
             raise MediaError("Invalid project id.", status=404)
         if not re.fullmatch(r"[0-9a-f]{64}", sha or ""):
             raise MediaError("Invalid media digest.", status=404)
-        return self.root / project_id / sha[:2] / f"{sha}{ext}"
+        root = self.root.resolve()
+        path = (root / project_id / sha[:2] / f"{sha}{ext}").resolve()
+        if root not in path.parents:
+            raise MediaError("Invalid project id.", status=404)
+        return path
 
     def put(self, project_id: str, sha: str, ext: str, data: bytes) -> None:
         path = self._path(project_id, sha, ext)
@@ -186,4 +185,26 @@ class LocalMediaStore(MediaStore):
         if not path.exists():
             return False
         path.unlink()
+        return True
+
+    def project_stats(self, project_id: str) -> tuple[int, int]:
+        namespace = self._namespace(project_id)
+        if not namespace.exists() and not namespace.is_symlink():
+            return 0, 0
+        files = 0
+        size = 0
+        for item in namespace.rglob("*"):
+            if item.is_file() or item.is_symlink():
+                files += 1
+                size += item.lstat().st_size
+        return files, size
+
+    def delete_project(self, project_id: str) -> bool:
+        namespace = self._namespace(project_id)
+        if namespace.is_symlink():
+            namespace.unlink()
+            return True
+        if not namespace.exists():
+            return False
+        shutil.rmtree(namespace)
         return True

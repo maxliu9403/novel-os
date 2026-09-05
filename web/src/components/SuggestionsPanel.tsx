@@ -28,13 +28,13 @@ export default function SuggestionsPanel({
 
   return (
     <section
-      aria-label="Pending changes"
+      aria-label="待处理修改"
       className="mt-4 rounded-2xl border border-[rgba(104,103,234,0.22)] bg-[rgba(104,103,234,0.05)] px-4 py-3"
     >
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="flex items-center gap-1.5 text-[12px] font-semibold text-ink-text">
           <Icon name="git-branch" className="h-3.5 w-3.5 text-[var(--color-violet)]" />
-          {suggestions.length} pending {suggestions.length === 1 ? "change" : "changes"}
+          {suggestions.length} 项待处理修改
         </p>
         <div className="flex gap-2">
           <button
@@ -42,14 +42,14 @@ export default function SuggestionsPanel({
             className="btn-ghost px-2.5 py-1 text-[12px]"
             onClick={() => onChange(rejectAllSuggestions(doc))}
           >
-            Reject all
+            全部拒绝
           </button>
           <button
             type="button"
             className="btn-secondary px-2.5 py-1 text-[12px]"
             onClick={() => onChange(acceptAllSuggestions(doc))}
           >
-            Accept all
+            全部接受
           </button>
         </div>
       </div>
@@ -69,7 +69,7 @@ export default function SuggestionsPanel({
                     : "bg-[rgba(200,80,100,0.14)] text-[#a8324a]"
                 }`}
               >
-                {isInsert ? "Insert" : "Delete"}
+                {isInsert ? "插入" : "删除"}
               </span>
               <span
                 className={`min-w-0 flex-1 truncate text-[13px] text-ink-text ${
@@ -85,19 +85,19 @@ export default function SuggestionsPanel({
               <span className="flex shrink-0 gap-1">
                 <button
                   type="button"
-                  aria-label={`Reject ${isInsert ? "insertion" : "deletion"}`}
+                  aria-label={`拒绝${isInsert ? "插入" : "删除"}`}
                   className="btn-ghost px-2 py-0.5 text-[12px]"
                   onClick={() => onChange(rejectSuggestion(doc, s.id))}
                 >
-                  Reject
+                  拒绝
                 </button>
                 <button
                   type="button"
-                  aria-label={`Accept ${isInsert ? "insertion" : "deletion"}`}
+                  aria-label={`接受${isInsert ? "插入" : "删除"}`}
                   className="btn-secondary px-2 py-0.5 text-[12px]"
                   onClick={() => onChange(acceptSuggestion(doc, s.id))}
                 >
-                  Accept
+                  接受
                 </button>
               </span>
             </li>

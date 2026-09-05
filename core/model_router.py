@@ -56,6 +56,33 @@ class ModelRouter:
 
     def client_for(self, role: str) -> LLMClient:
         normalized = self.normalize_role(role)
+        try:
+            try:
+                from .provider_settings import (
+                    ProviderSettingsError,
+                    load_configuration,
+                    resolve_text_route,
+                )
+            except ImportError:  # pragma: no cover - legacy top-level imports
+                from provider_settings import (  # type: ignore
+                    ProviderSettingsError,
+                    load_configuration,
+                    resolve_text_route,
+                )
+            configuration = load_configuration()
+            if configuration.get("source") == "v2":
+                route = resolve_text_route(normalized)
+                return LLMClient(
+                    provider=route["provider"] or None,
+                    model=route["model"] or None,
+                    base_url=route["base_url"] or None,
+                    api_key=route["api_key"] or None,
+                    max_tokens=route["max_tokens"],
+                    reasoning_effort=route["reasoning_effort"] or None,
+                )
+        except ProviderSettingsError:
+            if configuration.get("source") == "v2":
+                raise
         raw_max_tokens = self._field_for(normalized, "MAX_TOKENS")
         max_tokens = int(raw_max_tokens) if raw_max_tokens is not None else None
         return LLMClient(

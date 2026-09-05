@@ -71,7 +71,7 @@ export default function SelectionBubble({
       {pos && (
         <motion.div
           role="toolbar"
-          aria-label="Selection actions"
+          aria-label="选中文字操作"
           initial={{ opacity: 0, y: 6, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 4, scale: 0.96 }}

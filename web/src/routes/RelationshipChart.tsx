@@ -87,8 +87,8 @@ export default function RelationshipChart() {
   if (error) {
     return (
       <Scene>
-        <div className="px-10 py-12">
-          <div className="glass-panel px-4 py-3 text-[13px]">Failed to load: {error}</div>
+        <div className="workspace-page">
+          <div className="glass-panel px-4 py-3 text-[13px]">加载失败：{error}</div>
         </div>
       </Scene>
     );
@@ -96,24 +96,24 @@ export default function RelationshipChart() {
 
   return (
     <Scene>
-      <div className="mx-auto max-w-5xl px-6 py-10 sm:px-10">
+      <div className="workspace-page">
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           className="glass-shell p-3 sm:p-4"
         >
-          <div className="glass-panel px-6 py-8 sm:px-10">
+          <div className="glass-panel px-5 py-7 sm:px-8 sm:py-9 lg:px-10">
             <Link to={`/projects/${id}`} className="mb-6 inline-flex text-[13px] font-medium text-ink-muted hover:text-[var(--color-violet)]">
-              ← Dashboard
+              ← 作品概览
             </Link>
             <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
               <div>
-                <p className="eyebrow">Codex</p>
+                <p className="eyebrow">设定库</p>
                 <h1 className="font-display text-[30px] font-semibold tracking-tight text-ink-text">
-                  Relationship chart
+                  人物关系图
                 </h1>
                 <p className="mt-1.5 text-[13px] text-ink-muted">
-                  Drag from one character to another to link them. Continuity watches hostile bonds.
+                  从一个人物拖到另一个人物即可建立关系，连续性检查会关注敌对关系。
                 </p>
               </div>
               <button
@@ -121,19 +121,19 @@ export default function RelationshipChart() {
                 onClick={() => { setPrefill(null); setAddOpen(true); }}
                 className="btn-primary"
               >
-                + Add link
+                + 添加关系
               </button>
             </div>
 
             {linkFrom && (
               <p className="mb-3 text-[12.5px] text-[var(--color-violet)]" aria-live="polite">
-                Linking from {byId[linkFrom]?.name ?? "…"} - drop on another character (Esc to cancel).
+                正在从“{byId[linkFrom]?.name ?? "…"}”建立关系，请拖放到另一个人物（按 Esc 取消）。
               </p>
             )}
 
             {chars.length < 2 ? (
               <div className="rounded-[24px] border border-dashed border-[rgba(74,91,133,0.18)] bg-white/45 px-8 py-14 text-center text-[13.5px] text-ink-muted">
-                Add at least two characters in the Codex to draw connections.
+                请先在设定库中添加至少两个人物，再绘制人物关系。
               </div>
             ) : (
               <div className="overflow-hidden rounded-[24px] border border-[rgba(74,91,133,0.12)] bg-white/50 touch-none">
@@ -142,7 +142,7 @@ export default function RelationshipChart() {
                   viewBox="0 0 640 420"
                   className="h-auto w-full select-none"
                   role="img"
-                  aria-label="Character relationship chart"
+                  aria-label="人物关系图"
                   onPointerMove={(e) => {
                     if (!linkFrom || !rubber) return;
                     setRubber({ ...rubber, to: clientToSvg(e.clientX, e.clientY) });
@@ -254,14 +254,14 @@ export default function RelationshipChart() {
                       onClick={async () => {
                         try {
                           await api.deleteRelationship(id, e.id);
-                          toast("Link removed", "success");
+                          toast("关系已删除", "success");
                           load();
                         } catch (err) {
                           toast(err instanceof Error ? err.message : String(err), "error");
                         }
                       }}
                     >
-                      Remove
+                      删除
                     </button>
                   </li>
                 ))}

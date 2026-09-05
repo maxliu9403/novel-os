@@ -1,0 +1,480 @@
+- generic [active] [ref=e1]:
+  - link "欢迎进入 百度一下，你就知道，盲人用户进入读屏幕模式请按快捷键Ctrl加Alt加R；阅读详细操作说明请按快捷键Ctrl加Alt加问号键。":
+    - /url: javascript:void(0)
+  - generic [ref=e2]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - generic:
+          - link [ref=e6] [cursor=pointer]:
+            - /url: /
+            - img "到百度首页" [ref=e7]
+          - generic [ref=e10]:
+            - textbox [ref=e12]: 30岁 女性 网络小说 马爽 题材 调研
+            - generic [ref=e14]:
+              - generic [ref=e15]:
+                - generic [ref=e16] [cursor=pointer]
+                - generic [ref=e21] [cursor=pointer]
+                - generic [ref=e30]:
+                  - generic [ref=e31] [cursor=pointer]
+                  - generic [ref=e36] [cursor=pointer]
+              - button "百度一下" [ref=e43] [cursor=pointer]
+      - generic [ref=e45]:
+        - link "百度首页" [ref=e46] [cursor=pointer]:
+          - /url: /
+        - link "设置" [ref=e47] [cursor=pointer]:
+          - /url: javascript:;
+        - link "登录" [ref=e48] [cursor=pointer]:
+          - /url: https://passport.baidu.com/v2/?login&tpl=mn&u=http%3A%2F%2Fwww.baidu.com%2F
+    - generic [ref=e51]:
+      - link [ref=e52] [cursor=pointer]:
+        - /url: https://chat.baidu.com/search?word=30%E5%B2%81+%E5%A5%B3%E6%80%A7+%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4+%E9%A9%AC%E7%88%BD+%E9%A2%98%E6%9D%90+%E8%B0%83%E7%A0%94&dyTabStr=MTIsMCwzLDEsMiwxMyw3LDYsNSw5&pd=csaitab&setype=csaitab&extParamsJson=%7B%22enter_type%22%3A%22search_a_tab%22%2C%22sa%22%3A%22vs_tab%22%2C%22apagelid%22%3A%2213681786039882021899%22%2C%22ori_lid%22%3A%2213681786039882021899%22%7D
+      - generic [ref=e54]: 网页
+      - link "图片" [ref=e55] [cursor=pointer]:
+        - /url: http://image.baidu.com/i?tn=baiduimage&ps=1&ct=201326592&lm=-1&cl=2&nc=1&ie=utf-8&lid=bddf77ea0010fc0b&dyTabStr=MTIsMCwzLDEsMiwxMyw3LDYsNSw5&word=30%E5%B2%81+%E5%A5%B3%E6%80%A7+%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4+%E9%A9%AC%E7%88%BD+%E9%A2%98%E6%9D%90+%E8%B0%83%E7%A0%94
+      - link "资讯" [ref=e56] [cursor=pointer]:
+        - /url: https://www.baidu.com/s?rtt=1&bsst=1&cl=2&tn=news&ie=utf-8&word=30%E5%B2%81+%E5%A5%B3%E6%80%A7+%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4+%E9%A9%AC%E7%88%BD+%E9%A2%98%E6%9D%90+%E8%B0%83%E7%A0%94
+      - link "视频" [ref=e57] [cursor=pointer]:
+        - /url: /sf/vsearch?pd=video&tn=vsearch&lid=bddf77ea0010fc0b&ie=utf-8&wd=30%E5%B2%81+%E5%A5%B3%E6%80%A7+%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4+%E9%A9%AC%E7%88%BD+%E9%A2%98%E6%9D%90+%E8%B0%83%E7%A0%94&rsv_spt=7&rsv_bp=1&f=8&oq=30%E5%B2%81+%E5%A5%B3%E6%80%A7+%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4+%E9%A9%AC%E7%88%BD+%E9%A2%98%E6%9D%90+%E8%B0%83%E7%A0%94&rsv_pq=bddf77ea0010fc0b&rsv_t=2637WdXSzepoAL7f7r5yhk0rWF5u%2BZalUitjngUrEev3EVNYs%2FXmXuo2vNw
+      - link "笔记" [ref=e58] [cursor=pointer]:
+        - /url: https://www.baidu.com/s?pd=note&rpf=pc&dyTabStr=MTIsMCwzLDEsMiwxMyw3LDYsNSw5&word=30%E5%B2%81+%E5%A5%B3%E6%80%A7+%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4+%E9%A9%AC%E7%88%BD+%E9%A2%98%E6%9D%90+%E8%B0%83%E7%A0%94
+      - link "地图" [ref=e59] [cursor=pointer]:
+        - /url: https://map.baidu.com/?newmap=1&ie=utf-8&from=pstab&s=s%26wd%3D30%E5%B2%81+%E5%A5%B3%E6%80%A7+%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4+%E9%A9%AC%E7%88%BD+%E9%A2%98%E6%9D%90+%E8%B0%83%E7%A0%94
+      - link "贴吧" [ref=e60] [cursor=pointer]:
+        - /url: http://tieba.baidu.com/f?fr=wwwt&ie=utf-8&dyTabStr=MTIsMCwzLDEsMiwxMyw3LDYsNSw5&kw=30%E5%B2%81+%E5%A5%B3%E6%80%A7+%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4+%E9%A9%AC%E7%88%BD+%E9%A2%98%E6%9D%90+%E8%B0%83%E7%A0%94
+      - link "文库" [ref=e61] [cursor=pointer]:
+        - /url: http://wenku.baidu.com/search?lm=0&od=0&ie=utf-8&dyTabStr=MTIsMCwzLDEsMiwxMyw3LDYsNSw5&word=30%E5%B2%81+%E5%A5%B3%E6%80%A7+%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4+%E9%A9%AC%E7%88%BD+%E9%A2%98%E6%9D%90+%E8%B0%83%E7%A0%94
+      - link "更多" [ref=e62] [cursor=pointer]:
+        - /url: http://www.baidu.com/more/
+      - generic [ref=e63] [cursor=pointer]: 搜索工具
+    - generic [ref=e64]:
+      - generic [ref=e65]:
+        - table [ref=e67]:
+          - rowgroup [ref=e68]:
+            - row [ref=e69]:
+              - cell "相关搜索  网络小说禁止题材  网络小说什么题材受欢迎  网络小说都有哪些  网络小说的类型    换一换 热搜榜 长沙榜 民生榜 财经榜  习近平对西藏泥石流灾害作出重要指示 1 西藏泥石流已致3人遇难265人失联 新 2 直击西藏泥石流最新情况 热 3 “黄金大外环”的“黄金效应” 4 夜市爆火 中国人的赚钱基因有多可怕 5 卖爆了！国产“宠”物全球抢着下单 新 6 央视曝光政务App让数千万“打水漂” 7 尼泊尔北部山洪已致97死403失踪 热 8 3-0！中国女排横扫中国台北 新 9 国务院对敌敌畏消杀事件挂牌督办 新 10 单杆轰出128分！赵心童5-2击败霍金斯 新 11 网传“8月新冠有变异毒株”不实 12 西藏泥石流致重大伤亡 救援力量集结 热 13 上海体育局回应刘翔退役安置工作 热 14 包贝尔婚礼就在闹伴娘 15 央视曝光擦边“露骨”手办乱象 热" [ref=e70]:
+                - generic [ref=e71]:
+                  - generic [ref=e77]:
+                    - generic [ref=e78]: 相关搜索
+                    - generic [ref=e80]:
+                      - link " 网络小说禁止题材" [ref=e83] [cursor=pointer]:
+                        - /url: /s?wd=%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%E7%A6%81%E6%AD%A2%E9%A2%98%E6%9D%90&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=1c50ssdRBnEV8CCJgz%2FT6GE%2FIgAL5%2FjX6i3LagNZ6JE5eDms0T1SJb9fMxM&rfqid=bddf77ea0010fc0b&rsv_dl=0_prs_28616_1&rq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsf=101631202
+                        - generic [ref=e84]:
+                          - generic [ref=e85]: 
+                          - generic [ref=e86]: 网络小说禁止题材
+                      - link " 网络小说什么题材受欢迎" [ref=e89] [cursor=pointer]:
+                        - /url: /s?wd=%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%E4%BB%80%E4%B9%88%E9%A2%98%E6%9D%90%E5%8F%97%E6%AC%A2%E8%BF%8E&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=1c50ssdRBnEV8CCJgz%2FT6GE%2FIgAL5%2FjX6i3LagNZ6JE5eDms0T1SJb9fMxM&rfqid=bddf77ea0010fc0b&rsv_dl=0_prs_28616_2&rq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsf=101631202
+                        - generic [ref=e90]:
+                          - generic [ref=e91]: 
+                          - generic [ref=e92]: 网络小说什么题材受欢迎
+                      - link " 网络小说都有哪些" [ref=e95] [cursor=pointer]:
+                        - /url: /s?wd=%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%E9%83%BD%E6%9C%89%E5%93%AA%E4%BA%9B&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=1c50ssdRBnEV8CCJgz%2FT6GE%2FIgAL5%2FjX6i3LagNZ6JE5eDms0T1SJb9fMxM&rfqid=bddf77ea0010fc0b&rsv_dl=0_prs_28616_3&rq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsf=101631202
+                        - generic [ref=e96]:
+                          - generic [ref=e97]: 
+                          - generic [ref=e98]: 网络小说都有哪些
+                      - link " 网络小说的类型" [ref=e101] [cursor=pointer]:
+                        - /url: /s?wd=%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%E7%9A%84%E7%B1%BB%E5%9E%8B&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=1c50ssdRBnEV8CCJgz%2FT6GE%2FIgAL5%2FjX6i3LagNZ6JE5eDms0T1SJb9fMxM&rfqid=bddf77ea0010fc0b&rsv_dl=0_prs_28616_4&rq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsf=101631202
+                        - generic [ref=e102]:
+                          - generic [ref=e103]: 
+                          - generic [ref=e104]: 网络小说的类型
+                  - generic [ref=e108]:
+                    - generic "百度热搜" [ref=e109]:
+                      - link " " [ref=e110] [cursor=pointer]:
+                        - /url: https://top.baidu.com/board?platform=pc&sa=pcindex_a_right
+                        - generic [ref=e111]: 
+                        - generic [ref=e112]: 
+                      - link " 换一换" [ref=e114] [cursor=pointer]:
+                        - /url: javascript:void(0);
+                        - generic [ref=e115]: 
+                        - text: 换一换
+                    - generic [ref=e116]:
+                      - generic [ref=e117] [cursor=pointer]: 热搜榜
+                      - generic [ref=e118] [cursor=pointer]: 长沙榜
+                      - generic [ref=e119] [cursor=pointer]: 民生榜
+                      - generic [ref=e120] [cursor=pointer]: 财经榜
+                    - generic [ref=e122]:
+                      - generic [ref=e124]:
+                        - generic [ref=e125]: 
+                        - link "习近平对西藏泥石流灾害作出重要指示" [ref=e127] [cursor=pointer]:
+                          - /url: /s?wd=%E4%B9%A0%E8%BF%91%E5%B9%B3%E5%AF%B9%E8%A5%BF%E8%97%8F%E6%B3%A5%E7%9F%B3%E6%B5%81%E7%81%BE%E5%AE%B3%E4%BD%9C%E5%87%BA%E9%87%8D%E8%A6%81%E6%8C%87%E7%A4%BA&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=3d3aPwPzln2AVt1wNVmd85v0NzG%2FFPwwQgUucXSpjoasIFFgwyC4FJc96ms&rqid=bddf77ea0010fc0b&rsf=0677fbc1982cc8ae3112e09b93c2c270_1_15_1&rsv_dl=0_right_fyb_pchot_20811&sa=0_right_fyb_pchot_20811
+                      - generic [ref=e129]:
+                        - generic [ref=e130]: "1"
+                        - link "西藏泥石流已致3人遇难265人失联" [ref=e131] [cursor=pointer]:
+                          - /url: /s?wd=%E8%A5%BF%E8%97%8F%E6%B3%A5%E7%9F%B3%E6%B5%81%E5%B7%B2%E8%87%B43%E4%BA%BA%E9%81%87%E9%9A%BE265%E4%BA%BA%E5%A4%B1%E8%81%94&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=3d3aPwPzln2AVt1wNVmd85v0NzG%2FFPwwQgUucXSpjoasIFFgwyC4FJc96ms&rqid=bddf77ea0010fc0b&rsf=0677fbc1982cc8ae3112e09b93c2c270_1_15_2&rsv_dl=0_right_fyb_pchot_20811&sa=0_right_fyb_pchot_20811
+                        - generic [ref=e132]: 新
+                      - generic [ref=e134]:
+                        - generic [ref=e135]: "2"
+                        - link "直击西藏泥石流最新情况" [ref=e136] [cursor=pointer]:
+                          - /url: /s?wd=%E7%9B%B4%E5%87%BB%E8%A5%BF%E8%97%8F%E6%B3%A5%E7%9F%B3%E6%B5%81%E6%9C%80%E6%96%B0%E6%83%85%E5%86%B5&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=3d3aPwPzln2AVt1wNVmd85v0NzG%2FFPwwQgUucXSpjoasIFFgwyC4FJc96ms&rqid=bddf77ea0010fc0b&rsf=0677fbc1982cc8ae3112e09b93c2c270_1_15_3&rsv_dl=0_right_fyb_pchot_20811&sa=0_right_fyb_pchot_20811
+                        - generic [ref=e137]: 热
+                      - generic [ref=e139]:
+                        - generic [ref=e140]: "3"
+                        - link "“黄金大外环”的“黄金效应”" [ref=e141] [cursor=pointer]:
+                          - /url: /s?wd=%E2%80%9C%E9%BB%84%E9%87%91%E5%A4%A7%E5%A4%96%E7%8E%AF%E2%80%9D%E7%9A%84%E2%80%9C%E9%BB%84%E9%87%91%E6%95%88%E5%BA%94%E2%80%9D&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=3d3aPwPzln2AVt1wNVmd85v0NzG%2FFPwwQgUucXSpjoasIFFgwyC4FJc96ms&rqid=bddf77ea0010fc0b&rsf=0677fbc1982cc8ae3112e09b93c2c270_1_15_4&rsv_dl=0_right_fyb_pchot_20811&sa=0_right_fyb_pchot_20811
+                      - generic [ref=e143]:
+                        - generic [ref=e144]: "4"
+                        - link "夜市爆火 中国人的赚钱基因有多可怕" [ref=e145] [cursor=pointer]:
+                          - /url: /s?wd=%E5%A4%9C%E5%B8%82%E7%88%86%E7%81%AB%20%E4%B8%AD%E5%9B%BD%E4%BA%BA%E7%9A%84%E8%B5%9A%E9%92%B1%E5%9F%BA%E5%9B%A0%E6%9C%89%E5%A4%9A%E5%8F%AF%E6%80%95&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=3d3aPwPzln2AVt1wNVmd85v0NzG%2FFPwwQgUucXSpjoasIFFgwyC4FJc96ms&rqid=bddf77ea0010fc0b&rsf=0677fbc1982cc8ae3112e09b93c2c270_1_15_5&rsv_dl=0_right_fyb_pchot_20811&sa=0_right_fyb_pchot_20811
+                      - generic [ref=e147]:
+                        - generic [ref=e148]: "5"
+                        - link "卖爆了！国产“宠”物全球抢着下单" [ref=e149] [cursor=pointer]:
+                          - /url: /s?wd=%E5%8D%96%E7%88%86%E4%BA%86%EF%BC%81%E5%9B%BD%E4%BA%A7%E2%80%9C%E5%AE%A0%E2%80%9D%E7%89%A9%E5%85%A8%E7%90%83%E6%8A%A2%E7%9D%80%E4%B8%8B%E5%8D%95&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=3d3aPwPzln2AVt1wNVmd85v0NzG%2FFPwwQgUucXSpjoasIFFgwyC4FJc96ms&rqid=bddf77ea0010fc0b&rsf=0677fbc1982cc8ae3112e09b93c2c270_1_15_6&rsv_dl=0_right_fyb_pchot_20811&sa=0_right_fyb_pchot_20811
+                        - generic [ref=e150]: 新
+                      - generic [ref=e152]:
+                        - generic [ref=e153]: "6"
+                        - link "央视曝光政务App让数千万“打水漂”" [ref=e154] [cursor=pointer]:
+                          - /url: /s?wd=%E5%A4%AE%E8%A7%86%E6%9B%9D%E5%85%89%E6%94%BF%E5%8A%A1App%E8%AE%A9%E6%95%B0%E5%8D%83%E4%B8%87%E2%80%9C%E6%89%93%E6%B0%B4%E6%BC%82%E2%80%9D&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=3d3aPwPzln2AVt1wNVmd85v0NzG%2FFPwwQgUucXSpjoasIFFgwyC4FJc96ms&rqid=bddf77ea0010fc0b&rsf=0677fbc1982cc8ae3112e09b93c2c270_1_15_7&rsv_dl=0_right_fyb_pchot_20811&sa=0_right_fyb_pchot_20811
+                      - generic [ref=e156]:
+                        - generic [ref=e157]: "7"
+                        - link "尼泊尔北部山洪已致97死403失踪" [ref=e158] [cursor=pointer]:
+                          - /url: /s?wd=%E5%B0%BC%E6%B3%8A%E5%B0%94%E5%8C%97%E9%83%A8%E5%B1%B1%E6%B4%AA%E5%B7%B2%E8%87%B497%E6%AD%BB403%E5%A4%B1%E8%B8%AA&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=3d3aPwPzln2AVt1wNVmd85v0NzG%2FFPwwQgUucXSpjoasIFFgwyC4FJc96ms&rqid=bddf77ea0010fc0b&rsf=0677fbc1982cc8ae3112e09b93c2c270_1_15_8&rsv_dl=0_right_fyb_pchot_20811&sa=0_right_fyb_pchot_20811
+                        - generic [ref=e159]: 热
+                      - generic [ref=e161]:
+                        - generic [ref=e162]: "8"
+                        - link "3-0！中国女排横扫中国台北" [ref=e163] [cursor=pointer]:
+                          - /url: /s?wd=3-0%EF%BC%81%E4%B8%AD%E5%9B%BD%E5%A5%B3%E6%8E%92%E6%A8%AA%E6%89%AB%E4%B8%AD%E5%9B%BD%E5%8F%B0%E5%8C%97&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=3d3aPwPzln2AVt1wNVmd85v0NzG%2FFPwwQgUucXSpjoasIFFgwyC4FJc96ms&rqid=bddf77ea0010fc0b&rsf=0677fbc1982cc8ae3112e09b93c2c270_1_15_9&rsv_dl=0_right_fyb_pchot_20811&sa=0_right_fyb_pchot_20811
+                        - generic [ref=e164]: 新
+                      - generic [ref=e166]:
+                        - generic [ref=e167]: "9"
+                        - link "国务院对敌敌畏消杀事件挂牌督办" [ref=e168] [cursor=pointer]:
+                          - /url: /s?wd=%E5%9B%BD%E5%8A%A1%E9%99%A2%E5%AF%B9%E6%95%8C%E6%95%8C%E7%95%8F%E6%B6%88%E6%9D%80%E4%BA%8B%E4%BB%B6%E6%8C%82%E7%89%8C%E7%9D%A3%E5%8A%9E&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=3d3aPwPzln2AVt1wNVmd85v0NzG%2FFPwwQgUucXSpjoasIFFgwyC4FJc96ms&rqid=bddf77ea0010fc0b&rsf=0677fbc1982cc8ae3112e09b93c2c270_1_15_10&rsv_dl=0_right_fyb_pchot_20811&sa=0_right_fyb_pchot_20811
+                        - generic [ref=e169]: 新
+                      - generic [ref=e171]:
+                        - generic [ref=e172]: "10"
+                        - link "单杆轰出128分！赵心童5-2击败霍金斯" [ref=e173] [cursor=pointer]:
+                          - /url: /s?wd=%E5%8D%95%E6%9D%86%E8%BD%B0%E5%87%BA128%E5%88%86%EF%BC%81%E8%B5%B5%E5%BF%83%E7%AB%A55-2%E5%87%BB%E8%B4%A5%E9%9C%8D%E9%87%91%E6%96%AF&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=3d3aPwPzln2AVt1wNVmd85v0NzG%2FFPwwQgUucXSpjoasIFFgwyC4FJc96ms&rqid=bddf77ea0010fc0b&rsf=0677fbc1982cc8ae3112e09b93c2c270_1_15_11&rsv_dl=0_right_fyb_pchot_20811&sa=0_right_fyb_pchot_20811
+                        - generic [ref=e174]: 新
+                      - generic [ref=e176]:
+                        - generic [ref=e177]: "11"
+                        - link "网传“8月新冠有变异毒株”不实" [ref=e178] [cursor=pointer]:
+                          - /url: /s?wd=%E7%BD%91%E4%BC%A0%E2%80%9C8%E6%9C%88%E6%96%B0%E5%86%A0%E6%9C%89%E5%8F%98%E5%BC%82%E6%AF%92%E6%A0%AA%E2%80%9D%E4%B8%8D%E5%AE%9E&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=3d3aPwPzln2AVt1wNVmd85v0NzG%2FFPwwQgUucXSpjoasIFFgwyC4FJc96ms&rqid=bddf77ea0010fc0b&rsf=0677fbc1982cc8ae3112e09b93c2c270_1_15_12&rsv_dl=0_right_fyb_pchot_20811&sa=0_right_fyb_pchot_20811
+                      - generic [ref=e180]:
+                        - generic [ref=e181]: "12"
+                        - link "西藏泥石流致重大伤亡 救援力量集结" [ref=e182] [cursor=pointer]:
+                          - /url: /s?wd=%E8%A5%BF%E8%97%8F%E6%B3%A5%E7%9F%B3%E6%B5%81%E8%87%B4%E9%87%8D%E5%A4%A7%E4%BC%A4%E4%BA%A1%20%E6%95%91%E6%8F%B4%E5%8A%9B%E9%87%8F%E9%9B%86%E7%BB%93&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=3d3aPwPzln2AVt1wNVmd85v0NzG%2FFPwwQgUucXSpjoasIFFgwyC4FJc96ms&rqid=bddf77ea0010fc0b&rsf=0677fbc1982cc8ae3112e09b93c2c270_1_15_13&rsv_dl=0_right_fyb_pchot_20811&sa=0_right_fyb_pchot_20811
+                        - generic [ref=e183]: 热
+                      - generic [ref=e185]:
+                        - generic [ref=e186]: "13"
+                        - link "上海体育局回应刘翔退役安置工作" [ref=e187] [cursor=pointer]:
+                          - /url: /s?wd=%E4%B8%8A%E6%B5%B7%E4%BD%93%E8%82%B2%E5%B1%80%E5%9B%9E%E5%BA%94%E5%88%98%E7%BF%94%E9%80%80%E5%BD%B9%E5%AE%89%E7%BD%AE%E5%B7%A5%E4%BD%9C&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=3d3aPwPzln2AVt1wNVmd85v0NzG%2FFPwwQgUucXSpjoasIFFgwyC4FJc96ms&rqid=bddf77ea0010fc0b&rsf=0677fbc1982cc8ae3112e09b93c2c270_1_15_14&rsv_dl=0_right_fyb_pchot_20811&sa=0_right_fyb_pchot_20811
+                        - generic [ref=e188]: 热
+                      - generic [ref=e190]:
+                        - generic [ref=e191]: "14"
+                        - link "包贝尔婚礼就在闹伴娘" [ref=e192] [cursor=pointer]:
+                          - /url: /s?wd=%E5%8C%85%E8%B4%9D%E5%B0%94%E5%A9%9A%E7%A4%BC%E5%B0%B1%E5%9C%A8%E9%97%B9%E4%BC%B4%E5%A8%98&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=3d3aPwPzln2AVt1wNVmd85v0NzG%2FFPwwQgUucXSpjoasIFFgwyC4FJc96ms&rqid=bddf77ea0010fc0b&rsf=0677fbc1982cc8ae3112e09b93c2c270_1_15_15&rsv_dl=0_right_fyb_pchot_20811&sa=0_right_fyb_pchot_20811
+                      - generic [ref=e194]:
+                        - generic [ref=e195]: "15"
+                        - link "央视曝光擦边“露骨”手办乱象" [ref=e196] [cursor=pointer]:
+                          - /url: /s?wd=%E5%A4%AE%E8%A7%86%E6%9B%9D%E5%85%89%E6%93%A6%E8%BE%B9%E2%80%9C%E9%9C%B2%E9%AA%A8%E2%80%9D%E6%89%8B%E5%8A%9E%E4%B9%B1%E8%B1%A1&ie=utf-8&rsv_pq=bddf77ea0010fc0b&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&rsv_t=b00alTe1u3ey2nbLBIQhXVmZmkE7PmUuepsgCoc3EMuoHgE5MzKD9o3CE0M&rqid=bddf77ea0010fc0b&rsf=0677fbc1982cc8ae3112e09b93c2c270_16_30_16&rsv_dl=0_right_fyb_pchot_20811&sa=0_right_fyb_pchot_20811
+                        - generic [ref=e197]: 热
+        - generic [ref=e198]:
+          - generic [ref=e202]:
+            - heading [level=3] [ref=e205]:
+              - link [ref=e206] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=wJcbq3uCIOXMYUEjSqc9pw6fzoW4yRTljIn6R8SxDm9z_L2kmzD__n7iTqvzqnC-yUVmAKNEb-yfSqwIBTwO_WTIke9Tik20Re6_kHeQOyC
+                - generic [ref=e208]:
+                  - text: 网文江湖里,“她”在如何写“她的故事”--
+                  - emphasis [ref=e209]: 网络
+                  - text: 文学--中国作家网
+            - generic [ref=e210]:
+              - link [ref=e212] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=wJcbq3uCIOXMYUEjSqc9pw6fzoW4yRTljIn6R8SxDm9z_L2kmzD__n7iTqvzqnC-yUVmAKNEb-yfSqwIBTwO_WTIke9Tik20Re6_kHeQOyC
+              - generic [ref=e217]:
+                - generic [ref=e223]:
+                  - text: 2025年7月14日
+                  - generic [ref=e224]:
+                    - text: 6月
+                    - emphasis [ref=e225]: "30"
+                    - text: 日至7月4日,来自全国各地的80余名
+                    - emphasis [ref=e226]: 网络女
+                    - text: 作家在长沙参加由全国妇联、中国作家协会主办的2025年全国网络女作家培训班。培训班引导女作家深刻把握时代主题与创作方向,为她们的创作提供坚实的思想根基与创作遵循。 在业务技能培训上,首都师范大学艺术与美育研究院教授许苗苗以“突破‘大女主’:网络文学如何探索女性形象表达”为主题做了分享。...
+                - link "中国作家网" [ref=e231] [cursor=pointer]:
+                  - /url: http://www.baidu.com/link?url=wJcbq3uCIOXMYUEjSqc9pw6fzoW4yRTljIn6R8SxDm9z_L2kmzD__n7iTqvzqnC-yUVmAKNEb-yfSqwIBTwO_WTIke9Tik20Re6_kHeQOyC
+                  - generic [ref=e233]: 
+          - generic [ref=e238]:
+            - heading [level=3] [ref=e241]:
+              - link "网文江湖里,“她”在如何写“她的故事”——专访首都... - 湖南在线" [ref=e242] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=ZZ9ljePs7vVMxxiUYMLNjxMgJfNxobk2fNLvgZYY-TVl_F-17ofIoc0Rg1ngnWSv39OS2WkvM2UtwtU6KCsgqq
+            - generic [ref=e249]:
+              - text: 2025年7月8日
+              - generic [ref=e250]:
+                - text: 6月
+                - emphasis [ref=e251]: "30"
+                - text: 日至7月4日,来自全国各地的80余名
+                - emphasis [ref=e252]: 网络女
+                - text: 作家在长沙参加由全国妇联、中国作家协会主办...
+            - generic [ref=e253]:
+              - generic [ref=e256]:
+                - link [ref=e258] [cursor=pointer]:
+                  - /url: http://www.baidu.com/link?url=ZZ9ljePs7vVMxxiUYMLNjxMgJfNxobk2fNLvgZYY-TVl_F-17ofIoc0Rg1ngnWSv39OS2WkvM2UtwtU6KCsgqq
+                - link [ref=e263] [cursor=pointer]:
+                  - /url: http://www.baidu.com/link?url=ZZ9ljePs7vVMxxiUYMLNjxMgJfNxobk2fNLvgZYY-TVl_F-17ofIoc0Rg1ngnWSv39OS2WkvM2UtwtU6KCsgqq
+                - link [ref=e268] [cursor=pointer]:
+                  - /url: http://www.baidu.com/link?url=ZZ9ljePs7vVMxxiUYMLNjxMgJfNxobk2fNLvgZYY-TVl_F-17ofIoc0Rg1ngnWSv39OS2WkvM2UtwtU6KCsgqq
+                - link [ref=e273] [cursor=pointer]:
+                  - /url: http://www.baidu.com/link?url=ZZ9ljePs7vVMxxiUYMLNjxMgJfNxobk2fNLvgZYY-TVl_F-17ofIoc0Rg1ngnWSv39OS2WkvM2UtwtU6KCsgqq
+              - generic [ref=e277]:
+                - generic [ref=e278]: 
+                - text: "5"
+            - link "华声在线" [ref=e283] [cursor=pointer]:
+              - /url: http://www.baidu.com/link?url=ZZ9ljePs7vVMxxiUYMLNjxMgJfNxobk2fNLvgZYY-TVl_F-17ofIoc0Rg1ngnWSv39OS2WkvM2UtwtU6KCsgqq
+              - generic [ref=e285]: 
+          - generic [ref=e289]:
+            - heading [level=3] [ref=e290]:
+              - link "马爽，中国作家，百度百科" [ref=e291] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=ZZ9ljePs7vVMxxiUYMLNjyrs6qHao9ljbAzFHURV4vd19jyEoH_6GewncttWUOIK5B2CO8jAbx05MukvR6b378-cwJsqJvdhtqtVnPBBou_
+                - emphasis [ref=e292]: 马爽
+                - text: (中国作家) - 百度百科
+            - generic [ref=e294]:
+              - generic "职业：作家，自由撰稿人，译者" [ref=e295]
+              - generic "生日：1979年12月15日" [ref=e296]
+              - generic "代表作品：我的左眼不相信右眼，是我必然遇到你" [ref=e297]
+              - generic "\u0002马爽\u0003（\u00011979\u0001年\u000112\u0001月\u000115\u0001日\u0001—\u0001）\u0001，\u0002女\u0003，\u0001汉族\u0001，\u0001出生\u0001于\u0001北京\u0001，\u0001籍贯\u0001北京\u0001，\u0001笔名\u0001马爽\u0001·\u0001forgot\u0001、\u0001小\u0001佛\u0001搞\u0001特\u0001、\u0001马\u0001左左\u0001。\u0001她\u0001曾\u0001在\u0001英国\u0001和\u0001美国\u0001留学\u0001。\u00012007\u0001年\u00014\u0001月\u0001，\u0001其\u0001作品\u0001《\u0001我\u0001的\u0001左眼\u0001不\u0001相信\u0001右眼\u0001》\u0001由\u0001人民\u0001文学\u0001出版\u0001社\u0001出版\u0001。\u00012008\u0001年\u00013\u0001月\u000125\u0001日\u0001，\u0001经\u0001北京\u0001作家\u0001协会\u0001四\u0001届\u0001五\u0001次\u0001理事\u0001会\u0001批准\u0001，\u0001加入\u0001北京\u0001作家\u0001协会\u0001。\u0001她\u0001以\u0001笔名\u0001“\u0001小\u0001佛\u0001搞\u0001特\u0001”\u0001在\u0001豆瓣\u0002网\u0003活跃\u0001，\u0001已\u0001发布\u0001影评\u0001...\u0001" [ref=e299]:
+                - generic [ref=e300]:
+                  - emphasis [ref=e301]: 马爽
+                  - text: （1979年12月15日—），
+                  - emphasis [ref=e302]: 女
+                  - text: ，汉族，出生于北京，籍贯北...
+              - generic [ref=e304]:
+                - link "人物经历" [ref=e305] [cursor=pointer]:
+                  - /url: http://www.baidu.com/link?url=u1J6SM3gJJvOsgrURS2tprO5UWNoRknxA5beJSIAZEIW_S4hURDgxIGZSmy8DKXN1h_OlcDbBOTWP7aHGY7jqenWcKc5V8QR1CZZfeXKcG3
+                - link "创作特点" [ref=e306] [cursor=pointer]:
+                  - /url: http://www.baidu.com/link?url=u1J6SM3gJJvOsgrURS2tprO5UWNoRknxA5beJSIAZEIW_S4hURDgxIGZSmy8DKXN1h_OlcDbBOTWP7aHGY7jqlUgSfQ67HAkNAPkTaedTdK
+                - link "代表作品" [ref=e307] [cursor=pointer]:
+                  - /url: http://www.baidu.com/link?url=u1J6SM3gJJvOsgrURS2tprO5UWNoRknxA5beJSIAZEIW_S4hURDgxIGZSmy8DKXN1h_OlcDbBOTWP7aHGY7jqnKfZxUC-uzAVS1ah9Rjj__
+                - link "人物影响" [ref=e308] [cursor=pointer]:
+                  - /url: http://www.baidu.com/link?url=u1J6SM3gJJvOsgrURS2tprO5UWNoRknxA5beJSIAZEIW_S4hURDgxIGZSmy8DKXN1h_OlcDbBOTWP7aHGY7jqez_c7DuU81yefPLj7Rcswm
+                - link "出版图书" [ref=e309] [cursor=pointer]:
+                  - /url: http://www.baidu.com/link?url=u1J6SM3gJJvOsgrURS2tprO5UWNoRknxA5beJSIAZEIW_S4hURDgxIGZSmy8DKXN1h_OlcDbBOTWP7aHGY7jqfwvOkYEQXyZIfFQBZFcSsi
+              - generic [ref=e310]:
+                - link "百度百科" [ref=e311] [cursor=pointer]:
+                  - /url: http://www.baidu.com/link?url=ZZ9ljePs7vVMxxiUYMLNjyrs6qHao9ljbAzFHURV4vd19jyEoH_6GewncttWUOIK5B2CO8jAbx05MukvR6b378-cwJsqJvdhtqtVnPBBou_
+                - generic [ref=e317] [cursor=pointer]: 
+          - generic [ref=e322]:
+            - heading [level=3] [ref=e325]:
+              - link [ref=e326] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=u1J6SM3gJJvOsgrURS2tprRrFXiAKpayqEtNXfgkd_pt63T_UlwQyR6mzSrqPWEF_eUQRCq7-OgP9qyJgjNzsjdNUjr4x18ewawB9-zVXfxG2m4QUGVw2Rylq7isg74D
+                - generic [ref=e328]:
+                  - emphasis [ref=e329]: 网络
+                  - text: 文学中的
+                  - emphasis [ref=e330]: 女性
+                  - text: 书写-新华网
+            - generic [ref=e335]:
+              - text: 2022年3月8日
+              - generic [ref=e336]:
+                - text: 关注
+                - emphasis [ref=e337]: 女性
+                - text: 各方面成长的现实
+                - emphasis [ref=e338]: 题材网络
+                - text: 文学创作近年来也收获颇丰,包括“阿耐”的《欢乐颂》、“吉祥夜”的《写给鼹鼠先生的情书》、“囧囧有妖”的《许你万丈光芒好》、“柴可”的《鲜花盛开的村庄》、“清扬婉兮”的《全职妈妈向前冲》以及抗疫
+                - emphasis [ref=e339]: 题材小说
+                - text: 《王谢堂前燕》《樱花依旧开》等,这些作品都从不同侧面揭示了当代...
+            - generic [ref=e341]:
+              - link "头像 新华网" [ref=e344] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=u1J6SM3gJJvOsgrURS2tprRrFXiAKpayqEtNXfgkd_pt63T_UlwQyR6mzSrqPWEF_eUQRCq7-OgP9qyJgjNzsjdNUjr4x18ewawB9-zVXfxG2m4QUGVw2Rylq7isg74D
+                - img "头像" [ref=e347]
+                - generic [ref=e348]: 新华网
+                - generic [ref=e349]: 
+              - generic [ref=e351]: 权威媒体
+          - generic [ref=e356]:
+            - heading [level=3] [ref=e359]:
+              - link [ref=e360] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=e5jNYpSwuaJCuEDytjMbKtbEy0v7S7kvrPZZJ7Rfylf3cNGXZ4ayhbKfZy1xfy6SLhoIh1PRFA9w8EVwPoMGF_
+                - generic [ref=e362]:
+                  - emphasis [ref=e363]: 网络
+                  - text: 文学中的
+                  - emphasis [ref=e364]: 女性
+                  - text: 书写 - 文艺作品 - 怒江大峡谷网丨怒江新闻网
+            - generic [ref=e369]:
+              - text: 2022年3月8日
+              - generic [ref=e370]:
+                - text: 关注
+                - emphasis [ref=e371]: 女性
+                - text: 各方面成长的现实
+                - emphasis [ref=e372]: 题材网络
+                - text: 文学创作近年来也收获颇丰,包括“阿耐”的《欢乐颂》、“吉祥夜”的《写给鼹鼠先生的情书》、“囧囧有妖”的《许你万丈光芒好》、“柴可”的《鲜花盛开的村庄》、“清扬婉兮”的《全职妈妈向前冲》以及抗疫
+                - emphasis [ref=e373]: 题材小说
+                - text: 《王谢堂前燕》《樱花依旧开》等,这些作品都从不同侧面揭示了当代...
+            - link "怒江大峡谷网" [ref=e378] [cursor=pointer]:
+              - /url: http://www.baidu.com/link?url=e5jNYpSwuaJCuEDytjMbKtbEy0v7S7kvrPZZJ7Rfylf3cNGXZ4ayhbKfZy1xfy6SLhoIh1PRFA9w8EVwPoMGF_
+              - generic [ref=e380]: 
+          - generic [ref=e385]:
+            - heading [level=3] [ref=e388]:
+              - link [ref=e389] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=wJcbq3uCIOXMYUEjSqc9pw6fzoW4yRTljIn6R8SxDm9z_L2kmzD__n7iTqvzqnC-vKQJiHwNU_N3z6cBM54rMgpDExZZ25Cq8oNom0yL-oi
+                - generic [ref=e391]:
+                  - text: 许潇菲:乐感文化基因与
+                  - emphasis [ref=e392]: 网络小说
+                  - text: “爽”之发生 --网络文学--中国作家网
+            - generic [ref=e397]:
+              - text: 2025年4月29日
+              - generic [ref=e398]:
+                - text: 人们可以诟病网络爽文在
+                - emphasis [ref=e399]: 题材
+                - text: 选择上的天马行空、随意率性;可以指摘字里行间毫无文采、落入俗套。但
+                - emphasis [ref=e400]: 网络小说
+                - text: 正是以数据库式的“融梗”“二次元”“游戏化”等创举接近现代大众生活。早期的小白文中,主角通常背负着苦大仇深的家世背景,面临比现实世界有过之而不及的生存压力,在被过度强化渲染的丛林法则社会里奋力拼杀...
+            - link "中国作家网" [ref=e405] [cursor=pointer]:
+              - /url: http://www.baidu.com/link?url=wJcbq3uCIOXMYUEjSqc9pw6fzoW4yRTljIn6R8SxDm9z_L2kmzD__n7iTqvzqnC-vKQJiHwNU_N3z6cBM54rMgpDExZZ25Cq8oNom0yL-oi
+              - generic [ref=e407]: 
+          - generic [ref=e412]:
+            - heading [level=3] [ref=e415]:
+              - link [ref=e416] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=YqMO2cWKj1FzDDc_dXD3JP0tN89AKXGrF8hm9Ki50rIRgNmfHle9TyYGysEioEYKKY9h1C9hjX42WGz7lH7P7a
+                - generic [ref=e418]:
+                  - text: 刷了今年上半年短剧,
+                  - emphasis [ref=e419]: 网络
+                  - text: 文学走过的“坑”和“爽”如何被吸收与转化...
+            - generic [ref=e424]:
+              - text: 2025年9月30日
+              - generic [ref=e425]:
+                - text: 与
+                - emphasis [ref=e426]: 网络
+                - text: 文学类型融合的态势相似,短剧创作正逐渐跳脱单一主线,融入更丰富的类型元素与世界观架构...
+            - generic [ref=e427]:
+              - link [ref=e428] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=YqMO2cWKj1FzDDc_dXD3JP0tN89AKXGrF8hm9Ki50rIRgNmfHle9TyYGysEioEYKKY9h1C9hjX42WGz7lH7P7a
+              - link [ref=e432] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=YqMO2cWKj1FzDDc_dXD3JP0tN89AKXGrF8hm9Ki50rIRgNmfHle9TyYGysEioEYKKY9h1C9hjX42WGz7lH7P7a
+              - link [ref=e436] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=YqMO2cWKj1FzDDc_dXD3JP0tN89AKXGrF8hm9Ki50rIRgNmfHle9TyYGysEioEYKKY9h1C9hjX42WGz7lH7P7a
+              - link [ref=e440] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=YqMO2cWKj1FzDDc_dXD3JP0tN89AKXGrF8hm9Ki50rIRgNmfHle9TyYGysEioEYKKY9h1C9hjX42WGz7lH7P7a
+              - link "9" [ref=e444] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=YqMO2cWKj1FzDDc_dXD3JP0tN89AKXGrF8hm9Ki50rIRgNmfHle9TyYGysEioEYKKY9h1C9hjX42WGz7lH7P7a
+                - generic [ref=e449]:
+                  - generic [ref=e450]: 
+                  - text: "9"
+            - link "澎湃新闻" [ref=e455] [cursor=pointer]:
+              - /url: http://www.baidu.com/link?url=YqMO2cWKj1FzDDc_dXD3JP0tN89AKXGrF8hm9Ki50rIRgNmfHle9TyYGysEioEYKKY9h1C9hjX42WGz7lH7P7a
+              - generic [ref=e457]: 
+          - generic [ref=e462]:
+            - heading [level=3] [ref=e465]:
+              - link "圆桌对话会丨网文的突围:超越爽感" [ref=e466] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=cfSRssc9LWcRciNPW2mMxyr_3_oMOG7THjmsGI7rAvDtuDncmbYWRC7y5Bz8yEWPFQHQoNQGgqa4NmK5_R9o8j1v_sc4X6E-lKUAajdw0mq
+            - generic [ref=e469]:
+              - link [ref=e471] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=cfSRssc9LWcRciNPW2mMxyr_3_oMOG7THjmsGI7rAvDtuDncmbYWRC7y5Bz8yEWPFQHQoNQGgqa4NmK5_R9o8j1v_sc4X6E-lKUAajdw0mq
+              - generic [ref=e476]:
+                - generic [ref=e482]:
+                  - text: 2026年1月16日
+                  - generic [ref=e483]:
+                    - text: 以“白马奖”为代表的
+                    - emphasis [ref=e484]: 网络
+                    - text: 文学精品不断“价值升级”，无论是现实
+                    - emphasis [ref=e485]: 题材
+                    - text: 还是幻想题材，其叙事动力都已从早期的“欲望满足”转向了“意义追寻”。言情类作品如《香江神探［九零］》《一路奔北》，其动人之处远不止于爱情，更在于
+                    - emphasis [ref=e486]: 女
+                    - text: 主角在法医、高铁工程师等专业领域展现的职业尊严与时代闯劲，爱情故事因而承载了更厚重...
+                - link "头像  潮新闻客户端" [ref=e491] [cursor=pointer]:
+                  - /url: http://www.baidu.com/link?url=cfSRssc9LWcRciNPW2mMxyr_3_oMOG7THjmsGI7rAvDtuDncmbYWRC7y5Bz8yEWPFQHQoNQGgqa4NmK5_R9o8j1v_sc4X6E-lKUAajdw0mq
+                  - generic [ref=e492]:
+                    - img "头像" [ref=e494]
+                    - generic [ref=e495]: 
+                  - generic [ref=e497]: 潮新闻客户端
+                  - generic [ref=e498]: 
+          - generic [ref=e503]:
+            - heading [level=3] [ref=e506]:
+              - link [ref=e507] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=bWzRy3CdFkMz_urGpdQvZgMYheoPx6COgg9SB2rd3HXK6_a36_tt4KaZ_S79vq4Leg8U-knr6PVW0T3DKa07O_
+                - generic [ref=e509]:
+                  - emphasis [ref=e510]: 网络
+                  - text: 文学
+                  - emphasis [ref=e511]: 女性题材
+                  - text: 创作-洞察分析.docx - 人人文库
+            - generic [ref=e516]:
+              - text: 2025年1月16日
+              - generic [ref=e517]:
+                - text: 一,
+                - emphasis [ref=e518]: 女性题材
+                - text: "创作的概念 女性题材创作是指以女性为主要描写对象或关注女性生活,情感,心理等方面的文学作品.这类作品通常以女性的视角出发,探讨女性的成长,爱情,家庭,事业等多方面问题,具有鲜明的女性意识和女性视角. 二,女性题材创作的发展历程 1.萌芽期(2000年以前):"
+                - emphasis [ref=e519]: 网络
+                - text: 文学女性题材创作在萌芽期主要以女性言情
+                - emphasis [ref=e520]: 小说
+                - text: ...
+            - link "头像 人人文库" [ref=e525] [cursor=pointer]:
+              - /url: http://www.baidu.com/link?url=bWzRy3CdFkMz_urGpdQvZgMYheoPx6COgg9SB2rd3HXK6_a36_tt4KaZ_S79vq4Leg8U-knr6PVW0T3DKa07O_
+              - img "头像" [ref=e528]
+              - generic [ref=e529]: 人人文库
+              - generic [ref=e530]: 
+          - generic [ref=e535]:
+            - heading [level=3] [ref=e538]:
+              - link [ref=e539] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=ZZ9ljePs7vVMxxiUYMLNjwkyVPaVsjNXMRdepzDpfgz49m35WOgyKKCXm1lTQrWb
+                - generic [ref=e541]:
+                  - text: 人到
+                  - emphasis [ref=e542]: 三十
+                  - text: :妻子的野望
+                  - emphasis [ref=e543]: 小说
+                  - text: 最新章节_人到三十:妻子的野望陈阳冯婷...
+            - generic [ref=e544]:
+              - link [ref=e546] [cursor=pointer]:
+                - /url: http://www.baidu.com/link?url=ZZ9ljePs7vVMxxiUYMLNjwkyVPaVsjNXMRdepzDpfgz49m35WOgyKKCXm1lTQrWb
+              - generic [ref=e551]:
+                - generic [ref=e552]:
+                  - generic [ref=e553]: "作者: 陈阳冯婷更新时间：2024年05月09日"
+                  - generic [ref=e560]:
+                    - text: 人到
+                    - emphasis [ref=e561]: 三十
+                    - text: :妻子的野望
+                    - emphasis [ref=e562]: 小说
+                    - text: 最新章节_人到三十:妻子的野望陈阳冯婷全文阅读_啦啦文学网
+                - generic [ref=e564]:
+                  - link [ref=e565] [cursor=pointer]:
+                    - /url: http://www.baidu.com/link?url=ZZ9ljePs7vVMxxiUYMLNjwkyVPaVsjNXMRdepzDpfgz49m35WOgyKKCXm1lTQrWb
+                    - button "开始阅读" [ref=e566]
+                  - text: 最新章节：
+                  - link "第十章你最近会倒霉" [ref=e568] [cursor=pointer]:
+                    - /url: http://www.baidu.com/link?url=6mkEEy2Mb6CR5sXKSIoVi2kOmL2qfvqF0E6LPsH2fJNFMYRaNob9D_X0jCAGKANl-QrysHeh_rAVzT75_fwDi_
+                - link "www.lalawx.net/book_48455/" [ref=e573] [cursor=pointer]:
+                  - /url: http://www.baidu.com/link?url=ZZ9ljePs7vVMxxiUYMLNjwkyVPaVsjNXMRdepzDpfgz49m35WOgyKKCXm1lTQrWb
+                  - generic [ref=e575]: 
+        - generic [ref=e579]:
+          - generic [ref=e580]: 相关搜索
+          - table [ref=e581]:
+            - rowgroup [ref=e582]:
+              - row [ref=e583]:
+                - cell [ref=e584]:
+                  - link "网络小说禁止题材" [ref=e585] [cursor=pointer]:
+                    - /url: /s?wd=%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%E7%A6%81%E6%AD%A2%E9%A2%98%E6%9D%90&tn=baidu&rsf=101631202&rsp=0&f=1&rs_src=0&rsv_pq=bddf77ea0010fc0b&rsv_t=2637WdXSzepoAL7f7r5yhk0rWF5u%2BZalUitjngUrEev3EVNYs%2FXmXuo2vNw&rsv_dl=brs_28338_1
+                - cell [ref=e588]:
+                  - link "网络小说什么题材受欢迎" [ref=e589] [cursor=pointer]:
+                    - /url: /s?wd=%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%E4%BB%80%E4%B9%88%E9%A2%98%E6%9D%90%E5%8F%97%E6%AC%A2%E8%BF%8E&tn=baidu&rsf=101631202&rsp=1&f=1&rs_src=0&rsv_pq=bddf77ea0010fc0b&rsv_t=2637WdXSzepoAL7f7r5yhk0rWF5u%2BZalUitjngUrEev3EVNYs%2FXmXuo2vNw&rsv_dl=brs_28338_2
+              - row [ref=e592]:
+                - cell [ref=e593]:
+                  - link "网络小说都有哪些" [ref=e594] [cursor=pointer]:
+                    - /url: /s?wd=%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%E9%83%BD%E6%9C%89%E5%93%AA%E4%BA%9B&tn=baidu&rsf=101631202&rsp=2&f=1&rs_src=0&rsv_pq=bddf77ea0010fc0b&rsv_t=2637WdXSzepoAL7f7r5yhk0rWF5u%2BZalUitjngUrEev3EVNYs%2FXmXuo2vNw&rsv_dl=brs_28338_3
+                - cell [ref=e597]:
+                  - link "网络小说的类型" [ref=e598] [cursor=pointer]:
+                    - /url: /s?wd=%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%E7%9A%84%E7%B1%BB%E5%9E%8B&tn=baidu&rsf=101631202&rsp=3&f=1&rs_src=0&rsv_pq=bddf77ea0010fc0b&rsv_t=2637WdXSzepoAL7f7r5yhk0rWF5u%2BZalUitjngUrEev3EVNYs%2FXmXuo2vNw&rsv_dl=brs_28338_4
+      - generic [ref=e603]:
+        - link:
+          - /url: ""
+        - strong [ref=e604]:
+          - generic [ref=e605]: "1"
+        - link "2" [ref=e606] [cursor=pointer]:
+          - /url: /s?wd=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&pn=10&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&ie=utf-8&rsv_pq=bddf77ea0010fc0b&rsv_t=2637WdXSzepoAL7f7r5yhk0rWF5u%2BZalUitjngUrEev3EVNYs%2FXmXuo2vNw&topic_pn=
+        - link "3" [ref=e608] [cursor=pointer]:
+          - /url: /s?wd=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&pn=20&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&ie=utf-8&rsv_pq=bddf77ea0010fc0b&rsv_t=2637WdXSzepoAL7f7r5yhk0rWF5u%2BZalUitjngUrEev3EVNYs%2FXmXuo2vNw&topic_pn=
+        - link "4" [ref=e610] [cursor=pointer]:
+          - /url: /s?wd=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&pn=30&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&ie=utf-8&rsv_pq=bddf77ea0010fc0b&rsv_t=2637WdXSzepoAL7f7r5yhk0rWF5u%2BZalUitjngUrEev3EVNYs%2FXmXuo2vNw&topic_pn=
+        - link "5" [ref=e612] [cursor=pointer]:
+          - /url: /s?wd=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&pn=40&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&ie=utf-8&rsv_pq=bddf77ea0010fc0b&rsv_t=2637WdXSzepoAL7f7r5yhk0rWF5u%2BZalUitjngUrEev3EVNYs%2FXmXuo2vNw&topic_pn=
+        - link "6" [ref=e614] [cursor=pointer]:
+          - /url: /s?wd=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&pn=50&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&ie=utf-8&rsv_pq=bddf77ea0010fc0b&rsv_t=2637WdXSzepoAL7f7r5yhk0rWF5u%2BZalUitjngUrEev3EVNYs%2FXmXuo2vNw&topic_pn=
+        - link "7" [ref=e616] [cursor=pointer]:
+          - /url: /s?wd=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&pn=60&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&ie=utf-8&rsv_pq=bddf77ea0010fc0b&rsv_t=2637WdXSzepoAL7f7r5yhk0rWF5u%2BZalUitjngUrEev3EVNYs%2FXmXuo2vNw&topic_pn=
+        - link "8" [ref=e618] [cursor=pointer]:
+          - /url: /s?wd=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&pn=70&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&ie=utf-8&rsv_pq=bddf77ea0010fc0b&rsv_t=2637WdXSzepoAL7f7r5yhk0rWF5u%2BZalUitjngUrEev3EVNYs%2FXmXuo2vNw&topic_pn=
+        - link "9" [ref=e620] [cursor=pointer]:
+          - /url: /s?wd=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&pn=80&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&ie=utf-8&rsv_pq=bddf77ea0010fc0b&rsv_t=2637WdXSzepoAL7f7r5yhk0rWF5u%2BZalUitjngUrEev3EVNYs%2FXmXuo2vNw&topic_pn=
+        - link [ref=e622] [cursor=pointer]:
+          - /url: /s?wd=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&pn=10&oq=30%E5%B2%81%20%E5%A5%B3%E6%80%A7%20%E7%BD%91%E7%BB%9C%E5%B0%8F%E8%AF%B4%20%E9%A9%AC%E7%88%BD%20%E9%A2%98%E6%9D%90%20%E8%B0%83%E7%A0%94&ie=utf-8&rsv_pq=bddf77ea0010fc0b&rsv_t=2637WdXSzepoAL7f7r5yhk0rWF5u%2BZalUitjngUrEev3EVNYs%2FXmXuo2vNw&topic_pn=&rsv_page=1
+      - generic [ref=e627]:
+        - link "帮助" [ref=e628] [cursor=pointer]:
+          - /url: https://help.baidu.com/question?prod_id=1
+        - link "举报" [ref=e629] [cursor=pointer]:
+          - /url: https://help.baidu.com/jubao?source=search
+        - link "用户反馈" [ref=e630] [cursor=pointer]:
+          - /url: javascript:;
+        - link "企业推广" [ref=e631] [cursor=pointer]:
+          - /url: https://e.baidu.com/lp/search/?refer=1298

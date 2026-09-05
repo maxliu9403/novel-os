@@ -77,8 +77,8 @@ test("shows the pipeline flow and renders the selected stage", async () => {
   });
 
   renderAt();
-  expect(await screen.findByText("Outline")).toBeInTheDocument();
-  expect(screen.getByText("Final")).toBeInTheDocument();
+  expect(await screen.findByText("大纲")).toBeInTheDocument();
+  expect(screen.getByText("定稿")).toBeInTheDocument();
   expect(await screen.findByText("Beats")).toBeInTheDocument();
 });
 
@@ -127,6 +127,6 @@ test("Final pane auto-seeds from revised and saves edits", async () => {
 
   const editor = await screen.findByDisplayValue("Revised prose");
   await user.type(editor, " edited");
-  await user.click(screen.getByRole("button", { name: /^Save$/i }));
+  await user.click(screen.getByRole("button", { name: "保存" }));
   expect(saveFinalDoc).toHaveBeenCalled();
 });

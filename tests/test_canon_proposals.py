@@ -13,6 +13,7 @@ import pytest
 
 import proposals as proposals_module
 from canon import CanonDeltaProposal, apply_canon_proposal, build_canon_proposal
+from commercial_fixtures import verified_reader_value_update
 from proposals import ProposalStore
 from state_manager import StoryState
 
@@ -249,6 +250,19 @@ def test_apply_proposal_chain_preserves_ordered_agent_deltas(tmp_path: Path):
     assert chapter.plot_advances == ["Door opens"]
     assert chapter.new_information == ["The key works"]
     assert chapter.continuity_checks["status"] == "PASS"
+
+
+def test_reader_value_update_requires_continuity_guardian_source(tmp_path: Path):
+    state = StoryState(str(tmp_path / "project"))
+    proposal = CanonDeltaProposal(
+        chapter=1,
+        agent_name="scribe",
+        source_artifact_sha=SOURCE_SHA,
+        delta={"reader_value_updates": [verified_reader_value_update()]},
+    )
+
+    with pytest.raises(ValueError, match="continuity_guardian"):
+        apply_canon_proposal(state, proposal, SOURCE_SHA)
 
 
 @pytest.mark.parametrize(

@@ -93,10 +93,25 @@ threshold.
 ## Prompt handoff
 
 - The target audience is explicitly confirmed by the user and records the primary reader segment, age or life stage, and main reading motivation; it is not an inferred assumption.
-- The Prompt carries `setting_policy.mode: fictionalized` and keeps real market/source locations inside `audience_research` rather than the story-facing world ledger.
+- The Prompt carries `setting_policy.mode: fictionalized` and keeps real market context inside `audience_profile` rather than the story-facing world ledger.
+- A commercial Prompt carries exactly one valid `COMMERCIAL_STORY_JSON` block and no raw corpus, embedding, vector-search, or nearest-match payload.
 - The Prompt carries a complete `story_lead_contract` and assigns drafting, editing, continuity validation, and style preservation responsibilities for the lead.
 - Top-level fields contain one fixed title, chapter count, and total word target.
 - All approved decisions appear in the Prompt; assumptions are labeled in one section.
 - Architect, Scribe, Editor, Continuity Guardian, and Style Curator have distinct responsibilities and shared state fields.
+- The Scribe receives only the approved story contract, current chapter contract,
+  verified and promoted reader-value summaries, and the current context pack;
+  no raw corpus material, corpus path, retrieval result, or self-certification
+  payload is routed into its prompt.
+- Editor review explicitly covers repeated humiliation, passive turns,
+  unsupported rescue, and repeated hook mechanics.
+- Continuity review explicitly covers evidence provenance, child knowledge and
+  voice, institutional plausibility, and contract-to-prose delivery.
+- Style review explicitly covers character-specific attention, work knowledge,
+  speech strategy, shame trigger, body response, and template phrase repetition.
+- The six template expressions (`I did not cry`, `I did not scream`, `my blood
+  ran cold`, `my world shattered`, `they thought I was weak`, `the game had just
+  begun`) are reviewed for repeated use across recent chapters; they are not
+  blanket word bans.
 - The final reader-facing artifact excludes planning commentary, agent analysis, scores, and work logs.
 - `prompt_intake` returns the expected title, genre, language, chapters, words, and premise when Novel OS is present.

@@ -6,6 +6,7 @@ rather than new walks of the manuscript.
 """
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -172,6 +173,26 @@ def _book():
     )
 
 
+@dataclass(frozen=True)
+class _PublicationCopyFixture:
+    language: str = "en-US"
+    reader_heading: str = "Before the Story"
+    hook_lead: str = "Claire must confront Ethan before his lies cost their daughter."
+    spoiler_free_blurb: str = (
+        "Claire discovers that Ethan's lies reach far beyond one missed dinner. "
+        "As money disappears and promises fail, she records the truth and must "
+        "decide what kind of home will protect their daughter."
+    )
+
+    def to_dict(self):
+        return {
+            "language": self.language,
+            "reader_heading": self.reader_heading,
+            "hook_lead": self.hook_lead,
+            "spoiler_free_blurb": self.spoiler_free_blurb,
+        }
+
+
 def test_gather_titles_each_chapter():
     book = _book()
     assert [c["title"] for c in book.chapters] == ["Arrival", "Departure"]
@@ -229,6 +250,81 @@ def test_word_count_ignores_titles_and_ornaments():
 
 def test_blocks_carry_their_chapter_for_navigation():
     assert {b.chapter for b in _book().blocks} == {1, 2}
+
+
+def test_structured_publication_copy_precedes_chapter_one_and_is_not_counted():
+    publication_copy = _PublicationCopyFixture()
+    book = gather(
+        title="T",
+        author="A",
+        genre="Family drama",
+        chapters=[{"number": 1, "title": "One", "text": "# One\n\nBody."}],
+        publication_copy=publication_copy,
+    )
+
+    assert [block.kind for block in book.blocks[:4]] == [
+        "story_lead_label", "story_lead_title", "story_hook", "story_lead",
+    ]
+    assert all(block.chapter is None for block in book.blocks[:4])
+    assert book.blocks[4].kind == "chapter_title"
+    assert book.word_count == 1
+    assert book.language == "en-US"
+    assert book.publication_copy is publication_copy
+    assert book.to_dict()["publication_copy"] == publication_copy.to_dict()
+
+    markdown = render_markdown(book, StyleSheet())
+    assert markdown.index("## Before the Story") < markdown.index("## One")
+    assert f"*{publication_copy.hook_lead}*" in markdown
+    html = render_html(book, StyleSheet())
+    assert (
+        html.index("Before the Story")
+        < html.index("Claire must confront Ethan")
+        < html.index("Claire discovers")
+        < html.index("One")
+    )
+
+
+@pytest.mark.parametrize(
+    ("language", "label"),
+    (("en-US", "Introduction"), ("American English", "Introduction"), ("zh-CN", "导读")),
+)
+def test_structured_publication_copy_has_an_explicit_localized_reader_guide_label(
+    language, label,
+):
+    publication_copy = _PublicationCopyFixture(language=language)
+    book = gather(
+        title="T",
+        author="A",
+        genre="Family drama",
+        chapters=[{"number": 1, "title": "One", "text": "# One\n\nBody."}],
+        publication_copy=publication_copy,
+    )
+
+    assert book.blocks[0].kind == "story_lead_label"
+    assert book.blocks[0].text == label
+    assert book.blocks[0].chapter is None
+    markdown = render_markdown(book, StyleSheet())
+    assert markdown.index(f"## {label}") < markdown.index("## Before the Story")
+    assert markdown.index("## Before the Story") < markdown.index("## One")
+
+
+def test_structured_publication_copy_and_legacy_marker_block_compile():
+    with pytest.raises(ValueError, match="both present"):
+        gather(
+            title="T",
+            author="",
+            genre="",
+            publication_copy=_PublicationCopyFixture(),
+            chapters=[{
+                "number": 1,
+                "title": "One",
+                "text": "## STORY_LEAD: Old\n\nOld copy\n\n# One\n\nBody.",
+            }],
+        )
+
+
+def test_books_without_structured_copy_keep_the_default_language():
+    assert _book().language == "en-US"
 
 
 # --------------------------------------------------------------- rendering

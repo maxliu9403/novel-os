@@ -29,6 +29,7 @@ from compile_book import CompiledBook, inline_runs
 from styles import Style, StyleSheet
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 
 _CONTENT_TYPES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -130,11 +131,19 @@ def _document(book: CompiledBook, sheet: StyleSheet) -> str:
     )
 
 
+def _write_member(archive: zipfile.ZipFile, name: str, data: str) -> None:
+    info = zipfile.ZipInfo(name, _ZIP_TIMESTAMP)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.create_system = 3
+    info.external_attr = 0o100644 << 16
+    archive.writestr(info, data)
+
+
 def render_docx(book: CompiledBook, sheet: StyleSheet) -> bytes:
     """A .docx of the compiled manuscript."""
     buffer = BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml", _CONTENT_TYPES)
-        z.writestr("_rels/.rels", _RELS)
-        z.writestr("word/document.xml", _document(book, sheet))
+    with zipfile.ZipFile(buffer, "w") as archive:
+        _write_member(archive, "[Content_Types].xml", _CONTENT_TYPES)
+        _write_member(archive, "_rels/.rels", _RELS)
+        _write_member(archive, "word/document.xml", _document(book, sheet))
     return buffer.getvalue()

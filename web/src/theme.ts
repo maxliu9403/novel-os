@@ -27,8 +27,8 @@ export type ReaderFont = "sans" | "serif" | "mono";
 
 export const READER_FONTS: { value: ReaderFont; label: string }[] = [
   { value: "sans", label: "SF Pro" },
-  { value: "serif", label: "Newsreader" },
-  { value: "mono", label: "Mono" },
+  { value: "serif", label: "Newsreader 衬线" },
+  { value: "mono", label: "等宽" },
 ];
 
 const FONT_KEY = "novel-os-reader-font";

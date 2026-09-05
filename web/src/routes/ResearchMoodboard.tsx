@@ -38,7 +38,7 @@ export default function ResearchMoodboard() {
           return [item, ...prev];
         });
       }
-      toast("Added to research board", "success");
+      toast("已添加到素材板", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     } finally {
@@ -52,7 +52,7 @@ export default function ResearchMoodboard() {
       const updated = await api.updateMedia(id, item.id, { alt: draftAlt.trim() });
       setItems((prev) => prev.map((p) => (p.id === item.id ? updated : p)));
       setEditingId(null);
-      toast("Note saved", "success");
+      toast("备注已保存", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     }
@@ -60,9 +60,9 @@ export default function ResearchMoodboard() {
 
   async function remove(item: MediaItem) {
     const ok = await confirm({
-      title: "Remove from research",
-      message: "Delete this image from the moodboard?",
-      confirmLabel: "Delete",
+      title: "从素材库中删除",
+      message: "确定要从素材板中删除这张图片吗？",
+      confirmLabel: "删除",
       danger: true,
     });
     if (!ok) return;
@@ -77,36 +77,36 @@ export default function ResearchMoodboard() {
   if (error) {
     return (
       <Scene>
-        <div className="px-10 py-12 text-[13px] text-ink-muted">Failed to load: {error}</div>
+        <div className="workspace-page text-[13px] text-ink-muted">加载失败：{error}</div>
       </Scene>
     );
   }
 
   return (
     <Scene>
-      <div className="mx-auto max-w-5xl px-6 py-10 sm:px-10">
+      <div className="workspace-page">
         <motion.div
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease: [0.2, 0.8, 0.2, 1] }}
           className="glass-shell p-3 sm:p-4"
         >
-          <div className="glass-panel px-6 py-8 sm:px-10 sm:py-10">
+          <div className="glass-panel px-5 py-7 sm:px-8 sm:py-9 lg:px-10">
             <Link
               to={`/projects/${id}`}
               className="mb-6 inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-muted transition-colors hover:text-[var(--color-violet)]"
             >
-              ← {project?.title || "Project"}
+              ← {project?.title || "作品"}
             </Link>
 
             <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
               <div>
-                <p className="eyebrow">Studio</p>
+                <p className="eyebrow">创作工作室</p>
                 <h1 className="font-display text-[32px] font-semibold tracking-tight text-ink-text">
-                  Research
+                  素材库
                 </h1>
                 <p className="mt-2 max-w-xl text-[13.5px] leading-relaxed text-ink-muted">
-                  Moodboard for reference images, places, and scrap notes. Drop files or upload.
+                  集中整理参考图片、地点素材和灵感笔记，可拖放文件或手动上传。
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -124,7 +124,7 @@ export default function ResearchMoodboard() {
                   onClick={() => fileRef.current?.click()}
                   className="btn-primary disabled:opacity-40"
                 >
-                  {uploading ? "Uploading…" : "Add images"}
+                  {uploading ? "上传中…" : "添加图片"}
                 </button>
               </div>
             </header>
@@ -142,20 +142,20 @@ export default function ResearchMoodboard() {
               {items.length === 0 ? (
                 <div className="text-center">
                   <Icon name="image" className="mx-auto h-8 w-8 text-paper-muted" />
-                  <p className="mt-3 font-display text-[16px] text-ink-text">Empty board</p>
+                  <p className="mt-3 font-display text-[16px] text-ink-text">素材板为空</p>
                   <p className="mt-1 text-[13px] text-ink-muted">
-                    Drop reference photos here, or use Add images.
+                    将参考图片拖到这里，或点击“添加图片”。
                   </p>
                 </div>
               ) : (
                 <p className="text-center text-[12.5px] text-ink-muted">
-                  Drop more images anywhere on this board
+                  可将更多图片拖放到素材板任意位置
                 </p>
               )}
             </div>
 
             {items.length > 0 && (
-              <div className="columns-1 gap-4 sm:columns-2 lg:columns-3">
+              <div className="columns-1 gap-4 sm:columns-2 lg:columns-3 xl:columns-4 2xl:columns-5">
                 {items.map((item) => (
                   <article
                     key={item.id}
@@ -175,21 +175,21 @@ export default function ResearchMoodboard() {
                             onChange={(e) => setDraftAlt(e.target.value)}
                             rows={2}
                             className="w-full rounded-xl border border-[rgba(96,112,153,0.16)] bg-white px-3 py-2 text-[13px] text-ink-text"
-                            placeholder="Caption or research note…"
+                            placeholder="图片说明或素材备注…"
                           />
                           <div className="flex gap-2">
                             <button type="button" className="btn-primary" onClick={() => void saveAlt(item)}>
-                              Save
+                              保存
                             </button>
                             <button type="button" className="btn-ghost" onClick={() => setEditingId(null)}>
-                              Cancel
+                              取消
                             </button>
                           </div>
                         </>
                       ) : (
                         <>
                           <p className="text-[13px] leading-relaxed text-ink-text">
-                            {item.alt || <span className="text-ink-muted">No note yet</span>}
+                            {item.alt || <span className="text-ink-muted">暂无备注</span>}
                           </p>
                           <div className="flex flex-wrap gap-3 text-[12px] font-medium">
                             <button
@@ -200,14 +200,14 @@ export default function ResearchMoodboard() {
                                 setDraftAlt(item.alt || "");
                               }}
                             >
-                              Edit note
+                              编辑备注
                             </button>
                             <button
                               type="button"
                               className="text-ink-muted hover:text-ink"
                               onClick={() => void remove(item)}
                             >
-                              Delete
+                              删除
                             </button>
                           </div>
                         </>

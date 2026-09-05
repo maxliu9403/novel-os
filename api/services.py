@@ -13,6 +13,7 @@ from .models import (
     ChapterDetail, ChapterStages, ChapterSummary, CharacterSummary, CodexEntryOut,
     ProjectDetail, ProjectSummary, RelationshipOut, StageDiff, StageProvenance,
 )
+from .project_operations import ProjectMutationBlocked, project_operations
 
 # core/ modules import each other by top-level name; put core/ on the path once.
 _CORE = Path(__file__).resolve().parent.parent / "core"
@@ -199,8 +200,45 @@ class ProjectService:
             raise ProjectNotFound(project_id)
         return d
 
+    def project_path(self, project_id: str) -> Path:
+        """Return a validated project root for project-scoped domain services."""
+        return self._project_dir(project_id)
+
     def _load(self, project_id: str) -> StoryState:
-        return StoryState(str(self._project_dir(project_id)))
+        project = self._project_dir(project_id)
+        state = StoryState(str(project))
+        self._hydrate_chapter_progress(project, state)
+        return state
+
+    @staticmethod
+    def _hydrate_chapter_progress(project: Path, state: StoryState) -> None:
+        """Project operational progress from the best available prose authority."""
+        artifacts = ArtifactStore(project)
+        for chapter in state.chapters.values():
+            number = chapter.number
+            nnn = f"{number:03d}"
+            manuscript = project / "outputs" / "manuscript"
+            text: str | None = None
+            final_exists = False
+            try:
+                head = artifacts.get_head(number, "final")
+                if head is not None:
+                    text = artifacts.read_text(head.revision_id)
+                    final_exists = True
+            except (ArtifactCorruptionError, ArtifactIntegrityError) as exc:
+                raise PromotionIntegrityFailure(str(exc)) from exc
+            if text is None:
+                final = manuscript / f"chapter_{nnn}_final.md"
+                text = _read(final)
+                final_exists = text is not None
+            if text is None:
+                text = _read(manuscript / f"chapter_{nnn}_revised.md")
+            if text is None:
+                text = _read(manuscript / f"chapter_{nnn}_draft.md")
+            if text is not None and text.strip():
+                chapter.word_count = len(text.split())
+            if final_exists:
+                chapter.status = "complete"
 
     def list_projects(self) -> list[ProjectSummary]:
         out: list[ProjectSummary] = []
@@ -211,7 +249,7 @@ class ProjectService:
             state_file = child / "outputs" / "state" / "story_state.json"
             if not state_file.exists():
                 continue
-            s = StoryState(str(child))
+            s = self._load(child.name)
             out.append(self._summary(child.name, s, state_file))
         return out
 
@@ -1392,9 +1430,14 @@ POV: {pov or "[unspecified]"}
         clean_doc = richtext.map_text(doc, strip_em_dashes)
         md = richtext.to_markdown(clean_doc)
         clean, meta = sanitize_manuscript(md)
+        existing_final = self.get_final_text(project_id, number)
+        if existing_final and not clean.strip():
+            raise BadRequest(
+                "Final chapter must contain prose before replacing an existing manuscript."
+            )
         legacy_migration = (
             db.get_artifact_doc(project_id, number, "final") is None
-            and bool(self.get_final_text(project_id, number))
+            and bool(existing_final)
         )
         wc, _receipt = self._promote_api_candidate(
             project_id,
@@ -1622,6 +1665,18 @@ Chapter {number} POV: {pov or "[unspecified]"} · Location: {location or "[unspe
     # In-memory consequence previews (single-user). Keyed by preview_id.
     _consequence_previews: dict[str, dict] = {}
 
+    @classmethod
+    def clear_consequence_previews(cls, project_id: str) -> int:
+        """Drop every uncommitted rewrite preview owned by a project."""
+        matching = [
+            preview_id
+            for preview_id, payload in cls._consequence_previews.items()
+            if payload.get("project_id") == project_id
+        ]
+        for preview_id in matching:
+            cls._consequence_previews.pop(preview_id, None)
+        return len(matching)
+
     def preview_consequence(
         self,
         project_id: str,
@@ -1836,20 +1891,56 @@ Foreshadowing_Planted: …
         label = _genre_label(normalized, genre)
         slug = _slugify(title)
         base = self.base_dir
-        folder = base / slug
         n = 2
-        while (folder / "outputs" / "state" / "story_state.json").exists():
-            folder = base / f"{slug}-{n}"
-            n += 1
+        folder = base / slug
+        while True:
+            state_file = folder / "outputs" / "state" / "story_state.json"
+            if state_file.exists() or project_operations.unavailable(folder):
+                folder = base / f"{slug}-{n}"
+                n += 1
+                continue
+            try:
+                with project_operations.mutation(folder):
+                    # A concurrent creator may have won between candidate
+                    # selection and the operation gate.
+                    if state_file.exists():
+                        folder = base / f"{slug}-{n}"
+                        n += 1
+                        continue
+                    return self._create_project_at(
+                        folder,
+                        title=title,
+                        author=author,
+                        normalized_genres=normalized,
+                        genre_label=label,
+                        premise=premise,
+                    )
+            except ProjectMutationBlocked:
+                folder = base / f"{slug}-{n}"
+                n += 1
+
+    def _create_project_at(
+        self,
+        folder: Path,
+        *,
+        title: str,
+        author: str,
+        normalized_genres: list[str],
+        genre_label: str,
+        premise: str,
+    ) -> ProjectSummary:
+        """Create one canonical project while its operation lease is held."""
         folder.mkdir(parents=True, exist_ok=True)
-        build_orchestrator(str(folder)).init_project(title, label or "Fiction", author)
+        build_orchestrator(str(folder)).init_project(
+            title, genre_label or "Fiction", author
+        )
         db.project_claim(folder.name, self.workspace.id if self.workspace
                          else tenancy.DEFAULT_WORKSPACE_ID)
         s = StoryState(str(folder))
-        if normalized:
-            s.set_metadata("genres", normalized)
-            s.set_metadata("genre", label)
-            s.update_story_bible("genre", label)
+        if normalized_genres:
+            s.set_metadata("genres", normalized_genres)
+            s.set_metadata("genre", genre_label)
+            s.update_story_bible("genre", genre_label)
         if premise.strip():
             s.set_metadata("premise", premise.strip())
             s.update_story_bible("premise", premise.strip())
@@ -1859,8 +1950,8 @@ Foreshadowing_Planted: …
                 text = bible.read_text(encoding="utf-8")
                 if "## Premise" not in text:
                     text = text.replace(
-                        f"## 📚 Genre\n{label or 'Fiction'}\n",
-                        f"## 📚 Genre\n{label or 'Fiction'}\n\n## Premise\n{premise.strip()}\n",
+                        f"## 📚 Genre\n{genre_label or 'Fiction'}\n",
+                        f"## 📚 Genre\n{genre_label or 'Fiction'}\n\n## Premise\n{premise.strip()}\n",
                         1,
                     )
                     bible.write_text(text, encoding="utf-8")
@@ -1869,13 +1960,19 @@ Foreshadowing_Planted: …
 
     def create_sample_project(self) -> ProjectSummary:
         """Seed a tiny demo manuscript for first-run tour (idempotent by slug)."""
-        from state_manager import Character, CodexEntry, ChapterState  # noqa: E402
-
         slug = "glass-harbor-sample"
         existing = self.base_dir / slug
         if (existing / "outputs" / "state" / "story_state.json").exists():
-            s = StoryState(str(existing))
-            return self._summary(slug, s, existing / "outputs" / "state" / "story_state.json")
+            try:
+                with project_operations.mutation(existing):
+                    state_file = existing / "outputs" / "state" / "story_state.json"
+                    if state_file.exists():
+                        s = StoryState(str(existing))
+                        return self._summary(slug, s, state_file)
+            except ProjectMutationBlocked:
+                # A deleting sample id must not be resurrected.  The normal
+                # creator below will allocate a safe suffixed id instead.
+                pass
 
         summary = self.create_project(
             "Glass Harbor (Sample)",
@@ -1888,6 +1985,13 @@ Foreshadowing_Planted: …
         )
         # create_project may have used a different slug if collision prefer returned id
         pid = summary.id
+        with project_operations.mutation(self.base_dir / pid):
+            return self._finish_sample_project(pid)
+
+    def _finish_sample_project(self, pid: str) -> ProjectSummary:
+        """Populate the sample while holding its project mutation lease."""
+        from state_manager import Character, CodexEntry, ChapterState  # noqa: E402
+
         s = self._load(pid)
 
         if not s.characters:
@@ -2072,11 +2176,18 @@ Foreshadowing_Planted: …
                 "text": text or "",
             })
 
+        publication_copy = self._publication_copy_for_compile(
+            project_id,
+            metadata=s.metadata,
+            chapters=chapters,
+        )
+
         book = gather(
             title=s.metadata.get("title", "Untitled"),
             author=s.metadata.get("author", ""),
             genre=s.metadata.get("genre", ""),
             chapters=chapters,
+            publication_copy=publication_copy,
         )
         sheet = StyleSheet.from_dict(s.compile_styles)
         try:
@@ -2084,6 +2195,70 @@ Foreshadowing_Planted: …
         except ValueError as e:
             raise BadRequest(str(e))
         return body, CONTENT_TYPES.get(fmt, "text/plain"), EXTENSIONS.get(fmt, "txt")
+
+    def _publication_copy_for_compile(
+        self,
+        project_id: str,
+        *,
+        metadata: dict,
+        chapters: list[dict],
+    ):
+        """Load the validated reader introduction for on-demand downloads.
+
+        Pipeline compilation already supplies this artifact explicitly.  The
+        Web compile endpoint is a separate projection path, so it must load the
+        same artifact and reject it when its Final-chapter binding has drifted.
+        """
+        from publication_copy import parse_publication_copy  # noqa: E402
+
+        project = self._project_dir(project_id)
+        path = project / "outputs" / "publication" / "publication-copy.json"
+        if not path.is_file():
+            return None
+        try:
+            publication_copy = parse_publication_copy(path.read_bytes())
+        except (OSError, UnicodeError, ValueError) as exc:
+            raise BadRequest(f"Reader introduction artifact is invalid: {exc}") from exc
+
+        expected_title = str(metadata.get("title") or "Untitled")
+        expected_language = str(metadata.get("language") or "").strip()
+        if publication_copy.title != expected_title or (
+            expected_language and publication_copy.language != expected_language
+        ):
+            raise BadRequest("Reader introduction is stale for the current book metadata")
+
+        chapter_text = {
+            int(item["number"]): str(item.get("text") or "")
+            for item in chapters
+            if str(item.get("text") or "").strip()
+        }
+        source_refs = {item.number: item for item in publication_copy.source.chapters}
+        if set(source_refs) != set(chapter_text):
+            raise BadRequest("Reader introduction is stale for the current Final chapters")
+
+        artifacts = ArtifactStore(project)
+        try:
+            for number, source_ref in source_refs.items():
+                current_sha = hashlib.sha256(
+                    chapter_text[number].encode("utf-8")
+                ).hexdigest()
+                if current_sha != source_ref.sha256:
+                    raise BadRequest(
+                        "Reader introduction is stale for the current Final chapters"
+                    )
+                head = artifacts.get_head(number, "final")
+                if head is not None:
+                    revision = artifacts.get_revision(head.revision_id)
+                    if (
+                        head.revision_id != source_ref.revision_id
+                        or revision.sha256 != source_ref.sha256
+                    ):
+                        raise BadRequest(
+                            "Reader introduction is stale for the current Final chapters"
+                        )
+        except (ArtifactCorruptionError, ArtifactIntegrityError) as exc:
+            raise BadRequest(f"Final chapter binding is invalid: {exc}") from exc
+        return publication_copy
 
     def manuscript_statistics(self, project_id: str) -> dict:
         """Style Curator surface: frequency, echoes, reading time (deterministic)."""

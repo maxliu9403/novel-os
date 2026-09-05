@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { GENRE_OPTIONS } from "../lib/genres";
+import { GENRE_OPTIONS, genreLabel } from "../lib/genres";
 
 export default function GenreChips({
   selected,
@@ -49,7 +49,7 @@ export default function GenreChips({
                   : "border border-[rgba(96,112,153,0.16)] bg-white/55 text-ink-muted hover:text-ink"
               }`}
             >
-              {g}
+              {genreLabel(g)}
             </button>
           );
         })}
@@ -63,7 +63,7 @@ export default function GenreChips({
               : "border border-[rgba(96,112,153,0.16)] bg-white/55 text-ink-muted hover:text-ink"
           }`}
         >
-          Other
+          其他
         </button>
       </div>
       {showOther && (
@@ -72,11 +72,10 @@ export default function GenreChips({
           className="mt-2.5 w-full rounded-full border border-[rgba(96,112,153,0.17)] bg-white/60 px-4 py-2.5 text-[14px] font-medium text-ink-text shadow-[inset_0_1px_3px_rgba(48,62,98,0.06)] placeholder:text-paper-muted focus:border-[rgba(104,103,234,0.38)] focus:bg-white focus:outline-none focus:shadow-[0_0_0_5px_rgba(104,103,234,0.09)]"
           value={other}
           onChange={(e) => onOtherChange(e.target.value)}
-          placeholder="e.g. Romantasy, Cli-fi, Court intrigue"
-          aria-label="Other genre"
+          placeholder="例如：仙侠、气候小说、宫廷权谋"
+          aria-label="其他类型"
         />
       )}
     </div>
   );
 }
-

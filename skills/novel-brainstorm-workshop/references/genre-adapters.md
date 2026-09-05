@@ -2,6 +2,24 @@
 
 Use this reference after the core story contract is clear. Keep the same five-force engine across genres, then change the evidence, pressure, and world constraints that make decisions difficult.
 
+## Commercial execution styles
+
+When `commercial_story` is active, express these studied styles through the
+shared contract fields rather than adding new schema keys:
+
+- Domestic ethics: family labor, permission, money, time, and space.
+- Motherhood: child safety, body, future, and age-credible child behavior.
+- Professional erasure: name, labor, version history, records, and work process.
+- Departure and revenge: seeded leverage, withdrawn support, and fair effects.
+- Illness and grief: care, time, bodily choice, memory, and shared history.
+- Romantic repair: reliable action, shared tasks, boundaries, and tested trust.
+- Suspense and crime: narrowing evidence, deadlines, knowledge, and institutions.
+- Speculative fantasy: rule-bound power, social cost, identity, and belonging.
+
+Choose the controlled premise categories from `commercial-story-design.md`.
+Genre conventions may shape scenes and voice, but do not change the contract
+identity or import a sample plot chain.
+
 ## Realistic contemporary and emotional fiction
 
 - External objectives: secure housing, protect a child, recover income, finish a case, repair a reputation, or leave a coercive institution.
@@ -47,4 +65,3 @@ Use this reference after the core story contract is clear. Keep the same five-fo
 ## Mixed genres
 
 Choose one primary engine and one supporting lens. State which rules win when they conflict. For example, a romantic mystery keeps relationship choices central while evidence rules govern what can be known; a fantasy family drama keeps family boundaries central while magic rules govern the cost of intervention.
-

@@ -36,6 +36,31 @@ class ProjectDetail(BaseModel):
     session_word_target: int = 1000
 
 
+class ProjectDeletionInventory(BaseModel):
+    project_id: str
+    title: str
+    chapter_count: int
+    exists: bool
+    counts: dict[str, int]
+    project_files: int
+    project_bytes: int
+    media_files: int
+    media_bytes: int
+
+
+class ProjectDeletionPreview(ProjectDeletionInventory):
+    running_job_ids: list[str] = []
+    can_delete: bool
+
+
+class ProjectDeletionResult(BaseModel):
+    project_id: str
+    status: str
+    before: ProjectDeletionInventory
+    after: ProjectDeletionInventory
+    cleared_consequence_previews: int = 0
+
+
 class UpdateProject(BaseModel):
     content_rating: str | None = None
     title: str | None = None
@@ -64,6 +89,152 @@ class StudioLlmStatus(BaseModel):
     error: str | None = None
     presets: list[dict]
     onboarding_completed: bool = False
+
+
+class StudioCoverUpdate(BaseModel):
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+    size: str | None = None
+    quality: str | None = None
+    output_format: str | None = None
+    count: int | None = None
+    timeout_seconds: float | None = None
+    director_provider: str | None = None
+    director_model: str | None = None
+    director_base_url: str | None = None
+    director_api_key: str | None = None
+    director_timeout_seconds: float | None = None
+    director_reasoning_effort: str | None = None
+
+
+class StudioCoverStatus(BaseModel):
+    configured: bool
+    has_api_key: bool
+    base_url: str
+    model: str
+    size: str
+    quality: str
+    output_format: str
+    count: int
+    timeout_seconds: float
+    inherits_base_url: bool = False
+    inherits_api_key: bool = False
+    director_provider: str = ""
+    director_model: str = ""
+    director_base_url: str = ""
+    director_has_api_key: bool = False
+    director_timeout_seconds: float = 600.0
+    director_reasoning_effort: str = ""
+    director_inherits_writing: bool = True
+    error: str | None = None
+
+
+class ProviderTemplateOut(BaseModel):
+    id: str
+    label: str
+    auth_type: str
+    default_base_url: str
+    capabilities: list[str]
+    requires_api_key: bool
+    model_placeholder: str
+
+
+class ProviderConnectionInput(BaseModel):
+    name: str
+    provider: str
+    auth_type: str | None = None
+    base_url: str | None = None
+    image_base_url: str | None = None
+    capabilities: list[str] | None = None
+    secret_action: str = "keep"
+    api_key: str | None = None
+
+
+class ProviderConnectionOut(BaseModel):
+    id: str
+    name: str
+    provider: str
+    auth_type: str
+    base_url: str
+    image_base_url: str
+    capabilities: list[str]
+    has_api_key: bool
+    status: str
+    error: str
+    last_tested_at: str
+    last_test_ok: bool | None = None
+    last_test_error: str
+    discovered_models: list[str]
+
+
+class TextRouteInput(BaseModel):
+    id: str
+    connection_id: str = ""
+    model: str = ""
+    max_tokens: int = 8192
+    reasoning_effort: str = ""
+    inherits_default: bool = False
+
+
+class TextRouteOut(TextRouteInput):
+    effective_connection_id: str
+    effective_connection_name: str
+    effective_model: str
+    effective_reasoning_effort: str
+    effective_source: str
+    configured: bool
+
+
+class TextRoutesUpdate(BaseModel):
+    routes: list[TextRouteInput]
+
+
+class TextModelTestRequest(BaseModel):
+    prompt: str
+
+
+class ImageProfileUpdate(BaseModel):
+    connection_id: str
+    model: str
+    size: str = "2048x3072"
+    quality: str = "high"
+    output_format: str = "jpeg"
+    count: int = 4
+    timeout_seconds: float = 300.0
+
+
+class ImageProfileOut(ImageProfileUpdate):
+    id: str
+    connection_name: str
+    configured: bool
+    error: str
+
+
+class StudioModelConfigurationOut(BaseModel):
+    schema_version: int
+    source: str
+    templates: list[ProviderTemplateOut]
+    connections: list[ProviderConnectionOut]
+    text_routes: list[TextRouteOut]
+    image_profiles: dict[str, ImageProfileOut]
+
+
+class ProviderTestResult(BaseModel):
+    ok: bool
+    status: str
+    message: str
+    models: list[str]
+    tested_at: str
+
+
+class ImageTestResult(BaseModel):
+    ok: bool
+    data_url: str
+    width: int
+    height: int
+    model: str
+    request_id: str
 
 
 class ContinuityFinding(BaseModel):
@@ -532,6 +703,36 @@ class RunPhase(BaseModel):
     params: dict = {}
 
 
+class CoverGenerateRequest(BaseModel):
+    brief: dict | None = None
+    concepts: list[dict] | None = None
+    source_prompt_sha256: str = ""
+    foundation_sha256: str = ""
+    count: int | None = None
+    direction_id: str = ""
+    approved_direction_sha256: str = ""
+
+
+class CoverDirectionCreate(BaseModel):
+    brief: dict | None = None
+    direction: dict | None = None
+    source_prompt_sha256: str = ""
+    foundation_sha256: str = ""
+    count: int = 4
+
+
+class CoverDirectionApproval(BaseModel):
+    expected_brief_sha256: str
+    approved_direction_sha256: str
+
+
+class CoverCandidateMutation(BaseModel):
+    expected_revision: int
+    expected_active_revision: int = 0
+    confirm_stale: bool = False
+    repair_codes: list[str] = []
+
+
 class Job(BaseModel):
     job_id: str
     kind: str
@@ -539,6 +740,7 @@ class Job(BaseModel):
     error: str | None = None
     started_at: str | None = None
     finished_at: str | None = None
+    meta: dict = {}
 
 
 class SnapshotMeta(BaseModel):

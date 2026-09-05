@@ -20,14 +20,14 @@ beforeEach(() => {
 
 test("stays out of the way until asked for", () => {
   renderCapture();
-  expect(screen.queryByLabelText("Quick note")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("快速记录")).not.toBeInTheDocument();
 });
 
 test("cmd+. opens it and focuses the field", async () => {
   renderCapture();
   await userEvent.keyboard("{Meta>}.{/Meta}");
 
-  const field = await screen.findByLabelText("Quick note");
+  const field = await screen.findByLabelText("快速记录");
   await waitFor(() => expect(field).toHaveFocus());
 });
 
@@ -39,7 +39,7 @@ test("Enter files the note against the current chapter", async () => {
   renderCapture(onCaptured);
 
   await userEvent.keyboard("{Meta>}.{/Meta}");
-  await userEvent.type(await screen.findByLabelText("Quick note"), "fix her coat{Enter}");
+  await userEvent.type(await screen.findByLabelText("快速记录"), "fix her coat{Enter}");
 
   await waitFor(() =>
     expect(add).toHaveBeenCalledWith("book", 3, "fix her coat", "", null, null),
@@ -55,7 +55,7 @@ test("filing a note hands focus back to where you were", async () => {
   manuscript.focus();
 
   await userEvent.keyboard("{Meta>}.{/Meta}");
-  await userEvent.type(await screen.findByLabelText("Quick note"), "later{Enter}");
+  await userEvent.type(await screen.findByLabelText("快速记录"), "later{Enter}");
 
   await waitFor(() => expect(manuscript).toHaveFocus());
 });
@@ -68,7 +68,7 @@ test("Escape abandons the note and returns focus", async () => {
   manuscript.focus();
 
   await userEvent.keyboard("{Meta>}.{/Meta}");
-  await userEvent.type(await screen.findByLabelText("Quick note"), "never mind{Escape}");
+  await userEvent.type(await screen.findByLabelText("快速记录"), "never mind{Escape}");
 
   await waitFor(() => expect(manuscript).toHaveFocus());
   expect(add).not.toHaveBeenCalled();
@@ -79,7 +79,7 @@ test("an empty note is not filed", async () => {
   renderCapture();
 
   await userEvent.keyboard("{Meta>}.{/Meta}");
-  await userEvent.type(await screen.findByLabelText("Quick note"), "   {Enter}");
+  await userEvent.type(await screen.findByLabelText("快速记录"), "   {Enter}");
 
   expect(add).not.toHaveBeenCalled();
 });
@@ -89,7 +89,7 @@ test("a failed save keeps the box open so the words are not lost", async () => {
   renderCapture();
 
   await userEvent.keyboard("{Meta>}.{/Meta}");
-  const field = await screen.findByLabelText("Quick note");
+  const field = await screen.findByLabelText("快速记录");
   await userEvent.type(field, "important thought{Enter}");
 
   await waitFor(() => expect(field).toHaveValue("important thought"));

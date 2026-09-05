@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from commercial_fixtures import commercial_story_fixture
 from foundation_canon import (
     FoundationCanonError,
     FoundationCanonService,
@@ -77,6 +78,25 @@ def test_foundation_initialization_is_durable_and_idempotent(tmp_path):
         target_words=200,
         idempotency_key="pipeline-run-foundation",
     ) == receipt
+
+
+def test_foundation_hydrates_approved_commercial_contract(tmp_path):
+    project = tmp_path / "project"
+    initialize_project(str(project), "North Door", "suspense")
+    foundation = _foundation()
+    contract = commercial_story_fixture()
+    foundation["commercial_story_contract"] = contract.to_dict()
+    foundation["commercial_story_contract_id"] = contract.contract_id
+
+    FoundationCanonService(project).initialize(
+        foundation,
+        target_words=200,
+        idempotency_key="pipeline-commercial-foundation",
+    )
+
+    state = StoryState(str(project))
+    assert state.metadata["commercial_story_contract_id"] == contract.contract_id
+    assert state.story_bible["commercial_story_contract"] == contract.to_dict()
 
 
 def test_foundation_idempotency_key_rejects_different_content(tmp_path):

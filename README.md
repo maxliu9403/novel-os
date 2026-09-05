@@ -283,7 +283,20 @@ cd Novel-OS
 pip install -r requirements.txt   # install only the SDKs you need
 ```
 
-### 0 Configure your LLM (one command)
+### 0 Configure model providers
+
+Open **Studio Settings -> Models & providers** to add Codex, OpenAI,
+OpenAI-compatible, Anthropic, OpenRouter, or Ollama connections. Assign a
+default text route, optional agent-specific overrides, and a cover image model.
+One connection can provide both text and image generation; API keys are stored
+separately from normal Studio metadata and are never returned by the API.
+
+With Codex installed and `codex login` completed, the Codex connection uses the
+existing login for text generation and the `gpt-image-2` image tool without
+copying credentials into Novel OS.
+
+For headless setup, the existing wizard and environment variables remain
+available:
 
 Let the setup wizard detect what you already have the Claude Code CLI, any API
 key, or a local model server test the connection, and write your `.env` for you:
@@ -299,14 +312,32 @@ python core/orchestrator.py setup        # or: python -m core.setup_wizard
 Prefer to configure by hand? `cp .env.example .env` and set your key(s). If you run a
 writing command with nothing configured, Novel OS offers the wizard automatically.
 
-For Sub2API or another OpenAI-compatible gateway:
+For an OpenAI-compatible gateway:
 
 ```bash
 NOVEL_OS_LLM_PROVIDER=openai_compatible
-NOVEL_OS_BASE_URL=https://your-sub2api-host.example/v1
+NOVEL_OS_BASE_URL=https://your-provider.example/v1
 NOVEL_OS_API_KEY=your-key
 NOVEL_OS_MODEL=your-model-id
 ```
+
+To generate commercial covers through an Images API and `gpt-image-2`, either reuse the
+same endpoint and key or set an independent cover credential in the ignored
+`.env` file:
+
+```dotenv
+NOVEL_OS_COVER_BASE_URL=https://your-provider.example/v1
+NOVEL_OS_COVER_API_KEY=your-key
+NOVEL_OS_COVER_MODEL=gpt-image-2
+NOVEL_OS_COVER_SIZE=2048x3072
+NOVEL_OS_COVER_QUALITY=high
+NOVEL_OS_COVER_FORMAT=jpeg
+NOVEL_OS_COVER_COUNT=4
+```
+
+If the cover URL or key is empty, Novel OS falls back to `NOVEL_OS_BASE_URL`
+and `NOVEL_OS_API_KEY`. Credentials are never written to prompts, candidate
+manifests, packages, API responses, or job metadata.
 
 ### One prompt to a complete book
 
@@ -438,6 +469,22 @@ The novel commands reuse the healthy backend container, never recreate an
 existing service, and do not manage the frontend. Use `./deploy.sh restart`
 explicitly after changing application code or deployment configuration.
 
+Generate and manage cover candidates without restarting healthy services:
+
+```bash
+./deploy.sh novel-cover --help
+NOVEL_OS_PROJECT_NAME='my-novel' NOVEL_OS_COVER_COUNT=4 \
+  ./deploy.sh novel-cover './prompt/my-novel.md'
+./deploy.sh novel-cover list 'my-novel'
+```
+
+The Prompt must contain the approved `COVER_HANDOFF_BEGIN` / `COVER_HANDOFF_END`
+JSON emitted by `novel-brainstorm-workshop`. Generation creates 3-5 independent
+portrait `2:3` candidates at the provider's native resolution. Review and select them at
+`http://localhost:5174/projects/PROJECT/covers`; only failed candidates consume
+an image call when retried. `novel-cover` reuses a healthy backend and never
+runs `up`, `restart`, or `down` on its behalf.
+
 To skip prompt selection, pass the file directly:
 
 ```bash
@@ -461,7 +508,7 @@ Set `NOVEL_OS_WEB_PORT` before running the script to override port `5174`.
 |---|---|
 | Git 仓库源码 | 从远端重新拉取 |
 | `.env` | 在新设备上根据 `.env.example` 重新创建，不提交或传输密钥 |
-| `skills/novel-brainstorm-workshop/` | 安装到新设备的 `$CODEX_HOME/skills/` |
+| `skills/novel-brainstorm-workshop/`、`skills/novel-cover-studio/` | 安装到新设备的 `$CODEX_HOME/skills/` |
 | `docker-data/` | 不迁移；新部署会创建空目录 |
 | `projects/`、`outputs/`、`novel_os.db` | 不迁移；它们属于本地运行数据 |
 | `prompt/` | 可选；只复制仍需使用的作者提示词 |
@@ -512,6 +559,12 @@ chmod +x ./deploy.sh
 
 #### 3. 配置模型提供商
 
+推荐在 **Studio Settings -> Models & providers** 中新增 Codex、OpenAI、
+OpenAI-compatible、Anthropic、OpenRouter 或 Ollama 连接，然后分别设置文本
+路由与封面图片模型。同一个连接可以同时承担文本和图片生成，API Key 与普通
+配置分开保存且不会通过 API 返回。Codex 连接直接复用 `codex login`，无需把
+登录凭据复制给 Novel OS。
+
 在新设备上创建独立配置：
 
 ```bash
@@ -525,6 +578,18 @@ NOVEL_OS_LLM_PROVIDER=openai_compatible
 NOVEL_OS_BASE_URL=https://YOUR_ENDPOINT/v1
 NOVEL_OS_API_KEY=YOUR_API_KEY
 NOVEL_OS_MODEL=YOUR_MODEL
+```
+
+封面可以复用上面的连接；以下环境变量保留给无界面运行和旧配置：
+
+```dotenv
+NOVEL_OS_COVER_BASE_URL=https://YOUR_ENDPOINT/v1
+NOVEL_OS_COVER_API_KEY=YOUR_API_KEY
+NOVEL_OS_COVER_MODEL=gpt-image-2
+NOVEL_OS_COVER_SIZE=2048x3072
+NOVEL_OS_COVER_QUALITY=high
+NOVEL_OS_COVER_FORMAT=jpeg
+NOVEL_OS_COVER_COUNT=4
 ```
 
 `.env` 包含凭据并已被 Git 忽略，不要提交。如果模型服务运行在 Docker
@@ -546,16 +611,22 @@ Skill 的发布源是仓库目录：
 
 ```text
 skills/novel-brainstorm-workshop/
+skills/novel-cover-studio/
 ```
 
 Codex 默认从 `~/.codex/skills/` 加载 Skill。从已经检出的仓库安装：
 
 ```bash
 mkdir -p "$HOME/.codex/skills/novel-brainstorm-workshop"
+mkdir -p "$HOME/.codex/skills/novel-cover-studio"
 rsync -a --delete \
   skills/novel-brainstorm-workshop/ \
   "$HOME/.codex/skills/novel-brainstorm-workshop/"
+rsync -a --delete \
+  skills/novel-cover-studio/ \
+  "$HOME/.codex/skills/novel-cover-studio/"
 test -f "$HOME/.codex/skills/novel-brainstorm-workshop/SKILL.md"
+test -f "$HOME/.codex/skills/novel-cover-studio/SKILL.md"
 ```
 
 如果使用自定义 `CODEX_HOME`，将目标目录替换为：
@@ -563,9 +634,13 @@ test -f "$HOME/.codex/skills/novel-brainstorm-workshop/SKILL.md"
 ```bash
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 mkdir -p "$CODEX_HOME/skills/novel-brainstorm-workshop"
+mkdir -p "$CODEX_HOME/skills/novel-cover-studio"
 rsync -a --delete \
   skills/novel-brainstorm-workshop/ \
   "$CODEX_HOME/skills/novel-brainstorm-workshop/"
+rsync -a --delete \
+  skills/novel-cover-studio/ \
+  "$CODEX_HOME/skills/novel-cover-studio/"
 ```
 
 也可以在未克隆完整仓库时，通过 Codex 自带安装器直接从 GitHub 安装：
@@ -576,6 +651,11 @@ python3 "$CODEX_HOME/skills/.system/skill-installer/scripts/install-skill-from-g
   --repo maxliu9403/novel-os \
   --ref feat/novel-quality-closure \
   --path skills/novel-brainstorm-workshop
+
+python3 "$CODEX_HOME/skills/.system/skill-installer/scripts/install-skill-from-github.py" \
+  --repo maxliu9403/novel-os \
+  --ref feat/novel-quality-closure \
+  --path skills/novel-cover-studio
 ```
 
 如果该 Skill 已存在，安装器会停止而不是覆盖；已有副本直接使用上面的 `rsync`
@@ -585,6 +665,7 @@ python3 "$CODEX_HOME/skills/.system/skill-installer/scripts/install-skill-from-g
 
 ```text
 $novel-brainstorm-workshop
+$novel-cover-studio
 ```
 
 该 Skill 运行在 Codex 主机侧，不会被安装进 Novel OS Docker 容器；
@@ -659,6 +740,18 @@ NOVEL_OS_OUTPUT='markdown' \
 `NOVEL_OS_TITLE`、`NOVEL_OS_GENRE` 和 `NOVEL_OS_EDIT_MODE` 用于保留旧命令中
 显式覆盖的参数；不设置时分别从 Prompt 推断标题、题材，并使用 `line` 编辑模式。
 
+Prompt 的故事线、受众和世界设定确认后，可以生成封面候选：
+
+```bash
+NOVEL_OS_PROJECT_NAME='PROJECT_SLUG' NOVEL_OS_COVER_COUNT=4 \
+  ./deploy.sh novel-cover './prompt/TITLE.md'
+./deploy.sh novel-cover list 'PROJECT_SLUG'
+```
+
+浏览器打开 `http://localhost:5174/projects/PROJECT_SLUG/covers` 查看原图、
+重试单个失败候选、拒绝方向或确认交付封面。选择操作会重建
+`book-package.zip`；生成失败不会修改小说 run 状态。
+
 运行管理命令：
 
 ```bash
@@ -685,6 +778,22 @@ docker-data/projects/PROJECT/outputs/
 ```text
 docker-data/projects/PROJECT/outputs/deliverables/
 ```
+
+交付目录同时包含常用书稿格式、待选封面、已选封面和确定性 ZIP：
+
+```text
+outputs/deliverables/
+|-- book.md / book.epub / book.pdf / book.docx
+|-- covers/pending/cover-01.jpg ... cover-05.jpg
+|-- covers/selected-cover.jpg
+|-- covers/cover-set.json
+|-- package-manifest.json
+`-- book-package.zip
+```
+
+`package-manifest.json` 为每个文件记录路径、媒体类型、大小、SHA-256、角色和
+封面选择状态。候选与小说导出都不存在时对应文件自然缺席；不要把 ZIP 本身再次
+打包。选择历史封面版本时，系统按候选 SHA-256 从内容寻址媒体恢复原图。
 
 #### 7. 更新、停止和故障排查
 
@@ -725,7 +834,11 @@ git pull --ff-only
 - 小说调用提示缺少模型配置：检查 `.env` 中 provider、endpoint、key 和 model；
 - 修改代码后行为仍旧：执行 `./deploy.sh restart`，不要只运行 `novel-retry`；
 - Codex 找不到 Skill：确认 `$CODEX_HOME/skills/novel-brainstorm-workshop/SKILL.md`
-  存在，然后重新打开 Codex 或开始新对话。
+  和 `$CODEX_HOME/skills/novel-cover-studio/SKILL.md` 存在，然后重新打开 Codex
+  或开始新对话；
+- 封面生成按钮不可用：在 Studio Settings 或 `.env` 配置封面 endpoint/key；
+- 封面只失败一张：使用工作台 Retry 或 `novel-cover retry`，不要重新生成整组；
+- 标题拼写不正确：拒绝或重试该候选。标题由 image model 直接绘制，候选仍需人工检查。
 
 ### What's in the studio
 
@@ -739,6 +852,7 @@ git pull --ff-only
 | 📐 **Shape of the book** | Per-chapter movement, with sagging runs flagged |
 | ↯ **Consequence preview** | Rewrite a passage and see what it breaks *before* accepting |
 | 📤 **Compile** | DOCX · EPUB · PDF · HTML · Markdown, driven by named styles |
+| 🎨 **Cover Studio** | Story-derived portrait candidates, native-resolution review, explicit selection, and delivery ZIP |
 | ⌨️ **Keyboard-first** | `⌘K` palette · `⌘1/2/3` modes · `⌘.` quick note without leaving the page |
 
 ---
@@ -815,7 +929,8 @@ novel-os/
 │
 ├── 📋 templates/                      ← story bible / character / outline starters
 ├── 🧩 skills/
-│   └── novel-brainstorm-workshop/     ← Codex story-design and prompt workshop
+│   ├── novel-brainstorm-workshop/     ← Codex story-design and Prompt workshop
+│   └── novel-cover-studio/            ← story-derived commercial cover workflow
 ├── 📚 docs/                           ← WORKFLOWS.md, API.md
 ├── 🎬 examples/                       ← demo project + recent smoke run
 ├── 🎨 assets/                         ← mascot + optional generated imagery

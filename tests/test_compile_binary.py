@@ -7,6 +7,7 @@ layout, required entries, well-formed XML - rather than eyeballing markup.
 
 import sys
 import zipfile
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from xml.etree import ElementTree
@@ -33,6 +34,36 @@ def _book():
              "text": "She waited.\n\nThe tide came **in**.\n\n---\n\nHe did not."},
             {"number": 2, "title": "Departure", "text": "They left."},
         ],
+    )
+
+
+@dataclass(frozen=True)
+class _PublicationCopyFixture:
+    language: str = "en-US"
+    reader_heading: str = "Before the Story"
+    hook_lead: str = "Claire must confront Ethan before his lies cost their daughter."
+    spoiler_free_blurb: str = (
+        "Claire discovers that Ethan's lies reach far beyond one missed dinner. "
+        "As money disappears & promises fail, she records the truth and must "
+        "decide what kind of home will protect their daughter."
+    )
+
+    def to_dict(self):
+        return {
+            "language": self.language,
+            "reader_heading": self.reader_heading,
+            "hook_lead": self.hook_lead,
+            "spoiler_free_blurb": self.spoiler_free_blurb,
+        }
+
+
+def _book_with_publication_copy():
+    return gather(
+        title="The Pier",
+        author="M",
+        genre="Literary",
+        publication_copy=_PublicationCopyFixture(),
+        chapters=[{"number": 1, "title": "Arrival", "text": "# Arrival\n\nBody."}],
     )
 
 
@@ -72,6 +103,15 @@ def test_docx_is_a_zip_with_the_parts_a_reader_requires():
     assert set(z.namelist()) >= {
         "[Content_Types].xml", "_rels/.rels", "word/document.xml",
     }
+
+
+def test_docx_uses_stable_zip_metadata_for_identical_compiled_input():
+    rendered = render_docx(_book(), StyleSheet())
+
+    assert render_docx(_book(), StyleSheet()) == rendered
+    assert {
+        info.date_time for info in _zip(rendered).infolist()
+    } == {(1980, 1, 1, 0, 0, 0)}
 
 
 def test_docx_parts_are_well_formed_xml():
@@ -142,6 +182,19 @@ def test_docx_paragraph_count_matches_the_blocks():
     paragraphs = root.findall(f".//{W}p")
     # every block, plus the title and the byline
     assert len(paragraphs) == len(book.blocks) + 2
+
+
+def test_docx_projects_structured_copy_before_chapter_one():
+    doc = _zip(render_docx(_book_with_publication_copy(), StyleSheet())).read(
+        "word/document.xml"
+    ).decode("utf-8")
+    assert (
+        doc.index("Introduction")
+        < doc.index("Before the Story")
+        < doc.index("Claire must confront Ethan")
+        < doc.index("Claire discovers")
+        < doc.index("Arrival")
+    )
 
 
 # ------------------------------------------------------------------- epub
@@ -229,6 +282,41 @@ def test_epub_escapes_prose():
     assert "<script>" not in page
 
 
+def test_epub_uses_intro_description_language_and_chapter_only_navigation():
+    book = _book_with_publication_copy()
+    z = _zip(render_epub(book, StyleSheet()))
+    names = z.namelist()
+
+    assert names.index("OEBPS/intro.xhtml") < names.index("OEBPS/chap001.xhtml")
+    intro = z.read("OEBPS/intro.xhtml").decode("utf-8")
+    assert intro.index("Introduction") < intro.index("Before the Story")
+    assert intro.index("Before the Story") < intro.index("Claire must confront Ethan")
+    assert intro.index("Claire must confront Ethan") < intro.index("Claire discovers")
+
+    opf = ElementTree.fromstring(z.read("OEBPS/content.opf"))
+    ns = {
+        "opf": "http://www.idpf.org/2007/opf",
+        "dc": "http://purl.org/dc/elements/1.1/",
+    }
+    assert opf.findtext(".//dc:description", namespaces=ns) == (
+        book.publication_copy.spoiler_free_blurb
+    )
+    assert opf.findtext(".//dc:language", namespaces=ns) == "en-US"
+    assert [
+        item.get("idref") for item in opf.findall(".//opf:spine/opf:itemref", ns)
+    ] == ["intro", "c1"]
+
+    nav = z.read("OEBPS/nav.xhtml").decode("utf-8")
+    assert "Arrival" in nav
+    assert "intro.xhtml" not in nav
+    assert "Before the Story" not in nav
+
+
+def test_epub_is_byte_stable_for_identical_compiled_input():
+    book = _book_with_publication_copy()
+    assert render_epub(book, StyleSheet()) == render_epub(book, StyleSheet())
+
+
 # --------------------------------------------------------------- dispatch
 
 @pytest.mark.parametrize("fmt", ["html", "markdown", "docx", "epub", "pdf"])
@@ -249,6 +337,25 @@ def test_pdf_is_a_unicode_document_with_page_objects():
     assert b"/Subtype /Type0" in pdf
     assert b"/MediaBox [0 0 595 842]" in pdf
     assert "孩子出生那天".encode("utf-16-be").hex().upper().encode("ascii") in pdf
+
+
+def test_pdf_projects_structured_copy_before_chapter_one():
+    pdf = render_bytes(_book_with_publication_copy(), StyleSheet(), "pdf")
+
+    encoded = [
+        value.encode("utf-16-be").hex().upper().encode("ascii")
+        for value in (
+            "Introduction",
+            "Before the Story",
+            "Claire must confront Ethan before his lies cost their daughter.",
+            "Claire discovers that Ethan's lies reach far beyond one missed dinner.",
+            "Arrival",
+        )
+    ]
+    assert pdf.index(encoded[0]) < pdf.index(encoded[1])
+    assert pdf.index(encoded[1]) < pdf.index(encoded[2])
+    assert pdf.index(encoded[2]) < pdf.index(encoded[3])
+    assert pdf.index(encoded[3]) < pdf.index(encoded[4])
 
 
 def test_render_bytes_rejects_an_unknown_format_listing_all_of_them():

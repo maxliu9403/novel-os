@@ -349,3 +349,82 @@ def test_novel_help_lists_all_commands_without_starting_services(tmp_path: Path)
         assert description.lower() in result.stdout.lower()
     assert "Prompt file not found" not in result.stderr
     assert not log.exists() or "compose up" not in log.read_text(encoding="utf-8")
+
+
+def test_novel_cover_reuses_healthy_backend_without_service_restart(tmp_path: Path):
+    bin_dir, log, capture = _fake_docker(tmp_path)
+    prompt = tmp_path / "cover-prompt.md"
+    prompt.write_text("COVER_HANDOFF_BEGIN\n{}\nCOVER_HANDOFF_END\n", encoding="utf-8")
+    env = os.environ.copy()
+    env.update({
+        "PATH": f"{bin_dir}:{env['PATH']}",
+        "FAKE_DOCKER_LOG": str(log),
+        "FAKE_PROMPT_CAPTURE": str(capture),
+        "FAKE_SERVICES_HEALTHY": "1",
+        "NOVEL_OS_DATA_DIR": str(tmp_path / "data"),
+        "NOVEL_OS_NONINTERACTIVE": "1",
+        "NOVEL_OS_COVER_COUNT": "4",
+    })
+
+    result = subprocess.run(
+        [str(SCRIPT), "novel-cover", str(prompt)], cwd=ROOT, env=env,
+        text=True, capture_output=True, check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = log.read_text(encoding="utf-8")
+    assert "compose exec -T backend novel-os-entrypoint python core/orchestrator.py cover generate" in calls
+    assert "--project /data/projects/cover-prompt" in calls
+    assert "--prompt - --count 4" in calls
+    for command in ("compose up", "compose build", "compose restart", "compose down"):
+        assert command not in calls
+    assert capture.read_text(encoding="utf-8") == prompt.read_text(encoding="utf-8")
+
+
+def test_compose_defaults_new_cover_generation_to_jpeg() -> None:
+    compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
+
+    assert "NOVEL_OS_COVER_FORMAT: ${NOVEL_OS_COVER_FORMAT:-jpeg}" in compose
+
+
+def test_novel_cover_rejects_invalid_count_before_docker(tmp_path: Path):
+    bin_dir, log, capture = _fake_docker(tmp_path)
+    prompt = tmp_path / "cover-prompt.md"
+    prompt.write_text("prompt", encoding="utf-8")
+    env = os.environ.copy()
+    env.update({
+        "PATH": f"{bin_dir}:{env['PATH']}",
+        "FAKE_DOCKER_LOG": str(log),
+        "FAKE_PROMPT_CAPTURE": str(capture),
+        "NOVEL_OS_COVER_COUNT": "2",
+    })
+
+    result = subprocess.run(
+        [str(SCRIPT), "novel-cover", str(prompt)], cwd=ROOT, env=env,
+        text=True, capture_output=True, check=False,
+    )
+
+    assert result.returncode == 1
+    assert "between 3 and 5" in result.stderr
+    assert not log.exists()
+
+
+def test_novel_cover_help_lists_generation_and_selection_without_docker(tmp_path: Path):
+    bin_dir, log, capture = _fake_docker(tmp_path)
+    env = os.environ.copy()
+    env.update({
+        "PATH": f"{bin_dir}:{env['PATH']}",
+        "FAKE_DOCKER_LOG": str(log),
+        "FAKE_PROMPT_CAPTURE": str(capture),
+    })
+
+    result = subprocess.run(
+        [str(SCRIPT), "novel-cover", "--help"], cwd=ROOT, env=env,
+        text=True, capture_output=True, check=False,
+    )
+
+    assert result.returncode == 0
+    for command in ("generate", "list", "select", "reject", "retry"):
+        assert command in result.stdout
+    assert "2048x3072" in result.stdout
+    assert not log.exists()

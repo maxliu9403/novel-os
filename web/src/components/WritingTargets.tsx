@@ -103,7 +103,7 @@ export default function WritingTargets({
       });
       onUpdated(p);
       setEditing(false);
-      toast("Targets saved", "success");
+      toast("写作目标已保存", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     } finally {
@@ -118,7 +118,7 @@ export default function WritingTargets({
     };
     localStorage.setItem(sessionKey(projectId), JSON.stringify(fresh));
     setSession(fresh);
-    toast("Session reset", "success");
+    toast("本次写作进度已重置", "success");
   }
 
   return (
@@ -126,22 +126,22 @@ export default function WritingTargets({
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-[18px] font-semibold tracking-tight text-ink-text">
-            Writing targets
+            写作目标
           </h2>
           <p className="mt-0.5 text-[12.5px] text-ink-muted">
-            Manuscript · session · ~{readingMin} min reading time
+            全书 · 本次写作 · 预计阅读 {readingMin} 分钟
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" className="btn-ghost" onClick={resetSession}>
-            Reset session
+            重置本次进度
           </button>
           <button
             type="button"
             className="btn-secondary"
             onClick={() => setEditing((e) => !e)}
           >
-            {editing ? "Cancel" : "Edit targets"}
+            {editing ? "取消" : "编辑目标"}
           </button>
         </div>
       </div>
@@ -149,20 +149,20 @@ export default function WritingTargets({
       <div className="grid gap-6 sm:grid-cols-2">
         <ProgressRing
           value={projectPct}
-          label="Manuscript"
-          sub={`${wordCount.toLocaleString()} / ${(project.target_word_count ?? 80000).toLocaleString()} words`}
+          label="全书"
+          sub={`${wordCount.toLocaleString("zh-CN")} / ${(project.target_word_count ?? 80000).toLocaleString("zh-CN")} 字`}
         />
         <ProgressRing
           value={sessionPct}
-          label="This session"
-          sub={`${sessionWords.toLocaleString()} / ${(project.session_word_target ?? 1000).toLocaleString()} words`}
+          label="本次写作"
+          sub={`${sessionWords.toLocaleString("zh-CN")} / ${(project.session_word_target ?? 1000).toLocaleString("zh-CN")} 字`}
         />
       </div>
 
       {editing && (
         <div className="mt-5 grid gap-3 border-t border-[rgba(74,91,133,0.1)] pt-4 sm:grid-cols-[1fr_1fr_auto]">
           <label className="block text-[12px] font-medium text-ink-muted">
-            Project target
+            全书目标
             <input
               type="number"
               min={0}
@@ -173,7 +173,7 @@ export default function WritingTargets({
             />
           </label>
           <label className="block text-[12px] font-medium text-ink-muted">
-            Session target
+            本次目标
             <input
               type="number"
               min={0}
@@ -190,7 +190,7 @@ export default function WritingTargets({
               onClick={() => void saveTargets()}
               className="btn-primary w-full disabled:opacity-40 sm:w-auto"
             >
-              {busy ? "Saving…" : "Save"}
+              {busy ? "正在保存…" : "保存"}
             </button>
           </div>
         </div>

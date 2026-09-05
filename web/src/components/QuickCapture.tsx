@@ -62,7 +62,7 @@ export default function QuickCapture({
     setBusy(true);
     try {
       await api.addComment(projectId, chapterNumber, body, "", null, null);
-      toast("Noted", "success");
+      toast("已记录", "success");
       onCaptured?.();
       close();
     } catch (e) {
@@ -85,7 +85,7 @@ export default function QuickCapture({
         >
           <div className="flex items-center gap-2 rounded-2xl border border-[rgba(74,91,133,0.16)] bg-white/95 p-2 shadow-[0_18px_44px_rgba(40,52,90,0.2)] backdrop-blur-md">
             <span className="shrink-0 pl-1.5 text-[11px] font-semibold uppercase tracking-wide text-paper-muted">
-              Note
+              速记
             </span>
             <input
               ref={inputRef}
@@ -95,12 +95,12 @@ export default function QuickCapture({
                 if (e.key === "Enter") { e.preventDefault(); void save(); }
                 if (e.key === "Escape") { e.preventDefault(); close(); }
               }}
-              placeholder="Fix later: her coat was grey in ch.3…"
-              aria-label="Quick note"
+              placeholder="稍后修正：她在第 3 章穿的是灰色外套…"
+              aria-label="快速记录"
               disabled={busy}
               className="min-w-0 flex-1 bg-transparent px-1 py-1.5 text-[13.5px] text-ink-text outline-none placeholder:text-paper-muted"
             />
-            <span className="shrink-0 pr-1 text-[11px] text-paper-muted">↵ to file</span>
+            <span className="shrink-0 pr-1 text-[11px] text-paper-muted">↵ 保存</span>
           </div>
         </motion.div>
       )}

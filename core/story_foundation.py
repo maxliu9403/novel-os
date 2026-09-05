@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from commercial_story import CommercialStoryContract
 from state_manager import Character, PlotThread, StoryState
 
 
@@ -35,6 +36,21 @@ def apply_story_foundation(
         state.update_story_bible("premise", str(foundation["premise"]))
     state.update_story_bible("themes", list(foundation.get("themes") or []))
     state.update_story_bible("setting", dict(foundation.get("setting") or {}))
+    commercial_payload = foundation.get("commercial_story_contract")
+    commercial_id = foundation.get("commercial_story_contract_id")
+    if commercial_payload is not None or commercial_id is not None:
+        try:
+            commercial_contract = CommercialStoryContract.from_dict(commercial_payload)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("story foundation commercial story contract is invalid") from exc
+        if commercial_id != commercial_contract.contract_id:
+            raise ValueError("story foundation commercial story contract id is invalid")
+        state.set_metadata(
+            "commercial_story_contract_id", commercial_contract.contract_id
+        )
+        state.update_story_bible(
+            "commercial_story_contract", commercial_contract.to_dict()
+        )
 
     hydrated_characters: dict[str, Character] = {}
     for index, raw in enumerate(characters, start=1):

@@ -39,9 +39,9 @@ test("renders nothing when there is nothing to review", () => {
 
 test("lists each pending change with its kind and author", () => {
   render(<SuggestionsPanel doc={docWithBoth} onChange={() => {}} />);
-  expect(screen.getByText("2 pending changes")).toBeInTheDocument();
-  expect(screen.getByText("Insert")).toBeInTheDocument();
-  expect(screen.getByText("Delete")).toBeInTheDocument();
+  expect(screen.getByText("2 项待处理修改")).toBeInTheDocument();
+  expect(screen.getByText("插入")).toBeInTheDocument();
+  expect(screen.getByText("删除")).toBeInTheDocument();
   expect(screen.getByText("without looking back")).toBeInTheDocument();
   expect(screen.getAllByText("Mriganka")).toHaveLength(2);
 });
@@ -50,7 +50,7 @@ test("accepting one change resolves only that change", async () => {
   const onChange = vi.fn();
   render(<SuggestionsPanel doc={docWithBoth} onChange={onChange} />);
 
-  await userEvent.click(screen.getByRole("button", { name: "Accept insertion" }));
+  await userEvent.click(screen.getByRole("button", { name: "接受插入" }));
 
   const next = onChange.mock.calls[0][0] as PMDoc;
   const left = listSuggestions(next);
@@ -62,7 +62,7 @@ test("reject all restores the manuscript in one step", async () => {
   const onChange = vi.fn();
   render(<SuggestionsPanel doc={docWithBoth} onChange={onChange} />);
 
-  await userEvent.click(screen.getByRole("button", { name: "Reject all" }));
+  await userEvent.click(screen.getByRole("button", { name: "全部拒绝" }));
 
   const next = onChange.mock.calls[0][0] as PMDoc;
   expect(listSuggestions(next)).toEqual([]);

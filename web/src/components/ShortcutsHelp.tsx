@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import Modal from "./Modal";
 
 const SHORTCUTS: [string, string][] = [
-  ["⌘K  /  Ctrl-K", "Open the command palette"],
-  ["⌘1 / ⌘2 / ⌘3", "Plan · Write · Revise"],
-  ["⌘.  /  Ctrl-.", "Quick note, without leaving the page"],
-  ["[  /  ]", "Previous / next chapter"],
-  ["Ctrl-F", "Find & replace (in the editor)"],
-  ["?", "Show this help"],
+  ["⌘K  /  Ctrl-K", "打开命令面板"],
+  ["⌘1 / ⌘2 / ⌘3", "规划 · 写作 · 修订"],
+  ["⌘.  /  Ctrl-.", "不离开页面，快速记录"],
+  ["[  /  ]", "上一章 / 下一章"],
+  ["Ctrl-F", "在编辑器中查找和替换"],
+  ["?", "显示此帮助"],
 ];
 
 export default function ShortcutsHelp() {
@@ -29,7 +29,7 @@ export default function ShortcutsHelp() {
   }, []);
 
   return (
-    <Modal open={open} onClose={() => setOpen(false)} title="Keyboard shortcuts">
+    <Modal open={open} onClose={() => setOpen(false)} title="键盘快捷键">
       <dl className="flex flex-col gap-2.5">
         {SHORTCUTS.map(([keys, desc]) => (
           <div key={keys} className="flex items-center justify-between gap-4">

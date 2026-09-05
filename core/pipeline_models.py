@@ -53,7 +53,7 @@ class RunSpec:
     max_retries: int = 5
     max_quality_repairs: int = 2
     retry_backoff_seconds: float = 2.0
-    output_formats: Tuple[str, ...] = ("markdown",)
+    output_formats: Tuple[str, ...] = ("markdown", "epub", "pdf", "docx")
     dry_run: bool = False
     model: str = ""
     quality_policy: str = "legacy"

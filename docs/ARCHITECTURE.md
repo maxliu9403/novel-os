@@ -94,6 +94,116 @@ in sync. Over time, more reads move DB-first (the ingest path already populates 
 - **Snapshot / restore:** snapshots live in the DB; restore creates a new
   `snapshot_restore` candidate and receipt after auto-snapshotting the current Final.
 
+## Commercial story quality lifecycle
+
+A Prompt activates the commercial lifecycle only when Prompt Intake accepts one
+strict `[COMMERCIAL_STORY_JSON]` block. Prompts without that block keep the
+existing lifecycle. The approved contract is immutable after intake: Architect
+may expand the cast, setting, and scenes, but the foundation must preserve the
+same contract and computed contract ID.
+
+```text
+intake
+  -> outline
+  -> foundation.originality
+  -> foundation.commit
+  -> chapter.plan
+  -> chapter.design_check
+  -> write / edit / continuity / style
+  -> chapter.commercial_check (bounded candidate repair)
+  -> chapter.promote
+  -> commercial.free_trial_review after chapter 3 or 4
+  -> remaining promoted chapters
+  -> commercial.book_review
+  -> ending / book / publication / compile
+```
+
+Ownership remains explicit:
+
+| Authority | Owns |
+|---|---|
+| Prompt Intake | approved `CommercialStoryContract` and activation |
+| Architect | schema-v2 chapter intent contracts |
+| Continuity Guardian | exact candidate evidence for reader-value delivery |
+| Style Curator | bounded candidate repair without changing contracts |
+| `PromotionService` | final artifact and verified reader-value canon commit |
+| `core/commercial_quality.py` | deterministic chapter, free-window, and whole-book reports |
+
+The free-window and book reports read current ArtifactStore contract/final heads,
+candidate-bound commercial reports, and promotion receipts. They do not infer
+delivery from mutable manuscript projections or agent claims. Their checkpoint
+input hashes include these authorities, so a changed promotion invalidates the
+applicable review and downstream stages on resume. A failed free-window review
+stops before the next chapter plan; a failed book review stops before ending and
+compile work.
+
+The local commercial profile is a compact abstract pattern reference, not a
+runtime story library. Raw sample prose, titles, names, paths, and nearest matches
+never enter generation prompts. This lifecycle has no embeddings, vector store,
+Qdrant, semantic nearest-neighbor retrieval, or RAG. Originality checks compare
+controlled premise dimensions and ordered action fingerprints, not expression,
+and do not make a legal originality determination. Advertising and conversion
+metrics are outside the quality contract.
+
+## Cover generation and delivery boundary
+
+Cover generation is adjacent to manuscript production, not a manuscript phase.
+A provider failure cannot pause, resume, retry, or alter a full-book run. The
+workflow begins only after the approved Prompt contains one strict
+`COVER_HANDOFF` contract produced from confirmed audience, story, and world
+decisions.
+
+```text
+approved Prompt
+  -> cover_handoff parser
+  -> 3-5 distinct CoverConcept records
+  -> CoverService + gpt-image-2 (one n=1 call per concept)
+  -> content-addressed media + durable CoverSet
+  -> Studio review / explicit selection
+  -> selected projection + deterministic delivery ZIP
+```
+
+Ownership is split deliberately:
+
+| Component | Owns |
+|---|---|
+| `core/cover_handoff.py` | strict handoff parsing and deterministic concept families |
+| `core/image_client.py` | Sub2API request contract, retry classification, bounded reads, byte/dimension validation |
+| `api/cover_service.py` | candidate lifecycle, media registration, projections, selection, package rebuild |
+| `core/cover_store.py` | atomic set persistence and set/active compare-and-swap revisions |
+| `api/media.py` | immutable project-scoped image bytes keyed by SHA-256 |
+| `core/delivery_package.py` | deterministic manifest and ZIP projection |
+| `web/.../CoverStudio.tsx` | review, confirmation, polling, and conflict reconciliation |
+
+`CoverSet` files under `outputs/covers/sets/` are durable lifecycle state. The
+`outputs/deliverables/covers/pending/` filenames are only the current customer
+projection and may be replaced by a newer generation. Selection therefore
+reads the candidate's content-addressed media by `(project_id, sha256,
+extension)`, revalidates the digest/type/portrait `2:3` dimensions, and only
+then writes `selected-cover.*`. This prevents a historical set from selecting a
+newer image that reused `cover-01.jpg`.
+
+Selection has two compare-and-swap boundaries:
+
+1. `CoverSet.revision` protects candidate transitions within one set.
+2. `outputs/covers/index.json:revision` protects the project-wide active pointer.
+
+An active-pointer conflict rolls back the just-written candidate transition
+before returning HTTP 409. An already-selected historical set can be activated
+again: the pointer advances, the original bytes are restored, and the package
+is rebuilt without another image request.
+
+Cover secrets are input-only settings. Persisted request provenance includes
+model, provider, format, size, `n=1`, prompt, and request ID, but excludes URL
+credentials and authorization headers. Selection/rejection services do not
+resolve provider settings, so existing assets remain manageable after a key is
+removed.
+
+`package-manifest.json` and `book-package.zip` are rebuildable projections. ZIP
+members have stable order, timestamps, permissions, and compression. Existing
+book formats are included when present; cover generation does not require a
+completed manuscript. The archive never includes itself or temporary files.
+
 ## Persistence schema (SQLite)
 
 | Table | Key fields |
@@ -111,6 +221,8 @@ in sync. Over time, more reads move DB-first (the ingest path already populates 
 ## Conventions
 - Agent phases never run inline in a request always via `JobRunner` (threads),
   polled by the UI.
+- Cover generation and retry also use `JobRunner`; candidate selection and
+  rejection are short synchronous CAS mutations.
 - Human-owned content is promoted through the same receipt authority as evidence
   runs; snapshots/comments remain UI projections.
 - Final-derived chapter metadata (actual word count plus any chapter header title,

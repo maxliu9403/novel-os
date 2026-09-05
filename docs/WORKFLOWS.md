@@ -155,6 +155,154 @@ outputs/state/promotion_receipts/<id>.json
 outputs/quality/evaluation_reports/<id>.json
 ```
 
+### Commercial story runs
+
+Use `quality_policy=evidence_v1` with a Prompt containing exactly one approved
+`[COMMERCIAL_STORY_JSON]` block. Prompt Intake activates the contract; no CLI
+flag privately activates a commercial story. The run adds these artifacts:
+
+```text
+outputs/input/story-fingerprint.json
+outputs/quality/story-originality-report.json
+outputs/quality/commercial/chapter_NNN_design.json
+outputs/quality/commercial/chapter_NNN_report.json
+outputs/quality/commercial-free-trial-report.json
+outputs/quality/commercial-book-report.json
+```
+
+The configured free window is exactly three or four chapters. After its final
+chapter is promoted, `commercial.free_trial_review` verifies recognition,
+pattern proof, a boundary test, local payoff, irreversible choice, visible cost,
+and the next concrete expectation from exact candidate evidence. A blocker stops
+the run before planning the next chapter.
+
+After all configured chapters are promoted, `commercial.book_review` verifies the approved
+conflict/resource progression, reader-value progression, hook distribution,
+protagonist-caused turns, humiliation and resource-seeding budgets, and observable
+payoff for at least two approved belonging anchors. It records factual
+distributions rather than a composite score. A blocker stops ending review,
+whole-book checks, publication copy, and compile.
+
+`publication.copy` owns the reader guide projected before chapter one. Every
+compiled Markdown, HTML, EPUB, PDF, and DOCX renders an explicit localized
+`Introduction` / `导读` section containing a one-sentence hook and a source-bound
+blurb. The copy must foreground the whole-book core conflict, promise at least
+two concrete protagonist-driven cathartic rewards, and end on a consequential
+open loop without revealing the ending. Policy or prompt-version changes
+invalidate the publication-copy checkpoint before downstream recompilation.
+
+Resume reuses either report only while all bound story/chapter contract heads,
+final artifact revisions and SHAs, chapter commercial reports, promotion
+receipts, and the free-window report remain unchanged. Retry the named blocked
+review only after its upstream chapter evidence has been repaired and promoted.
+
+The workflow uses local abstract contracts and static fingerprints. It does not
+run online audience research, load advertising telemetry, retrieve raw sample
+chapters, or use embedding/vector/RAG lookup. Those exclusions keep the source
+corpus out of runtime prompts and reduce near-neighbor imitation risk.
+
+---
+
+## Story design to cover delivery
+
+Use the cover workflow after the audience, exact title, core conflict,
+protagonist agency, decisive story node, and fictional world are approved.
+`novel-brainstorm-workshop` writes one strict JSON object between
+`COVER_HANDOFF_BEGIN` and `COVER_HANDOFF_END`; `novel-cover-studio` reviews the
+visual concepts before a billable image request.
+
+Configure Sub2API in the ignored `.env` file. Cover-specific values are optional
+when the writing endpoint and key can also access `gpt-image-2`:
+
+```dotenv
+NOVEL_OS_COVER_BASE_URL=https://your-sub2api-host.example/v1
+NOVEL_OS_COVER_API_KEY=your-key
+NOVEL_OS_COVER_MODEL=gpt-image-2
+NOVEL_OS_COVER_SIZE=2048x3072
+NOVEL_OS_COVER_QUALITY=high
+NOVEL_OS_COVER_FORMAT=jpeg
+NOVEL_OS_COVER_COUNT=4
+NOVEL_OS_COVER_TIMEOUT_SECONDS=180
+# Optional: omit these to reuse the writing model route.
+NOVEL_OS_COVER_DIRECTOR_PROVIDER=openai_compatible
+NOVEL_OS_COVER_DIRECTOR_MODEL=your-planning-model
+NOVEL_OS_COVER_DIRECTOR_BASE_URL=https://your-text-endpoint.example/v1
+NOVEL_OS_COVER_DIRECTOR_API_KEY=your-text-key
+NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS=180
+```
+
+Generate 3-5 independent candidates through the healthy Docker backend:
+
+```bash
+./deploy.sh novel-cover --help
+NOVEL_OS_PROJECT_NAME='my-novel' NOVEL_OS_COVER_COUNT=4 \
+  ./deploy.sh novel-cover './prompt/my-novel.md'
+./deploy.sh novel-cover list 'my-novel'
+```
+
+This command does not invoke `up`, `restart`, or `down`. A failed cover request
+does not pause, retry, or mutate a manuscript run. It records each candidate
+separately so successful images remain reviewable.
+
+Open `http://localhost:5174/projects/my-novel/covers` to:
+
+1. inspect the source image and its recorded native resolution (all accepted covers preserve portrait `2:3`);
+2. retry only a failed candidate;
+3. reject an unsuitable direction after confirmation;
+4. select one ready image as the delivery cover after confirmation;
+5. download `book-package.zip`.
+
+The CLI exposes the same recovery operations. Use revision values returned by
+`list`; they are compare-and-swap guards, not arbitrary counters:
+
+```bash
+./deploy.sh novel-cover retry PROJECT COVER_SET CANDIDATE REVISION
+./deploy.sh novel-cover reject PROJECT COVER_SET CANDIDATE REVISION
+./deploy.sh novel-cover select PROJECT COVER_SET CANDIDATE REVISION ACTIVE_REVISION
+```
+
+When intentionally selecting a candidate from a Prompt version now marked
+`stale`, append `--confirm-stale`. A 409 conflict means another operation changed
+the set or active pointer; reload the list and review the current state before
+submitting again.
+
+To use the native path without Docker:
+
+```bash
+PYTHONPATH=core ./venv/bin/python core/orchestrator.py cover generate \
+  --project './projects/my-novel' --prompt './prompt/my-novel.md' --count 4
+```
+
+Delivery artifacts:
+
+```text
+outputs/covers/sets/cover-<id>.json       durable candidate state
+outputs/covers/index.json                 active-cover pointer and revision
+outputs/deliverables/covers/pending/      current candidate projection
+outputs/deliverables/covers/selected-cover.jpg
+outputs/deliverables/covers/cover-set.json
+outputs/deliverables/package-manifest.json
+outputs/deliverables/book-package.zip
+```
+
+The original bytes are retained in the content-addressed media store. Selecting
+a historical set restores bytes by candidate SHA-256 instead of trusting the
+mutable `pending/cover-01.*` filename. Selecting another ready candidate or an
+older set is the rollback operation: it advances the active pointer and rebuilds
+the selected projection and ZIP while preserving prior cover-set records.
+
+On another Codex host, sync both repository Skills; Docker does not load them:
+
+```bash
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+mkdir -p "$CODEX_HOME/skills/novel-brainstorm-workshop"
+mkdir -p "$CODEX_HOME/skills/novel-cover-studio"
+rsync -a --delete skills/novel-brainstorm-workshop/ \
+  "$CODEX_HOME/skills/novel-brainstorm-workshop/"
+rsync -a --delete skills/novel-cover-studio/ \
+  "$CODEX_HOME/skills/novel-cover-studio/"
+```
+
 ---
 
 ## 📚 Standard chapter loop

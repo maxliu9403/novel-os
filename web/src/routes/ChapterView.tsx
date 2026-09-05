@@ -36,6 +36,21 @@ const COMPACT_CHAPTER = "(max-width: 1100px)";
 
 const STAGE_KEYS: StageKey[] = ["outline", "draft", "revised", "final"];
 
+const STAGE_LABELS: Record<StageKey, string> = {
+  outline: "大纲",
+  draft: "初稿",
+  revised: "修订稿",
+  final: "定稿",
+};
+
+const CHAPTER_STATUS_LABELS: Record<string, string> = {
+  planned: "已规划",
+  drafted: "已有初稿",
+  revised: "已修订",
+  final: "已定稿",
+  approved: "已批准",
+};
+
 function firstPresent(s: ChapterStages): StageKey {
   if (s.final != null) return "final";
   if (s.revised != null) return "revised";
@@ -173,7 +188,7 @@ export default function ChapterView() {
       setStages(next);
       if (next.final != null) await loadFinalDoc();
       else {
-        toast("Nothing to edit yet — generate a draft first.", "error");
+        toast("目前没有可编辑的内容，请先生成初稿。", "error");
         return null;
       }
       return next;
@@ -282,7 +297,7 @@ export default function ChapterView() {
     return (
       <div className="px-10 py-12">
         <div className="border border-ink bg-paper-card px-4 py-3 text-[13px] text-ink-text">
-          Failed to load: {error}
+          加载失败：{error}
         </div>
       </div>
     );
@@ -308,7 +323,7 @@ export default function ChapterView() {
       setFinalWordCount(body.word_count);
       setDirty(false);
       selectStage("final");
-      toast("Promoted to Final", "success");
+      toast("已提升为定稿", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     } finally {
@@ -324,7 +339,7 @@ export default function ChapterView() {
       setFinalWordCount(r.word_count);
       setStages((s) => (s ? { ...s, final: r.markdown } : s));
       setDirty(false);
-      setLastSaved("just now");
+      setLastSaved("刚刚");
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     } finally {
@@ -337,7 +352,7 @@ export default function ChapterView() {
   }
 
   const canPromote = stages.revised != null || stages.draft != null;
-  const promoteFrom = stages.revised != null ? "Revised" : "Draft";
+  const promoteFrom = stages.revised != null ? "修订稿" : "初稿";
 
   return (
     <Scene quiet className="h-full">
@@ -352,30 +367,30 @@ export default function ChapterView() {
           </Link>
         </div>
         <p className="px-5 pb-2 text-[12px] font-medium tracking-[-0.01em] text-paper-muted">
-          Binder
+          资料夹
         </p>
         <div className="flex flex-col gap-0.5 px-2.5 pb-3">
           <Link
             to={`/projects/${id}`}
             className="flex items-center gap-2 rounded-xl px-2.5 py-1.5 text-[13px] text-ink-muted transition-colors hover:bg-white/45"
           >
-            Dashboard
+            作品概览
           </Link>
           <Link
             to={`/projects/${id}/chart`}
             className="flex items-center gap-2 rounded-xl px-2.5 py-1.5 text-[13px] text-ink-muted transition-colors hover:bg-white/45"
           >
-            Relationship chart
+            人物关系图
           </Link>
           <Link
             to={`/projects/${id}/research`}
             className="flex items-center gap-2 rounded-xl px-2.5 py-1.5 text-[13px] text-ink-muted transition-colors hover:bg-white/45"
           >
-            Research
+            素材库
           </Link>
         </div>
         <p className="px-5 pb-2 text-[12px] font-medium tracking-[-0.01em] text-paper-muted">
-          Chapters
+          章节
         </p>
         <BinderNav projectId={id} activeChapter={num} />
       </nav>
@@ -386,52 +401,52 @@ export default function ChapterView() {
         <div className="border-b border-[rgba(74,91,133,0.1)] bg-white/40 px-8 py-5 backdrop-blur-md">
           <div className="mx-auto max-w-[760px]">
             <Breadcrumbs items={[
-              { label: "Library", to: "/" },
+              { label: "作品库", to: "/" },
               { label: id.replace(/-/g, " "), to: `/projects/${id}` },
-              { label: `Chapter ${num}` },
+              { label: `第 ${num} 章` },
             ]} />
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-[12px] font-medium tracking-[-0.01em] text-ink-muted">
-                  Chapter {num}
+                  第 {num} 章
                 </p>
                 <h1 className="font-display text-[24px] font-semibold tracking-tight text-ink-text text-balance">
-                  {meta?.title || stages.status}
+                  {meta?.title || CHAPTER_STATUS_LABELS[stages.status] || stages.status}
                 </h1>
               </div>
               <div className="flex items-center gap-3 text-[12.5px] text-ink-muted">
                 <ModeSwitch />
-                {meta?.pov && <span>POV {meta.pov}</span>}
+                {meta?.pov && <span>视角：{meta.pov}</span>}
                 <StatusPill status={stages.status} />
                 <Link
                   to={`/projects/${id}/chart`}
                   className="hidden rounded-full border border-[rgba(96,112,153,0.16)] bg-white/55 px-3 py-1 text-[12px] font-medium text-ink-muted transition-colors hover:text-[var(--color-violet)] sm:inline-flex"
                 >
-                  Chart
+                  关系图
                 </Link>
                 <div className="flex overflow-hidden rounded-full border border-[rgba(96,112,153,0.16)] bg-white/55">
-                  <PanelToggle on={showBinder} onClick={() => setShowBinder((b) => !b)} label="Binder" />
-                  <PanelToggle on={showInspector} onClick={() => setShowInspector((s) => !s)} label="Notes" border />
+                  <PanelToggle on={showBinder} onClick={() => setShowBinder((b) => !b)} label="资料夹" />
+                  <PanelToggle on={showInspector} onClick={() => setShowInspector((s) => !s)} label="笔记" border />
                 </div>
               </div>
             </div>
             <PipelineFlow stages={stages} selected={selected} onSelect={selectStage} />
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              <RunButton label="Generate Draft" running={runningStage === "write"}
+              <RunButton label="生成初稿" running={runningStage === "write"}
                          disabled={isRunning} onClick={() => run("write", { number: num })} />
-              <RunButton label="Revise" running={runningStage === "edit"}
+              <RunButton label="修订" running={runningStage === "edit"}
                          disabled={isRunning || stages.draft == null}
                          onClick={() => run("edit", { number: num })} />
-              <RunButton label="Validate" running={runningStage === "validate"}
+              <RunButton label="检查连续性" running={runningStage === "validate"}
                          disabled={isRunning || (stages.draft == null && stages.revised == null)}
                          onClick={() => run("validate", { number: num })} />
-              <RunButton label="Approve" running={runningStage === "approve"}
+              <RunButton label="批准" running={runningStage === "approve"}
                          disabled={isRunning} onClick={() => run("approve", { number: num })} />
               {isRunning && (
                 <span className="ml-1 inline-flex items-center gap-2 text-[12px] text-ink-muted" aria-live="polite">
                   <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-violet)]" />
-                  Agent working…
+                  智能体处理中…
                 </span>
               )}
             </div>
@@ -445,7 +460,7 @@ export default function ChapterView() {
               <Suspense
                 fallback={
                   <div className="manuscript-page mx-auto max-w-[680px] px-11 py-14 text-center text-ink-muted">
-                    Opening the manuscript…
+                    正在打开正文…
                   </div>
                 }
               >
@@ -641,8 +656,8 @@ function ProvenancePane({
   async function review(decision: "accept" | "reject") {
     setReviewBusy(decision);
     try {
-      const r = await api.reviewStage(projectId, chapter, stage, decision);
-      toast(r.message || (decision === "accept" ? "Accepted" : "Rejected"), "success");
+      await api.reviewStage(projectId, chapter, stage, decision);
+      toast(decision === "accept" ? "已接受" : "已拒绝", "success");
       await onReviewed?.();
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
@@ -654,11 +669,11 @@ function ProvenancePane({
   if (text == null) {
     return (
       <Empty
-        title={`${cap(stage)} not generated yet`}
+        title={`${stageLabel(stage)}尚未生成`}
         hint={
           stage === "outline"
-            ? "The Architect plans the beats first."
-            : "Run the pipeline to produce this stage."
+            ? "请先由架构师规划故事节拍。"
+            : "请运行创作流程生成此阶段内容。"
         }
       />
     );
@@ -673,7 +688,7 @@ function ProvenancePane({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-violet)]" />
-            Provenance · read-only — edit the Final manuscript
+            生成记录 · 只读——请在定稿中编辑正文
           </div>
           {canEditFinal && (
             <button
@@ -689,16 +704,16 @@ function ProvenancePane({
               }}
               className="rounded-full bg-[var(--color-violet)] px-3.5 py-1.5 text-[12.5px] font-semibold text-white shadow-[0_8px_18px_rgba(104,103,234,0.28)] disabled:opacity-50"
             >
-              {editBusy ? "Opening…" : "Edit manuscript"}
+              {editBusy ? "打开中…" : "编辑正文"}
             </button>
           )}
         </div>
         {(agent || model || provenance?.reviewed_by) && (
           <p className="pl-3.5 text-[12.5px] text-ink-muted">
-            {agent ? `Produced by ${agent}` : "Produced"}
+            {agent ? `生成者：${agent}` : "已生成"}
             {model ? ` · ${model}` : ""}
-            {provenance?.reviewed_by ? ` · Reviewed by ${provenance.reviewed_by}` : ""}
-            {provenance?.word_count ? ` · ${provenance.word_count} words` : ""}
+            {provenance?.reviewed_by ? ` · 审核者：${provenance.reviewed_by}` : ""}
+            {provenance?.word_count ? ` · ${provenance.word_count} 字` : ""}
           </p>
         )}
       </div>
@@ -712,12 +727,12 @@ function ProvenancePane({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-[12px] font-semibold text-ink-text">
-                {needsReview ? "Needs review" : "Reviewed"}
+                {needsReview ? "待审核" : "已审核"}
               </p>
               <p className="mt-0.5 text-[12.5px] text-ink-muted">
                 {needsReview
-                  ? "Accept to promote into Final. Reject keeps this stage as provenance only."
-                  : `Accepted${provenance?.reviewed_at ? ` · ${provenance.reviewed_at}` : ""}`}
+                  ? "接受后将内容提升为定稿；拒绝后仅保留为生成记录。"
+                  : `已接受${provenance?.reviewed_at ? ` · ${provenance.reviewed_at}` : ""}`}
               </p>
             </div>
             {needsReview && (
@@ -728,7 +743,7 @@ function ProvenancePane({
                   onClick={() => review("reject")}
                   className="rounded-full border border-[rgba(96,112,153,0.2)] bg-white/70 px-3.5 py-1.5 text-[12.5px] font-medium text-ink-muted transition-colors hover:text-ink-text disabled:opacity-50"
                 >
-                  {reviewBusy === "reject" ? "Rejecting…" : "Reject"}
+                  {reviewBusy === "reject" ? "拒绝中…" : "拒绝"}
                 </button>
                 <button
                   type="button"
@@ -736,7 +751,7 @@ function ProvenancePane({
                   onClick={() => review("accept")}
                   className="rounded-full bg-[var(--color-violet)] px-3.5 py-1.5 text-[12.5px] font-semibold text-white shadow-[0_8px_18px_rgba(104,103,234,0.28)] transition-opacity disabled:opacity-50"
                 >
-                  {reviewBusy === "accept" ? "Accepting…" : "Accept"}
+                  {reviewBusy === "accept" ? "接受中…" : "接受"}
                 </button>
               </div>
             )}
@@ -747,9 +762,9 @@ function ProvenancePane({
       {prevStage && (
         <div className="mb-8 rounded-2xl border border-[rgba(74,91,133,0.12)] bg-white/55 px-4 py-3">
           <p className="text-[12px] font-semibold text-ink-text">
-            What changed vs {cap(prevStage)}
+            相比{stageLabel(prevStage)}的变化
           </p>
-          {diffBusy && <p className="mt-1 text-[12.5px] text-ink-muted">Comparing…</p>}
+          {diffBusy && <p className="mt-1 text-[12.5px] text-ink-muted">对比中…</p>}
           {diff && !diffBusy && (
             <>
               <p className="mt-1 text-[12.5px] text-ink-muted">{diff.summary}</p>
@@ -757,7 +772,7 @@ function ProvenancePane({
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   {diff.added_lines.length > 0 && (
                     <div>
-                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[#2f8a57]">Added</p>
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[#2f8a57]">新增</p>
                       <ul className="max-h-40 space-y-1 overflow-y-auto text-[12px] leading-relaxed text-ink-text">
                         {diff.added_lines.slice(0, 8).map((ln, i) => (
                           <li key={i} className="rounded-lg bg-[#e9f7ef]/70 px-2 py-1">{ln}</li>
@@ -767,7 +782,7 @@ function ProvenancePane({
                   )}
                   {diff.removed_lines.length > 0 && (
                     <div>
-                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[#c85177]">Removed</p>
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[#c85177]">删除</p>
                       <ul className="max-h-40 space-y-1 overflow-y-auto text-[12px] leading-relaxed text-ink-text">
                         {diff.removed_lines.slice(0, 8).map((ln, i) => (
                           <li key={i} className="rounded-lg bg-[#ffeaf1]/70 px-2 py-1">{ln}</li>
@@ -805,7 +820,7 @@ function PanelToggle({ on, onClick, label, border }: {
     <button
       onClick={onClick}
       aria-pressed={on}
-      title={`Toggle ${label}`}
+      title={`显示或隐藏${label}`}
       className={`px-2.5 py-1 text-[12px] font-medium transition-colors ${border ? "border-l border-paper-line" : ""} ${
         on ? "bg-ink/[0.06] text-ink-text" : "text-ink-muted hover:bg-ink/5"
       }`}
@@ -824,9 +839,9 @@ function RunButton({
       disabled={disabled}
       className="btn-secondary disabled:opacity-40"
     >
-      {running ? "Running…" : label}
+      {running ? "运行中…" : label}
     </button>
   );
 }
 
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const stageLabel = (stage: StageKey) => STAGE_LABELS[stage];

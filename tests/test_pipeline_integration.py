@@ -1,4 +1,7 @@
+import hashlib
 import json
+import re
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -6,6 +9,13 @@ import pytest
 import pipeline_runner as pipeline_runner_module
 from artifacts import ArtifactStore
 from canon_ledger import canonical_canon_sha
+from commercial_fixtures import (
+    chapter_contract_v2_payload,
+    commercial_story_fixture_variant,
+    commercial_story_lifecycle_fixture,
+)
+from commercial_quality import CommercialBookReport, CommercialFreeTrialReport
+from commercial_story import commercial_story_block
 from orchestrator import NovelOrchestrator
 from pipeline_models import RunManifest, RunSpec, StageResult
 from pipeline_runner import PipelineRunner
@@ -19,6 +29,94 @@ class PipelineLLM:
     model = "fake-fiction-model"
     calls = []
     prompts = {}
+
+    def complete(self, *, system, user):
+        type(self).calls.append(system.splitlines()[0])
+        if system.startswith("whole-book-conflict.v2"):
+            source = json.loads(user.rsplit("as canonical JSON:\n", 1)[1])
+            chapters = source["chapters"]
+            by_number = {item["number"]: item for item in chapters}
+            last = max(by_number)
+            middle = 1 if last <= 2 else (last + 1) // 2
+
+            def quote(number):
+                return next(
+                    line.strip()
+                    for line in reversed(by_number[number]["text"].splitlines())
+                    if line.strip()
+                )
+
+            return json.dumps({
+                "protagonist": "Mara Vale",
+                "goal": "Keep her neighborhood studio open",
+                "opposition": "Escalating lease pressure",
+                "stakes": "Her savings, self-trust, and community space",
+                "escalation": "Each commitment makes retreat more costly",
+                "unresolved_choice": "How much Mara will risk for the studio",
+                "evidence": {
+                    "opening": [{"chapter": 1, "source_quote": quote(1)}],
+                    "middle": [{"chapter": middle, "source_quote": quote(middle)}],
+                    "late": [{"chapter": last, "source_quote": quote(last)}],
+                },
+            })
+        if system.startswith("publication-copy-writer.v2"):
+            return json.dumps({
+                "reader_heading": "Before the Story",
+                "hook_lead": (
+                    "Mara must defend her neighborhood studio before rising costs "
+                    "destroy its future."
+                ),
+                "spoiler_free_blurb": (
+                    "Mara Vale has staked her savings and fragile confidence on opening "
+                    "a neighborhood studio, but the lease that promised independence now "
+                    "gives a powerful landlord leverage over every decision. Each new "
+                    "demand threatens the space, the people beginning to rely on it, and "
+                    "the self-trust she has only started to rebuild. Walking away would "
+                    "protect what little money remains, yet surrendering the keys would "
+                    "confirm every fear that kept her waiting. Staying means gathering "
+                    "allies, challenging rules written to favor someone richer, and "
+                    "risking public failure before opening day. As pressure tightens, "
+                    "Mara must decide whether a secure retreat matters more than the "
+                    "uncertain community taking shape around her. The studio can become "
+                    "proof that her new life is real, but only if she chooses what she is "
+                    "prepared to sacrifice to keep its door open."
+                ),
+            })
+        if "before any\nreader-facing copy" in system:
+            return json.dumps({
+                "status": "pass",
+                "checks": {
+                    "whole_book_core_conflict": True,
+                    "source_supported": True,
+                    "opening_middle_late_coherent": True,
+                    "spoiler_free": True,
+                },
+                "findings": [],
+            })
+        return json.dumps({
+            "status": "pass",
+            "checks": {
+                "whole_book_core_conflict": True,
+                "hook_core_conflict": True,
+                "blurb_core_conflict": True,
+                "protagonist_stakes": True,
+                "spoiler_free": True,
+                "source_supported": True,
+            },
+            "reader_pull": {
+                "status": "pass",
+                "checks": {
+                    "first_glance_clarity": True,
+                    "concrete_emotional_stakes": True,
+                    "escalating_pressure": True,
+                    "protagonist_agency": True,
+                    "open_loop": True,
+                    "truthful_genre_promise": True,
+                },
+            },
+            "claim_evidence": [],
+            "findings": [],
+        })
 
     def run_agent(self, agent_name, prompt):
         type(self).calls.append(agent_name)
@@ -138,6 +236,15 @@ def _real_orchestrator_with_fake_llm(project_path):
     orchestrator = NovelOrchestrator(project_path)
     orchestrator._llm = PipelineLLM()
     return orchestrator
+
+
+def test_orchestrator_exposes_cached_role_client(tmp_path: Path):
+    orchestrator = NovelOrchestrator(str(tmp_path))
+    orchestrator._llm = PipelineLLM()
+
+    assert orchestrator.llm_for("style_curator") is orchestrator.llm_for(
+        "style_curator"
+    )
 
 
 def _one_chapter_spec(project: Path, prompt: Path, **overrides):
@@ -329,16 +436,353 @@ def test_real_orchestrator_pipeline_completes_two_chapters(tmp_path: Path):
 
     assert manifest.status == "completed", manifest.error
     assert manifest.get("book.check").status == "done"
+    assert manifest.get("publication.copy").status == "done"
+    assert manifest.get("compile").status == "done"
+    assert manifest.get("delivery.package").status == "done"
+    assert manifest.current_phase == "delivery.package"
     assert (project / "outputs/input/foundation.json").exists()
     assert (project / "outputs/manuscript/chapter_002_final.md").exists()
     final_state = StoryState(str(project))
     assert final_state.get_chapter(1).status == "complete"
     assert final_state.get_chapter(2).status == "complete"
+    assert final_state.get_chapter(1).word_count > 0
+    assert final_state.get_chapter(2).word_count > 0
     assert final_state.characters["char_001"].full_name == "Mara Vale"
     assert final_state.plot_threads["plot_001"].name == "Second Chance"
     book = (project / "outputs/deliverables/book.md").read_text(encoding="utf-8")
     assert "# One Prompt Book" in book
+    assert "Before the Story" in book
+    assert "Mara must defend her neighborhood studio" in book
     assert "Morning light claimed" in book
+    assert (project / "outputs/deliverables/package-manifest.json").is_file()
+    with zipfile.ZipFile(project / "outputs/deliverables/book-package.zip") as package:
+        assert "book.md" in package.namelist()
+        assert "package-manifest.json" in package.namelist()
+
+
+def test_real_orchestrator_commercial_pipeline_persists_originality_gate(
+    tmp_path: Path,
+):
+    contract = commercial_story_fixture_variant()
+
+    class CommercialPipelineLLM(PipelineLLM):
+        def run_agent(self, agent_name, prompt):
+            response = super().run_agent(agent_name, prompt)
+            if agent_name == "architect" and "Full Novel Blueprint" in prompt:
+                prefix, rest = response.split("[STORY_FOUNDATION_JSON]\n", 1)
+                encoded, suffix = rest.split("\n[/STORY_FOUNDATION_JSON]", 1)
+                foundation = json.loads(encoded)
+                foundation["commercial_story_contract"] = contract.to_dict()
+                foundation["commercial_story_contract_id"] = contract.contract_id
+                return (
+                    prefix
+                    + "[STORY_FOUNDATION_JSON]\n"
+                    + json.dumps(foundation)
+                    + "\n[/STORY_FOUNDATION_JSON]"
+                    + suffix
+                )
+            return response
+
+    def factory(project_path):
+        orchestrator = NovelOrchestrator(project_path)
+        orchestrator._llm = CommercialPipelineLLM()
+        return orchestrator
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text(
+        "# Commercial Book\n\n" + commercial_story_block(contract),
+        encoding="utf-8",
+    )
+    project = tmp_path / "projects/commercial-book"
+
+    manifest = PipelineRunner(orchestrator_factory=factory).run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=2,
+            target_words=60,
+            approval_policy="auto",
+        )
+    )
+
+    assert manifest.status == "completed", manifest.error
+    assert manifest.get("foundation.originality").status == "done"
+    assert (project / "outputs/input/story-fingerprint.json").is_file()
+    assert (project / "outputs/quality/story-originality-report.json").is_file()
+
+
+def test_commercial_story_lifecycle_reaches_compile_with_fresh_fixture(
+    tmp_path: Path,
+):
+    contract = commercial_story_lifecycle_fixture()
+    jobs = {
+        1: ("recognition", "anger"),
+        2: ("anger", "pity"),
+        3: ("anger", "agency", "belonging"),
+        4: ("agency", "hope", "belonging"),
+    }
+    anchors = {1: (), 2: (), 3: ("self",), 4: ("community",)}
+    dimensions = {1: "name", 2: "memory", 3: "money", 4: "future"}
+    satisfactions = {1: "evidence", 2: "competence", 3: "boundary", 4: "identity"}
+    hooks = {1: "evidence", 2: "consequence", 3: "decision", 4: "deadline"}
+    beats = {
+        1: ("recognition_event",),
+        2: ("pattern_proof",),
+        3: ("first_boundary_test", "local_payoff"),
+        4: ("irreversible_choice", "visible_cost", "next_concrete_expectation"),
+    }
+
+    class CommercialLifecycleLLM(PipelineLLM):
+        @staticmethod
+        def _chapter(prompt: str) -> int:
+            match = re.search(r"Chapter (\d+)", prompt)
+            assert match is not None
+            return int(match.group(1))
+
+        def run_agent(self, agent_name, prompt):
+            type(self).calls.append(agent_name)
+            type(self).prompts[agent_name] = prompt
+            if prompt.startswith("# COMMERCIAL READER-VALUE GUARDIAN:"):
+                number = self._chapter(prompt)
+                candidate_section = prompt.split("## Candidate Manuscript\n", 1)[1]
+                candidate = re.search(
+                    r"```markdown\n(.*?)\n```",
+                    candidate_section,
+                    re.DOTALL,
+                ).group(1)
+                quote = next(
+                    line for line in candidate.splitlines() if line.startswith("Clara ")
+                )
+                start = candidate.index(quote)
+                evidence = {
+                    "status": "present",
+                    "quote": quote,
+                    "start": start,
+                    "end": start + len(quote),
+                }
+                return json.dumps(
+                    {
+                        "agency": evidence,
+                        "resource_change": evidence,
+                        "local_payoff": evidence,
+                        "ending_hook": evidence,
+                        "reader_jobs": {job: evidence for job in jobs[number]},
+                        "belonging_anchors": {
+                            anchor: evidence for anchor in anchors[number]
+                        },
+                        "free_trial_beats": {
+                            beat: evidence for beat in beats[number]
+                        },
+                        "child_voice": {
+                            "status": "not_applicable",
+                            "quote": None,
+                            "start": None,
+                            "end": None,
+                        },
+                        "institutional_plausibility": evidence,
+                        "findings": [],
+                    }
+                )
+            if agent_name == "architect" and "Full Novel Blueprint" in prompt:
+                foundation = {
+                    "title": "The Last Signed Measure",
+                    "premise": (
+                        "A fifty-two-year-old choir treasurer protects a late member's "
+                        "scholarship records from a board chair redirecting credit and funds."
+                    ),
+                    "themes": ["earned belonging", "stewardship", "self-respect"],
+                    "setting": {
+                        "time_period": "present",
+                        "primary_location": "the fictional town of Bellweather",
+                        "world_rules": ["Choir payments require two recorded authorizations"],
+                    },
+                    "characters": [
+                        {
+                            "id": "char_001",
+                            "name": "Clara Wynn",
+                            "role": "protagonist",
+                            "age": 52,
+                            "external_goal": "Protect the scholarship record",
+                            "internal_desire": "Belong without surrendering her judgment",
+                        },
+                        {
+                            "id": "char_002",
+                            "name": "Dean Mercer",
+                            "role": "antagonist",
+                            "external_goal": "Control the board's public legacy",
+                        },
+                    ],
+                    "plot_threads": [
+                        {
+                            "id": "plot_001",
+                            "name": "Scholarship Record",
+                            "description": "Clara proves where the memorial funds belong.",
+                            "type": "main",
+                            "priority": 5,
+                            "resolution_chapter": 4,
+                        }
+                    ],
+                    "style": {
+                        "tone": "intimate and resolute",
+                        "pov": "third_limited",
+                        "tense": "past",
+                        "prose_style": "cinematic",
+                    },
+                    "commercial_story_contract": contract.to_dict(),
+                    "commercial_story_contract_id": contract.contract_id,
+                    "chapters": [
+                        {
+                            "number": number,
+                            "title": ("Missing Credit", "The Minutes", "Frozen Signature", "Member Vote")[number - 1],
+                            "pov": "Clara Wynn",
+                            "summary": f"Clara advances the record conflict in chapter {number}.",
+                            "target_words": 60,
+                        }
+                        for number in range(1, 5)
+                    ],
+                }
+                return (
+                    "[STORY_FOUNDATION_JSON]\n"
+                    + json.dumps(foundation)
+                    + "\n[/STORY_FOUNDATION_JSON]\n\n# ARCHITECT ANALYSIS\nComplete.\n"
+                )
+            if agent_name == "architect":
+                number = self._chapter(prompt)
+                resource_id = f"choir_record_{number:02d}"
+                chapter_contract = chapter_contract_v2_payload(
+                    chapter=number,
+                    goal=f"Clara secures the chapter {number} record.",
+                    obstacle="Dean controls the board's public account.",
+                    active_choice="Clara checks and acts on the ordinary records herself.",
+                    cost="Her place in the choir becomes less secure.",
+                    irreversible_change="The board can no longer treat her knowledge as private.",
+                    local_payoff="Her recorded action changes the pending transfer.",
+                    ending_pressure="The member vote now has a fixed deadline.",
+                    reader_jobs=jobs[number],
+                    belonging_anchors=anchors[number],
+                    resource_dimension=dimensions[number],
+                    resource_change=f"Clara changes control of the chapter {number} record.",
+                    satisfaction_type=satisfactions[number],
+                    hook_type=hooks[number],
+                    seeded_resource_ids=(resource_id,),
+                    used_resource_ids=(resource_id,),
+                )
+                return (
+                    f"# Chapter {number}\n\n## Goal\nClara tests the record.\n"
+                    "\n[CHAPTER_CONTRACT]\n"
+                    + json.dumps(chapter_contract)
+                    + "\n[/CHAPTER_CONTRACT]\n"
+                )
+            if agent_name == "scribe":
+                number = self._chapter(prompt)
+                return f"""<!--
+CHAPTER: {number} - Chapter {number}
+POV: Clara Wynn
+-->
+# Chapter {number}
+
+Clara compared the signed minutes with the deposit timestamp, then froze her authorization before Dean could move the memorial funds.
+
+[SCRIBE_STATE_UPDATE]
+Characters_Present: [Clara Wynn, Dean Mercer]
+Key_Events: [Clara protects the scholarship record]
+Emotional_Shifts: [Clara Wynn: uncertain to resolute]
+New_Information_Revealed: [The transfer requires Clara's authorization]
+Foreshadowing_Planted: [The member vote]
+Plot_Thread_Updates: [plot_001 | status=active | milestone=Clara advances the scholarship record | chapter={number}]
+[/SCRIBE_STATE_UPDATE]
+"""
+            if agent_name == "editor":
+                number = self._chapter(prompt)
+                return f"""[EDITOR_ANALYSIS]
+Mode: line
+[/EDITOR_ANALYSIS]
+[REVISED_CHAPTER]
+# Chapter {number}
+
+Clara matched the signed minutes to the deposit timestamp and froze her authorization before Dean could move the memorial funds.
+[/REVISED_CHAPTER]
+[EDITOR_STATE_UPDATE]
+Quality_Score_Before: 7/10
+Quality_Score_After: 9/10
+Remaining_Concerns: [None]
+[/EDITOR_STATE_UPDATE]
+"""
+            if agent_name == "continuity_guardian":
+                return """[CONTINUITY_REPORT]
+Status: PASS
+Critical_Issues: [None]
+Warnings: [None]
+New_Facts_Established: [Clara's authorization controls the transfer]
+[/CONTINUITY_REPORT]
+"""
+            if agent_name == "style_curator":
+                number = self._chapter(prompt)
+                return f"""[STYLE_ANALYSIS]
+Consistency_Score: 9/10
+Genre_Adherence: 9/10
+Voice_Strength: 9/10
+[/STYLE_ANALYSIS]
+[REVISED_CHAPTER]
+# Chapter {number}
+
+Clara matched the signed minutes to the deposit timestamp and froze her authorization before Dean could move the memorial funds. She copied the choir secretary, placed the original record in the shared archive, and asked for written confirmation before sunset. When Dean demanded a private conversation, Clara kept the office door open and repeated that the membership would review every change.
+[/REVISED_CHAPTER]
+[STYLE_STATE_UPDATE]
+Maintained_Characteristics: [intimate resolve]
+[/STYLE_STATE_UPDATE]
+"""
+            raise AssertionError(agent_name)
+
+    def factory(project_path):
+        orchestrator = NovelOrchestrator(project_path)
+        orchestrator._llm = CommercialLifecycleLLM()
+        return orchestrator
+
+    prompt = tmp_path / "fresh-commercial-prompt.md"
+    prompt.write_text(
+        "# The Last Signed Measure\n\n" + commercial_story_block(contract),
+        encoding="utf-8",
+    )
+    project = tmp_path / "projects/the-last-signed-measure"
+    manifest = PipelineRunner(orchestrator_factory=factory).run(
+        RunSpec(
+            project_path=str(project),
+            prompt_path=str(prompt),
+            num_chapters=4,
+            target_words=240,
+            approval_policy="auto",
+            quality_policy="evidence_v1",
+            output_formats=("markdown",),
+        )
+    )
+
+    assert manifest.status == "completed", manifest.error
+    assert manifest.get("foundation.originality").status == "done"
+    for number in range(1, 5):
+        assert manifest.get("chapter.design_check", number).status == "done"
+        assert manifest.get("chapter.commercial_check", number).status == "done"
+        assert manifest.get("chapter.promote", number).status == "done"
+    assert manifest.get("commercial.free_trial_review").status == "done"
+    assert manifest.get("commercial.book_review").status == "done"
+    assert manifest.get("compile").status == "done"
+    free_trial = CommercialFreeTrialReport.from_dict(
+        json.loads(
+            (project / "outputs/quality/commercial-free-trial-report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    )
+    book = CommercialBookReport.from_dict(
+        json.loads(
+            (project / "outputs/quality/commercial-book-report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    )
+    assert free_trial.status == "pass"
+    assert book.status == "pass"
+    assert book.metrics["delivered_belonging_anchor_count"] == 2
 
 
 def test_evidence_pipeline_enforces_semantic_ending_contract(tmp_path: Path):
@@ -425,6 +869,19 @@ Ending_Evidence: [irreversible_change=Mara assumes the lease; emotional_payoff=S
 
     assert manifest.status == "completed", manifest.error
     assert manifest.get("ending.review").status == "done"
+    ending_contract = json.loads(
+        (project / "outputs/input/ending_contract.json").read_text(encoding="utf-8")
+    )
+    assert manifest.get("publication.copy").input_hashes[
+        "ending_contract_sha256"
+    ] == hashlib.sha256(
+        json.dumps(
+            ending_contract,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
     state = StoryState(str(project))
     assert state.plot_threads["plot_001"].status == "resolved"
     assert state.characters["char_001"].arc_stage == "resolution"
@@ -970,7 +1427,15 @@ def test_resume_reloads_bound_canon_proposal_by_id(tmp_path: Path):
     resumed_ids = resumed.get("chapter.style", 1).canon_proposal_ids
     assert resumed_ids[: len(bound_ids)] == bound_ids
     assert len(resumed_ids) == len(bound_ids) + 1
-    assert PipelineLLM.calls == before_calls
+    assert PipelineLLM.calls[: len(before_calls)] == before_calls
+    assert all(
+        call in {
+            "whole-book-conflict.v2",
+            "publication-copy-writer.v2",
+            "publication-copy-validator.v2",
+        }
+        for call in PipelineLLM.calls[len(before_calls) :]
+    )
     for proposal_id in resumed_ids:
         ProposalStore(project).load(proposal_id)
 

@@ -35,9 +35,26 @@ from state_parser import (
 from continuity_engine import run_all as run_continuity_checks, summarize as summarize_findings, to_context_block
 from prose_sanitize import sanitize_manuscript, apply_header_to_chapter, strip_em_dashes
 from context_pack import build_context_pack, format_context_pack, slice_chapter_for_llm
-from canon import apply_canon_proposal, build_canon_proposal
+from canon import CanonDeltaProposal, apply_canon_proposal, build_canon_proposal
 from canon_ledger import CanonLedger, CanonLedgerEntry, CanonReconciliationEntry
 from proposals import ProposalStore
+from artifacts import ArtifactError, ArtifactStore
+from contracts import ChapterContract
+from commercial_story import (
+    BELONGING_ANCHORS,
+    HOOK_TYPES,
+    READER_JOBS,
+    RESOURCE_DIMENSIONS,
+    SATISFACTION_TYPES,
+    CommercialStoryContract,
+)
+from commercial_quality import (
+    CommercialChapterReport,
+    CommercialFinding,
+    free_trial_beats_for_chapter,
+    review_commercial_chapter as validate_commercial_chapter,
+    write_commercial_report,
+)
 from story_foundation import apply_story_foundation
 
 
@@ -114,6 +131,10 @@ class NovelOrchestrator:
     def llm(self) -> LLMClient:
         """Compatibility access to the default writer client."""
         return self._get_llm("writer")
+
+    def llm_for(self, agent_name: str) -> LLMClient:
+        """Return the cached client selected by the existing agent-role router."""
+        return self._get_llm(agent_name)
 
     @llm.setter
     def llm(self, client: LLMClient) -> None:
@@ -450,7 +471,45 @@ class NovelOrchestrator:
         raw_prompt_path = self.outputs_dir / "input" / "prompt.md"
         brief_path = self.outputs_dir / "input" / "brief.json"
         raw_prompt = raw_prompt_path.read_text(encoding="utf-8") if raw_prompt_path.exists() else ""
-        brief = brief_path.read_text(encoding="utf-8") if brief_path.exists() else "{}"
+        brief_data = (
+            json.loads(brief_path.read_text(encoding="utf-8"))
+            if brief_path.exists()
+            else {}
+        )
+        approved_commercial_story = None
+        if brief_data.get("commercial_story_contract") is not None:
+            approved_commercial_story = CommercialStoryContract.from_dict(
+                brief_data["commercial_story_contract"]
+            )
+            if (
+                brief_data.get("commercial_story_contract_id")
+                != approved_commercial_story.contract_id
+            ):
+                raise ValueError("brief commercial story contract id is invalid")
+        prompt_brief = dict(brief_data)
+        prompt_brief.pop("commercial_story_contract", None)
+        prompt_brief.pop("commercial_story_contract_id", None)
+        brief = json.dumps(prompt_brief, ensure_ascii=False, sort_keys=True, indent=2)
+        commercial_requirement = ""
+        if approved_commercial_story is not None:
+            canonical_commercial = json.dumps(
+                approved_commercial_story.to_dict(),
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+            )
+            commercial_requirement = f"""
+## Approved Commercial Story Contract
+
+This user-approved contract is immutable. Copy it semantically unchanged into
+the foundation field `commercial_story_contract` and set
+`commercial_story_contract_id` to `{approved_commercial_story.contract_id}`.
+Do not reinterpret category values or replace it with prose.
+
+```json
+{canonical_commercial}
+```
+"""
         architect_prompt = f"""# ARCHITECT TASK: Build the Full Novel Blueprint
 
 Create a complete, causally coherent blueprint for this novel. This is the
@@ -470,6 +529,7 @@ authoritative plan that every later chapter outline must follow.
 ```markdown
 {raw_prompt or '[No source prompt was saved; use StoryState metadata.]'}
 ```
+{commercial_requirement}
 
 ## Required Sections
 1. Logline and thematic argument
@@ -561,7 +621,11 @@ genre-appropriate assumptions rather than asking questions.
         )
         if result is not None:
             try:
-                foundation = self._parse_story_foundation(result, num_chapters)
+                foundation = self._parse_story_foundation(
+                    result,
+                    num_chapters,
+                    approved_commercial_story,
+                )
                 foundation_path = self.outputs_dir / "input" / "foundation.json"
                 foundation_path.parent.mkdir(parents=True, exist_ok=True)
                 foundation_path.write_text(
@@ -590,7 +654,11 @@ genre-appropriate assumptions rather than asking questions.
         return result if result is not None else outline
 
     @staticmethod
-    def _parse_story_foundation(text: str, num_chapters: int) -> Dict[str, Any]:
+    def _parse_story_foundation(
+        text: str,
+        num_chapters: int,
+        approved_commercial_story: CommercialStoryContract | None = None,
+    ) -> Dict[str, Any]:
         match = re.search(
             r"\[STORY_FOUNDATION_JSON\]\s*(\{.*?\})\s*\[/STORY_FOUNDATION_JSON\]",
             text,
@@ -611,6 +679,30 @@ genre-appropriate assumptions rather than asking questions.
             raise ValueError("story foundation must define at least one character")
         if not isinstance(data.get("plot_threads"), list) or not data["plot_threads"]:
             raise ValueError("story foundation must define at least one plot thread")
+        foundation_contract = data.get("commercial_story_contract")
+        foundation_contract_id = data.get("commercial_story_contract_id")
+        if approved_commercial_story is not None:
+            try:
+                restored_commercial = CommercialStoryContract.from_dict(
+                    foundation_contract
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    "story foundation must echo the approved commercial story contract"
+                ) from exc
+            if (
+                restored_commercial != approved_commercial_story
+                or foundation_contract_id != approved_commercial_story.contract_id
+            ):
+                raise ValueError(
+                    "story foundation changed the approved commercial story contract"
+                )
+            data["commercial_story_contract"] = restored_commercial.to_dict()
+            data["commercial_story_contract_id"] = restored_commercial.contract_id
+        elif foundation_contract is not None or foundation_contract_id is not None:
+            raise ValueError(
+                "story foundation cannot activate an unapproved commercial story contract"
+            )
         ending = data.get("ending_contract")
         if ending is not None:
             if not isinstance(ending, dict):
@@ -945,6 +1037,13 @@ genre-appropriate assumptions rather than asking questions.
         )
 
         ending_context = self._ending_contract_context(chapter.number)
+        commercial_contract = None
+        commercial_payload = self.state.story_bible.get("commercial_story_contract")
+        if commercial_payload is not None:
+            try:
+                commercial_contract = CommercialStoryContract.from_dict(commercial_payload)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("stored commercial story contract is invalid") from exc
         prompt = f"""# ARCHITECT TASK: Outline Chapter {chapter.number}
 
 Produce a structured **beat-sheet outline** for this chapter that the Scribe will
@@ -994,6 +1093,55 @@ dialogue, or narrative paragraphs:
 Write the beat-sheet now. Outline only no prose.
 """
         if self.quality_policy == "evidence_v1":
+            if commercial_contract is not None:
+                commercial = commercial_contract
+                design_context = self._commercial_chapter_design_context(
+                    chapter.number
+                )
+                assigned_free_trial_beats = free_trial_beats_for_chapter(
+                    commercial, chapter.number
+                )
+                free_trial_arc = commercial.free_trial_arc.to_dict()
+                assigned_free_trial_text = "\n".join(
+                    f"- `{beat}`: {free_trial_arc[beat]}"
+                    for beat in assigned_free_trial_beats
+                ) or "- None"
+                visible_cost_instruction = (
+                    "If `visible_cost` is assigned, that cost must occur before "
+                    "the final hook. The ending must introduce fresh unresolved "
+                    "pressure after the cost instead of postponing the cost itself."
+                    if "visible_cost" in assigned_free_trial_beats
+                    else ""
+                )
+                prompt += f"""
+
+## Commercial Reader-Value Contract (schema-v2 required)
+
+This chapter belongs to an activated commercial story contract. The contract is
+immutable and its approved categories must remain unchanged. Use the chapter's
+specific scene to declare one to three ordered `reader_jobs`, zero to two
+`belonging_anchors`, the controlled `resource_dimension`, an observable
+`resource_change`, a controlled `satisfaction_type`, a controlled `hook_type`,
+whether the scene is a `humiliation_scene`, whether the protagonist causes the
+major turn, and controlled resource IDs that are seeded or used in this chapter.
+The resource IDs must be stable lowercase snake_case identifiers. A used
+resource must be seeded in this or an earlier chapter.
+
+`belonging_anchors` may be declared only when `reader_jobs` includes `belonging`.
+Likewise, the `belonging` reader job requires at least one approved `belonging_anchors` value.
+Keep both fields empty when belonging is not a reader job for this chapter.
+
+Approved story anchors: {", ".join(commercial.premise_engine.belonging_anchors)}
+Approved boundary transfer: {commercial.premise_engine.boundary_transfer}
+Approved conflict ladder: {json.dumps([step.to_dict() for step in commercial.conflict_ladder], ensure_ascii=False)}
+Approved contract id: {commercial.contract_id}
+
+Assigned free-trial beats for this chapter (all must be delivered on-page):
+{assigned_free_trial_text}
+{visible_cost_instruction}
+
+{design_context}
+"""
             prompt += f"""
 
 ## Machine-Readable Chapter Contract
@@ -1003,6 +1151,7 @@ After the Markdown outline, emit exactly one JSON object inside these tags:
 ```text
 [CHAPTER_CONTRACT]
 {{
+  "schema_version": {2 if commercial_contract is not None else 1},
   "chapter": {chapter.number},
   "goal": "...",
   "obstacle": "...",
@@ -1013,12 +1162,172 @@ After the Markdown outline, emit exactly one JSON object inside these tags:
   "ending_pressure": "...",
   "preserve_facts": ["..."],
   "allowed_knowledge": ["..."],
-  "world_event_ids": ["..."]
+  "world_event_ids": ["..."],
+  "reader_jobs": ["recognition", "anger"],
+  "belonging_anchors": [],
+  "resource_dimension": "name",
+  "resource_change": "...",
+  "satisfaction_type": "boundary",
+  "hook_type": "decision",
+  "humiliation_scene": false,
+  "protagonist_causes_turn": true,
+  "seeded_resource_ids": ["license_record"],
+  "used_resource_ids": ["license_record"]
 }}
 [/CHAPTER_CONTRACT]
 ```
 """
+            if commercial_contract is None:
+                # Keep the v1 template byte-compatible for unactivated stories.
+                prompt = prompt.replace(
+                    '  "schema_version": 1,\n', "", 1
+                ).replace(
+                    '  "world_event_ids": ["..."],\n  "reader_jobs": ["recognition", "anger"],\n  "belonging_anchors": [],\n  "resource_dimension": "name",\n  "resource_change": "...",\n  "satisfaction_type": "boundary",\n  "hook_type": "decision",\n  "humiliation_scene": false,\n  "protagonist_causes_turn": true,\n  "seeded_resource_ids": ["license_record"],\n  "used_resource_ids": ["license_record"]',
+                    '  "world_event_ids": ["..."]',
+                    1,
+                )
         return prompt
+
+    def _commercial_chapter_design_context(self, chapter_number: int) -> str:
+        """Expose persisted resource continuity and relevant gate feedback."""
+        artifacts = ArtifactStore(self.project_path)
+        seeded_resources: set[str] = set()
+        prior_contracts: list[ChapterContract] = []
+        try:
+            for number in range(1, chapter_number):
+                head = artifacts.get_head(number, "chapter_contract")
+                if head is None:
+                    continue
+                contract = ChapterContract.from_dict(
+                    json.loads(artifacts.read_text(head.revision_id))
+                )
+                prior_contracts.append(contract)
+                seeded_resources.update(contract.seeded_resource_ids)
+
+            current_head = artifacts.get_head(chapter_number, "chapter_contract")
+            current_contract = (
+                ChapterContract.from_dict(
+                    json.loads(artifacts.read_text(current_head.revision_id))
+                )
+                if current_head is not None
+                else None
+            )
+        except (ArtifactError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"chapter {chapter_number} resource continuity is invalid"
+            ) from exc
+
+        commercial = CommercialStoryContract.from_dict(
+            self.state.story_bible.get("commercial_story_contract") or {}
+        )
+        all_hook_types = sorted(HOOK_TYPES)
+        unavailable_hook_types: list[str] = []
+        if prior_contracts:
+            last_hook = prior_contracts[-1].hook_type
+            trailing_count = 0
+            for contract in reversed(prior_contracts):
+                if contract.hook_type != last_hook:
+                    break
+                trailing_count += 1
+            maximum_consecutive = (
+                commercial.quality_budgets.identical_hook_type_max + 1
+            )
+            if trailing_count >= maximum_consecutive:
+                unavailable_hook_types.append(last_hook)
+        available_hook_types = [
+            value for value in all_hook_types if value not in unavailable_hook_types
+        ]
+
+        context = [
+            "## Controlled Contract Values",
+            "Allowed `reader_jobs` values: "
+            + json.dumps(sorted(READER_JOBS), ensure_ascii=False),
+            "Allowed `belonging_anchors` values: "
+            + json.dumps(sorted(BELONGING_ANCHORS), ensure_ascii=False),
+            "Allowed `resource_dimension` values: "
+            + json.dumps(sorted(RESOURCE_DIMENSIONS), ensure_ascii=False),
+            "Allowed `satisfaction_type` values: "
+            + json.dumps(sorted(SATISFACTION_TYPES), ensure_ascii=False),
+            "Allowed `hook_type` values: "
+            + json.dumps(all_hook_types, ensure_ascii=False),
+            "Recent `hook_type` sequence: "
+            + json.dumps(
+                [contract.hook_type for contract in prior_contracts[-6:]],
+                ensure_ascii=False,
+            ),
+            "Unavailable `hook_type` values this chapter: "
+            + json.dumps(unavailable_hook_types, ensure_ascii=False),
+            "Available `hook_type` values this chapter: "
+            + json.dumps(available_hook_types, ensure_ascii=False),
+            "Use one available value exactly as written; do not invent a synonym.",
+            "",
+            "## Resource Continuity",
+            "Previously seeded resource IDs: "
+            + json.dumps(sorted(seeded_resources), ensure_ascii=False),
+            "Every `used_resource_id` must appear in that list or in this "
+            "chapter's `seeded_resource_ids`. When introducing a new resource, "
+            "seed it in this chapter before or while using it.",
+        ]
+        if current_contract is not None:
+            current_known = seeded_resources.union(
+                current_contract.seeded_resource_ids
+            )
+            current_missing = sorted(
+                resource_id
+                for resource_id in current_contract.used_resource_ids
+                if resource_id not in current_known
+            )
+            if current_missing:
+                context.append(
+                    "Current contract uses unseeded resource IDs: "
+                    + json.dumps(current_missing, ensure_ascii=False)
+                )
+
+        report_path = (
+            self.outputs_dir
+            / "quality/commercial"
+            / f"chapter_{chapter_number:03d}_design.json"
+        )
+        if not report_path.is_file() or current_contract is None:
+            return "\n".join(context)
+        try:
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError(
+                f"chapter {chapter_number} design feedback is invalid"
+            ) from exc
+        if (
+            not isinstance(report, dict)
+            or report.get("status") != "blocked"
+            or report.get("chapter") != chapter_number
+            or report.get("chapter_contract_id") != current_contract.contract_id
+        ):
+            return "\n".join(context)
+
+        findings = report.get("findings")
+        if not isinstance(findings, list):
+            raise ValueError(
+                f"chapter {chapter_number} design feedback findings are invalid"
+            )
+        blocked_feedback = [
+            f"- {item.get('code')}: {item.get('message')}"
+            for item in findings
+            if isinstance(item, dict)
+            and item.get("severity") == "blocked"
+            and isinstance(item.get("code"), str)
+            and isinstance(item.get("message"), str)
+        ]
+        if blocked_feedback:
+            context.extend(
+                [
+                    "",
+                    "## Previous Design Gate Feedback",
+                    "The previous plan was blocked. Correct every finding in "
+                    "the replacement chapter contract:",
+                    *blocked_feedback,
+                ]
+            )
+        return "\n".join(context)
 
     # ===== Style Curation =====
 
@@ -1059,35 +1368,7 @@ After the Markdown outline, emit exactly one JSON object inside these tags:
             return None
 
         chapter_text = source_path.read_text(encoding="utf-8")
-        prompt = f"""# STYLE CURATOR TASK: Final Polish for Chapter {chapter_number}
-
-Polish this validated chapter while preserving every plot fact, character
-decision, clue, reveal, and continuity constraint. Improve voice consistency,
-rhythm, diction, dialogue distinction, and genre fit. Do not add new events or
-change story outcomes.
-
-## Target Profile
-- Genre: {self.state.metadata.get('genre', 'Fiction')}
-- Audience: {self.state.metadata.get('audience', '') or '[Not specified]'}
-- Language: {self.state.metadata.get('language', 'English')}
-- Tone: {self.state.style_profile.tone}
-- POV: {self.state.style_profile.point_of_view}
-- Prose style: {self.state.style_profile.prose_style}
-
-{self._ending_contract_context(chapter_number)}
-
-## Validated Chapter
-```markdown
-{chapter_text}
-```
-
-## Required Output Contract
-
-Return a short `[STYLE_ANALYSIS]` block, then the complete polished manuscript
-inside `[REVISED_CHAPTER]...[/REVISED_CHAPTER]`, followed by an optional
-`[STYLE_STATE_UPDATE]` block. The revised chapter must be complete, not excerpts
-or recommendations.
-"""
+        prompt = self._generate_style_prompt(chapter_number, chapter_text)
         prompt_path = self.feedback_dir / f"chapter_{chapter_number:03d}_style_prompt.md"
         report_path = self.feedback_dir / f"chapter_{chapter_number:03d}_style_report.md"
         candidate_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_candidate_final.md"
@@ -1145,10 +1426,60 @@ or recommendations.
         print(f"✅ Candidate final saved: {candidate_path}")
         return clean
 
+    def _generate_style_prompt(self, chapter_number: int, chapter_text: str) -> str:
+        """Generate the Style Curator prompt with its role-specific checks."""
+        return f"""# STYLE CURATOR TASK: Final Polish for Chapter {chapter_number}
+
+Polish this validated chapter while preserving every plot fact, character
+decision, clue, reveal, and continuity constraint. Improve voice consistency,
+rhythm, diction, dialogue distinction, and genre fit. Do not add new events or
+change story outcomes. Structural labels belong in the analysis block, never in
+the reader-facing prose.
+
+## Target Profile
+- Genre: {self.state.metadata.get('genre', 'Fiction')}
+- Audience: {self.state.metadata.get('audience', '') or '[Not specified]'}
+- Language: {self.state.metadata.get('language', 'English')}
+- Tone: {self.state.style_profile.tone}
+- POV: {self.state.style_profile.point_of_view}
+- Prose style: {self.state.style_profile.prose_style}
+
+## Style Curator Quality Checks
+- Keep character-specific attention: what this POV character notices, avoids,
+  and misreads must differ from another character's lens.
+- Preserve work knowledge and procedural detail at the character's established
+  level; do not grant unexplained expertise or use a generic competence voice.
+- Differentiate speech strategy, including silence, evasion, interruption, and
+  subtext, rather than relying on repeated declarations.
+- Ground the shame trigger and body response in this character's history and the
+  present scene; use observable behaviour instead of emotion labels.
+- Review template phrase repetition across recent chapters, especially:
+  `I did not cry`, `I did not scream`, `my blood ran cold`, `my world shattered`,
+  `they thought I was weak`, and `the game had just begun`. One earned use may
+  remain; repeated use requires a fresh image or a repair finding.
+- Do not write labels such as "this is the evidence payoff" or
+  "this is the anger beat" in the manuscript.
+
+{self._ending_contract_context(chapter_number)}
+
+## Validated Chapter
+```markdown
+{chapter_text}
+```
+
+## Required Output Contract
+
+Return a short `[STYLE_ANALYSIS]` block, then the complete polished manuscript
+inside `[REVISED_CHAPTER]...[/REVISED_CHAPTER]`, followed by an optional
+`[STYLE_STATE_UPDATE]` block. The revised chapter must be complete, not excerpts
+or recommendations.
+"""
+
     def _generate_chapter_prompt(self, chapter: ChapterState) -> str:
         """Generate a detailed prompt for the Scribe agent."""
         pack_md = format_context_pack(build_context_pack(self.state, chapter.number, purpose="scribe"))
         ending_context = self._ending_contract_context(chapter.number)
+        commercial_context = self._scribe_commercial_context(chapter.number)
 
         prompt = f"""# SCRIBE PROMPT: Chapter {chapter.number}
 
@@ -1164,6 +1495,7 @@ or recommendations.
 
 {pack_md}
 {ending_context}
+{commercial_context}
 ## Chapter Goals
 - [Primary plot advancement]
 - [Character development moment]
@@ -1195,6 +1527,109 @@ Do not list a referenced/off-page character in Characters_Present.
 **Write the complete chapter now. Follow all protocols in your system instructions.**
 """
         return prompt
+
+    def _scribe_commercial_context(self, chapter_number: int) -> str:
+        """Return only approved, artifact-bound commercial inputs for Scribe.
+
+        The context is assembled from the hydrated foundation, the current
+        chapter-contract head, and canonical reader-value records from earlier
+        promoted chapters. Raw prompts, corpus files, paths, and retrieval
+        results are deliberately outside this boundary.
+        """
+        if self.quality_policy != "evidence_v1":
+            return ""
+
+        from artifacts import ArtifactStore
+
+        artifacts = ArtifactStore(self.project_path)
+        current_head = artifacts.get_head(chapter_number, "chapter_contract")
+        if current_head is None:
+            raise ValueError(
+                f"Chapter {chapter_number} has no current chapter contract revision"
+            )
+        try:
+            chapter_contract = json.loads(artifacts.read_text(current_head.revision_id))
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise ValueError(
+                f"Chapter {chapter_number} contract revision is unreadable"
+            ) from exc
+        if not isinstance(chapter_contract, dict):
+            raise ValueError("current chapter contract must be a JSON object")
+
+        commercial_payload = self.state.story_bible.get("commercial_story_contract")
+        if commercial_payload is None:
+            # Evidence-v1 is also supported for non-commercial legacy projects.
+            return (
+                "## Current Chapter Contract\n\n"
+                "```json\n"
+                + json.dumps(chapter_contract, ensure_ascii=False, sort_keys=True, indent=2)
+                + "\n```\n"
+            )
+        try:
+            commercial = CommercialStoryContract.from_dict(commercial_payload)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("stored commercial story contract is invalid") from exc
+        stored_id = self.state.metadata.get("commercial_story_contract_id")
+        if stored_id != commercial.contract_id:
+            raise ValueError("stored commercial story contract id is invalid")
+
+        summaries: list[str] = []
+        for number in sorted(self.state.chapters):
+            if number >= chapter_number:
+                continue
+            prior = self.state.chapters[number]
+            # Canonical revision + complete status are the local proof that the
+            # reader-value record came from a promoted artifact, not a draft.
+            if prior.status != "complete" or not prior.canonical_revision_id:
+                continue
+            try:
+                canonical_revision = artifacts.get_revision(prior.canonical_revision_id)
+            except (KeyError, ValueError):
+                continue
+            if canonical_revision.kind != "final":
+                continue
+            for update in prior.reader_value_updates:
+                if update.get("candidate_sha256") != canonical_revision.sha256:
+                    continue
+                jobs = ", ".join(update.get("reader_jobs") or []) or "none"
+                anchors = ", ".join(update.get("belonging_anchors") or []) or "none"
+                summaries.append(
+                    f"- Chapter {number}: jobs={jobs}; anchors={anchors}; "
+                    f"resource={update.get('resource_dimension', '')}; "
+                    f"change={update.get('resource_change', '')}; "
+                    f"satisfaction={update.get('satisfaction_type', '')}; "
+                    f"hook={update.get('hook_type', '')}; "
+                    f"protagonist_caused_turn={str(update.get('protagonist_caused_turn')).lower()}"
+                )
+
+        summary_block = "\n".join(summaries[-6:]) or "- None yet; this is the first promoted chapter."
+        canonical_commercial = json.dumps(
+            commercial.to_dict(), ensure_ascii=False, sort_keys=True, indent=2
+        )
+        return f"""## Approved Commercial Story Contract
+
+Use this immutable, user-approved contract as design constraints. Do not copy
+its labels into prose or claim a delivery that is not observable in the scene.
+
+```json
+{canonical_commercial}
+```
+
+## Current Chapter Contract
+
+```json
+{json.dumps(chapter_contract, ensure_ascii=False, sort_keys=True, indent=2)}
+```
+
+## Recent Verified Reader-Value Outcomes
+
+These summaries come only from earlier complete chapters whose reader-value
+records were verified and promoted. Treat them as continuity context, not text
+to imitate. Do not emit reader-value state blocks; the Continuity Guardian
+certifies delivery after the candidate is reviewed.
+
+{summary_block}
+"""
 
     def _ending_contract_context(self, chapter_number: int) -> str:
         """Inject the book-level ending contract only near the finale."""
@@ -1266,25 +1701,15 @@ Do not list a referenced/off-page character in Characters_Present.
         outline_path = self.outputs_dir / f"chapter_{chapter_number:03d}_outline.md"
         pack_md = format_context_pack(build_context_pack(self.state, chapter_number, purpose="scribe"))
         if outline_path.exists():
-            user_prompt = outline_path.read_text(encoding='utf-8') + "\n\n" + pack_md
+            user_prompt = (
+                outline_path.read_text(encoding="utf-8")
+                + "\n\n"
+                + pack_md
+                + "\n"
+                + self._scribe_commercial_context(chapter_number)
+            )
         else:
             user_prompt = self._generate_chapter_prompt(chapter)
-        if self.quality_policy == "evidence_v1":
-            from artifacts import ArtifactStore
-
-            artifacts = ArtifactStore(self.project_path)
-            contract_head = artifacts.get_head(chapter_number, "chapter_contract")
-            if contract_head is None:
-                raise ValueError(
-                    f"Chapter {chapter_number} has no current chapter contract revision"
-                )
-            contract = json.loads(artifacts.read_text(contract_head.revision_id))
-            user_prompt += (
-                "\n\n## Current Chapter Contract\n\n"
-                "```json\n"
-                + json.dumps(contract, ensure_ascii=False, sort_keys=True, indent=2)
-                + "\n```\n"
-            )
 
         prompt_path = self.outputs_dir / f"chapter_{chapter_number:03d}_scribe_prompt.md"
         result = self._run_agent_or_save_prompt(
@@ -1500,6 +1925,19 @@ foreshadowing, timeline, or status facts.
 
 {self._ending_contract_context(chapter.number)}
 
+## Editor Quality Checks
+- Detect repeated humiliation scenes and preserve escalation through a changed
+  resource, relationship, or choice rather than simply increasing insults.
+- Ensure the protagonist causes the chapter's major turn; flag passive turns,
+  coincidence, or an unsupported rescue that solves the conflict for them.
+- Check repeated hook mechanics: the ending hook should use a different
+  mechanic from recent chapters when the current contract calls for rotation.
+- Keep contract labels and analysis terms out of reader-facing prose.
+- Review the six template phrases (`I did not cry`, `I did not scream`,
+  `my blood ran cold`, `my world shattered`, `they thought I was weak`,
+  `the game had just begun`) for repetition across recent chapters; replace a
+  repeated use with a scene-specific image or action.
+
 ## Editing Instructions
 
 ### Mode-Specific Focus: {mode}
@@ -1683,6 +2121,416 @@ Provide:
         if result is not None and resolved_mode == "legacy_apply":
             chapter.status = 'validated'
             self.state.save_state()
+
+    def _commercial_contract_context(self, chapter_number: int) -> tuple[ChapterContract, str, str]:
+        """Load the immutable contract heads used by commercial review."""
+        artifacts = ArtifactStore(self.project_path)
+        chapter_head = artifacts.get_head(chapter_number, "chapter_contract")
+        if chapter_head is None:
+            raise ValueError(f"Chapter {chapter_number} has no current chapter contract")
+        try:
+            chapter_contract = ChapterContract.from_dict(
+                json.loads(artifacts.read_text(chapter_head.revision_id))
+            )
+        except (ArtifactError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Chapter {chapter_number} contract is unreadable") from exc
+        if chapter_contract.schema_version != 2:
+            raise ValueError("commercial review requires a schema-v2 chapter contract")
+        story_head = artifacts.get_head(0, "story_contract")
+        story_revision_id = story_head.revision_id if story_head is not None else ""
+        return chapter_contract, story_revision_id, chapter_head.revision_id
+
+    @staticmethod
+    def _extract_json_object(text: str) -> dict[str, Any]:
+        """Parse one JSON object from a Guardian response without accepting extras."""
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("commercial Guardian response is empty")
+        decoder = json.JSONDecoder()
+        for index, char in enumerate(text):
+            if char != "{":
+                continue
+            try:
+                value, end = decoder.raw_decode(text[index:])
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(value, dict):
+                continue
+            if text[index + end :].strip().strip("`").strip():
+                # Ignore prose before/after the object only when it is a
+                # normal model wrapper; the strict schema below remains the
+                # authority for every field.
+                continue
+            return value
+        raise ValueError("commercial Guardian response does not contain one JSON object")
+
+    def _recent_reader_value_updates(self, chapter_number: int) -> tuple[dict[str, Any], ...]:
+        updates: list[dict[str, Any]] = []
+        for number in sorted(self.state.chapters):
+            if number >= chapter_number:
+                continue
+            for update in self.state.chapters[number].reader_value_updates:
+                if isinstance(update, dict):
+                    updates.append(dict(update))
+        return tuple(updates[-6:])
+
+    def _generate_commercial_review_prompt(
+        self,
+        chapter_number: int,
+        candidate_text: str,
+        chapter_contract: ChapterContract,
+    ) -> str:
+        """Build the machine-readable delivery review prompt."""
+        commercial_payload = self.state.story_bible.get("commercial_story_contract")
+        commercial_contract = CommercialStoryContract.from_dict(commercial_payload or {})
+        expected_free_trial_beats = free_trial_beats_for_chapter(
+            commercial_contract, chapter_number
+        )
+        free_trial_shape = {
+            beat: {"status": "present", "quote": "...", "start": 0, "end": 1}
+            for beat in expected_free_trial_beats
+        }
+        commercial_json = json.dumps(
+            commercial_payload or {}, ensure_ascii=False, sort_keys=True, indent=2
+        )
+        contract_json = json.dumps(
+            chapter_contract.to_dict(), ensure_ascii=False, sort_keys=True, indent=2
+        )
+        return f"""# COMMERCIAL READER-VALUE GUARDIAN: Chapter {chapter_number}
+
+Review the exact candidate manuscript below against the approved contracts. This
+is an evidence extraction task, not a prose rewrite. Return exactly one JSON
+object and no Markdown, commentary, or state-update blocks.
+
+## Approved Story Contract
+```json
+{commercial_json}
+```
+
+## Current Chapter Contract
+```json
+{contract_json}
+```
+
+## Candidate Manuscript
+Character offsets are Python string offsets into this exact UTF-8-decoded text.
+Every `present` delivery and every finding must quote an exact contiguous span.
+```markdown
+{candidate_text}
+```
+
+## Required JSON Shape
+```json
+{{
+  "agency": {{"status": "present", "quote": "...", "start": 0, "end": 1}},
+  "resource_change": {{"status": "present", "quote": "...", "start": 0, "end": 1}},
+  "local_payoff": {{"status": "present", "quote": "...", "start": 0, "end": 1}},
+  "ending_hook": {{"status": "present", "quote": "...", "start": 0, "end": 1}},
+  "reader_jobs": {{"<declared job>": {{"status": "present", "quote": "...", "start": 0, "end": 1}}}},
+  "belonging_anchors": {{}},
+  "free_trial_beats": {json.dumps(free_trial_shape, ensure_ascii=False)},
+  "child_voice": {{"status": "not_applicable", "quote": null, "start": null, "end": null}},
+  "institutional_plausibility": {{"status": "present", "quote": "...", "start": 0, "end": 1}},
+  "findings": []
+}}
+```
+
+Use `missing` or `not_applicable` only when the contract allows it. A finding is
+an object with `category`, `severity` (`critical|major|minor|info`), `message`,
+`suggested_action`, and one or more exact `evidence` spans. Do not infer a
+delivery from the contract label alone. Keep all reader-value labels out of the
+manuscript itself.
+"""
+
+    def review_commercial_chapter(self, chapter_number: int, dry_run: bool = False):
+        """Have the Guardian certify reader-value delivery for candidate_final."""
+        self.last_canon_proposal_ids = []
+        candidate_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_candidate_final.md"
+        if not candidate_path.is_file():
+            raise ValueError(f"Chapter {chapter_number} candidate final is missing")
+        candidate_text = candidate_path.read_text(encoding="utf-8")
+        chapter_contract, story_revision_id, chapter_revision_id = self._commercial_contract_context(
+            chapter_number
+        )
+        commercial_contract = CommercialStoryContract.from_dict(
+            self.state.story_bible.get("commercial_story_contract") or {}
+        )
+        expected_free_trial_beats = free_trial_beats_for_chapter(
+            commercial_contract, chapter_number
+        )
+        chapter = self.state.get_chapter(chapter_number)
+        if chapter is None:
+            raise ValueError(f"Chapter {chapter_number} not found")
+        minimum_words, maximum_words = self._chapter_word_bounds(chapter)
+        candidate_word_count = len(candidate_text.split())
+        if not minimum_words <= candidate_word_count <= maximum_words:
+            report = CommercialChapterReport(
+                status="blocked",
+                chapter=chapter_number,
+                artifact_sha256=hashlib.sha256(
+                    candidate_text.encode("utf-8")
+                ).hexdigest(),
+                story_contract_revision_id=story_revision_id,
+                chapter_contract_revision_id=chapter_revision_id,
+                findings=(
+                    CommercialFinding(
+                        code="chapter_word_count_out_of_range",
+                        severity="blocked",
+                        message=(
+                            f"Chapter {chapter_number} has {candidate_word_count} words; "
+                            f"required range is {minimum_words}-{maximum_words}."
+                        ),
+                    ),
+                ),
+            )
+            report_path = write_commercial_report(self.project_path, report)
+            self._archive_commercial_report(chapter_number, report, raw=None)
+            print(f"✅ Commercial report saved: {report_path}")
+            return report
+        prompt = self._generate_commercial_review_prompt(
+            chapter_number, candidate_text, chapter_contract
+        )
+        prompt_path = self.feedback_dir / f"chapter_{chapter_number:03d}_commercial_prompt.md"
+        raw_path = self.feedback_dir / f"chapter_{chapter_number:03d}_commercial_report.json.raw"
+        prompt_path.write_text(prompt, encoding="utf-8")
+        if dry_run:
+            print(f"   [dry-run] Prompt saved: {prompt_path}")
+            return None
+        try:
+            llm = self.llm_for("continuity_guardian")
+            print(f"   Commercial Guardian reviewing ({llm.provider}:{llm.model})...")
+            raw = llm.run_agent("continuity_guardian", prompt)
+        except LLMError:
+            if self.raise_llm_errors:
+                raise
+            return None
+        raw_path.write_text(raw, encoding="utf-8")
+        run_commercial_dir = self._archive_commercial_report(
+            chapter_number, report=None, raw=raw
+        )
+        try:
+            payload = self._extract_json_object(raw)
+            report = validate_commercial_chapter(
+                candidate_text,
+                chapter_contract,
+                payload,
+                self._recent_reader_value_updates(chapter_number),
+                story_contract_revision_id=story_revision_id,
+                chapter_contract_revision_id=chapter_revision_id,
+                expected_free_trial_beats=expected_free_trial_beats,
+            )
+        except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            raise LLMError(f"Commercial Guardian response failed strict validation: {exc}") from exc
+        report_path = write_commercial_report(self.project_path, report)
+        if run_commercial_dir is not None:
+            # Keep each superseded report immutable in the run evidence area;
+            # the project-level path remains the current report pointer.
+            (run_commercial_dir / f"report_{report.artifact_sha256}.json").write_text(
+                json.dumps(report.to_dict(), ensure_ascii=False, sort_keys=True, indent=2)
+                + "\n",
+                encoding="utf-8",
+            )
+        if report.reader_value_update is not None:
+            proposal = ProposalStore(self.project_path).save(CanonDeltaProposal(
+                chapter=chapter_number,
+                agent_name="continuity_guardian",
+                source_artifact_sha=report.artifact_sha256,
+                delta={"reader_value_updates": [dict(report.reader_value_update)]},
+            ))
+            self.last_canon_proposal_ids.append(proposal.proposal_id)
+        print(f"✅ Commercial report saved: {report_path}")
+        return report
+
+    def _archive_commercial_report(
+        self,
+        chapter_number: int,
+        report: CommercialChapterReport | None,
+        raw: str | None,
+    ) -> Path | None:
+        """Keep run-scoped Guardian inputs and superseded reports immutable."""
+        run_id = getattr(self, "pipeline_run_id", "")
+        if not run_id:
+            return None
+        run_commercial_dir = (
+            self.outputs_dir
+            / "runs"
+            / str(run_id)
+            / "feedback"
+            / "commercial"
+            / f"chapter_{chapter_number:03d}"
+        )
+        run_commercial_dir.mkdir(parents=True, exist_ok=True)
+        if raw is not None:
+            raw_sha = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+            (run_commercial_dir / f"guardian_{raw_sha}.json").write_text(
+                raw, encoding="utf-8"
+            )
+        if report is not None:
+            (run_commercial_dir / f"report_{report.artifact_sha256}.json").write_text(
+                json.dumps(report.to_dict(), ensure_ascii=False, sort_keys=True, indent=2)
+                + "\n",
+                encoding="utf-8",
+            )
+        return run_commercial_dir
+
+    def _chapter_word_bounds(self, chapter: ChapterState) -> tuple[int, int]:
+        """Resolve an explicit per-chapter range, or use the standard ±10%."""
+        target = max(1, int(chapter.target_word_count or 1))
+        prompt_path = self.outputs_dir / "input" / "prompt.md"
+        if prompt_path.is_file():
+            prompt_text = prompt_path.read_text(encoding="utf-8")
+            for match in re.finditer(
+                r"([\d,]+)\s*[-–]\s*([\d,]+)\s+words?\b",
+                prompt_text,
+                re.IGNORECASE,
+            ):
+                first = int(match.group(1).replace(",", ""))
+                second = int(match.group(2).replace(",", ""))
+                lower, upper = sorted((first, second))
+                if lower <= target <= upper:
+                    return lower, upper
+        tolerance = max(1, round(target * 0.10))
+        return max(1, target - tolerance), target + tolerance
+
+    def repair_commercial_chapter(
+        self,
+        chapter_number: int,
+        report: CommercialChapterReport | str,
+        attempt: int,
+        dry_run: bool = False,
+    ):
+        """Repair only the candidate-final artifact against commercial findings."""
+        resolved_mode = self.state_update_mode
+        self._validate_state_update_mode(resolved_mode)
+        candidate_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_candidate_final.md"
+        if not candidate_path.is_file():
+            raise ValueError(f"Chapter {chapter_number} candidate final is missing")
+        chapter = self.state.get_chapter(chapter_number)
+        if chapter is None:
+            raise ValueError(f"Chapter {chapter_number} not found")
+        chapter_contract, story_revision_id, chapter_revision_id = self._commercial_contract_context(
+            chapter_number
+        )
+        minimum_words, maximum_words = self._chapter_word_bounds(chapter)
+        commercial_contract = CommercialStoryContract.from_dict(
+            self.state.story_bible.get("commercial_story_contract") or {}
+        )
+        assigned_free_trial_beats = free_trial_beats_for_chapter(
+            commercial_contract, chapter_number
+        )
+        free_trial_arc = commercial_contract.free_trial_arc.to_dict()
+        assigned_free_trial_text = "\n".join(
+            f"- `{beat}`: {free_trial_arc[beat]}"
+            for beat in assigned_free_trial_beats
+        ) or "- None"
+        visible_cost_instruction = (
+            "When `visible_cost` is assigned, deliver it before the final beat, "
+            "then end on fresh unresolved pressure consistent with the declared "
+            "hook type. Do not preserve a hook by deferring the required cost."
+            if "visible_cost" in assigned_free_trial_beats
+            else ""
+        )
+        feedback_text = str(report)
+        if isinstance(report, CommercialChapterReport):
+            feedback_text = json.dumps(
+                {
+                    "artifact_sha256": report.artifact_sha256,
+                    "findings": [item.to_dict() for item in report.blockers],
+                    "evidence_findings": [item.to_dict() for item in report.quality_findings if item.blocking],
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+            )
+        contracts_text = (
+            "## Unchanged Contract Heads\n"
+            f"Story contract revision: {story_revision_id}\n"
+            f"Chapter contract revision: {chapter_revision_id}\n"
+            "```json\n"
+            + json.dumps(
+                self.state.story_bible.get("commercial_story_contract") or {},
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+            )
+            + "\n```\n"
+            "Chapter contract:\n"
+            "```json\n"
+            + json.dumps(chapter_contract.to_dict(), ensure_ascii=False, sort_keys=True, indent=2)
+            + "\n```\n"
+        )
+        delivery_checklist = f"""## Non-regression Delivery Checklist
+- Target word count: {chapter.target_word_count}
+- Required prose range: {minimum_words}-{maximum_words} words (hard gate)
+- Agency/active choice: {chapter_contract.active_choice}
+- Resource change: {chapter_contract.resource_change}
+- Local payoff: {chapter_contract.local_payoff}
+- Ending hook: `{chapter_contract.hook_type}` — {chapter_contract.ending_pressure}
+- Reader jobs: {json.dumps(list(chapter_contract.reader_jobs), ensure_ascii=False)}
+- Belonging anchors: {json.dumps(list(chapter_contract.belonging_anchors), ensure_ascii=False)}
+- Assigned free-trial beats:
+{assigned_free_trial_text}
+
+Do not fix one delivery by deleting or deferring another. The complete replacement
+must satisfy the latest feedback and every checklist item at the same time.
+{visible_cost_instruction}
+"""
+        prompt = f"""# STYLE CURATOR COMMERCIAL DELIVERY REPAIR: Chapter {chapter_number}
+
+This is automatic commercial delivery repair attempt {attempt}. Preserve the
+story, voice, continuity, and chapter contract. Repair only the cited missing or
+unsupported reader-value delivery. Do not add commentary to the manuscript.
+
+## Commercial Guardian Feedback
+{feedback_text}
+
+{contracts_text}
+{delivery_checklist}
+
+## Current Candidate Final
+```markdown
+{candidate_path.read_text(encoding='utf-8')}
+```
+
+Return `[EDITOR_ANALYSIS]`, the complete replacement inside
+`[REVISED_CHAPTER]...[/REVISED_CHAPTER]`, and `[EDITOR_STATE_UPDATE]`.
+"""
+        prompt_path = self.feedback_dir / f"chapter_{chapter_number:03d}_commercial_repair_{attempt:02d}_prompt.md"
+        prompt_path.write_text(prompt, encoding="utf-8")
+        if dry_run:
+            print(f"   [dry-run] Prompt saved: {prompt_path}")
+            return None
+        try:
+            llm = self.llm_for("style_curator")
+            print(f"   Style Curator repairing commercial delivery (attempt {attempt}) ({llm.provider}:{llm.model})...")
+            raw = llm.run_agent("style_curator", prompt)
+        except LLMError:
+            if self.raise_llm_errors:
+                raise
+            return None
+        raw_path = candidate_path.with_suffix(candidate_path.suffix + f".commercial_repair_{attempt:02d}.raw")
+        raw_path.write_text(raw, encoding="utf-8")
+        normalized = normalize_agent_output(raw)
+        manuscript = extract_manuscript_block(normalized)
+        if manuscript is None:
+            raise LLMError("Style Curator commercial repair is missing [REVISED_CHAPTER]")
+        clean, _meta = sanitize_manuscript(manuscript)
+        if not clean:
+            raise LLMError("Style Curator commercial repair returned an empty candidate")
+        repaired_word_count = len(clean.split())
+        if not minimum_words <= repaired_word_count <= maximum_words:
+            raise LLMError(
+                f"Style Curator commercial repair word count {repaired_word_count} "
+                f"is outside required range {minimum_words}-{maximum_words}"
+            )
+        candidate_path.write_text(clean, encoding="utf-8")
+        if resolved_mode == "proposal_only":
+            self._persist_canon_proposal(
+                chapter_number=chapter_number,
+                agent_name="style_curator",
+                normalized_response=normalized,
+                source_path=candidate_path,
+            )
+        return clean
     
     def _generate_validation_prompt(self, chapter_number: int, chapter_text: str) -> str:
         """Generate a validation prompt."""
@@ -1726,6 +2574,24 @@ Provide:
             "relationship labels as Critical or Warning. Do not invent Codex facts "
             "that are not listed.\n"
         )
+
+        prompt += """
+
+## Continuity Guardian Quality Checks
+- Verify evidence provenance: every claimed reveal, payoff, resource change, or
+  reader-value delivery must point to the exact candidate passage or a known
+  canonical fact; do not certify unsupported summaries.
+- Check child knowledge and voice when a child appears: age-appropriate
+  vocabulary, inference, silence, and bodily response must match what the child
+  could know on-page.
+- Check institutional plausibility for medical, legal, workplace, school, and
+  financial actions; flag process shortcuts that change the causal outcome.
+- Compare the current chapter contract to the prose and report whether goal,
+  obstacle, protagonist-caused turn, local payoff, resource change, and ending
+  pressure are observable rather than merely named.
+- Keep structural labels in the report and state update only, never in the
+  reader-facing manuscript.
+"""
 
         prompt += f"""
 ### Previous Chapter Events
@@ -2068,7 +2934,7 @@ Examples:
                             help='Initial retry delay in seconds (exponential, capped at 30s)')
     run_parser.add_argument('--max-quality-repairs', type=int, default=2,
                             help='Automatic continuity repair passes per chapter under --approval auto')
-    run_parser.add_argument('--output', nargs='+', default=['markdown'],
+    run_parser.add_argument('--output', nargs='+', default=['markdown', 'epub', 'pdf', 'docx'],
                             choices=['markdown', 'html', 'docx', 'epub', 'pdf'])
     run_parser.add_argument('--model', default='', help='Override NOVEL_OS_MODEL for this process')
     run_parser.add_argument('--dry-run', action='store_true',
@@ -2092,6 +2958,12 @@ Examples:
     retry_parser.add_argument('--chapter', type=int, default=None)
     retry_parser.add_argument('--approval', choices=['review_required', 'auto'], default=None)
 
+    try:
+        from .cover_cli import configure_cover_parser
+    except ImportError:  # `python core/orchestrator.py`
+        from cover_cli import configure_cover_parser
+    configure_cover_parser(subparsers)
+
     args = parser.parse_args(argv)
 
     if not args.command:
@@ -2102,6 +2974,13 @@ Examples:
     if args.command == 'setup':
         from setup_wizard import run_wizard
         sys.exit(run_wizard())
+
+    if args.command == 'cover':
+        try:
+            from .cover_cli import run_cover_command
+        except ImportError:  # `python core/orchestrator.py`
+            from cover_cli import run_cover_command
+        return run_cover_command(args)
 
     # Commands that need a working LLM. If none resolves, offer the wizard first.
     _LLM_COMMANDS = {'plan', 'write', 'edit', 'validate', 'curate', 'run'}
@@ -2119,7 +2998,7 @@ Examples:
 
     if args.command in {'run', 'resume', 'run-status', 'retry'}:
         from pipeline_models import RunSpec
-        from pipeline_runner import PipelineRunner
+        from pipeline_runner import PipelineError, PipelineRunner
 
         runner = PipelineRunner(getattr(args, 'project', None))
         try:
@@ -2163,7 +3042,7 @@ Examples:
                 )
             else:
                 manifest = runner.inspect(args.run_id, args.project)
-        except (FileNotFoundError, ValueError) as exc:
+        except (FileNotFoundError, ValueError, PipelineError) as exc:
             print(f"❌ {exc}")
             return 1
 

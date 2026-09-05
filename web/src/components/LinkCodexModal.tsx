@@ -4,12 +4,13 @@ import Modal, { Field, fieldClass } from "./Modal";
 import ChoiceGroup from "./ChoiceGroup";
 import { useToast } from "./toastContext";
 import type { IconName } from "../icons/registry";
+import { entityTypeLabel } from "../lib/displayLabels";
 
 const TYPE_OPTIONS: { value: CodexEntryType; label: string; icon: IconName }[] = [
-  { value: "character", label: "Character", icon: "users" },
-  { value: "location", label: "Location", icon: "map-pin" },
-  { value: "worldbuilding", label: "World", icon: "landmark" },
-  { value: "item", label: "Item", icon: "package" },
+  { value: "character", label: "人物", icon: "users" },
+  { value: "location", label: "地点", icon: "map-pin" },
+  { value: "worldbuilding", label: "世界设定", icon: "landmark" },
+  { value: "item", label: "物件", icon: "package" },
 ];
 
 /** Pick an existing Codex entry or create one from the selection. */
@@ -69,8 +70,8 @@ export default function LinkCodexModal({
         role: entryType === "character" ? "supporting" : undefined,
       });
       const created = list.find((x) => x.name.toLowerCase() === name.trim().toLowerCase()) ?? list[0];
-      if (!created) throw new Error("Could not create entry");
-      toast(`Created ${created.name}`, "success");
+      if (!created) throw new Error("无法创建条目");
+      toast(`已创建「${created.name}」`, "success");
       onLinked(created);
       onClose();
     } catch (err) {
@@ -81,21 +82,21 @@ export default function LinkCodexModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={mode === "link" ? "Link to Codex" : "Create Codex Entry"}>
+    <Modal open={open} onClose={onClose} title={mode === "link" ? "关联到设定库" : "新建设定库条目"}>
       {mode === "link" ? (
         <div>
-          <Field label="Search">
+          <Field label="搜索">
             <input
               autoFocus
               className={fieldClass}
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Find a character, place, or item…"
+              placeholder="查找人物、地点或物件…"
             />
           </Field>
           <ul className="max-h-56 space-y-1 overflow-y-auto">
             {filtered.length === 0 && (
-              <li className="py-6 text-center text-[13px] text-ink-muted">No matching entries.</li>
+              <li className="py-6 text-center text-[13px] text-ink-muted">没有匹配的条目。</li>
             )}
             {filtered.map((e) => (
               <li key={`${e.entry_type}-${e.id}`}>
@@ -105,33 +106,33 @@ export default function LinkCodexModal({
                   className="flex w-full items-center justify-between rounded-2xl px-3 py-2.5 text-left transition-colors hover:bg-[rgba(104,103,234,0.08)]"
                 >
                   <span className="font-medium text-ink-text">{e.name}</span>
-                  <span className="text-[11.5px] capitalize text-ink-muted">{e.entry_type}</span>
+                  <span className="text-[11.5px] text-ink-muted">{entityTypeLabel(e.entry_type)}</span>
                 </button>
               </li>
             ))}
           </ul>
           <div className="mt-4 flex justify-end">
-            <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
+            <button type="button" onClick={onClose} className="btn-ghost">取消</button>
           </div>
         </div>
       ) : (
         <form onSubmit={create}>
-          <Field label="Type">
+          <Field label="类型">
             <ChoiceGroup
-              label="Type"
+              label="类型"
               variant="cards"
               value={entryType}
               onChange={setEntryType}
               options={TYPE_OPTIONS}
             />
           </Field>
-          <Field label="Name">
+          <Field label="名称">
             <input autoFocus className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <div className="mt-6 flex justify-end gap-3">
-            <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
+            <button type="button" onClick={onClose} className="btn-ghost">取消</button>
             <button type="submit" disabled={!name.trim() || busy} className="btn-primary disabled:opacity-40">
-              {busy ? "Creating…" : "Create & link"}
+              {busy ? "正在创建…" : "创建并关联"}
             </button>
           </div>
         </form>

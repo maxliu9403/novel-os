@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, TextIO
 
+from commercial_story import parse_commercial_story_block
 from state_manager import StoryState, initialize_project
 
 
@@ -132,7 +133,7 @@ def build_brief(prompt: str, overrides: Optional[Mapping[str, Any]] = None) -> D
     genre = str(overrides.get("genre") or fields.get("genre") or "Fiction")
     chapters = _number(overrides.get("chapters") or fields.get("chapters") or inferred_chapters, 32)
     words = _number(overrides.get("words") or fields.get("words") or inferred_words, 80000)
-    return {
+    brief = {
         "title": title,
         "working_title": str(overrides.get("working_title") or fields.get("working_title") or ""),
         "genre": genre,
@@ -152,6 +153,11 @@ def build_brief(prompt: str, overrides: Optional[Mapping[str, Any]] = None) -> D
             "Fields supplied by CLI overrides take precedence over prompt hints.",
         ],
     }
+    commercial_story = parse_commercial_story_block(prompt)
+    if commercial_story is not None:
+        brief["commercial_story_contract"] = commercial_story.to_dict()
+        brief["commercial_story_contract_id"] = commercial_story.contract_id
+    return brief
 
 
 def _story_bible_markdown(brief: Mapping[str, Any]) -> str:
@@ -222,6 +228,13 @@ def ingest_prompt(
     state.update_story_bible("must_have", brief.get("must_have", []))
     state.update_story_bible("forbidden", brief.get("forbidden", []))
     state.update_story_bible("prompt_source", "outputs/input/prompt.md")
+    if brief.get("commercial_story_contract"):
+        state.set_metadata(
+            "commercial_story_contract_id", brief["commercial_story_contract_id"]
+        )
+        state.update_story_bible(
+            "commercial_story_contract", brief["commercial_story_contract"]
+        )
 
     input_dir = project / "outputs" / "input"
     input_dir.mkdir(parents=True, exist_ok=True)

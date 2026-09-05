@@ -44,14 +44,14 @@ beforeEach(() => {
 test("defaults the manuscript canvas to SF Pro", () => {
   renderEditor();
   expect(getReaderFont()).toBe("sans");
-  const group = screen.getByRole("radiogroup", { name: "Reading font" });
-  expect(group.querySelector('[aria-checked="true"]')).toHaveAttribute("aria-label", "SF Pro");
+  const group = screen.getByRole("radiogroup", { name: "阅读字体" });
+  expect(group.querySelector('[aria-checked="true"]')).toHaveAttribute("aria-label", "无衬线");
 });
 
 test("switching the reader font rebinds the token and persists it", async () => {
   const user = userEvent.setup();
   renderEditor();
-  await user.click(screen.getByRole("radio", { name: "Newsreader" }));
+  await user.click(screen.getByRole("radio", { name: "衬线" }));
 
   expect(document.documentElement.dataset.readerFont).toBe("serif");
   expect(getReaderFont()).toBe("serif");
@@ -59,9 +59,9 @@ test("switching the reader font rebinds the token and persists it", async () => 
 
 test("offers all three reader fonts as visible choices", () => {
   renderEditor();
-  const group = screen.getByRole("radiogroup", { name: "Reading font" });
+  const group = screen.getByRole("radiogroup", { name: "阅读字体" });
   const labels = [...group.querySelectorAll('[role="radio"]')].map((el) =>
     el.getAttribute("aria-label"),
   );
-  expect(labels).toEqual(["SF Pro", "Newsreader", "Mono"]);
+  expect(labels).toEqual(["无衬线", "衬线", "等宽"]);
 });

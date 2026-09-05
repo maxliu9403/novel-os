@@ -12,13 +12,19 @@ import json
 import os
 import re
 import shutil
+import stat
 import tempfile
 import time
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
+import fcntl
+
 from artifacts import ArtifactError, ArtifactStore
 from canon import CanonDeltaProposal
+from commercial_story import CommercialStoryContract
 from contracts import AuthorIntent, ChapterContract, StoryContract
 from canon_ledger import canonical_canon_sha
 from compile_book import gather, render_bytes
@@ -32,13 +38,52 @@ from ending_quality import (
     load_ending_contract,
 )
 from foundation_canon import FoundationCanonReceipt, FoundationCanonService
+from h5_publication import (
+    H5_PUBLICATION_POLICY_VERSION,
+    H5PublicationError,
+    H5PublicationResult,
+    project_h5_publication,
+    validate_h5_publication_root,
+)
 from llm_client import LLMError
 from pipeline_models import ManifestStore, RunManifest, RunSpec, StageResult
 from prompt_intake import ingest_prompt
 from project_identity import ensure_project_instance_id
 from promotion import PromotionRequest, PromotionService
 from proposals import ProposalStore
+from publication_copy import (
+    POLICY_VERSION as PUBLICATION_COPY_POLICY_VERSION,
+    PublicationCopy,
+    canonical_json_bytes,
+    parse_publication_copy,
+)
+from publication_copy_service import PublicationCopyBlocked, PublicationCopyService
+from publication_source import (
+    PublicationSourceError,
+    build_publication_source_set,
+)
 from quality import EvaluationReport, EvaluationRequest, QualityLab
+from commercial_quality import (
+    CommercialBookReport,
+    CommercialChapterReport,
+    CommercialFreeTrialReport,
+    ChapterDesignReport,
+    commercial_book_input_hashes,
+    commercial_free_trial_input_hashes,
+    chapter_design_input_hashes,
+    evaluate_commercial_book,
+    evaluate_commercial_free_trial,
+    validate_chapter_design,
+    write_commercial_book_report,
+    write_commercial_free_trial_report,
+    write_design_report,
+)
+from story_originality import (
+    OriginalityReport,
+    capture_originality_context,
+    evaluate_story_originality,
+    originality_input_hashes,
+)
 from styles import StyleSheet
 
 
@@ -48,7 +93,9 @@ _STAGE_AGENTS = {
     "chapter.write": "scribe",
     "chapter.edit": "editor",
     "chapter.validate": "continuity_guardian",
+    "chapter.commercial_check": "continuity_guardian",
     "chapter.style": "style_curator",
+    "publication.copy": "style_curator",
 }
 
 _EVIDENCE_PROPOSAL_PHASES = (
@@ -65,12 +112,32 @@ _EVIDENCE_PROPOSAL_PHASES = (
 _STATE_AUTHORITY_PHASES = frozenset({"foundation.commit"})
 
 
+@dataclass(frozen=True)
+class _DeliveryStageValue:
+    package_result: Any
+    h5_result: H5PublicationResult | None
+    decision: str = ""
+
+
 def _is_repair_phase(phase: str) -> bool:
     return phase.startswith("chapter.repair.")
 
 
+def _is_commercial_repair_phase(phase: str) -> bool:
+    return phase.startswith("chapter.commercial.repair.")
+
+
 def _repair_number(phase: str) -> int:
     if not _is_repair_phase(phase):
+        return 0
+    try:
+        return int(phase.rsplit(".", 1)[1])
+    except ValueError:
+        return 0
+
+
+def _commercial_repair_number(phase: str) -> int:
+    if not _is_commercial_repair_phase(phase):
         return 0
     try:
         return int(phase.rsplit(".", 1)[1])
@@ -84,6 +151,39 @@ class PipelineError(RuntimeError):
     def __init__(self, message: str, *, blocked: bool = False):
         super().__init__(message)
         self.blocked = blocked
+
+
+@contextmanager
+def _project_execution_lock(project: Path, run_id: str):
+    """Hold a non-blocking lock while one pipeline owns project outputs."""
+    outputs = project / "outputs"
+    outputs.mkdir(parents=True, exist_ok=True)
+    path = outputs / ".pipeline-execution.lock"
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except OSError as exc:
+        raise PipelineError(f"Cannot open execution lock for run {run_id}: {exc}") from exc
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise PipelineError(f"Execution lock for run {run_id} is not a regular file")
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise PipelineError(
+                f"Project pipeline is already active; cannot start run {run_id}"
+            ) from exc
+        yield
+    finally:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        os.close(descriptor)
 
 
 class PipelineRunner:
@@ -112,9 +212,10 @@ class PipelineRunner:
             spec.prompt_path = str(Path(spec.prompt_path).resolve())
         manifest = RunManifest.new(spec)
         store = self._store(project, manifest.run_id)
-        self._reconciled_promotions = set()
-        self._prepare_run(manifest, store)
-        return self._execute(manifest, project, store)
+        with _project_execution_lock(project, manifest.run_id):
+            self._reconciled_promotions = set()
+            self._prepare_run(manifest, store)
+            return self._execute(manifest, project, store)
 
     def resume(
         self,
@@ -125,6 +226,22 @@ class PipelineRunner:
         approve_chapter: Optional[int] = None,
     ) -> RunManifest:
         project = Path(project_path or self.project_path or ".").resolve()
+        with _project_execution_lock(project, run_id):
+            return self._resume_locked(
+                run_id,
+                project,
+                approval_policy=approval_policy,
+                approve_chapter=approve_chapter,
+            )
+
+    def _resume_locked(
+        self,
+        run_id: str,
+        project: Path,
+        *,
+        approval_policy: Optional[str] = None,
+        approve_chapter: Optional[int] = None,
+    ) -> RunManifest:
         store = self._store(project, run_id)
         manifest = store.load()
         manifest.spec.project_path = str(project)
@@ -175,7 +292,9 @@ class PipelineRunner:
             previous = manifest.get("chapter.promote", number)
             if previous is None:
                 continue
-            if previous.status == "done" and self._checkpoint_valid(project, previous):
+            if previous.status == "done" and self._checkpoint_valid(
+                project, previous, manifest
+            ):
                 continue
             key = f"pipeline-{manifest.run_id}-chapter-{number}"
             try:
@@ -385,49 +504,83 @@ class PipelineRunner:
             self._write_stage_result(manifest, project, promote)
             repaired.append(number)
 
-        compile_result = manifest.get("compile")
-        compile_valid = bool(
-            compile_result
-            and compile_result.status == "done"
-            and self._checkpoint_valid(project, compile_result)
-        )
-        if repaired or not compile_valid:
-            self._compile_book(manifest, project)
-            result = compile_result or StageResult(phase="compile", status="done")
-            result.status = "done"
-            result.error = None
-            result.retryable = False
-            result.finished_at = self._now()
-            result.artifact_paths = [
-                f"outputs/deliverables/book.{self._format_extension(fmt)}"
-                for fmt in manifest.spec.output_formats
-            ]
-            self._require_files(project, result.artifact_paths)
-            result.artifact_hashes = {
-                path: self._sha256(project / path) for path in result.artifact_paths
-            }
-            decision = (
-                "Repaired final artifacts and recompiled chapters "
-                + ", ".join(str(number) for number in repaired)
-                if repaired
-                else "Recompiled missing or invalid deliverables from trusted final chapters."
+        # Completed manifests written before publication.copy remain historical;
+        # integrity repair restores their existing projections without backfill.
+        if manifest.get("publication.copy") is None:
+            compile_result = manifest.get("compile")
+            compile_valid = bool(
+                compile_result
+                and compile_result.status == "done"
+                and self._checkpoint_valid(project, compile_result)
             )
-            if decision not in result.decisions:
-                result.decisions.append(decision)
-            self._save_stage(manifest, project, store, result, snapshot_state=True)
+            if repaired or not compile_valid:
+                self._compile_book(manifest, project, require_publication_copy=False)
+                self._deliver_package(
+                    manifest, project, require_publication_copy=False
+                )
+                result = compile_result or StageResult(phase="compile", status="done")
+                result.status = "done"
+                result.error = None
+                result.retryable = False
+                result.finished_at = self._now()
+                result.artifact_paths = [
+                    f"outputs/deliverables/book.{self._format_extension(fmt)}"
+                    for fmt in manifest.spec.output_formats
+                ] + [
+                    "outputs/deliverables/package-manifest.json",
+                    "outputs/deliverables/book-package.zip",
+                ]
+                self._require_files(project, result.artifact_paths)
+                result.artifact_hashes = {
+                    path: self._sha256(project / path) for path in result.artifact_paths
+                }
+                decision = (
+                    "Repaired final artifacts and recompiled chapters "
+                    + ", ".join(str(number) for number in repaired)
+                    if repaired
+                    else "Recompiled missing or invalid deliverables from trusted final chapters."
+                )
+                if decision not in result.decisions:
+                    result.decisions.append(decision)
+                self._save_stage(manifest, project, store, result, snapshot_state=True)
+                self._event(
+                    manifest,
+                    "run.integrity_repaired",
+                    chapters=repaired,
+                    recompiled=True,
+                )
+
+            manifest.status = "completed"
+            manifest.current_phase = "compile"
+            manifest.current_chapter = None
+            manifest.error = None
+            store.save(manifest)
+            return manifest
+
+        publication_result = manifest.get("publication.copy")
+        current_publication_inputs = self._stage_input_hashes(
+            project, "publication.copy", None, manifest
+        )
+        if (
+            publication_result is not None
+            and publication_result.input_hashes == current_publication_inputs
+            and not self._checkpoint_valid(
+                project, publication_result, manifest
+            )
+        ):
+            raise PipelineError(
+                "Completed publication.copy authority is missing or divergent",
+                blocked=True,
+            )
+
+        if repaired:
             self._event(
                 manifest,
                 "run.integrity_repaired",
                 chapters=repaired,
-                recompiled=True,
+                recompiled=False,
             )
-
-        manifest.status = "completed"
-        manifest.current_phase = "compile"
-        manifest.current_chapter = None
-        manifest.error = None
-        store.save(manifest)
-        return manifest
+        return self._execute(manifest, project, store)
 
     def retry(
         self,
@@ -440,19 +593,20 @@ class PipelineRunner:
     ) -> RunManifest:
         """Retry the named failed/blocked checkpoint, then continue the run."""
         project = Path(project_path or self.project_path or ".").resolve()
-        manifest = self._store(project, run_id).load()
-        target = manifest.get(phase, chapter)
-        if target is None:
-            raise ValueError(f"Run {run_id} has no stage {RunManifest.stage_key(phase, chapter)}")
-        if target.status not in {"retryable", "blocked", "failed"}:
-            raise ValueError(f"Stage {RunManifest.stage_key(phase, chapter)} is {target.status}, not retryable")
-        self._prepare_manual_retry(manifest, project, phase, chapter)
-        self._store(project, run_id).save(manifest)
-        return self.resume(
-            run_id,
-            project,
-            approval_policy=approval_policy,
-        )
+        with _project_execution_lock(project, run_id):
+            manifest = self._store(project, run_id).load()
+            target = manifest.get(phase, chapter)
+            if target is None:
+                raise ValueError(f"Run {run_id} has no stage {RunManifest.stage_key(phase, chapter)}")
+            if target.status not in {"retryable", "blocked", "failed"}:
+                raise ValueError(f"Stage {RunManifest.stage_key(phase, chapter)} is {target.status}, not retryable")
+            self._prepare_manual_retry(manifest, project, phase, chapter)
+            self._store(project, run_id).save(manifest)
+            return self._resume_locked(
+                run_id,
+                project,
+                approval_policy=approval_policy,
+            )
 
     def inspect(self, run_id: str, project_path: str | Path | None = None) -> RunManifest:
         project = Path(project_path or self.project_path or ".").resolve()
@@ -503,6 +657,7 @@ class PipelineRunner:
             setattr(orchestrator, "raise_llm_errors", True)
             setattr(orchestrator, "state_update_mode", "proposal_only")
             setattr(orchestrator, "quality_policy", manifest.spec.quality_policy)
+            setattr(orchestrator, "pipeline_run_id", manifest.run_id)
             self._active_orchestrator = orchestrator
             self._stage(
                 manifest,
@@ -525,6 +680,27 @@ class PipelineRunner:
                     "outputs/story_bible.md",
                 ],
             )
+            commercial_story = self._foundation_commercial_story(project)
+            if commercial_story is not None:
+                originality_context = capture_originality_context(project)
+                self._stage(
+                    manifest,
+                    project,
+                    store,
+                    "foundation.originality",
+                    None,
+                    lambda: evaluate_story_originality(
+                        project,
+                        commercial_story,
+                        context=originality_context,
+                    ),
+                    self._validate_originality_result,
+                    [
+                        "outputs/input/story-fingerprint.json",
+                        "outputs/quality/story-originality-report.json",
+                    ],
+                    captured_input_hashes=originality_context.input_hashes,
+                )
             foundation_key = self._foundation_idempotency_key(manifest, project)
             foundation_receipt = (
                 f"outputs/state/foundation_receipts/{foundation_key}.json"
@@ -539,8 +715,44 @@ class PipelineRunner:
                 self._validate_foundation_commit,
                 [foundation_receipt],
             )
+            commercial_review_enabled = (
+                commercial_story is not None
+                and manifest.spec.quality_policy == "evidence_v1"
+                and manifest.spec.num_chapters
+                >= commercial_story.free_trial_arc.chapter_count
+            )
+            free_trial_chapter = (
+                commercial_story.free_trial_arc.chapter_count
+                if commercial_review_enabled
+                else None
+            )
             for chapter in range(1, manifest.spec.num_chapters + 1):
                 self._run_chapter(manifest, project, store, orchestrator, chapter)
+                if commercial_review_enabled and chapter == free_trial_chapter:
+                    self._stage(
+                        manifest,
+                        project,
+                        store,
+                        "commercial.free_trial_review",
+                        None,
+                        lambda: self._evaluate_and_write_free_trial(project),
+                        self._validate_commercial_free_trial_result,
+                        ["outputs/quality/commercial-free-trial-report.json"],
+                    )
+
+            if commercial_review_enabled:
+                self._stage(
+                    manifest,
+                    project,
+                    store,
+                    "commercial.book_review",
+                    None,
+                    lambda: self._evaluate_and_write_book_review(
+                        project, manifest.spec.num_chapters
+                    ),
+                    self._validate_commercial_book_result,
+                    ["outputs/quality/commercial-book-report.json"],
+                )
 
             # The ending gate is opt-in for backward compatibility with older
             # projects. New Architect outputs include an enforced contract.
@@ -584,6 +796,17 @@ class PipelineRunner:
                 manifest,
                 project,
                 store,
+                "publication.copy",
+                None,
+                lambda: self._generate_publication_copy(manifest, project),
+                lambda value: isinstance(value, PublicationCopy),
+                ["outputs/publication/publication-copy.json"],
+            )
+
+            self._stage(
+                manifest,
+                project,
+                store,
                 "compile",
                 None,
                 lambda: self._compile_book(manifest, project),
@@ -591,6 +814,19 @@ class PipelineRunner:
                 [
                     f"outputs/deliverables/book.{self._format_extension(fmt)}"
                     for fmt in manifest.spec.output_formats
+                ],
+            )
+            self._stage(
+                manifest,
+                project,
+                store,
+                "delivery.package",
+                None,
+                lambda: self._deliver_package(manifest, project),
+                lambda value: bool(value),
+                [
+                    "outputs/deliverables/package-manifest.json",
+                    "outputs/deliverables/book-package.zip",
                 ],
             )
             manifest.status = "completed"
@@ -654,12 +890,68 @@ class PipelineRunner:
                     receipt_id=receipt.receipt_id,
                 )
                 return
-        self._stage(
-            manifest, project, store, "chapter.plan", number,
-            lambda: orchestrator.plan_chapter(number, dry_run=False),
-            lambda _value: self._require_files(project, [self._chapter_outline(number)]),
-            [self._chapter_outline(number)],
+        commercial_story = (
+            self._foundation_commercial_story(project)
+            if spec.quality_policy == "evidence_v1"
+            else None
         )
+        while True:
+            self._stage(
+                manifest, project, store, "chapter.plan", number,
+                lambda: orchestrator.plan_chapter(number, dry_run=False),
+                lambda _value: self._require_files(
+                    project, [self._chapter_outline(number)]
+                ),
+                [self._chapter_outline(number)],
+            )
+            if commercial_story is None:
+                break
+            design_relative = (
+                f"outputs/quality/commercial/chapter_{number:03d}_design.json"
+            )
+            try:
+                self._stage(
+                    manifest,
+                    project,
+                    store,
+                    "chapter.design_check",
+                    number,
+                    lambda: self._run_chapter_design_check(
+                        project, number, commercial_story
+                    ),
+                    self._validate_design_result,
+                    [design_relative],
+                )
+                break
+            except PipelineError as exc:
+                design = manifest.get("chapter.design_check", number)
+                repair_count = self._chapter_design_repair_count(
+                    manifest, number
+                )
+                if not (
+                    exc.blocked
+                    and spec.approval_policy == "auto"
+                    and design is not None
+                    and design.status == "blocked"
+                    and design.findings
+                    and repair_count < spec.max_quality_repairs
+                ):
+                    raise
+                repair_attempt = repair_count + 1
+                self._schedule_chapter_replan(
+                    manifest,
+                    project,
+                    number,
+                    "Chapter plan scheduled for automatic regeneration after "
+                    f"commercial design repair {repair_attempt}.",
+                )
+                self._record_chapter_design_repair(
+                    manifest,
+                    project,
+                    store,
+                    design,
+                    repair_attempt,
+                )
         self._stage(
             manifest, project, store, "chapter.write", number,
             lambda: orchestrator.write_chapter(number, dry_run=False),
@@ -789,6 +1081,78 @@ class PipelineRunner:
             ),
             [self._chapter_report(number, "style"), self._chapter_stage(number, "candidate_final")],
         )
+
+        # Commercial reader-value delivery is a separate gate from ordinary
+        # continuity. It reviews the exact style candidate and, under auto
+        # approval, may replace that candidate at most max_quality_repairs times.
+        commercial_review = getattr(orchestrator, "review_commercial_chapter", None)
+        commercial_repair = getattr(orchestrator, "repair_commercial_chapter", None)
+        if commercial_story is not None and callable(commercial_review):
+            commercial_auto_repair = bool(
+                spec.approval_policy == "auto"
+                and spec.max_quality_repairs > 0
+                and callable(commercial_repair)
+            )
+            commercial_attempt = 0
+            while True:
+                commercial_error: Optional[PipelineError] = None
+                try:
+                    self._stage(
+                        manifest,
+                        project,
+                        store,
+                        "chapter.commercial_check",
+                        number,
+                        lambda: commercial_review(number, dry_run=False),
+                        self._validate_commercial_result,
+                        [
+                            self._commercial_report(number),
+                            self._chapter_stage(number, "candidate_final"),
+                        ],
+                    )
+                except PipelineError as exc:
+                    if not (commercial_auto_repair and exc.blocked):
+                        raise
+                    commercial_error = exc
+
+                if commercial_error is None:
+                    break
+                if commercial_attempt >= spec.max_quality_repairs:
+                    raise PipelineError(
+                        f"Chapter {number} commercial delivery still blocked after "
+                        f"{spec.max_quality_repairs} automatic repair attempts",
+                        blocked=True,
+                    )
+                commercial_attempt += 1
+                feedback = self._commercial_repair_feedback(project, number, commercial_error)
+                commercial_report = self._load_commercial_report(project, number)
+                repair_phase = f"chapter.commercial.repair.{commercial_attempt}"
+                self._event(
+                    manifest,
+                    "chapter.commercial_repair_started",
+                    chapter=number,
+                    repair_attempt=commercial_attempt,
+                )
+                self._stage(
+                    manifest,
+                    project,
+                    store,
+                    repair_phase,
+                    number,
+                    lambda attempt=commercial_attempt, repair_report=commercial_report, repair_feedback=feedback: commercial_repair(
+                        number, repair_report or repair_feedback, attempt, dry_run=False
+                    ),
+                    lambda _value: self._require_files(
+                        project, [self._chapter_stage(number, "candidate_final")]
+                    ),
+                    [self._chapter_stage(number, "candidate_final")],
+                )
+                self._event(
+                    manifest,
+                    "chapter.commercial_repair_done",
+                    chapter=number,
+                    repair_attempt=commercial_attempt,
+                )
         self._stage(
             manifest, project, store, "chapter.promote", number,
             lambda: self._promote(manifest, project, number),
@@ -874,6 +1238,8 @@ class PipelineRunner:
         operation: Callable[[], Any],
         validator: Callable[[Any], Any],
         artifacts: list[str],
+        *,
+        captured_input_hashes: Optional[Dict[str, str]] = None,
     ) -> StageResult:
         previous = manifest.get(phase, chapter)
         if previous and previous.status == "done" and not self._rerun_started:
@@ -881,7 +1247,26 @@ class PipelineRunner:
             self._validate_bound_revision(project, previous)
             self._validate_bound_proposals(project, previous)
             self._validate_evidence_records(manifest, project, previous)
-            if self._checkpoint_valid(project, previous):
+            superseding = self._superseding_producer_stage(
+                manifest, project, previous
+            )
+            if superseding is not None:
+                self._validate_bound_revision(project, superseding)
+                self._validate_bound_proposals(project, superseding)
+                if superseding.state_snapshot_path:
+                    self._last_valid_state_snapshot = (
+                        superseding.state_snapshot_path
+                    )
+                self._reload_active_state(project)
+                self._event(
+                    manifest,
+                    "stage.superseded_reused",
+                    phase=phase,
+                    chapter=chapter,
+                    superseded_by=superseding.phase,
+                )
+                return previous
+            if self._checkpoint_valid(project, previous, manifest):
                 if (
                     manifest.spec.quality_policy == "evidence_v1"
                     and phase in _STATE_AUTHORITY_PHASES
@@ -923,15 +1308,22 @@ class PipelineRunner:
         max_attempts = manifest.spec.max_retries + 1
         last_error = ""
         for attempt in range(1, max_attempts + 1):
+            value: Any = None
             result = StageResult(
                 phase=phase,
                 chapter=chapter,
                 status="running",
                 attempt=attempt,
                 started_at=self._now(),
-                input_hashes=self._stage_input_hashes(project, phase, chapter),
             )
             try:
+                result.input_hashes = dict(
+                    captured_input_hashes
+                    if captured_input_hashes is not None
+                    else self._stage_input_hashes(
+                        project, phase, chapter, manifest
+                    )
+                )
                 result.provider, result.model = self._runtime_model(phase)
                 self._save_stage(manifest, project, store, result)
                 self._event(
@@ -949,6 +1341,17 @@ class PipelineRunner:
                 result.artifact_hashes = {
                     path: self._sha256(project / path) for path in result.artifact_paths
                 }
+                if (
+                    phase == "compile"
+                    and previous is not None
+                    and previous.input_hashes == result.input_hashes
+                    and previous.artifact_hashes == result.artifact_hashes
+                    and previous.finished_at
+                ):
+                    # A byte-identical projection repair retains the original
+                    # content completion time, keeping downstream immutable
+                    # delivery metadata deterministic.
+                    result.finished_at = previous.finished_at
                 self._capture_stage_metadata(manifest, project, result, value)
                 if phase == "chapter.promote" and manifest.spec.approval_policy == "auto":
                     result.decisions.append(
@@ -968,6 +1371,17 @@ class PipelineRunner:
                 result.status = "blocked" if exc.blocked else "failed"
                 result.error = str(exc)
                 result.finished_at = self._now()
+                result.artifact_paths = [
+                    path for path in artifacts if (project / path).is_file()
+                ]
+                result.artifact_hashes = {
+                    path: self._sha256(project / path)
+                    for path in result.artifact_paths
+                }
+                if value is not None:
+                    self._capture_stage_metadata(
+                        manifest, project, result, value
+                    )
                 self._save_stage(manifest, project, store, result)
                 self._event(manifest, "stage.blocked" if exc.blocked else "stage.failed", phase=phase, chapter=chapter, error=str(exc))
                 raise
@@ -1014,7 +1428,7 @@ class PipelineRunner:
             ) from exc
 
         result.input_hashes = self._stage_input_hashes(
-            project, result.phase, result.chapter
+            project, result.phase, result.chapter, manifest
         )
         result.artifact_paths = [
             path for path in artifacts if (project / path).is_file()
@@ -1126,7 +1540,20 @@ class PipelineRunner:
         project: Path,
         phase: str,
         chapter: Optional[int],
+        manifest: Optional[RunManifest] = None,
     ) -> Dict[str, str]:
+        if phase == "foundation.originality":
+            return originality_input_hashes(project)
+        if phase == "chapter.design_check":
+            return chapter_design_input_hashes(project, chapter or 0)
+        if phase == "commercial.free_trial_review":
+            return commercial_free_trial_input_hashes(project)
+        if phase == "commercial.book_review":
+            if manifest is None:
+                raise PipelineError(
+                    "commercial book review requires a run manifest", blocked=True
+                )
+            return commercial_book_input_hashes(project, manifest.spec.num_chapters)
         inputs: Dict[str, list[str]] = {
             "outline": ["outputs/input/prompt.md", "outputs/input/brief.json"],
             "foundation.commit": ["outputs/input/foundation.json"],
@@ -1136,6 +1563,10 @@ class PipelineRunner:
             "chapter.edit": [PipelineRunner._chapter_stage(chapter or 0, "draft")],
             "chapter.check.post": [PipelineRunner._chapter_stage(chapter or 0, "revised")],
             "chapter.validate": [PipelineRunner._chapter_stage(chapter or 0, "revised")],
+            "chapter.commercial_check": [
+                PipelineRunner._chapter_stage(chapter or 0, "candidate_final"),
+                PipelineRunner._chapter_outline(chapter or 0),
+            ],
             "chapter.style": [
                 PipelineRunner._chapter_stage(chapter or 0, "revised"),
                 PipelineRunner._chapter_report(chapter or 0, "continuity"),
@@ -1155,11 +1586,328 @@ class PipelineRunner:
         }
         if _is_repair_phase(phase):
             inputs[phase] = []
-        return {
+        if _is_commercial_repair_phase(phase):
+            inputs[phase] = [
+                PipelineRunner._chapter_stage(chapter or 0, "candidate_final"),
+            ]
+        file_hashes = {
             relative: PipelineRunner._sha256(project / relative)
             for relative in inputs.get(phase, [])
             if (project / relative).is_file()
         }
+        if manifest is None or phase not in {
+            "commercial.free_trial_review",
+            "commercial.book_review",
+            "book.check",
+            "publication.copy",
+            "compile",
+            "delivery.package",
+        }:
+            return file_hashes
+
+        source = None
+        if phase in {"book.check", "publication.copy", "compile", "delivery.package"}:
+            try:
+                source = build_publication_source_set(
+                    project,
+                    manifest.run_id,
+                    manifest.spec.num_chapters,
+                    manifest.spec.quality_policy,
+                )
+            except PublicationSourceError as exc:
+                raise PipelineError(str(exc), blocked=True) from exc
+            file_hashes["source_set_sha256"] = source.source_set_sha256
+
+        if phase == "publication.copy":
+            book_check_path = PipelineRunner._stage_result_path(
+                project, manifest.run_id, "book-check"
+            )
+            if not book_check_path.is_file():
+                raise PipelineError(
+                    "publication.copy requires the persisted book.check stage result",
+                    blocked=True,
+                )
+            file_hashes["book_check_stage_sha256"] = PipelineRunner._sha256(
+                book_check_path
+            )
+            metadata = PipelineRunner._publication_metadata(project)
+            file_hashes["publication_metadata_sha256"] = hashlib.sha256(
+                canonical_json_bytes(metadata)
+            ).hexdigest()
+            if PipelineRunner._has_explicit_ending_contract(project):
+                try:
+                    ending_contract = load_ending_contract(project)
+                except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+                    raise PipelineError(
+                        f"ending contract is unreadable: {exc}", blocked=True
+                    ) from exc
+                file_hashes["ending_contract_sha256"] = hashlib.sha256(
+                    canonical_json_bytes(ending_contract)
+                ).hexdigest()
+            file_hashes["publication_copy_policy_sha256"] = hashlib.sha256(
+                PUBLICATION_COPY_POLICY_VERSION.encode("utf-8")
+            ).hexdigest()
+
+        publication_path = project / "outputs/publication/publication-copy.json"
+        if phase in {"compile", "delivery.package"} and publication_path.is_file():
+            file_hashes[
+                "outputs/publication/publication-copy.json"
+            ] = PipelineRunner._sha256(publication_path)
+
+        if phase == "delivery.package":
+            for fmt in manifest.spec.output_formats:
+                relative = (
+                    "outputs/deliverables/book."
+                    + PipelineRunner._format_extension(fmt)
+                )
+                path = project / relative
+                if path.is_file():
+                    file_hashes[relative] = PipelineRunner._sha256(path)
+            book_check = manifest.get("book.check")
+            compile_result = manifest.get("compile")
+            if (
+                book_check is None
+                or book_check.status != "done"
+                or not book_check.finished_at
+                or compile_result is None
+                or compile_result.status != "done"
+                or not compile_result.finished_at
+            ):
+                raise PipelineError(
+                    "delivery.package requires completed book.check and compile stages",
+                    blocked=True,
+                )
+            h5_inputs = {
+                "source_set_sha256": source.source_set_sha256,
+                "metadata": PipelineRunner._publication_delivery_metadata(project),
+                "book_check_finished_at": book_check.finished_at,
+                "compile_finished_at": compile_result.finished_at,
+            }
+            file_hashes["h5_publication_inputs_sha256"] = hashlib.sha256(
+                canonical_json_bytes(h5_inputs)
+            ).hexdigest()
+            file_hashes["h5_publication_policy_sha256"] = hashlib.sha256(
+                H5_PUBLICATION_POLICY_VERSION.encode("utf-8")
+            ).hexdigest()
+        return file_hashes
+
+    @staticmethod
+    def _foundation_commercial_story(
+        project: Path,
+    ) -> CommercialStoryContract | None:
+        foundation_path = project / "outputs/input/foundation.json"
+        brief_path = project / "outputs/input/brief.json"
+        try:
+            foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
+            brief = json.loads(brief_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise PipelineError(
+                f"Commercial story binding inputs are unreadable: {exc}",
+                blocked=True,
+            ) from exc
+
+        approved_payload = brief.get("commercial_story_contract")
+        approved_id = brief.get("commercial_story_contract_id")
+        foundation_payload = foundation.get("commercial_story_contract")
+        foundation_id = foundation.get("commercial_story_contract_id")
+        if approved_payload is None and approved_id is None:
+            if foundation_payload is not None or foundation_id is not None:
+                raise PipelineError(
+                    "Story foundation activated a commercial contract without Prompt Intake approval",
+                    blocked=True,
+                )
+            return None
+        try:
+            approved = CommercialStoryContract.from_dict(approved_payload)
+        except (TypeError, ValueError) as exc:
+            raise PipelineError(
+                f"Approved commercial contract is invalid: {exc}",
+                blocked=True,
+            ) from exc
+        if approved_id != approved.contract_id:
+            raise PipelineError(
+                "Approved commercial contract id is invalid",
+                blocked=True,
+            )
+        if foundation_payload is None or foundation_id is None:
+            raise PipelineError(
+                "Story foundation omitted the approved commercial contract",
+                blocked=True,
+            )
+        try:
+            foundation_contract = CommercialStoryContract.from_dict(
+                foundation_payload
+            )
+        except (TypeError, ValueError) as exc:
+            raise PipelineError(
+                f"Story foundation commercial contract is invalid: {exc}",
+                blocked=True,
+            ) from exc
+        if (
+            foundation_contract != approved
+            or foundation_id != approved.contract_id
+        ):
+            raise PipelineError(
+                "Story foundation changed the approved commercial contract",
+                blocked=True,
+            )
+        return approved
+
+    @staticmethod
+    def _validate_originality_result(value: Any) -> None:
+        if not isinstance(value, OriginalityReport):
+            raise PipelineError(
+                "Structural originality evaluation returned no report",
+                blocked=True,
+            )
+        if value.status == "blocked":
+            raise PipelineError(
+                "Structural originality gate blocked foundation commit",
+                blocked=True,
+            )
+
+    @staticmethod
+    def _run_chapter_design_check(
+        project: Path,
+        chapter: int,
+        story_contract: CommercialStoryContract,
+    ) -> ChapterDesignReport:
+        artifacts = ArtifactStore(project)
+        current_head = artifacts.get_head(chapter, "chapter_contract")
+        if current_head is None:
+            raise PipelineError(
+                f"Chapter {chapter} has no persisted chapter contract",
+                blocked=True,
+            )
+        current = ChapterContract.from_dict(
+            json.loads(artifacts.read_text(current_head.revision_id))
+        )
+        prior: list[ChapterContract] = []
+        for number in range(1, chapter):
+            head = artifacts.get_head(number, "chapter_contract")
+            if head is None:
+                raise PipelineError(
+                    f"Chapter {chapter} is missing prior chapter contract {number}",
+                    blocked=True,
+                )
+            prior.append(
+                ChapterContract.from_dict(json.loads(artifacts.read_text(head.revision_id)))
+            )
+        report = validate_chapter_design(current, prior, story_contract)
+        write_design_report(project, report)
+        return report
+
+    @staticmethod
+    def _validate_design_result(value: Any) -> None:
+        if not isinstance(value, ChapterDesignReport):
+            raise PipelineError("Chapter design check returned no report", blocked=True)
+        if value.status == "blocked":
+            details = "; ".join(
+                f"{item.code}: {item.message}" for item in value.blockers
+            )
+            raise PipelineError(
+                "Commercial chapter design gate blocked writing"
+                + (f": {details}" if details else ""),
+                blocked=True,
+            )
+
+    @staticmethod
+    def _chapter_design_repair_count(
+        manifest: RunManifest,
+        chapter: int,
+    ) -> int:
+        return sum(
+            result.chapter == chapter
+            and result.phase.startswith("chapter.design.repair.")
+            and result.status == "done"
+            for result in manifest.stages.values()
+        )
+
+    def _record_chapter_design_repair(
+        self,
+        manifest: RunManifest,
+        project: Path,
+        store: ManifestStore,
+        blocked_design: StageResult,
+        attempt: int,
+    ) -> None:
+        now = self._now()
+        repair = StageResult(
+            phase=f"chapter.design.repair.{attempt}",
+            chapter=blocked_design.chapter,
+            status="done",
+            attempt=attempt,
+            input_hashes={
+                "blocked_chapter_contract_revision_id": blocked_design.input_hashes.get(
+                    "chapter_contract_revision_id", ""
+                ),
+                "blocked_design_report_sha256": next(
+                    iter(blocked_design.artifact_hashes.values()), ""
+                ),
+            },
+            chapter_contract_revision_id=blocked_design.input_hashes.get(
+                "chapter_contract_revision_id", ""
+            ),
+            findings=list(blocked_design.findings),
+            decisions=[
+                "Architect chapter plan regeneration scheduled from deterministic "
+                "commercial design findings."
+            ],
+            started_at=now,
+            finished_at=now,
+        )
+        self._save_stage(manifest, project, store, repair)
+        self._event(
+            manifest,
+            "chapter.design_repair_scheduled",
+            chapter=blocked_design.chapter,
+            attempt=attempt,
+            findings=blocked_design.findings,
+        )
+
+    @staticmethod
+    def _evaluate_and_write_free_trial(project: Path) -> CommercialFreeTrialReport:
+        report = evaluate_commercial_free_trial(project)
+        write_commercial_free_trial_report(project, report)
+        return report
+
+    @staticmethod
+    def _evaluate_and_write_book_review(
+        project: Path, chapter_count: int
+    ) -> CommercialBookReport:
+        report = evaluate_commercial_book(project, chapter_count)
+        write_commercial_book_report(project, report)
+        return report
+
+    @staticmethod
+    def _validate_commercial_free_trial_result(value: Any) -> None:
+        if not isinstance(value, CommercialFreeTrialReport):
+            raise PipelineError(
+                "Commercial free-trial review returned no structured report",
+                blocked=True,
+            )
+        if value.status == "blocked":
+            details = "; ".join(item.message for item in value.blockers)
+            raise PipelineError(
+                "Commercial free-trial review blocked later chapter planning: "
+                + (details or "free-trial reader-value delivery failed"),
+                blocked=True,
+            )
+
+    @staticmethod
+    def _validate_commercial_book_result(value: Any) -> None:
+        if not isinstance(value, CommercialBookReport):
+            raise PipelineError(
+                "Commercial book review returned no structured report",
+                blocked=True,
+            )
+        if value.status == "blocked":
+            details = "; ".join(item.message for item in value.blockers)
+            raise PipelineError(
+                "Commercial book review blocked compile: "
+                + (details or "whole-book reader-value delivery failed"),
+                blocked=True,
+            )
 
     @staticmethod
     def _foundation_idempotency_key(manifest: RunManifest, project: Path) -> str:
@@ -1195,6 +1943,46 @@ class PipelineRunner:
         result: StageResult,
         value: Any,
     ) -> None:
+        if result.phase == "foundation.originality" and isinstance(
+            value, OriginalityReport
+        ):
+            result.findings = [item.to_dict() for item in value.findings]
+            result.decisions = [f"originality_status:{value.status}"]
+
+        if result.phase == "chapter.design_check" and isinstance(
+            value, ChapterDesignReport
+        ):
+            result.findings = [item.to_dict() for item in value.findings]
+            result.decisions = [f"design_status:{value.status}"]
+
+        if result.phase == "chapter.commercial_check" and isinstance(
+            value, CommercialChapterReport
+        ):
+            result.findings = [item.to_dict() for item in value.findings]
+            result.decisions = [
+                f"commercial_status:{value.status}",
+                f"commercial_report_id:{value.report_id}",
+                f"commercial_candidate_sha256:{value.artifact_sha256}",
+            ]
+
+        if result.phase == "commercial.free_trial_review" and isinstance(
+            value, CommercialFreeTrialReport
+        ):
+            result.findings = [item.to_dict() for item in value.findings]
+            result.decisions = [
+                f"commercial_free_trial_status:{value.status}",
+                f"commercial_free_trial_report_id:{value.report_id}",
+            ]
+
+        if result.phase == "commercial.book_review" and isinstance(
+            value, CommercialBookReport
+        ):
+            result.findings = [item.to_dict() for item in value.findings]
+            result.decisions = [
+                f"commercial_book_status:{value.status}",
+                f"commercial_book_report_id:{value.report_id}",
+            ]
+
         if result.phase == "intake":
             from state_manager import StoryState
 
@@ -1222,6 +2010,14 @@ class PipelineRunner:
                     project / self._chapter_outline(result.chapter),
                     result.chapter,
                 )
+                if (
+                    self._foundation_commercial_story(project) is not None
+                    and contract.schema_version != 2
+                ):
+                    raise PipelineError(
+                        "Activated commercial stories require schema-v2 chapter contracts",
+                        blocked=True,
+                    )
                 current = artifacts.get_head(result.chapter, "chapter_contract")
                 revision = artifacts.put_json(
                     chapter=result.chapter,
@@ -1243,7 +2039,15 @@ class PipelineRunner:
 
         orchestrator = getattr(self, "_active_orchestrator", None)
         proposal_ids = getattr(orchestrator, "last_canon_proposal_ids", ())
-        if (result.phase in _STAGE_AGENTS or _is_repair_phase(result.phase)) and proposal_ids:
+        if (
+            result.chapter is not None
+            and (
+                result.phase in _STAGE_AGENTS
+                or _is_repair_phase(result.phase)
+                or _is_commercial_repair_phase(result.phase)
+            )
+            and proposal_ids
+        ):
             result.canon_proposal_ids = [str(value) for value in proposal_ids]
 
         revision_specs = {
@@ -1252,7 +2056,9 @@ class PipelineRunner:
             "chapter.style": ("final", "style_curator"),
         }
         revision_spec = (
-            ("revised", "editor")
+            ("final", "style_curator")
+            if _is_commercial_repair_phase(result.phase)
+            else ("revised", "editor")
             if _is_repair_phase(result.phase)
             else revision_specs.get(result.phase)
         )
@@ -1260,7 +2066,10 @@ class PipelineRunner:
             kind, source = revision_spec
             relative = self._chapter_stage(
                 result.chapter,
-                "candidate_final" if result.phase == "chapter.style" else kind,
+                "candidate_final"
+                if result.phase == "chapter.style"
+                or _is_commercial_repair_phase(result.phase)
+                else kind,
             )
             artifact_path = project / relative
             artifacts = ArtifactStore(project)
@@ -1273,6 +2082,11 @@ class PipelineRunner:
             parent_revision_id = None
             if result.phase == "chapter.edit":
                 previous = manifest.get("chapter.write", result.chapter)
+                parent_revision_id = previous.revision_id if previous else None
+            elif _is_commercial_repair_phase(result.phase):
+                previous = self._latest_candidate_stage(
+                    manifest, result.chapter, exclude_phase=result.phase
+                )
                 parent_revision_id = previous.revision_id if previous else None
             elif _is_repair_phase(result.phase):
                 previous = self._latest_editor_stage(
@@ -1301,13 +2115,13 @@ class PipelineRunner:
             result.chapter_contract_revision_id = chapter_contract_id
 
         if result.phase == "chapter.promote" and result.chapter is not None:
-            style = manifest.get("chapter.style", result.chapter)
-            if style is not None:
-                result.revision_id = style.revision_id
-                result.story_contract_revision_id = style.story_contract_revision_id
-                result.chapter_contract_revision_id = style.chapter_contract_revision_id
-                result.canon_proposal_ids = list(style.canon_proposal_ids)
-                result.evaluation_report_ids = list(style.evaluation_report_ids)
+            candidate_stage = self._latest_candidate_stage(manifest, result.chapter)
+            if candidate_stage is not None:
+                result.revision_id = candidate_stage.revision_id
+                result.story_contract_revision_id = candidate_stage.story_contract_revision_id
+                result.chapter_contract_revision_id = candidate_stage.chapter_contract_revision_id
+                result.canon_proposal_ids = list(candidate_stage.canon_proposal_ids)
+                result.evaluation_report_ids = list(candidate_stage.evaluation_report_ids)
             if manifest.spec.quality_policy == "evidence_v1":
                 if not isinstance(value, dict):
                     raise PipelineError("Evidence promotion returned no receipt payload")
@@ -1316,9 +2130,29 @@ class PipelineRunner:
                 result.evaluation_report_ids = [report.report_id]
                 result.promotion_receipt_id = receipt.receipt_id
             if manifest.spec.quality_policy == "legacy":
+                artifacts = ArtifactStore(project)
+                current = artifacts.get_head(result.chapter, "final")
+                artifacts.set_head(
+                    result.chapter,
+                    "final",
+                    result.revision_id,
+                    expected_revision_id=current.revision_id if current else None,
+                )
                 result.promotion_receipt_id = self._legacy_receipt_id(
                     manifest.run_id, result
                 )
+
+        if result.phase == "delivery.package":
+            if not isinstance(value, _DeliveryStageValue):
+                raise PipelineError("delivery.package returned no delivery metadata")
+            if value.decision:
+                result.decisions.append(value.decision)
+            if value.h5_result is not None:
+                relative = value.h5_result.publication_package_path.relative_to(
+                    project
+                ).as_posix()
+                result.artifact_paths.append(relative)
+                result.artifact_hashes[relative] = self._sha256(project / relative)
 
     @staticmethod
     def _legacy_receipt_id(run_id: str, result: StageResult) -> str:
@@ -1343,18 +2177,18 @@ class PipelineRunner:
             re.IGNORECASE | re.DOTALL,
         )
         if match is None:
-            raise PipelineError(
-                f"Architect chapter {chapter} output is missing [CHAPTER_CONTRACT] JSON"
+            raise LLMError(
+                f"Architect chapter {chapter} omitted the required CHAPTER_CONTRACT JSON block"
             )
         try:
             payload = json.loads(match.group(1))
             contract = ChapterContract.from_dict(payload)
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise PipelineError(
+            raise LLMError(
                 f"Architect chapter {chapter} has invalid [CHAPTER_CONTRACT] JSON: {exc}"
             ) from exc
         if contract.chapter != chapter:
-            raise PipelineError(
+            raise LLMError(
                 f"Architect chapter contract names chapter {contract.chapter}, expected {chapter}"
             )
         return contract
@@ -1447,6 +2281,86 @@ class PipelineRunner:
                 f"Evidence record validation failed: {exc}", blocked=True
             ) from exc
 
+        try:
+            PipelineRunner._validate_commercial_record_binding(manifest, project, result)
+        except PipelineError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - normalize durable record failures
+            raise PipelineError(
+                f"Commercial evidence record validation failed: {exc}", blocked=True
+            ) from exc
+
+    @staticmethod
+    def _validate_commercial_record_binding(
+        manifest: RunManifest, project: Path, result: StageResult
+    ) -> None:
+        if (
+            manifest.spec.quality_policy != "evidence_v1"
+            or result.phase != "chapter.promote"
+            or result.chapter is None
+        ):
+            return
+        check = manifest.get("chapter.commercial_check", result.chapter)
+        if check is None or check.status != "done":
+            return
+        path = project / PipelineRunner._commercial_report(result.chapter)
+        if not path.is_file():
+            raise ValueError("commercial chapter report record is missing")
+        report = CommercialChapterReport.from_dict(
+            json.loads(path.read_text(encoding="utf-8"))
+        )
+        if report.status == "blocked":
+            raise ValueError("commercial chapter report is blocked")
+        revision = ArtifactStore(project).get_revision(result.revision_id)
+        if report.artifact_sha256 != revision.sha256:
+            raise ValueError("commercial report is not bound to the promoted artifact")
+        receipt = PromotionService(project).load_receipt(
+            f"pipeline-{manifest.run_id}-chapter-{result.chapter}",
+            check_current_tail=False,
+        )
+        if receipt is None:
+            raise ValueError("commercial promotion receipt is missing")
+        metadata = dict(receipt.decision_metadata)
+        if (
+            metadata.get("commercial_report_id") != report.report_id
+            or metadata.get("commercial_report_artifact_sha256") != report.artifact_sha256
+        ):
+            raise ValueError("promotion receipt is missing commercial report metadata")
+        if not any(
+            decision == f"commercial_report_id:{report.report_id}"
+            for decision in check.decisions
+        ):
+            raise ValueError("promotion is missing the commercial report binding")
+
+    @staticmethod
+    def _commercial_promotion_metadata(
+        project: Path, number: int, candidate_sha256: str
+    ) -> dict[str, str]:
+        path = project / PipelineRunner._commercial_report(number)
+        if not path.is_file():
+            raise PipelineError(
+                f"Chapter {number} commercial report is missing",
+                blocked=True,
+            )
+        try:
+            report = CommercialChapterReport.from_dict(
+                json.loads(path.read_text(encoding="utf-8"))
+            )
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+            raise PipelineError(
+                f"Chapter {number} commercial report is invalid",
+                blocked=True,
+            )
+        if report.status == "blocked" or report.artifact_sha256 != candidate_sha256:
+            raise PipelineError(
+                f"Chapter {number} commercial report does not match candidate",
+                blocked=True,
+            )
+        return {
+            "commercial_report_id": report.report_id,
+            "commercial_report_artifact_sha256": report.artifact_sha256,
+        }
+
     @staticmethod
     def _resolve_spec_from_brief(manifest: RunManifest, project: Path, store: ManifestStore) -> None:
         brief_path = project / "outputs/input/brief.json"
@@ -1495,9 +2409,73 @@ class PipelineRunner:
         )
 
     @classmethod
-    def _checkpoint_valid(cls, project: Path, result: StageResult) -> bool:
+    def _superseding_producer_stage(
+        cls,
+        manifest: RunManifest,
+        project: Path,
+        result: StageResult,
+    ) -> Optional[StageResult]:
+        """Return a valid repair that intentionally replaced a producer output."""
+        if result.chapter is None:
+            return None
+        if result.phase == "chapter.edit":
+            shared_path = cls._chapter_stage(result.chapter, "revised")
+            latest = cls._latest_editor_stage(manifest, result.chapter)
+        elif result.phase == "chapter.style":
+            shared_path = cls._chapter_stage(result.chapter, "candidate_final")
+            latest = cls._latest_candidate_stage(manifest, result.chapter)
+        else:
+            return None
+        if latest is None or latest is result or latest.phase == result.phase:
+            return None
+        latest_time = latest.finished_at or latest.started_at
+        result_time = result.finished_at or result.started_at
+        if not latest_time or latest_time <= result_time:
+            return None
         if result.input_hashes != cls._stage_input_hashes(
-            project, result.phase, result.chapter
+            project, result.phase, result.chapter, manifest
+        ):
+            return None
+        if any(
+            path != shared_path
+            and not cls._artifact_valid(project, path, expected)
+            for path, expected in result.artifact_hashes.items()
+        ):
+            return None
+        if not cls._files_exist(project, latest.artifact_paths) or any(
+            not cls._artifact_valid(project, path, expected)
+            for path, expected in latest.artifact_hashes.items()
+        ):
+            return None
+        if latest.state_snapshot_path and not cls._artifact_valid(
+            project,
+            latest.state_snapshot_path,
+            latest.state_snapshot_hash,
+        ):
+            return None
+        if (
+            result.story_contract_revision_id
+            and latest.story_contract_revision_id
+            != result.story_contract_revision_id
+        ):
+            return None
+        if (
+            result.chapter_contract_revision_id
+            and latest.chapter_contract_revision_id
+            != result.chapter_contract_revision_id
+        ):
+            return None
+        return latest
+
+    @classmethod
+    def _checkpoint_valid(
+        cls,
+        project: Path,
+        result: StageResult,
+        manifest: Optional[RunManifest] = None,
+    ) -> bool:
+        if result.input_hashes != cls._stage_input_hashes(
+            project, result.phase, result.chapter, manifest
         ):
             return False
         if not cls._files_exist(project, result.artifact_paths):
@@ -1508,12 +2486,64 @@ class PipelineRunner:
         )
         if not artifacts_valid:
             return False
-        if result.state_snapshot_path:
-            return cls._artifact_valid(
+        if result.state_snapshot_path and not cls._artifact_valid(
                 project,
                 result.state_snapshot_path,
                 result.state_snapshot_hash,
-            )
+            ):
+            return False
+        if result.phase == "publication.copy" and manifest is not None:
+            try:
+                cls._load_publication_copy(manifest, project)
+            except (PipelineError, ValueError, OSError, UnicodeError):
+                return False
+        if result.phase == "commercial.free_trial_review":
+            try:
+                path = project / PipelineRunner._commercial_free_trial_report()
+                report = CommercialFreeTrialReport.from_dict(
+                    json.loads(path.read_text(encoding="utf-8"))
+                )
+                if report.status == "blocked":
+                    return False
+            except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+                return False
+        if result.phase == "commercial.book_review":
+            try:
+                path = project / PipelineRunner._commercial_book_report()
+                report = CommercialBookReport.from_dict(
+                    json.loads(path.read_text(encoding="utf-8"))
+                )
+                if report.status == "blocked":
+                    return False
+            except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+                return False
+        if result.phase == "delivery.package" and manifest is not None:
+            h5_metadata = [
+                path
+                for path in result.artifact_paths
+                if path.endswith("/meta/publication_package.json")
+            ]
+            if manifest.spec.num_chapters >= 4:
+                if len(h5_metadata) != 1:
+                    return False
+                try:
+                    book_check = manifest.get("book.check")
+                    compile_result = manifest.get("compile")
+                    if book_check is None or compile_result is None:
+                        return False
+                    validate_h5_publication_root(
+                        (project / h5_metadata[0]).parents[1],
+                        expected_finalized_at=book_check.finished_at,
+                        expected_delivered_at=compile_result.finished_at,
+                    )
+                except (H5PublicationError, OSError, ValueError):
+                    return False
+            elif (
+                h5_metadata
+                or "h5_publication: inapplicable_less_than_four_chapters"
+                not in result.decisions
+            ):
+                return False
         return True
 
     @staticmethod
@@ -1631,6 +2661,16 @@ class PipelineRunner:
         have mutated StoryState, so its retry continues to restore the clean
         post-edit boundary below.
         """
+        if phase == "chapter.design_check" and chapter is not None:
+            self._schedule_chapter_replan(
+                manifest,
+                project,
+                chapter,
+                "Chapter plan scheduled for regeneration after its commercial "
+                "design gate blocked.",
+            )
+            return
+
         check_inputs = {
             "chapter.check.pre": ("chapter.write", "draft"),
             "chapter.check.post": ("chapter.edit", "revised"),
@@ -1756,6 +2796,33 @@ class PipelineRunner:
             post_check.state_snapshot_hash = ""
             self._write_stage_result(manifest, project, post_check)
 
+    def _schedule_chapter_replan(
+        self,
+        manifest: RunManifest,
+        project: Path,
+        chapter: int,
+        decision: str,
+    ) -> None:
+        plan = manifest.get("chapter.plan", chapter)
+        if plan is None or plan.status != "done":
+            raise ValueError(
+                f"Cannot retry chapter design: chapter {chapter} has no "
+                "completed chapter.plan stage"
+            )
+        if manifest.get("chapter.write", chapter) is not None:
+            raise ValueError(
+                f"Cannot retry chapter design: chapter {chapter} writing "
+                "has already started"
+            )
+        plan.status = "pending"
+        plan.error = None
+        plan.retryable = False
+        plan.finished_at = ""
+        plan.state_snapshot_path = ""
+        plan.state_snapshot_hash = ""
+        plan.decisions.append(decision)
+        self._write_stage_result(manifest, project, plan)
+
     def _adopt_repaired_foundation(
         self,
         manifest: RunManifest,
@@ -1797,6 +2864,63 @@ class PipelineRunner:
     def _stage_slug(result: StageResult) -> str:
         phase = re.sub(r"[^a-zA-Z0-9_-]+", "-", result.phase).strip("-")
         return f"{phase}-chapter-{result.chapter:03d}" if result.chapter is not None else phase
+
+    @staticmethod
+    def _stage_result_path(project: Path, run_id: str, slug: str) -> Path:
+        return project / "outputs" / "runs" / run_id / "stages" / f"{slug}.json"
+
+    @staticmethod
+    def _publication_metadata(project: Path) -> Dict[str, str]:
+        from state_manager import StoryState
+
+        metadata = StoryState(str(project)).metadata
+        return {
+            "title": str(metadata.get("title") or "Untitled"),
+            "language": str(metadata.get("language") or "en-US"),
+            "genre": str(metadata.get("genre") or "Fiction"),
+        }
+
+    @staticmethod
+    def _publication_delivery_metadata(project: Path) -> Dict[str, Any]:
+        from state_manager import StoryState
+
+        metadata = StoryState(str(project)).metadata
+        return {
+            "title": str(metadata.get("title") or "Untitled"),
+            "alternate_titles": PipelineRunner._metadata_text_list(
+                metadata.get("alternate_titles"), "alternate_titles"
+            ),
+            "tags": PipelineRunner._metadata_text_list(
+                metadata.get("tags"), "tags"
+            ),
+        }
+
+    @staticmethod
+    def _metadata_text_list(value: Any, name: str) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value] if value else []
+        if not isinstance(value, (list, tuple)) or not all(
+            isinstance(item, str) for item in value
+        ):
+            raise PipelineError(
+                f"publication metadata {name} must be a string list",
+                blocked=True,
+            )
+        return list(value)
+
+    @staticmethod
+    def _has_explicit_ending_contract(project: Path) -> bool:
+        if (project / ENDING_CONTRACT_RELATIVE).is_file():
+            return True
+        foundation_path = project / "outputs/input/foundation.json"
+        if not foundation_path.is_file():
+            return False
+        foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
+        return isinstance(foundation, dict) and isinstance(
+            foundation.get("ending_contract"), dict
+        )
 
     @staticmethod
     def _atomic_copy(source: Path, target: Path) -> None:
@@ -1932,6 +3056,47 @@ class PipelineRunner:
             raise PipelineError(f"Continuity Guardian blocked chapter {number}", blocked=True)
 
     @staticmethod
+    def _validate_commercial_result(value: Any) -> None:
+        if not isinstance(value, CommercialChapterReport):
+            raise PipelineError(
+                "Commercial Guardian returned no structured chapter report",
+                blocked=True,
+            )
+        if value.status == "blocked":
+            details = "; ".join(item.message for item in value.blockers)
+            raise PipelineError(
+                f"Commercial Guardian blocked chapter {value.chapter}: "
+                f"{details or 'reader-value delivery failed'}",
+                blocked=True,
+            )
+
+    @staticmethod
+    def _commercial_repair_feedback(
+        project: Path, number: int, error: PipelineError
+    ) -> str:
+        report = project / PipelineRunner._commercial_report(number)
+        report_text = (
+            report.read_text(encoding="utf-8")
+            if report.is_file()
+            else "[No commercial Guardian report was produced]"
+        )
+        return f"Commercial gate: {error}\n\n{report_text}"
+
+    @staticmethod
+    def _load_commercial_report(
+        project: Path, number: int
+    ) -> Optional[CommercialChapterReport]:
+        path = project / PipelineRunner._commercial_report(number)
+        if not path.is_file():
+            return None
+        try:
+            return CommercialChapterReport.from_dict(
+                json.loads(path.read_text(encoding="utf-8"))
+            )
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+            return None
+
+    @staticmethod
     def _curate(orchestrator: Any, number: int) -> Any:
         method = getattr(orchestrator, "curate_chapter", None)
         if method is None:
@@ -1980,14 +3145,14 @@ class PipelineRunner:
         number: int,
     ) -> Dict[str, Any]:
         self._restore_committed_tail_state(manifest, project)
-        style = manifest.get("chapter.style", number)
-        if style is None or not style.revision_id:
+        candidate_stage = self._latest_candidate_stage(manifest, number)
+        if candidate_stage is None or not candidate_stage.revision_id:
             raise PipelineError(
                 f"Chapter {number} candidate has no immutable artifact revision",
                 blocked=True,
             )
         artifacts = ArtifactStore(project)
-        candidate = artifacts.get_revision(style.revision_id)
+        candidate = artifacts.get_revision(candidate_stage.revision_id)
         candidate_text = artifacts.read_text(candidate.revision_id)
         proposal_id = self._build_evidence_proposal_chain(
             manifest, project, number, candidate.sha256
@@ -1996,8 +3161,8 @@ class PipelineRunner:
             number,
             candidate_text,
             artifact_revision_id=candidate.revision_id,
-            story_contract_id=style.story_contract_revision_id,
-            chapter_contract_id=style.chapter_contract_revision_id,
+            story_contract_id=candidate_stage.story_contract_revision_id,
+            chapter_contract_id=candidate_stage.chapter_contract_revision_id,
         )
         report = QualityLab.evaluate_deterministic(
             evaluation_request,
@@ -2029,18 +3194,27 @@ class PipelineRunner:
                 artifacts.get_revision(current.revision_id).sha256 if current else None
             ),
             base_canon_sha=canonical_canon_sha(StoryState(str(project))),
-            story_contract_revision_id=style.story_contract_revision_id or None,
-            chapter_contract_revision_id=style.chapter_contract_revision_id or None,
+            story_contract_revision_id=candidate_stage.story_contract_revision_id or None,
+            chapter_contract_revision_id=candidate_stage.chapter_contract_revision_id or None,
             idempotency_key=f"pipeline-{manifest.run_id}-chapter-{number}",
             actor="pipeline",
             reason="evidence_v1 quality gates passed",
-            decision_metadata={"run_id": manifest.run_id},
+            decision_metadata={
+                "run_id": manifest.run_id,
+                **(
+                    self._commercial_promotion_metadata(project, number, candidate.sha256)
+                    if manifest.get("chapter.commercial_check", number) is not None
+                    else {}
+                ),
+            },
         )
         receipt = PromotionService(project).promote(request)
+        final_text = artifacts.read_text(receipt.new_artifact_revision_id)
         self._atomic_text(
             project / self._chapter_stage(number, "final"),
-            artifacts.read_text(receipt.new_artifact_revision_id),
+            final_text,
         )
+        self._sync_completed_chapter_state(project, number, final_text)
         self._reload_active_state(project)
         return {"report": report, "receipt": receipt}
 
@@ -2069,6 +3243,21 @@ class PipelineRunner:
                 )
             )
             phases.extend(_EVIDENCE_PROPOSAL_PHASES[3:])
+            phases.extend(
+                result.phase
+                for result in sorted(
+                    (
+                        result
+                        for result in manifest.stages.values()
+                        if result.chapter == number
+                        and result.status == "done"
+                        and _is_commercial_repair_phase(result.phase)
+                    ),
+                    key=lambda result: _commercial_repair_number(result.phase),
+                )
+            )
+            if manifest.get("chapter.commercial_check", number) is not None:
+                phases.append("chapter.commercial_check")
             for phase in phases:
                 stage = manifest.get(phase, number)
                 if stage is None or not stage.canon_proposal_ids:
@@ -2104,18 +3293,36 @@ class PipelineRunner:
                 blocked=True,
             ) from exc
 
-        style = manifest.get("chapter.style", number)
-        if style is not None and bundled.proposal_id not in style.canon_proposal_ids:
-            style.canon_proposal_ids.append(bundled.proposal_id)
-            self._write_stage_result(manifest, project, style)
+        candidate_stage = self._latest_candidate_stage(manifest, number)
+        if (
+            candidate_stage is not None
+            and bundled.proposal_id not in candidate_stage.canon_proposal_ids
+        ):
+            candidate_stage.canon_proposal_ids.append(bundled.proposal_id)
+            self._write_stage_result(manifest, project, candidate_stage)
         return bundled.proposal_id
+
+    @staticmethod
+    def _sync_completed_chapter_state(
+        project: Path,
+        number: int,
+        final_text: str,
+    ) -> None:
+        from state_manager import StoryState
+
+        state = StoryState(str(project))
+        chapter = state.get_chapter(number) or state.create_chapter(number)
+        chapter.status = "complete"
+        chapter.word_count = len(final_text.split())
+        state.save_state()
 
     @staticmethod
     def _copy_candidate_to_final(project: Path, number: int) -> Path:
         source = project / PipelineRunner._chapter_stage(number, "candidate_final")
         if not source.is_file():
             raise PipelineError(f"Cannot approve chapter {number}: candidate final is missing")
-        if source.stat().st_size == 0 or not source.read_text(encoding="utf-8").strip():
+        final_text = source.read_text(encoding="utf-8")
+        if source.stat().st_size == 0 or not final_text.strip():
             raise PipelineError(f"Cannot approve chapter {number}: candidate final is empty")
         target = project / PipelineRunner._chapter_stage(number, "final")
         source_size = source.stat().st_size
@@ -2129,12 +3336,9 @@ class PipelineRunner:
             raise PipelineError(
                 f"Cannot approve chapter {number}: copied final failed integrity verification"
             )
-        from state_manager import StoryState
-
-        state = StoryState(str(project))
-        chapter = state.get_chapter(number) or state.create_chapter(number)
-        chapter.status = "complete"
-        state.save_state()
+        PipelineRunner._sync_completed_chapter_state(
+            project, number, final_text
+        )
         return target
 
     def _record_human_approval(
@@ -2155,18 +3359,18 @@ class PipelineRunner:
             encoding="utf-8"
         ).strip():
             raise ValueError(f"Chapter {number} candidate final is empty")
-        style = manifest.get("chapter.style", number)
-        if style:
+        candidate_stage = self._latest_candidate_stage(manifest, number)
+        if candidate_stage:
             # Human edits are an expected part of review, not checkpoint
             # corruption. Approval makes the reviewed candidate the new trusted
             # Style-stage artifact before resume validates prior checkpoints.
-            style.artifact_hashes[candidate_relative] = self._sha256(candidate)
-            style.decisions.append("Human reviewed the candidate-final artifact.")
-            self._refresh_reviewed_candidate(project, number, style)
-            self._write_stage_result(manifest, project, style)
+            candidate_stage.artifact_hashes[candidate_relative] = self._sha256(candidate)
+            candidate_stage.decisions.append("Human reviewed the candidate-final artifact.")
+            self._refresh_reviewed_candidate(project, number, candidate_stage)
+            self._write_stage_result(manifest, project, candidate_stage)
             store.save(manifest)
         if manifest.spec.quality_policy == "evidence_v1":
-            if style is None:
+            if candidate_stage is None:
                 raise ValueError(
                     f"Chapter {number} has no evidence candidate stage"
                 )
@@ -2181,21 +3385,21 @@ class PipelineRunner:
                 status="done",
                 attempt=current.attempt,
                 input_hashes=self._stage_input_hashes(
-                    project, "chapter.promote", number
+                    project, "chapter.promote", number, manifest
                 ),
                 artifact_paths=[relative],
                 artifact_hashes={relative: self._sha256(target)},
                 revision_id=receipt.new_artifact_revision_id,
-                story_contract_revision_id=style.story_contract_revision_id,
-                chapter_contract_revision_id=style.chapter_contract_revision_id,
-                canon_proposal_ids=list(style.canon_proposal_ids),
+                story_contract_revision_id=candidate_stage.story_contract_revision_id,
+                chapter_contract_revision_id=candidate_stage.chapter_contract_revision_id,
+                canon_proposal_ids=list(candidate_stage.canon_proposal_ids),
                 evaluation_report_ids=[report.report_id],
                 promotion_receipt_id=receipt.receipt_id,
                 decisions=[
                     "Human approval recorded; evidence-backed candidate promoted."
                 ],
-                provider=style.provider,
-                model=style.model,
+                provider=candidate_stage.provider,
+                model=candidate_stage.model,
                 started_at=current.started_at or self._now(),
                 finished_at=self._now(),
             )
@@ -2211,15 +3415,33 @@ class PipelineRunner:
             status="done",
             attempt=current.attempt,
             input_hashes=self._stage_input_hashes(
-                project, "chapter.promote", number
+                project, "chapter.promote", number, manifest
             ),
             artifact_paths=[relative],
             artifact_hashes={relative: self._sha256(target)},
+            revision_id=candidate_stage.revision_id if candidate_stage else "",
+            story_contract_revision_id=(
+                candidate_stage.story_contract_revision_id if candidate_stage else ""
+            ),
+            chapter_contract_revision_id=(
+                candidate_stage.chapter_contract_revision_id if candidate_stage else ""
+            ),
+            canon_proposal_ids=list(candidate_stage.canon_proposal_ids) if candidate_stage else [],
             decisions=["Human approval recorded by CLI; candidate promoted to canonical final."],
-            provider=style.provider if style else "",
-            model=style.model if style else "",
+            provider=candidate_stage.provider if candidate_stage else "",
+            model=candidate_stage.model if candidate_stage else "",
             started_at=current.started_at or self._now(),
             finished_at=self._now(),
+        )
+        artifacts = ArtifactStore(project)
+        current_head = artifacts.get_head(number, "final")
+        artifacts.set_head(
+            number,
+            "final",
+            result.revision_id,
+            expected_revision_id=(
+                current_head.revision_id if current_head else None
+            ),
         )
         result.promotion_receipt_id = self._legacy_receipt_id(
             manifest.run_id, result
@@ -2260,13 +3482,147 @@ class PipelineRunner:
         style.artifact_hashes[relative] = revised.sha256
         PipelineRunner._rebind_stage_proposals(project, style, revised.sha256)
 
-    def _compile_book(self, manifest: RunManifest, project: Path) -> bool:
+    def _generate_publication_copy(
+        self,
+        manifest: RunManifest,
+        project: Path,
+    ) -> PublicationCopy:
+        orchestrator = getattr(self, "_active_orchestrator", None)
+        llm_for = getattr(orchestrator, "llm_for", None)
+        if not callable(llm_for):
+            raise PipelineError(
+                "publication.copy requires orchestrator role clients",
+                blocked=True,
+            )
+        try:
+            source = build_publication_source_set(
+                project,
+                manifest.run_id,
+                manifest.spec.num_chapters,
+                manifest.spec.quality_policy,
+            )
+            metadata = self._publication_metadata(project)
+            book_check = manifest.get("book.check")
+            if book_check is None or book_check.status != "done":
+                raise PipelineError(
+                    "publication.copy requires a completed book.check stage",
+                    blocked=True,
+                )
+            book_check_path = self._stage_result_path(
+                project, manifest.run_id, "book-check"
+            )
+            self._require_files(
+                project, [str(book_check_path.relative_to(project))]
+            )
+            ending_contract = load_ending_contract(project)
+            ending_sha256 = hashlib.sha256(
+                canonical_json_bytes(ending_contract)
+            ).hexdigest()
+            service = PublicationCopyService(
+                llm_for("style_curator"),
+                llm_for("continuity_guardian"),
+            )
+            return service.generate(
+                project=project,
+                run_id=manifest.run_id,
+                title=metadata["title"],
+                language=metadata["language"],
+                genre=metadata["genre"],
+                source=source,
+                book_check_stage_sha256=self._sha256(book_check_path),
+                ending_contract_sha256=ending_sha256,
+                # The persisted gate timestamp is stable across stage retries.
+                finished_at=book_check.finished_at,
+            )
+        except PipelineError:
+            raise
+        except PublicationSourceError as exc:
+            raise PipelineError(str(exc), blocked=True) from exc
+        except PublicationCopyBlocked as exc:
+            if "model call failed" in str(exc):
+                raise LLMError(str(exc)) from exc
+            raise PipelineError(str(exc), blocked=True) from exc
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+            raise PipelineError(
+                f"publication.copy input validation failed: {exc}", blocked=True
+            ) from exc
+
+    @classmethod
+    def _load_publication_copy(
+        cls,
+        manifest: RunManifest,
+        project: Path,
+    ) -> PublicationCopy:
+        path = project / "outputs/publication/publication-copy.json"
+        if not path.is_file() or path.stat().st_size == 0:
+            raise PipelineError(
+                "structured publication copy is missing",
+                blocked=True,
+            )
+        try:
+            publication_copy = parse_publication_copy(path.read_bytes())
+            source = build_publication_source_set(
+                project,
+                manifest.run_id,
+                manifest.spec.num_chapters,
+                manifest.spec.quality_policy,
+            )
+        except (PublicationSourceError, OSError, UnicodeError, ValueError) as exc:
+            raise PipelineError(
+                f"structured publication copy failed validation: {exc}",
+                blocked=True,
+            ) from exc
+
+        metadata = cls._publication_metadata(project)
+        book_check_path = cls._stage_result_path(
+            project, manifest.run_id, "book-check"
+        )
+        if not book_check_path.is_file():
+            raise PipelineError(
+                "structured publication copy has no persisted book.check binding",
+                blocked=True,
+            )
+        expected_chapters = [
+            (chapter.number, chapter.revision_id, chapter.sha256)
+            for chapter in source.chapters
+        ]
+        actual_chapters = [
+            (chapter.number, chapter.revision_id, chapter.sha256)
+            for chapter in publication_copy.source.chapters
+        ]
+        if (
+            publication_copy.title != metadata["title"]
+            or publication_copy.language != metadata["language"]
+            or publication_copy.source.run_id != manifest.run_id
+            or publication_copy.source.source_set_sha256 != source.source_set_sha256
+            or publication_copy.source.book_check_stage_sha256
+            != cls._sha256(book_check_path)
+            or actual_chapters != expected_chapters
+        ):
+            raise PipelineError(
+                "structured publication copy is divergent from current Final authority",
+                blocked=True,
+            )
+        return publication_copy
+
+    def _compile_book(
+        self,
+        manifest: RunManifest,
+        project: Path,
+        *,
+        require_publication_copy: bool = True,
+    ) -> bool:
         state_path = project / "outputs/state/story_state.json"
         self._require_files(project, [str(state_path.relative_to(project))])
         from state_manager import StoryState
 
         state = StoryState(str(project))
         artifacts = ArtifactStore(project)
+        publication_copy = (
+            self._load_publication_copy(manifest, project)
+            if require_publication_copy
+            else None
+        )
         chapters = []
         for number in range(1, manifest.spec.num_chapters + 1):
             path = project / self._chapter_stage(number, "final")
@@ -2274,7 +3630,7 @@ class PipelineRunner:
                 head = artifacts.get_head(number, "final")
                 if head is not None:
                     text = artifacts.read_text(head.revision_id)
-                elif path.is_file():
+                elif not require_publication_copy and path.is_file():
                     text = path.read_text(encoding="utf-8")
                 else:
                     raise PipelineError(
@@ -2303,6 +3659,7 @@ class PipelineRunner:
             author=state.metadata.get("author", ""),
             genre=state.metadata.get("genre", ""),
             chapters=chapters,
+            publication_copy=publication_copy,
         )
         if len(book.chapters) != manifest.spec.num_chapters:
             raise PipelineError(
@@ -2319,8 +3676,76 @@ class PipelineRunner:
             output.write_bytes(render_bytes(book, sheet, fmt))
         return True
 
+    def _deliver_package(
+        self,
+        manifest: RunManifest,
+        project: Path,
+        *,
+        require_publication_copy: bool = True,
+    ) -> _DeliveryStageValue:
+        from delivery_package import build_delivery_package
+
+        if not require_publication_copy:
+            return _DeliveryStageValue(build_delivery_package(project), None)
+
+        publication_copy = self._load_publication_copy(manifest, project)
+        source = build_publication_source_set(
+            project,
+            manifest.run_id,
+            manifest.spec.num_chapters,
+            manifest.spec.quality_policy,
+        )
+        book_check = manifest.get("book.check")
+        compile_result = manifest.get("compile")
+        if (
+            book_check is None
+            or book_check.status != "done"
+            or not book_check.finished_at
+            or compile_result is None
+            or compile_result.status != "done"
+            or not compile_result.finished_at
+        ):
+            raise PipelineError(
+                "delivery.package requires completed book.check and compile stages",
+                blocked=True,
+            )
+        metadata = self._publication_delivery_metadata(project)
+        try:
+            h5_result = project_h5_publication(
+                project,
+                manifest.run_id,
+                source,
+                publication_copy,
+                book_check.finished_at,
+                compile_result.finished_at,
+                metadata["title"],
+                metadata["alternate_titles"],
+                metadata["tags"],
+            )
+            package_result = build_delivery_package(
+                project,
+                publication_copy_path=(
+                    project / "outputs/publication/publication-copy.json"
+                ),
+                h5_root=h5_result.root if h5_result is not None else None,
+            )
+        except (H5PublicationError, UnicodeError, ValueError) as exc:
+            raise PipelineError(
+                f"delivery.package input validation failed: {exc}", blocked=True
+            ) from exc
+        decision = (
+            ""
+            if h5_result is not None
+            else "h5_publication: inapplicable_less_than_four_chapters"
+        )
+        return _DeliveryStageValue(package_result, h5_result, decision)
+
     def _runtime_model(self, phase: str) -> tuple[str, str]:
-        agent_name = "editor" if _is_repair_phase(phase) else _STAGE_AGENTS.get(phase)
+        agent_name = (
+            "editor"
+            if _is_repair_phase(phase) or _is_commercial_repair_phase(phase)
+            else _STAGE_AGENTS.get(phase)
+        )
         if agent_name is None:
             return "", ""
         orchestrator = getattr(self, "_active_orchestrator", None)
@@ -2353,8 +3778,39 @@ class PipelineRunner:
         return max(
             candidates,
             key=lambda result: (
+                result.finished_at or result.started_at,
                 1 if _is_repair_phase(result.phase) else 0,
                 _repair_number(result.phase),
+            ),
+        )
+
+    @staticmethod
+    def _latest_candidate_stage(
+        manifest: RunManifest,
+        chapter: int,
+        *,
+        exclude_phase: str = "",
+    ) -> Optional[StageResult]:
+        candidates = [
+            result
+            for result in manifest.stages.values()
+            if result.chapter == chapter
+            and result.status == "done"
+            and result.phase != exclude_phase
+            and (
+                result.phase == "chapter.style"
+                or _is_commercial_repair_phase(result.phase)
+            )
+            and result.revision_id
+        ]
+        if not candidates:
+            return None
+        return max(
+            candidates,
+            key=lambda result: (
+                result.finished_at or result.started_at,
+                1 if _is_commercial_repair_phase(result.phase) else 0,
+                _commercial_repair_number(result.phase),
             ),
         )
 
@@ -2369,6 +3825,18 @@ class PipelineRunner:
     @staticmethod
     def _chapter_report(number: int, report: str) -> str:
         return f"outputs/feedback/chapter_{number:03d}_{report}_report.md"
+
+    @staticmethod
+    def _commercial_report(number: int) -> str:
+        return f"outputs/quality/commercial/chapter_{number:03d}_report.json"
+
+    @staticmethod
+    def _commercial_free_trial_report() -> str:
+        return "outputs/quality/commercial-free-trial-report.json"
+
+    @staticmethod
+    def _commercial_book_report() -> str:
+        return "outputs/quality/commercial-book-report.json"
 
     @staticmethod
     def _format_extension(fmt: str) -> str:

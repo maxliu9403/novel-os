@@ -21,18 +21,18 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   return (
     <ConfirmCtx.Provider value={confirm}>
       {children}
-      <Modal open={!!state} onClose={() => close(false)} title={state?.title ?? "Are you sure?"}>
+      <Modal open={!!state} onClose={() => close(false)} title={state?.title ?? "确定要继续吗？"}>
         <p className="text-[14px] leading-relaxed text-ink-muted">{state?.message}</p>
         <div className="mt-6 flex justify-end gap-3">
           <button type="button" onClick={() => close(false)} className="btn-ghost px-3 py-2">
-            Cancel
+            取消
           </button>
           <button
             type="button"
             onClick={() => close(true)}
             className={`btn-primary px-4 py-2 ${state?.danger ? "underline decoration-2 underline-offset-4" : ""}`}
           >
-            {state?.confirmLabel ?? "Confirm"}
+            {state?.confirmLabel ?? "确认"}
           </button>
         </div>
       </Modal>

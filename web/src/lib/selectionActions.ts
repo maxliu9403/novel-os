@@ -39,12 +39,12 @@ export type SelectionAction = {
  * the proposal as tracked changes, what it breaks, what it might mean.
  */
 export const SELECTION_ACTIONS: readonly SelectionAction[] = [
-  { id: "rewrite", label: "Rewrite", icon: "sparkles", primary: true, needsSelection: true },
-  { id: "expand", label: "Expand", icon: "pen-line", primary: true, needsSelection: true },
-  { id: "comment", label: "Comment", icon: "message-square", primary: true, needsSelection: true },
-  { id: "link", label: "Link to Codex", icon: "users", needsSelection: true },
-  { id: "create", label: "New Codex entry", icon: "plus", needsSelection: true },
-  { id: "ask", label: "Ask Scribe…", icon: "bot", needsSelection: false },
+  { id: "rewrite", label: "改写", icon: "sparkles", primary: true, needsSelection: true },
+  { id: "expand", label: "扩写", icon: "pen-line", primary: true, needsSelection: true },
+  { id: "comment", label: "批注", icon: "message-square", primary: true, needsSelection: true },
+  { id: "link", label: "关联到设定库", icon: "users", needsSelection: true },
+  { id: "create", label: "新建设定库条目", icon: "plus", needsSelection: true },
+  { id: "ask", label: "询问执笔者…", icon: "bot", needsSelection: false },
 ];
 
 /** The subset shown in the floating bar - the rest stay one right-click away. */

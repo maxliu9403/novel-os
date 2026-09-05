@@ -3,6 +3,7 @@
 .env.local
 .env.*.local
 studio_settings.json
+studio_settings.secrets.json
 
 # --- Python ---
 __pycache__/

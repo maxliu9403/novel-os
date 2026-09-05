@@ -35,7 +35,7 @@ type Props = {
  * round-trips with `api.richtext` agents still read the markdown projection.
  */
 export default function RichTextEditor({
-  doc, onChange, placeholder = "Write the chapter…", editable = true, onReady,
+  doc, onChange, placeholder = "开始写这一章…", editable = true, onReady,
   commentAnchors = [], onContextMenu, onSelectionAction, onMentionClick,
   suggesting = false, author = "",
 }: Props) {
@@ -65,7 +65,7 @@ export default function RichTextEditor({
     editorProps: {
       attributes: {
         class: "pm-editor outline-none min-h-[50vh]",
-        "aria-label": "Final manuscript",
+        "aria-label": "定稿正文",
       },
       handleDOMEvents: {
         click: (_view, event) => {

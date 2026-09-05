@@ -28,6 +28,14 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
+from commercial_story import (
+    BELONGING_ANCHORS,
+    HOOK_TYPES,
+    READER_JOBS,
+    RESOURCE_DIMENSIONS,
+    SATISFACTION_TYPES,
+)
+
 if TYPE_CHECKING:
     from state_manager import StoryState
 
@@ -158,6 +166,50 @@ def parse_fields(block: str) -> Dict[str, Any]:
 
 def _normalize_key(raw: str) -> str:
     return re.sub(r"\s+", "_", raw.strip()).lower()
+
+
+_READER_VALUE_UPDATE_FIELDS = {
+    "report_id",
+    "candidate_sha256",
+    "reader_jobs",
+    "belonging_anchors",
+    "resource_dimension",
+    "resource_change",
+    "satisfaction_type",
+    "hook_type",
+    "protagonist_caused_turn",
+}
+_COMMERCIAL_REPORT_RE = re.compile(r"^commercial-chapter-report:[0-9a-f]{64}$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _validate_reader_value_update(update: Any) -> None:
+    if not isinstance(update, dict) or set(update) != _READER_VALUE_UPDATE_FIELDS:
+        raise ValueError("reader_value_updates must use the exact nine-field shape")
+    if not _COMMERCIAL_REPORT_RE.fullmatch(str(update["report_id"])):
+        raise ValueError("reader_value_updates.report_id is invalid")
+    if not _SHA256_RE.fullmatch(str(update["candidate_sha256"])):
+        raise ValueError("reader_value_updates.candidate_sha256 is invalid")
+    jobs = update["reader_jobs"]
+    if not isinstance(jobs, list) or not 1 <= len(jobs) <= 3 or len(set(jobs)) != len(jobs):
+        raise ValueError("reader_value_updates.reader_jobs must contain 1-3 unique values")
+    if any(item not in READER_JOBS for item in jobs):
+        raise ValueError("reader_value_updates.reader_jobs has invalid value")
+    anchors = update["belonging_anchors"]
+    if not isinstance(anchors, list) or len(anchors) > 2 or len(set(anchors)) != len(anchors):
+        raise ValueError("reader_value_updates.belonging_anchors must contain 0-2 unique values")
+    if any(item not in BELONGING_ANCHORS for item in anchors):
+        raise ValueError("reader_value_updates.belonging_anchors has invalid value")
+    if update["resource_dimension"] not in RESOURCE_DIMENSIONS:
+        raise ValueError("reader_value_updates.resource_dimension has invalid value")
+    if not isinstance(update["resource_change"], str) or not update["resource_change"].strip():
+        raise ValueError("reader_value_updates.resource_change must be nonblank")
+    if update["satisfaction_type"] not in SATISFACTION_TYPES:
+        raise ValueError("reader_value_updates.satisfaction_type has invalid value")
+    if update["hook_type"] not in HOOK_TYPES:
+        raise ValueError("reader_value_updates.hook_type has invalid value")
+    if type(update["protagonist_caused_turn"]) is not bool:
+        raise ValueError("reader_value_updates.protagonist_caused_turn must be a boolean")
 
 
 # ---------------------------------------------------------------- per-agent
@@ -545,6 +597,21 @@ def apply_to_state(
 ) -> List[str]:
     """Mutate StoryState from a parsed agent block. Returns a change log."""
     log: List[str] = []
+    reader_updates = parsed.get("reader_value_updates")
+    if reader_updates is not None:
+        if source != "continuity_guardian":
+            raise ValueError("reader_value_updates require continuity_guardian")
+        if not isinstance(reader_updates, list):
+            raise ValueError("reader_value_updates must be a list")
+        for update in reader_updates:
+            _validate_reader_value_update(update)
+            report_id = update["report_id"]
+            candidate_sha = update["candidate_sha256"]
+            for existing_chapter in state.chapters.values():
+                for existing in existing_chapter.reader_value_updates:
+                    if existing.get("report_id") == report_id and existing.get("candidate_sha256") != candidate_sha:
+                        raise ValueError("reader_value_updates report_id is bound to a different candidate")
+
     chapter = state.get_chapter(chapter_number) or state.create_chapter(chapter_number)
 
     # ----- Final-derived chapter metadata
@@ -668,6 +735,18 @@ def apply_to_state(
         log,
     )
     _apply_ending_evidence(chapter, parsed.get("ending_evidence"), source, log)
+
+    if reader_updates is not None:
+        for update in reader_updates:
+            identity = (update["report_id"], update["candidate_sha256"])
+            if not any(
+                (existing.get("report_id"), existing.get("candidate_sha256")) == identity
+                for existing in chapter.reader_value_updates
+            ):
+                chapter.reader_value_updates.append(dict(update))
+                log.append(
+                    f"[{source}] verified reader value recorded: {update['report_id']}"
+                )
 
     # ----- new information / facts
     new_facts = _as_list(parsed.get("new_information_revealed")) + _as_list(parsed.get("new_facts_established"))

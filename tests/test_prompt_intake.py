@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from commercial_fixtures import commercial_story_fixture
+from commercial_story import commercial_story_block
 from prompt_intake import ingest_prompt
 from state_manager import StoryState
 
@@ -45,6 +47,31 @@ def test_ingest_prompt_accepts_stdin_text(tmp_path: Path):
     assert result.raw_prompt == "A locked-room mystery in Boston."
     assert result.brief["title"] == "From stdin"
     assert result.brief["genre"] == "Thriller"
+
+
+def test_prompt_intake_persists_the_approved_commercial_contract(tmp_path: Path):
+    prompt = (
+        "# Built From Her Records\n\n"
+        + commercial_story_block(commercial_story_fixture())
+    )
+
+    result = ingest_prompt(tmp_path / "project", "-", stdin_text=prompt)
+
+    assert result.brief["commercial_story_contract_id"].startswith(
+        "commercial-story:"
+    )
+    assert result.brief["commercial_story_contract"]["schema_version"] == 1
+
+
+def test_prompt_without_commercial_block_keeps_optional_fields_absent(tmp_path: Path):
+    result = ingest_prompt(
+        tmp_path / "project",
+        "-",
+        stdin_text="# Ordinary Story\n\nA quiet premise.",
+    )
+
+    assert "commercial_story_contract" not in result.brief
+    assert "commercial_story_contract_id" not in result.brief
 
 
 def test_master_prompt_heading_is_not_used_as_book_title(tmp_path: Path):

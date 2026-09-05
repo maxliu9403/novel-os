@@ -12,7 +12,12 @@ core/
 ├── state_manager.py         StoryState, Character, PlotThread, ChapterState, ...
 ├── llm_client.py            LLMClient (13+ providers), LLMError
 ├── state_parser.py          ingest_agent_output, parse_*, apply_to_state
-└── continuity_engine.py     run_all, Finding, individual check_* fns
+├── continuity_engine.py     run_all, Finding, individual check_* fns
+├── cover_handoff.py         strict approved-Prompt parser + concept builder
+├── cover_models.py          cover brief, concept, candidate, and set contracts
+├── cover_store.py           atomic cover-set and active-pointer CAS persistence
+├── image_client.py          Sub2API/OpenAI-compatible image request adapter
+└── delivery_package.py      deterministic manifest and ZIP builder
 ```
 
 ---
@@ -191,9 +196,181 @@ orch._llm = my_fake_llm_client       # bypass real LLM calls
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / etc. | Provider-native keys |
 | `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_VERSION` | Azure-specific |
 | `KIMI_BASE_URL`, `<PROVIDER>_BASE_URL` | Override an alias's endpoint |
+| `NOVEL_OS_COVER_BASE_URL` | Optional cover endpoint; falls back to `NOVEL_OS_BASE_URL` |
+| `NOVEL_OS_COVER_API_KEY` | Optional cover key; falls back to `NOVEL_OS_API_KEY` |
+| `NOVEL_OS_COVER_MODEL` | Cover model, default `gpt-image-2` |
+| `NOVEL_OS_COVER_SIZE` | Preferred request size (default `2048x3072`); must preserve portrait `2:3` |
+| `NOVEL_OS_COVER_QUALITY` | `low`, `medium`, `high`, or `auto`; default `high` |
+| `NOVEL_OS_COVER_FORMAT` | `jpeg` or `png`; default `jpeg` |
+| `NOVEL_OS_COVER_COUNT` | Default candidate count, 3-5; default 4 |
+| `NOVEL_OS_COVER_TIMEOUT_SECONDS` | Per-image provider timeout; default 180 |
+| `NOVEL_OS_COVER_DIRECTOR_PROVIDER` | Optional Art Director provider; falls back to the writing provider |
+| `NOVEL_OS_COVER_DIRECTOR_MODEL` | Optional Art Director model; falls back to the writing model, never the image model |
+| `NOVEL_OS_COVER_DIRECTOR_BASE_URL` | Optional Art Director endpoint; falls back to `NOVEL_OS_BASE_URL` |
+| `NOVEL_OS_COVER_DIRECTOR_API_KEY` | Optional Art Director key; stored write-only in Studio |
+| `NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS` | Art Director timeout; default 180 |
 
 `.env` files in the project root are auto-loaded (with or without `python-dotenv`).
 
 ---
 
-*API v1.1*
+## Cover HTTP API
+
+All routes are project-scoped under `/api`. Image generation runs through the
+in-memory `JobRunner`; poll `GET /api/jobs/{job_id}` until `status` is `done` or
+`error`. Job errors and metadata never include provider credentials.
+
+### Cover model settings
+
+The versioned provider API is the preferred Studio contract:
+
+```http
+GET  /api/studio/models
+POST /api/studio/providers
+PATCH /api/studio/providers/{connection_id}
+DELETE /api/studio/providers/{connection_id}
+POST /api/studio/providers/{connection_id}/test
+GET  /api/studio/providers/{connection_id}/models
+PUT  /api/studio/model-routes
+POST /api/studio/model-routes/{route_id}/test
+GET  /api/studio/image-profiles/cover
+PUT  /api/studio/image-profiles/cover
+POST /api/studio/image-profiles/cover/test
+GET  /api/jobs/{job_id}
+```
+
+Provider metadata and task routes use schema version 2. API keys are write-only
+and live in an owner-readable secret file beside Studio settings. Codex
+connections keep authentication in the Codex credential store. The image test
+route performs one explicit, billable generation; provider connection tests do
+not generate an image. Text-response and image tests return `202` immediately
+with a job id. Poll the job endpoint until `status` is `done` or `error`; the
+text reply or image preview is then available in `meta`.
+
+The original endpoints remain as a compatibility projection:
+
+```http
+GET /api/studio/cover
+PUT /api/studio/cover
+```
+
+`PUT` accepts image fields (`base_url`, `api_key`, `model`, `size`,
+`quality`, `output_format`, `count`, `timeout_seconds`) and optional independent
+Art Director fields (`director_provider`, `director_model`, `director_base_url`,
+`director_api_key`, `director_timeout_seconds`). Responses expose only key
+presence flags, never either key.
+
+### Plan and approve art direction
+
+```http
+POST /api/projects/{project_id}/covers/directions
+Content-Type: application/json
+
+{"count": 4}
+
+GET /api/projects/{project_id}/covers/directions
+
+POST /api/projects/{project_id}/covers/directions/{direction_id}/approve
+Content-Type: application/json
+
+{
+  "expected_brief_sha256": "BRIEF_SHA256",
+  "approved_direction_sha256": "DIRECTION_SHA256"
+}
+```
+
+The server reads the current v2 handoff, blocks unresolved critical facts,
+creates 3-5 structured scene plans through the configured Art Director, and
+persists the facts snapshot. Approval binds the exact brief and direction
+hashes and makes no image request.
+
+### Generate an approved direction
+
+```http
+POST /api/projects/{project_id}/covers/generate
+Content-Type: application/json
+
+{
+  "count": 4,
+  "direction_id": "DIRECTION_ID",
+  "approved_direction_sha256": "DIRECTION_SHA256"
+}
+```
+
+Before submitting the background job, the server resolves the current project
+Prompt again and marks an older approval stale. It then compiles each approved
+scene and issues one independent `gpt-image-2`, `n=1` request. Historical v1
+brief/concept submission remains available for compatibility; Studio uses the
+direction-gated workflow.
+
+The response is HTTP 202 with a job object:
+
+```json
+{
+  "job_id": "JOB_ID",
+  "kind": "cover.generate",
+  "status": "running",
+  "error": null,
+  "meta": {"project_id": "PROJECT"}
+}
+```
+
+### Read candidate sets
+
+```http
+GET /api/projects/{project_id}/covers
+GET /api/projects/{project_id}/covers/{cover_set_id}
+```
+
+Sets are newest first. Each set contains the approved brief, concepts,
+candidates, source hashes, set `revision`, and the project-wide
+`active_revision`. Ready candidate responses expose a project-scoped media URL,
+SHA-256, dimensions, content type, provider/model provenance, and safe request
+parameters. API keys are absent.
+
+### Select, reject, and retry
+
+```http
+POST /api/projects/{project_id}/covers/{cover_set_id}/candidates/{candidate_id}/select
+{"expected_revision": 5, "expected_active_revision": 1, "confirm_stale": false}
+
+POST /api/projects/{project_id}/covers/{cover_set_id}/candidates/{candidate_id}/reject
+{"expected_revision": 5}
+
+POST /api/projects/{project_id}/covers/{cover_set_id}/candidates/{candidate_id}/retry
+{"expected_revision": 5}
+```
+
+Selection and rejection require an explicit UI/client decision. Selection uses
+two compare-and-swap guards, projects the content-addressed original into
+`selected-cover.*`, and atomically rebuilds the delivery package. Retry returns
+HTTP 202 and calls the provider only for the named failed candidate. Selecting
+or rejecting an existing candidate does not resolve image-provider settings or
+require an API key.
+
+Status codes:
+
+| Code | Meaning |
+|---|---|
+| 202 | generation or retry job accepted |
+| 400 | invalid handoff, count, transition, or stale selection without confirmation |
+| 404 | project, cover set, candidate media, or package missing |
+| 409 | set revision or active-pointer revision changed |
+| 502 | image provider returned an unusable response |
+| 503 | cover provider configuration is incomplete |
+
+### Media and delivery
+
+```http
+GET /api/projects/{project_id}/media/{media_id}/raw
+GET /api/projects/{project_id}/deliverables/package
+```
+
+The package endpoint downloads `book-package.zip`. The ZIP contains available
+book exports, ready/rejected/selected candidate projections, selected cover when
+present, `cover-set.json`, and `package-manifest.json`. The manifest records the
+path, media type, byte size, SHA-256, file role, and cover selection state.
+
+---
+
+*API v1.2*
