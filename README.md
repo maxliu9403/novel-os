@@ -496,6 +496,205 @@ OpenAI-compatible provider runs on the Docker host, use
 `http://host.docker.internal:PORT/v1` instead of `http://127.0.0.1:PORT/v1`.
 Set `NOVEL_OS_WEB_PORT` before running the script to override port `5174`.
 
+### Cover Studio：故事驱动的封面设计系统
+
+Cover Studio 不是把书名套进固定海报模板，也不是直接把整本小说交给图片模型
+自由发挥。它把**故事事实提取、艺术指导、提示词编译、图片渲染、视觉复核和人工
+选图**拆成有证据、可审批、可重试的独立步骤。
+
+```mermaid
+flowchart LR
+    S["Prompt · 序言 · 出版文案<br/>StoryState · Final manuscript"] --> E["Visual Evidence Ledger<br/>视觉证据账本"]
+    E --> D["Cover Director<br/>文本规划模型"]
+    D --> V["Book Visual Identity<br/>本书视觉语言"]
+    D --> C["Core Conflict Contract<br/>核心冲突视觉契约"]
+    V & C --> P["3–5 个差异化方向<br/>cover-profiles.v5"]
+    P --> A["人工审批方向与内容哈希"]
+    A --> X["cover-compiler.v9<br/>编译图片提示词"]
+    X --> I["gpt-image-2<br/>渲染封面"]
+    I --> Q["原图 + 手机缩略图<br/>二进制与多模态复核"]
+    Q -->|语义缺失| R["定向修复并自动重试一次"]
+    R --> Q
+    Q --> H["人工选择 · 交付包"]
+```
+
+#### 封面事实从哪里来
+
+系统会把以下已有产物组织为带来源的视觉证据，而不是只读取一句简介：
+
+- 已批准 Prompt 中的 `COVER_HANDOFF_BEGIN` / `COVER_HANDOFF_END`；
+- 主角、关系图、核心任务、核心冲突、情绪承诺和决定性故事节点；
+- 序言、出版文案、`StoryState` 与最终正文中的可视化动作、空间、物件和仪式；
+- 目标市场、标题语言、生活环境、禁用元素和剧透边界；
+- 本项目及近期项目的封面指纹，用于降低跨小说的构图和风格重复。
+
+方向会绑定输入事实和视觉证据的哈希。Prompt、序言、出版文案、StoryState 或最终
+正文发生变化后，旧方向会被标记为 `stale`，需要重新规划，避免用过期故事事实
+生成新图片。
+
+#### Cover Director、Image2 与 Skill 的职责
+
+| 组件 | 职责 | 不负责什么 |
+|---|---|---|
+| `novel-brainstorm-workshop` | 完成故事设计并输出严格的封面交接事实 | 不直接调用图片模型 |
+| `novel-cover-studio` | 在 Codex 主机侧组织封面规划、审批、生成和选图流程 | 不替代 Web 后端代码 |
+| Cover Director | 读取证据并动态决定构图、场景、媒介、情绪和字体系统 | 不渲染图片 |
+| `cover-compiler.v9` | 把审批后的方向编译成不超过 12,000 Unicode code points 的生成提示词 | 不重新发明故事事实 |
+| `gpt-image-2` | 按方向生成原生分辨率的竖版 `2:3` 图片 | 不决定整组封面的策划逻辑 |
+| 多模态视觉复核 | 对照原图、手机缩略图和方向契约检查实际可见结果 | 不代替运营最终选图 |
+
+例如 `Textured gouache-and-ink editorial illustration with natural proportions
+and selectively modeled faces` 这类描述不是写死的风格预设，也不是 Image2 返回的
+规划文字。它由 Cover Director 根据该书证据动态写入 `art_style`，再交给 Image2
+执行。系统只提供出版品质、人物可读性、市场字体、事实边界等高层护栏；摄影、
+水粉墨线、版画、拼贴、图形隐喻或其他媒介由规划模型为每本书重新选择，并且不
+使用在世艺术家的名字作为风格指令。
+
+#### 本书视觉语言与核心冲突视觉契约
+
+`cover-profiles.v5` 会先生成两份书级设计约束，再规划单张封面：
+
+1. **Book Visual Identity**：设计命题、情绪矛盾、故事签名、材料语言、调色和
+   光线逻辑、空间逻辑、字体声音、人物策略、陈词滥调黑名单、独特性锚点和剧透
+   边界。
+2. **Core Conflict Visual Contract**：读者代入的主角、压力来源、参与冲突的
+   已批准人物、关系或身份利害关系、可见原因、决定性后果、至少两个可绘制信号、
+   证据引用和剧透边界。
+
+每张方向还必须说明：
+
+- `causal_visibility`：冲突原因是直接可见还是由具体证据间接呈现；
+- `conflict_delivery`：这张图用什么独特视觉方法连接原因与后果；
+- `conflict_read`：用户在手机缩略图上能读懂的一句话故事；
+- `cause_signal` / `consequence_signal`：画面中的原因和主角承担的后果；
+- `conflict_character_ids`：本张实际出现的已批准冲突人物；
+- `protagonist_action_visible`：主角是否正在选择、拒绝、发现、对抗、保护或离开，
+  而不是只摆出悲伤表情。
+
+这些字段在生成图片之前进行确定性验证。核心冲突明确点名的人物不会被悄悄省略，
+也不会把已确认的背叛、排斥、隐瞒或家庭替代关系弱化成抽象的“疏离感”。同样，
+系统也不会把原文没有确认的暧昧升级成出轨、暴力或其他新剧情。
+
+#### 四张封面如何保持不同又讲清同一本书
+
+默认四张封面是四种不同的设计论点，不是同一张图换颜色或镜头：
+
+- 至少 **3/4** 直接表现造成伤害或选择的压力来源；
+- 当压力由人物关系构成时，至少 **2/4** 完整呈现已批准的冲突人物关系；
+- 至少 **3/4** 展现主角清晰、主动且符合剧情的行为；
+- 最多 **1/4** 使用间接或偏象征表达，而且仍要保留具体因果证据；
+- 四张必须使用不同的 `conflict_delivery`，并同时改变构图拓扑、场景来源、视觉
+  媒介、情绪温度和字体逻辑。
+
+系统要求每张都有清晰可读的主角人物，但不固定“主角占据前景、其他人物缩小放在
+背景”的公式。根据故事可以使用关系空间、门槛行动、镜面或玻璃反射、环境压力、
+证据发现、人物群像、字体与场景融合等设计语言。人物、原因、后果和阅读路径仍需
+在手机缩略图尺寸成立。
+
+#### 生成后的质量复核与自动修复
+
+每张图片首先接受文件格式、内容类型、SHA-256、尺寸和竖版 `2:3` 比例检查。
+配置兼容的多模态 Cover Director 后，系统还会同时检查原图与手机缩略图，重点评分：
+
+- 故事事实、必要人物、年龄和生活环境是否忠实；
+- 选定媒介的完成度、人体结构、物理关系、标题和缩略图可读性；
+- `core_conflict_fidelity`：是否真正表现原因与后果，而非只有悲伤氛围；
+- `causal_relationship_clarity`：压力人物、关系、制度或证据是否可辨认；
+- `protagonist_agency`：主角是否有清晰行动和决定。
+
+发现以下可修复语义问题时，系统会保留第一次产物和报告，生成针对性修复提示词，
+并自动重试一次：
+
+- `core_conflict_missing`
+- `causal_relationship_missing`
+- `protagonist_action_missing`
+
+复核结果分为 `recommended_for_human_review`、`human_review_required` 和 `blocked`。
+即使系统推荐，书名拼写、人物观感、市场吸引力和最终出版选择仍由运营确认。如果
+当前规划模型不支持图片输入，生成结果会进入人工复核状态，不会伪造视觉评分。
+
+通常每张候选需要一次图片模型调用；启用多模态复核时还会增加一次视觉评估调用。
+如果命中上述三类语义修复，会再增加至多一次图片生成和一次评估。Create direction /
+重新规划方向只生成结构化设计方案，不调用图片模型。
+
+#### 审批、版本与产物
+
+推荐在 `http://localhost:5174/projects/PROJECT/covers` 完成以下流程：
+
+1. 点击 **Create direction / 重新规划方向**；
+2. 查看本书视觉语言、核心冲突视觉契约和每张封面的缩略图故事；
+3. 审批最新方向；审批同时绑定故事事实哈希与方向内容哈希；
+4. 生成 3–5 张候选；部分失败不会抹掉已经成功的候选；
+5. 按质量报告重试单张、拒绝不合适候选或选择最终封面；
+6. 选择后更新 `selected-cover`、manifest 与 `book-package.zip`。
+
+设计与审计中间产物保存在项目目录：
+
+```text
+outputs/covers/
+|-- design/
+|   |-- visual-evidence-ledger.json
+|   |-- book-visual-identity.json
+|   |-- core-conflict-visual-contract.json
+|   `-- direction-*.evidence.json / .identity.json / .conflict.json
+|-- directions/direction-*.json
+|-- sets/cover-*.json
+`-- index.json
+```
+
+交付图片和最终 ZIP 仍位于 `outputs/deliverables/`。方向、生成尝试、修复代码、
+提示词版本、供应商请求信息和质量报告都会保留，方便复盘而不是覆盖历史。
+
+旧版 v4 方向和已经生成的图片继续保留并可查看。它们不会被后台自动改写；要让
+现有小说应用 v5 核心冲突与差异化规则，需要在 Cover Studio 点击 **重新规划方向**，
+审批新的方向后再生成一组图片。
+
+#### 封面模型配置
+
+Web 用户可以在 **Studio Settings → Models & providers** 中分别配置图片模型和
+`cover_director` 文本路由。封面方向的推理强度独立于其他写作 Agent；Codex
+作为 Cover Director 时默认使用 `medium`，也可选择 `low`、`high`、`xhigh`、
+`max` 或 `ultra`。
+
+无界面部署可使用：
+
+```dotenv
+# 图片渲染
+NOVEL_OS_COVER_BASE_URL=https://YOUR_IMAGE_ENDPOINT/v1
+NOVEL_OS_COVER_API_KEY=YOUR_IMAGE_KEY
+NOVEL_OS_COVER_MODEL=gpt-image-2
+NOVEL_OS_COVER_SIZE=2048x3072
+NOVEL_OS_COVER_QUALITY=high
+NOVEL_OS_COVER_FORMAT=jpeg
+NOVEL_OS_COVER_COUNT=4
+
+# 方向规划与多模态视觉复核；未设置时继承默认写作连接
+NOVEL_OS_COVER_DIRECTOR_PROVIDER=codex
+NOVEL_OS_COVER_DIRECTOR_MODEL=gpt-5.6-sol
+NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS=600
+NOVEL_OS_COVER_DIRECTOR_REASONING_EFFORT=medium
+```
+
+`NOVEL_OS_COVER_DIRECTOR_BASE_URL` 和 `NOVEL_OS_COVER_DIRECTOR_API_KEY` 可用于给
+Cover Director 单独配置服务。模型名称必须是该设备和供应商实际支持的值；上面的
+值只展示字段关系。图片生成会产生供应商调用，重新规划方向只调用文本规划模型。
+
+#### 常见封面问题
+
+| 现象 | 含义与处理 |
+|---|---|
+| Create direction 阶段超时 | 这是 Cover Director 文本规划超时，不是 Image2 故障；检查 `cover_director` 路由、推理强度和 timeout |
+| `missing_visual_identity` | 规划模型没有返回完整的本书视觉语言；重新规划，或检查模型是否稳定输出严格 JSON |
+| `missing_core_conflict_contract` | v5 方向缺少核心冲突契约；重新规划方向，不要直接生成旧的半成品方向 |
+| `portfolio_conflict_undercoverage` | 四张中直接呈现冲突原因的方案不足三张 |
+| `replacement_relationship_undercoverage` | 人物构成的完整冲突关系在四张中不足两张 |
+| `protagonist_action_undercoverage` | 四张中表现主角主动行为的方案不足三张 |
+| `cover prompt exceeds 12000 Unicode code points` | 编译提示词仍超过供应商边界；保留报错与方向 JSON，检查压缩逻辑，不要删减故事事实绕过验证 |
+| 只生成 2/4 或 3/4 张 | 已成功候选会保留；对失败卡片执行单张 Retry，无需重做整组 |
+| 方向显示 `stale` | 封面依赖的 Prompt、序言、出版文案、StoryState 或最终正文已变化；重新规划并审批 |
+| 图片有故事感但核心矛盾不清 | 查看质量报告中的三个 conflict/agency 分数与 repair code，使用定向 Retry |
+| 标题拼写或字形错误 | 图片模型直接绘制标题；拒绝或重试该候选，最终仍需人工校对 |
+
 ### 迁移到新环境（不迁移小说产物）
 
 以下步骤用于在另一台电脑上重新部署 Novel OS 和 Codex Skill，只迁移源码，
@@ -613,6 +812,18 @@ Skill 的发布源是仓库目录：
 skills/novel-brainstorm-workshop/
 skills/novel-cover-studio/
 ```
+
+只执行下面这一条命令：
+
+```bash
+rsync -a --delete skills/novel-brainstorm-workshop/ \
+  "$HOME/.codex/skills/novel-brainstorm-workshop/"
+```
+
+只会复制**当前检出分支**里的小说策划 Skill。它不会执行 `git fetch` 或
+`git pull`，不会同步 `novel-cover-studio`，也不会更新正在运行的 Docker 镜像。
+因此，在 `codex-max` 等其他本地分支上执行前，要先确认该分支已经包含准备部署的
+最新提交。
 
 Codex 默认从 `~/.codex/skills/` 加载 Skill。从已经检出的仓库安装：
 
@@ -804,6 +1015,37 @@ git pull --ff-only
 ./deploy.sh restart
 ```
 
+要让一台已有部署同时获得最新的 Novel OS、小说策划 Skill 和封面 Skill，可以在
+确认小说生成任务不处于运行状态后执行：
+
+```bash
+cd /path/to/novel-os
+
+# 先更新当前部署分支；必要时先切换到团队约定的发布分支
+git pull --ff-only
+git status -sb
+git log -1 --oneline
+
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+for skill in novel-brainstorm-workshop novel-cover-studio; do
+  mkdir -p "$CODEX_HOME/skills/$skill"
+  rsync -a --delete "skills/$skill/" "$CODEX_HOME/skills/$skill/"
+done
+
+./deploy.sh restart
+./deploy.sh status
+curl -fsS http://localhost:${NOVEL_OS_WEB_PORT:-5174}/api/health
+```
+
+仓库是 Skill 的发布源；`~/.codex/skills/` 是每台电脑各自的安装副本，不会随着
+Git 自动更新。`rsync --delete` 能保证副本与当前仓库完全一致，但也会删除目标
+Skill 目录中仓库没有的个人修改。同步完成后重新打开 Codex 或开始新对话。
+
+如果电脑当前位于自有开发分支，不要只看分支名判断是否最新。先用
+`git fetch REMOTE` 获取远端状态，再通过团队采用的 merge、rebase 或发布分支流程
+纳入更新；最后比较 `git rev-parse HEAD` 与目标远端提交。直接执行 `rsync` 只会
+安装当时工作树里的版本。
+
 `novel`、`novel-resume` 和 `novel-retry` 会复用健康的 backend 容器，
 不会自动加载刚修改的镜像内容。小说正在生成时不要执行 `restart`；等待运行
 结束或进入可恢复的暂停状态后再重建。
@@ -905,6 +1147,13 @@ novel-os/
 │   ├── consequence.py                 ← ripple of a proposed rewrite
 │   ├── document_tree.py               ← binder (parts / chapters / scenes)
 │   ├── styles.py                      ← named compile styles
+│   ├── cover_director.py              ← evidence-led art direction and v5 portfolio planning
+│   ├── cover_models_v2.py             ← visual identity, conflict, scene and review schemas
+│   ├── cover_validator.py             ← deterministic story, cast, conflict and diversity gates
+│   ├── cover_prompt_compiler.py       ← approved direction → Image2 prompt
+│   ├── cover_quality.py               ← binary, full-image and thumbnail visual review
+│   ├── cover_store.py                 ← directions, revisions, attempts and active selection
+│   ├── image_client.py                ← gpt-image-2 generation boundary
 │   ├── compile_book.py                ← gather → render
 │   ├── compile_docx.py                ← OOXML, no dependency
 │   ├── compile_epub.py                ← EPUB 3, no dependency
@@ -938,6 +1187,8 @@ novel-os/
 └── 📤 outputs/                        ← (per project, gitignored)
     ├── state/story_state.json
     ├── manuscript/
+    ├── covers/{design,directions,sets}/
+    ├── deliverables/covers/
     └── feedback/
 ```
 
@@ -968,6 +1219,9 @@ Great novels are not written they are **engineered**. Professional authors use e
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layers, the two stores, and the ingest bridge between them |
 | [docs/WORKFLOWS.md](docs/WORKFLOWS.md) | Step-by-step writing workflows |
 | [docs/API.md](docs/API.md) | Programmatic API for custom integrations |
+| [skills/novel-cover-studio/SKILL.md](skills/novel-cover-studio/SKILL.md) | Codex-facing cover workflow, approval boundary, retry and delivery behavior |
+| [Cover handoff reference](skills/novel-cover-studio/references/cover-handoff.md) | Structured story facts, visual evidence, v5 direction fields and validation rules |
+| [Commercial cover direction](skills/novel-cover-studio/references/commercial-direction.md) | Mobile-first composition, relationship geometry, market finish and typography guidance |
 
 ### Design notes
 
