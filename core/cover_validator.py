@@ -6,8 +6,10 @@ from dataclasses import dataclass
 
 try:
     from .cover_models_v2 import ArtDirectionSet, CoverBriefV2
+    from .cover_profiles import portfolio_blueprint
 except ImportError:  # pragma: no cover - legacy CLI imports core modules top-level
     from cover_models_v2 import ArtDirectionSet, CoverBriefV2
+    from cover_profiles import portfolio_blueprint
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,104 @@ def _has_layered_depth(plan: object) -> bool:
     )
 
 
+def _validate_portfolio_treatments(
+    brief: CoverBriefV2,
+    direction: ArtDirectionSet,
+) -> list[ValidationFinding]:
+    """Validate the v3 cross-concept diversity contract.
+
+    The treatment ids are intentionally structural rather than free-form prose:
+    the director can repair them deterministically, the compiler can turn them
+    into detailed art instructions, and older persisted v2 directions retain
+    their original hashes and behavior.
+    """
+    if not direction.profile_version.casefold().startswith("cover-profiles.v3"):
+        return []
+
+    findings: list[ValidationFinding] = []
+    blueprint = portfolio_blueprint(len(direction.plans))
+    expected_by_hook = {item.hook_type: item for item in blueprint}
+    actual_hooks = [plan.visual_hook.hook_type.casefold() for plan in direction.plans]
+    expected_hooks = [item.hook_type for item in blueprint]
+    if actual_hooks != expected_hooks:
+        findings.append(ValidationFinding(
+            "portfolio_order_mismatch",
+            "blocker",
+            "Portfolio plans must follow the assigned blueprint hook order",
+            ", ".join(expected_hooks),
+        ))
+
+    treatment_fields = (
+        "portfolio_slot",
+        "composition_family",
+        "scene_family",
+        "art_style",
+        "emotion_register",
+        "typography_style",
+    )
+    for plan in direction.plans:
+        hook_type = plan.visual_hook.hook_type.casefold()
+        expected = expected_by_hook.get(hook_type)
+        if expected is None:
+            findings.append(ValidationFinding(
+                "portfolio_hook_mismatch",
+                "blocker",
+                "Plan uses a hook outside the assigned portfolio blueprint",
+                plan.concept_id,
+            ))
+            continue
+        mismatches = [
+            f"{field}={getattr(plan, field) or '<missing>'} (expected {getattr(expected, field)})"
+            for field in treatment_fields
+            if getattr(plan, field).casefold() != getattr(expected, field).casefold()
+        ]
+        if mismatches:
+            findings.append(ValidationFinding(
+                "portfolio_treatment_mismatch",
+                "blocker",
+                "Plan must use its assigned composition, scene, art, emotion, and typography treatment ids",
+                f"{plan.concept_id}: {'; '.join(mismatches)}",
+            ))
+
+    scene_families = [plan.scene_family.casefold() for plan in direction.plans if plan.scene_family]
+    if len(scene_families) != len(direction.plans) or len(set(scene_families)) != len(scene_families):
+        findings.append(ValidationFinding(
+            "duplicate_scene_family",
+            "blocker",
+            "Every portfolio plan must stage a distinct scene family rather than a variation of one tableau",
+            ", ".join(scene_families) or "all scene families missing",
+        ))
+    approved_locations = {
+        item.casefold(): item for item in brief.lived_environment.primary_spaces
+    }
+    location_families = [plan.location_family.casefold() for plan in direction.plans]
+    for plan, location in zip(direction.plans, location_families, strict=True):
+        if not location or location not in approved_locations:
+            findings.append(ValidationFinding(
+                "location_family_mismatch",
+                "blocker",
+                "Plan location_family must exactly match an approved lived-environment primary space",
+                f"{plan.concept_id}: {plan.location_family or '<missing>'}",
+            ))
+    required_distinct_locations = min(len(direction.plans), len(approved_locations))
+    valid_locations = {item for item in location_families if item in approved_locations}
+    if len(valid_locations) < required_distinct_locations:
+        findings.append(ValidationFinding(
+            "insufficient_location_diversity",
+            "blocker",
+            "Portfolio must use every approved location once before repeating one",
+            ", ".join(plan.location_family or "<missing>" for plan in direction.plans),
+        ))
+    frozen_actions = [" ".join(plan.frozen_action.casefold().split()) for plan in direction.plans]
+    if len(set(frozen_actions)) != len(frozen_actions):
+        findings.append(ValidationFinding(
+            "duplicate_story_beat",
+            "blocker",
+            "Every portfolio plan must freeze a different story beat",
+        ))
+    return findings
+
+
 def validate_direction(
     brief: CoverBriefV2,
     direction: ArtDirectionSet,
@@ -81,6 +181,7 @@ def validate_direction(
         findings.append(ValidationFinding("duplicate_strategy", "blocker", "Direction strategies must be distinct"))
     if len(set(hooks)) != len(hooks):
         findings.append(ValidationFinding("duplicate_hook", "blocker", "Visual hooks must be distinct"))
+    findings.extend(_validate_portfolio_treatments(brief, direction))
     if optional_conflict_cast and not any(
         set(plan.cast) & optional_conflict_cast
         and _has_layered_depth(plan)

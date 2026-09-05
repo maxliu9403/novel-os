@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from core.cover_director import CoverArtDirector
 from core.cover_validator import validate_direction
-from tests.test_cover_director import _brief, director_fixture
+from tests.test_cover_director import _brief, director_fixture, v3_director_fixture
 
 
 def test_validator_accepts_fixture_direction_with_resolvable_evidence() -> None:
@@ -166,3 +166,49 @@ def test_validator_detects_brief_hash_drift() -> None:
     findings = validate_direction(_brief(), changed)
 
     assert any(item.code == "brief_hash_mismatch" for item in findings)
+
+
+def test_v3_validator_blocks_four_relabels_of_the_same_scene_and_missing_treatments() -> None:
+    payload = director_fixture()
+    payload["profile_version"] = "cover-profiles.v3"
+    direction = CoverArtDirector.from_fixture(payload).plan(_brief(), count=4)
+
+    findings = validate_direction(_brief(), direction)
+    codes = {item.code for item in findings}
+
+    assert "portfolio_treatment_mismatch" in codes
+    assert "duplicate_scene_family" in codes
+    assert "duplicate_story_beat" in codes
+
+
+def test_v3_validator_accepts_four_assigned_expression_systems_and_distinct_beats() -> None:
+    direction = CoverArtDirector.from_fixture(v3_director_fixture()).plan(_brief(), count=4)
+
+    findings = validate_direction(_brief(), direction)
+
+    assert findings == ()
+
+
+def test_v3_validator_requires_each_approved_location_before_reusing_the_clinic() -> None:
+    from core.cover_models_v2 import CoverBriefV2
+
+    brief_payload = _brief().to_dict()
+    brief_payload["lived_environment"]["primary_spaces"] = [
+        "family kitchen", "public ceremony hall", "clinic corridor", "apartment threshold",
+    ]
+    brief = CoverBriefV2.from_dict(brief_payload, source_prompt_sha256="a" * 64)
+    payload = v3_director_fixture()
+    for plan in payload["plans"]:
+        plan["location_family"] = "clinic corridor"
+    repeated = CoverArtDirector.from_fixture(payload).plan(brief, count=4)
+
+    findings = validate_direction(brief, repeated)
+
+    assert "insufficient_location_diversity" in {item.code for item in findings}
+
+    for plan, location in zip(
+        payload["plans"], brief.lived_environment.primary_spaces, strict=True,
+    ):
+        plan["location_family"] = location
+    varied = CoverArtDirector.from_fixture(payload).plan(brief, count=4)
+    assert validate_direction(brief, varied) == ()

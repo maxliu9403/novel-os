@@ -72,11 +72,17 @@ function renderStudio() {
 }
 
 function coverDirection(status: CoverDirection["status"] = "awaiting_approval"): CoverDirection {
+  const treatments = [
+    ["intimate_character_window", "asymmetric_close_plane", "private_reckoning", "lived-in apartment entry", "intimate_editorial_portrait", "wounded_recognition", "airy_literary_serif"],
+    ["relationship_geometry", "triangular_depth_tableau", "causal_ensemble", "lived-in apartment entry", "deep_focus_prestige_drama", "divided_loyalty", "fractured_editorial_serif"],
+    ["evidence_mystery", "evidence_led_negative_space", "evidence_discovery", "lived-in apartment entry", "graphic_editorial_suspense", "shock_and_dread", "condensed_evidence_lockup"],
+    ["kinetic_threshold", "diagonal_threshold_motion", "threshold_departure", "lived-in apartment entry", "kinetic_cinematic_key_art", "cathartic_resolve", "bold_cinematic_serif"],
+  ];
   return {
     direction_id: "direction-" + "a".repeat(32),
     schema_version: 1,
     director_model: "fixture-director",
-    profile_version: "cover-profiles.v2",
+    profile_version: "cover-profiles.v3",
     brief_sha256: "a".repeat(64),
     direction_sha256: "b".repeat(64),
     status,
@@ -96,6 +102,13 @@ function coverDirection(status: CoverDirection["status"] = "awaiting_approval"):
     plans: Array.from({ length: 4 }, (_, index) => ({
       concept_id: `concept-${index + 1}`,
       visual_strategy: `strategy_${index + 1}`,
+      portfolio_slot: treatments[index][0],
+      composition_family: treatments[index][1],
+      scene_family: treatments[index][2],
+      location_family: treatments[index][3],
+      art_style: treatments[index][4],
+      emotion_register: treatments[index][5],
+      typography_style: treatments[index][6],
       cast: ["char_mara"], focal_character_id: "char_mara",
       frozen_action: "Mara removes the shared key before the door closes",
       blocking: "Mara foreground right at the threshold",
@@ -156,6 +169,10 @@ test("shows story facts and requires exact art direction approval before generat
   expect(await screen.findByText("Art direction review")).toBeInTheDocument();
   expect(screen.getByText("Age 34 · caregiver returning to paid work")).toBeInTheDocument();
   expect(screen.getByText("a lived-in apartment entry")).toBeInTheDocument();
+  expect(screen.getByText("Asymmetric close plane")).toBeInTheDocument();
+  expect(screen.getByText("Graphic editorial suspense")).toBeInTheDocument();
+  expect(screen.getByText("Cathartic resolve")).toBeInTheDocument();
+  expect(screen.getByText("Bold cinematic serif")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Generate 4 covers" })).toBeDisabled();
   await user.click(screen.getByRole("button", { name: "Approve art direction" }));
   await waitFor(() => expect(approve).toHaveBeenCalledWith(
@@ -182,6 +199,25 @@ test("creates art direction from the persisted story facts before generation", a
   await waitFor(() => expect(create).toHaveBeenCalledWith(project.id, 4));
   expect(await screen.findByText("Art direction review")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Approve art direction" })).toBeEnabled();
+});
+
+test("lets operations replace an approved legacy direction with a new portfolio", async () => {
+  const approved = coverDirection("approved");
+  const replanned = coverDirection();
+  replanned.direction_id = `direction-${"d".repeat(32)}`;
+  vi.spyOn(api, "project").mockResolvedValue(project);
+  vi.spyOn(api, "studioCover").mockResolvedValue(coverStatus);
+  vi.spyOn(api, "covers").mockResolvedValue([]);
+  vi.spyOn(api, "coverDirections").mockResolvedValue([approved]);
+  const create = vi.spyOn(api, "createCoverDirection").mockResolvedValue(replanned);
+  const user = userEvent.setup();
+
+  renderStudio();
+
+  await user.click(await screen.findByRole("button", { name: "Replan cover directions" }));
+  await waitFor(() => expect(create).toHaveBeenCalledWith(project.id, 4));
+  expect(screen.getByRole("button", { name: "Approve art direction" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Generate 4 covers" })).toBeDisabled();
 });
 
 test("does not reuse an older approval when the newest direction awaits review", async () => {

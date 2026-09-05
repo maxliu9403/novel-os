@@ -128,7 +128,7 @@ def test_compile_is_deterministic_and_contains_age_environment_and_hook() -> Non
     second = compile_cover_prompt(brief_fixture(), scene_fixture())
 
     assert first.text == second.text
-    assert first.compiler_version == "cover-compiler.v6"
+    assert first.compiler_version == "cover-compiler.v7"
     assert [name for name in first.modules] == [
         "ROLE AND OUTPUT", "STORY TRUTH", "CAST LOCK", "SINGLE CINEMATIC MOMENT",
         "HERO SUBJECT AND CORE STORY ATMOSPHERE",
@@ -158,7 +158,8 @@ def test_compile_directs_a_centered_cinematic_but_readable_title_lockup() -> Non
     assert "optical centering" in typography
     assert "supporting words" in typography
     assert "story-bearing words" in typography
-    assert "restrained calligraphic" in typography
+    assert "fractured-axis" in typography
+    assert "fractured_editorial_serif" in typography
     assert "generic Times-like typesetting" in typography
     assert "equal-size line stack" in typography
     assert "full-script or cursive title" in typography
@@ -178,7 +179,7 @@ def test_compile_uses_film_publicity_key_art_and_clear_story_bearing_people() ->
     assert "core conflict" in subject
     assert "expression, body distance, unfinished action, motivated light" in subject
     assert "principal people read before the setting" in subject
-    assert "prestige drama publicity photography" in camera
+    assert "deep_focus_prestige_drama" in camera
 
 
 def test_compile_turns_optional_approved_cast_into_layered_conflict_not_a_group_pose() -> None:
@@ -190,12 +191,67 @@ def test_compile_turns_optional_approved_cast_into_layered_conflict_not_a_group_
     conflict = compiled.modules["CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY"]
     assert "char_pressure_a" in cast_lock
     assert "char_pressure_b" in cast_lock
-    assert "foreground carries the emotional cost" in conflict
-    assert "background reveals the story action causing it" in conflict
-    assert "gaze, gesture, distance, and interrupted movement" in conflict
+    assert "triangular_depth_tableau" in conflict
+    assert "emotional consequence and the causing alignment" in conflict
+    assert "causal_ensemble" in conflict
     assert "generic sad portrait" in conflict
     assert "equal-weight group portrait" in conflict
-    assert "evidence-supported" in conflict
+    assert "approved evidence" in conflict
+
+
+def test_four_hooks_compile_to_four_different_compositions_art_emotions_and_typography() -> None:
+    hook_types = (
+        "emotional_identification",
+        "relationship_tension",
+        "evidence_reveal",
+        "irreversible_moment",
+    )
+    compiled = [
+        compile_cover_prompt(
+            brief_fixture(),
+            replace(
+                scene_fixture(),
+                visual_hook=replace(scene_fixture().visual_hook, hook_type=hook_type),
+            ),
+        )
+        for hook_type in hook_types
+    ]
+
+    assert len({item.modules["CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY"] for item in compiled}) == 4
+    assert len({item.modules["CAMERA, DEPTH AND MOTIVATED LIGHTING"] for item in compiled}) == 4
+    assert len({item.modules["GENRE EMOTION"] for item in compiled}) == 4
+    assert len({item.modules["TITLE ART DIRECTION"] for item in compiled}) == 4
+    assert [
+        token in item.text
+        for token, item in zip(
+            (
+                "asymmetric_close_plane",
+                "triangular_depth_tableau",
+                "evidence_led_negative_space",
+                "diagonal_threshold_motion",
+            ),
+            compiled,
+            strict=True,
+        )
+    ] == [True, True, True, True]
+    assert "private recognition or immediate aftermath" in compiled[0].modules["GENRE EMOTION"]
+    assert "private recognition or immediate aftermath" not in compiled[1].modules["GENRE EMOTION"]
+    assert "causal_ensemble" in compiled[1].modules["CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY"]
+
+
+def test_compiler_uses_each_plan_location_instead_of_repeating_first_brief_space() -> None:
+    payload = two_character_fixture()
+    payload["lived_environment"]["primary_spaces"] = [
+        "lived-in apartment entry", "ordinary clinic corridor",
+    ]
+    brief = CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+    scene = replace(scene_fixture(), location_family="ordinary clinic corridor")
+
+    compiled = compile_cover_prompt(brief, scene)
+
+    assert "Primary lived setting for this portfolio slot: ordinary clinic corridor" in compiled.modules[
+        "LIVED ENVIRONMENT AND PRIMARY PROP"
+    ]
 
 
 def test_compile_compacts_verbose_four_person_direction_below_provider_limit() -> None:

@@ -631,6 +631,13 @@ class CoverScenePlan:
     color_script: str
     title_safe_zone: str
     visual_hook: VisualHook
+    portfolio_slot: str = ""
+    composition_family: str = ""
+    scene_family: str = ""
+    location_family: str = ""
+    art_style: str = ""
+    emotion_register: str = ""
+    typography_style: str = ""
 
     def __post_init__(self) -> None:
         for name in (
@@ -678,10 +685,29 @@ class CoverScenePlan:
             visual_hook=VisualHook.from_dict(
                 _mapping(data.get("visual_hook"), f"{prefix}.visual_hook")
             ),
+            portfolio_slot=_text(
+                data.get("portfolio_slot"), f"{prefix}.portfolio_slot", required=False
+            ),
+            composition_family=_text(
+                data.get("composition_family"), f"{prefix}.composition_family", required=False
+            ),
+            scene_family=_text(
+                data.get("scene_family"), f"{prefix}.scene_family", required=False
+            ),
+            location_family=_text(
+                data.get("location_family"), f"{prefix}.location_family", required=False
+            ),
+            art_style=_text(data.get("art_style"), f"{prefix}.art_style", required=False),
+            emotion_register=_text(
+                data.get("emotion_register"), f"{prefix}.emotion_register", required=False
+            ),
+            typography_style=_text(
+                data.get("typography_style"), f"{prefix}.typography_style", required=False
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "concept_id": self.concept_id,
             "visual_strategy": self.visual_strategy,
             "story_evidence_refs": list(self.story_evidence_refs),
@@ -703,6 +729,17 @@ class CoverScenePlan:
             "title_safe_zone": self.title_safe_zone,
             "visual_hook": self.visual_hook.to_dict(),
         }
+        optional_treatment = {
+            "portfolio_slot": self.portfolio_slot,
+            "composition_family": self.composition_family,
+            "scene_family": self.scene_family,
+            "location_family": self.location_family,
+            "art_style": self.art_style,
+            "emotion_register": self.emotion_register,
+            "typography_style": self.typography_style,
+        }
+        payload.update({key: value for key, value in optional_treatment.items() if value})
+        return payload
 
 
 @dataclass(frozen=True)

@@ -221,6 +221,13 @@ export interface CoverSet {
 export interface CoverDirectionPlan {
   concept_id: string;
   visual_strategy: string;
+  portfolio_slot?: string;
+  composition_family?: string;
+  scene_family?: string;
+  location_family?: string;
+  art_style?: string;
+  emotion_register?: string;
+  typography_style?: string;
   cast: string[];
   focal_character_id: string;
   frozen_action: string;

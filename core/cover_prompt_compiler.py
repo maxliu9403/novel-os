@@ -16,7 +16,11 @@ try:
         PrincipalCharacter,
     )
     from .cover_models import CoverConcept
-    from .cover_profiles import resolve_genre_profile, resolve_title_typography
+    from .cover_profiles import (
+        resolve_genre_profile,
+        resolve_portfolio_treatment,
+        resolve_title_typography,
+    )
 except ImportError:  # pragma: no cover - legacy CLI imports core modules top-level
     from cover_models_v2 import (
         COVER_REPAIR_CODES,
@@ -26,10 +30,14 @@ except ImportError:  # pragma: no cover - legacy CLI imports core modules top-le
         PrincipalCharacter,
     )
     from cover_models import CoverConcept
-    from cover_profiles import resolve_genre_profile, resolve_title_typography
+    from cover_profiles import (
+        resolve_genre_profile,
+        resolve_portfolio_treatment,
+        resolve_title_typography,
+    )
 
 
-COMPILER_VERSION = "cover-compiler.v6"
+COMPILER_VERSION = "cover-compiler.v7"
 MAX_PROMPT_CODEPOINTS = 12_000
 _MARKETING_SHORTCUTS = ("viral", "high ctr", "high conversion", "click-through", "masterpiece")
 _FORBIDDEN_NEGATIONS = (
@@ -176,8 +184,17 @@ def _validate_scene(brief: CoverBriefV2, scene: CoverScenePlan) -> None:
 
 def _modules(brief: CoverBriefV2, scene: CoverScenePlan) -> dict[str, str]:
     profile = resolve_genre_profile(brief)
-    typography = resolve_title_typography(profile)
+    treatment = resolve_portfolio_treatment(scene.visual_hook.hook_type)
+    typography = resolve_title_typography(
+        profile, hook_type=scene.visual_hook.hook_type,
+    )
     title_safe_zone = _centered_title_safe_zone(brief, scene)
+    primary_location = scene.location_family or brief.lived_environment.primary_spaces[0]
+    relationship_motion = (
+        profile.relationship_motion
+        if scene.visual_hook.hook_type.casefold() == "relationship_tension"
+        else treatment.scene_direction
+    )
     cast_ids = set(scene.cast)
     selected_cast = tuple(
         item for item in brief.principal_characters if item.character_id in cast_ids
@@ -203,8 +220,8 @@ def _modules(brief: CoverBriefV2, scene: CoverScenePlan) -> dict[str, str]:
         "ROLE AND OUTPUT": (
             "Create an original live-action theatrical film campaign poster from a believable on-set "
             "publicity still of one decisive scene. Finish as a portrait 2:3 commercial novel cover with "
-            "prestige key-art hierarchy and restraint. It looks photographed rather than illustrated, "
-            "stock-composited, or synthetic."
+            f"prestige key-art hierarchy and restraint. This portfolio slot uses {treatment.art_direction} "
+            "It looks photographed rather than illustrated, stock-composited, or synthetic."
         ),
         "STORY TRUTH": story_truth,
         "CAST LOCK": f"{cast_lock}\n{cast_summary} Do not infer or invent ethnicity, nationality, age, class, or identity traits.",
@@ -222,13 +239,12 @@ def _modules(brief: CoverBriefV2, scene: CoverScenePlan) -> dict[str, str]:
             "size, principal people read before the setting and relationship tension before secondary detail."
         ),
         "CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY": (
-            "Build a causal tableau, not a posed lineup: the foreground carries the emotional cost or decision; "
-            "the background reveals the story action causing it. Link depth planes through gaze, gesture, distance, and interrupted "
-            "movement so cause and consequence read together. Give the focal character a story-supported action "
-            "such as leaving, refusing, reaching, freezing, protecting, or choosing, rather than generic sadness. "
-            "Show the opposing alignment through evidence-supported proximity, attention, exclusion, or secrecy. "
-            "Keep one continuous photographic moment, not a generic sad portrait, equal-weight group portrait, "
-            "split composition, or collage; do not intensify intimacy beyond the evidence."
+            f"Portfolio slot: {treatment.portfolio_slot}. Composition family: "
+            f"{treatment.composition_family}. {treatment.composition_direction} "
+            f"Scene family: {treatment.scene_family}. {treatment.scene_direction} "
+            "Give the focal character a story-supported action rather than a generic mood pose. Keep one "
+            "continuous photographic moment, not a generic sad portrait, equal-weight group portrait, split "
+            "composition, or collage; keep every relationship action within the approved evidence."
         ),
         "RELATIONSHIP BLOCKING": (
             f"{scene.blocking}. Gaze and gesture logic: {'; '.join(_gaze_instruction(item) for item in scene.gaze_graph)}. "
@@ -238,7 +254,7 @@ def _modules(brief: CoverBriefV2, scene: CoverScenePlan) -> dict[str, str]:
         ),
         "LIVED ENVIRONMENT AND PRIMARY PROP": (
             f"Environment anchors: {', '.join(scene.environment_anchors)}. "
-            f"Primary lived setting: {brief.lived_environment.primary_spaces[0]}. "
+            f"Primary lived setting for this portfolio slot: {primary_location}. "
             f"Economic signals: {', '.join(brief.lived_environment.economic_signals) or 'none specified'}. "
             f"Scene truths: {'; '.join(brief.lived_environment.environment_truths) or 'none specified'}. "
             f"Show credible material, scale, wear, and physical contact. Dominant story prop: {scene.primary_prop}, "
@@ -246,13 +262,14 @@ def _modules(brief: CoverBriefV2, scene: CoverScenePlan) -> dict[str, str]:
         ),
         "GENRE EMOTION": (
             f"Profile: {profile.primary_genre}/{profile.submode}. Temperature: {profile.emotional_temperature}. "
-            f"Viewer feeling: {profile.desired_viewer_feeling}. Relationship motion: {profile.relationship_motion}. "
+            f"Viewer feeling: {profile.desired_viewer_feeling}. Relationship motion: {relationship_motion}. "
+            f"Portfolio emotion: {treatment.emotion_register}. {treatment.emotion_direction} "
             f"Avoid: {', '.join(profile.prohibited_shortcuts)}."
         ),
         "CAMERA, DEPTH AND MOTIVATED LIGHTING": (
             f"{scene.shot_scale}, {scene.camera_height}, {scene.lens}. {scene.depth_plan}. "
             f"Light comes from {scene.motivated_lighting}. Color script: {scene.color_script}. "
-            "Use prestige drama publicity photography, natural behavior, and physically consistent shadows, "
+            f"Art style: {treatment.art_style}. {treatment.camera_direction} Use natural behavior and physically consistent shadows, "
             "reflections, perspective, and contact."
         ),
         "MOBILE COMMERCIAL COVER OBJECTIVE": (
@@ -267,7 +284,8 @@ def _modules(brief: CoverBriefV2, scene: CoverScenePlan) -> dict[str, str]:
             "primary prop outside the lettering area. The title remains readable at mobile thumbnail size."
         ),
         "TITLE ART DIRECTION": (
-            f"Typography voice: {typography.letterform_voice}. Build a cinematic centered title lockup "
+            f"Typography system: {treatment.typography_style}. Voice: {typography.letterform_voice}. "
+            "Build a cinematic centered title lockup "
             f"on the horizontal center axis inside the approved safe zone. Hierarchy: {typography.hierarchy}. Keep supporting words smaller "
             "than story-bearing words while preserving exact spelling, order, and reading path. Use deliberate "
             "line breaks and optical centering, not an equal-size stack or mechanically stacked text box. "

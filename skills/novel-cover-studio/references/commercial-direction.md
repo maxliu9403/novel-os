@@ -10,9 +10,20 @@ The output is an original mobile-first serialized-fiction cover, not an imitatio
 4. One subordinate signal supports a key secondary task; it never competes with the focal action.
 5. The fictional world appears through setting, costume, objects, era, light, or social pressure rather than real landmarks.
 
+## Four-expression portfolio
+
+Treat a four-cover batch as four different visual arguments for the same book:
+
+1. **Intimate character window** — asymmetric close plane; private reckoning; tactile editorial portrait; wounded recognition; airy literary serif.
+2. **Relationship geometry** — triangular deep-focus tableau; direct relationship choice; prestige-drama campaign still; divided loyalty; fractured editorial serif.
+3. **Evidence mystery** — evidence-led negative space; discovery beat; crisp editorial suspense; shock and dread; condensed evidence lockup.
+4. **Kinetic threshold** — diagonal medium-wide motion; irreversible refusal or departure; cinematic key art; cathartic resolve; bold cinematic serif.
+
+An optional fifth direction uses architectural social pressure and public isolation. Each direction must freeze a different evidence-grounded story beat. Use every approved primary location once before repeating one; when four or more approved locations exist, the default four covers use four different locations. Changing crop, pose, palette, prop, lens, or camera angle around the same location-action tableau does not form a portfolio.
+
 ## Conflict tableau and emotional geography
 
-Translate synopsis-level conflict into one visible cause-and-consequence tableau. The foreground carries the emotional consequence, threatened bond, or protagonist decision. A middle or background plane reveals the causal relationship action when approved characters and evidence support it. Connect the planes through gaze, body direction, distance, touch, refusal, departure, or interrupted movement. The viewer should understand both what hurts and what caused it before reading a synopsis.
+For the relationship-geometry direction, translate synopsis-level conflict into one visible cause-and-consequence tableau. The foreground carries the emotional consequence, threatened bond, or protagonist decision. A middle or background plane reveals the causal relationship action when approved characters and evidence support it. Connect the planes through gaze, body direction, distance, touch, refusal, departure, or interrupted movement. The viewer should understand both what hurts and what caused it before reading a synopsis. The intimate, evidence, threshold, and environmental directions use their assigned composition grammar instead of repeating this ensemble tableau.
 
 Emotional atmosphere must come from behavior and relationship geometry, not from a generic sad face, a color wash, or decorative symbolism. Keep the focal character active even in pain: choosing, refusing, leaving, protecting, witnessing, reaching, or freezing at a consequential instant. An opposing pair may show proximity, secrecy, exclusion, attention, or alignment only to the degree supported by story evidence. Use one continuous scene, not a split panel, explanatory collage, or flat group portrait.
 
@@ -31,13 +42,13 @@ Do not apply this typography profile to a non-Western market unless the approved
 
 ## Distinct concept families
 
-Choose 3-5 concepts with different focal scenes, camera distance, pressure geometry, palette, and emotional temperature. The default families are:
+Choose 3-5 concepts with different focal scenes, camera distance, pressure geometry, palette, emotional temperature, photographic finish, and typography. The canonical portfolio families are:
 
-- `protagonist_confrontation`: foreground agency against compressed opposition;
-- `decisive_story_node`: the irreversible event frozen at its turning instant;
-- `symbolic_evidence`: protagonist-led close composition around one consequential object;
-- `world_relationship_pressure`: environmental lines and relationship positions tighten around the protagonist;
-- `emotional_reversal`: the earned shift from pressure to visible control.
+- `intimate_character_window`: an asymmetric, protagonist-dominant private reckoning;
+- `relationship_geometry`: a layered relationship choice with causal cross-plane action;
+- `evidence_mystery`: a protagonist-led evidence discovery with graphic negative space;
+- `kinetic_threshold`: the irreversible refusal or departure frozen in directional motion;
+- `social_pressure`: an optional public consequence shaped by architectural pressure.
 
 Changing only color or pose is not distinct. Each concept should make a different truthful promise about the same book.
 

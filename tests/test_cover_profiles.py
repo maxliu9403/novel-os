@@ -64,3 +64,37 @@ def test_title_typography_changes_voice_between_romance_and_family_ethics() -> N
     assert "tension" in family.expressive_detail
     assert "generic Times-like typesetting" in family.prohibited_shortcuts
     assert any("equal-size line stack" in item for item in family.prohibited_shortcuts)
+
+
+def test_four_cover_portfolio_assigns_four_complete_and_distinct_visual_languages() -> None:
+    portfolio = cover_profiles.portfolio_blueprint(4)
+
+    assert [item.hook_type for item in portfolio] == [
+        "emotional_identification",
+        "relationship_tension",
+        "evidence_reveal",
+        "irreversible_moment",
+    ]
+    for field in (
+        "portfolio_slot",
+        "composition_family",
+        "scene_family",
+        "art_style",
+        "emotion_register",
+        "typography_style",
+    ):
+        values = [getattr(item, field) for item in portfolio]
+        assert all(values)
+        assert len(set(values)) == 4
+
+
+def test_portfolio_hook_changes_title_lettering_system_within_one_genre() -> None:
+    profile = resolve_genre_profile(_brief("family ethics drama", "domestic_betrayal"))
+
+    typography = [
+        cover_profiles.resolve_title_typography(profile, hook_type=item.hook_type)
+        for item in cover_profiles.portfolio_blueprint(4)
+    ]
+
+    assert len({item.letterform_voice for item in typography}) == 4
+    assert len({item.hierarchy for item in typography}) == 4

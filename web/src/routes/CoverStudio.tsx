@@ -516,9 +516,21 @@ function DirectionWorkspace({
         {direction.plans.map((plan, index) => (
           <article key={plan.concept_id} className="rounded-[6px] border border-paper-line bg-white/65 p-3">
             <div className="flex items-start justify-between gap-3">
-              <p className="text-[12px] font-semibold text-ink-text">Direction {index + 1}: {formatStrategy(plan.visual_strategy)}</p>
+              <p className="text-[12px] font-semibold text-ink-text">
+                Direction {index + 1}: {formatStrategy(plan.portfolio_slot || plan.visual_strategy)}
+              </p>
               <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-ink-muted">{plan.visual_hook.hook_type.replaceAll("_", " ")}</span>
             </div>
+            {plan.portfolio_slot && (
+              <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 rounded-[5px] bg-[#f5f6fb] px-2.5 py-2 text-[10.5px] leading-4 text-ink-muted sm:grid-cols-3">
+                <div><dt className="font-semibold text-ink-text">Composition</dt><dd>{formatStrategy(plan.composition_family)}</dd></div>
+                <div><dt className="font-semibold text-ink-text">Scene</dt><dd>{formatStrategy(plan.scene_family)}</dd></div>
+                <div><dt className="font-semibold text-ink-text">Location</dt><dd>{plan.location_family}</dd></div>
+                <div><dt className="font-semibold text-ink-text">Art style</dt><dd>{formatStrategy(plan.art_style)}</dd></div>
+                <div><dt className="font-semibold text-ink-text">Emotion</dt><dd>{formatStrategy(plan.emotion_register)}</dd></div>
+                <div><dt className="font-semibold text-ink-text">Typography</dt><dd>{formatStrategy(plan.typography_style)}</dd></div>
+              </dl>
+            )}
             <p className="mt-2 text-[11.5px] leading-4 text-ink-muted">{plan.frozen_action}</p>
             <p className="mt-1 text-[11px] leading-4 text-ink-muted">Cast: {plan.cast.join(", ")} · Prop: {plan.primary_prop}</p>
             <p className="mt-1 text-[11px] leading-4 text-ink-muted">{plan.visual_hook.open_question}</p>
@@ -527,14 +539,36 @@ function DirectionWorkspace({
       </div>
 
       {direction.status !== "approved" && direction.status !== "stale" && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={Boolean(busy)}
+            onClick={() => onApprove(direction)}
+            aria-label="Approve art direction"
+          >
+            <Icon name="circle-check" className="h-4 w-4" /> Approve art direction
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={Boolean(busy)}
+            onClick={onCreate}
+            aria-label="Replan cover directions"
+          >
+            <Icon name="sparkles" className="h-4 w-4" /> Replan directions
+          </button>
+        </div>
+      )}
+      {direction.status === "approved" && (
         <button
           type="button"
-          className="btn-primary mt-4"
+          className="btn-secondary mt-4"
           disabled={Boolean(busy)}
-          onClick={() => onApprove(direction)}
-          aria-label="Approve art direction"
+          onClick={onCreate}
+          aria-label="Replan cover directions"
         >
-          <Icon name="circle-check" className="h-4 w-4" /> Approve art direction
+          <Icon name="sparkles" className="h-4 w-4" /> Replan directions
         </button>
       )}
       {direction.status === "stale" && (

@@ -6,6 +6,7 @@ import pytest
 
 from core.cover_director import CoverArtDirector, CoverDirectionError
 from core.cover_models_v2 import CoverBriefV2
+from core.cover_profiles import portfolio_blueprint
 from tests.test_cover_models_v2 import two_character_fixture
 
 
@@ -82,6 +83,23 @@ def director_fixture() -> dict:
     }
 
 
+def v3_director_fixture() -> dict:
+    payload = director_fixture()
+    payload["profile_version"] = "cover-profiles.v3"
+    for plan, treatment in zip(payload["plans"], portfolio_blueprint(4), strict=True):
+        plan.update({
+            "portfolio_slot": treatment.portfolio_slot,
+            "composition_family": treatment.composition_family,
+            "scene_family": treatment.scene_family,
+            "location_family": "lived-in apartment entry",
+            "art_style": treatment.art_style,
+            "emotion_register": treatment.emotion_register,
+            "typography_style": treatment.typography_style,
+        })
+        plan["frozen_action"] = f"distinct {treatment.scene_family} story beat"
+    return payload
+
+
 def test_fixture_director_builds_four_distinct_scene_plans() -> None:
     direction = CoverArtDirector.from_fixture(director_fixture()).plan(_brief(), count=4)
 
@@ -129,13 +147,26 @@ def test_director_prompt_defines_exact_machine_readable_response_contract() -> N
         "gaze_graph", "blocking", "environment_anchors", "primary_prop",
         "shot_scale", "camera_height", "lens", "depth_plan",
         "motivated_lighting", "color_script", "title_safe_zone", "visual_hook",
+        "portfolio_slot", "composition_family", "scene_family", "location_family", "art_style",
+        "emotion_register", "typography_style",
     }
+    assert contract["fixed_values"]["profile_version"] == "cover-profiles.v3"
+    assert [item["portfolio_slot"] for item in contract["plans"]["portfolio_blueprint"]] == [
+        "intimate_character_window", "relationship_geometry",
+        "evidence_mystery", "kinetic_threshold",
+    ]
+    assert len({item["composition_family"] for item in contract["plans"]["portfolio_blueprint"]}) == 4
+    assert len({item["scene_family"] for item in contract["plans"]["portfolio_blueprint"]}) == 4
+    assert len({item["art_style"] for item in contract["plans"]["portfolio_blueprint"]}) == 4
+    assert len({item["emotion_register"] for item in contract["plans"]["portfolio_blueprint"]}) == 4
+    assert len({item["typography_style"] for item in contract["plans"]["portfolio_blueprint"]}) == 4
     assert contract["allowed_character_ids"] == ["char_mara", "char_oren"]
     assert contract["required_character_ids"] == ["char_mara", "char_oren"]
     assert contract["allowed_evidence_refs"] == [
         "character:char_mara", "character:char_oren", "node:door_choice",
         "signal:child_backpack",
     ]
+    assert contract["allowed_location_families"] == ["lived-in apartment entry"]
     field_rules = contract["plans"]["field_rules"]
     assert "principal people" in field_rules["blocking"]
     assert "faces" in field_rules["depth_plan"]
@@ -193,7 +224,9 @@ def test_live_director_repairs_group_blocking_before_returning_direction() -> No
         calls.append(user)
         return next(responses)
 
-    direction = CoverArtDirector(complete=complete, model="fixture-director").plan(
+    direction = CoverArtDirector(
+        complete=complete, model="fixture-director", profile_version="cover-profiles.v2",
+    ).plan(
         brief, count=4
     )
 
@@ -201,6 +234,32 @@ def test_live_director_repairs_group_blocking_before_returning_direction() -> No
     assert "group_blocking" in calls[1]
     assert "concept-1" in calls[1]
     assert all("foreground" in plan.blocking for plan in direction.plans)
+
+
+def test_live_v3_director_repairs_repeated_v2_style_plans_into_assigned_portfolio() -> None:
+    brief = _brief()
+    repeated = director_fixture()
+    repaired = v3_director_fixture()
+    responses = iter((json.dumps(repeated), json.dumps(repaired)))
+    calls: list[str] = []
+
+    def complete(_system: str, user: str) -> str:
+        calls.append(user)
+        return next(responses)
+
+    direction = CoverArtDirector(complete=complete, model="fixture-director").plan(
+        brief, count=4,
+    )
+
+    assert len(calls) == 2
+    assert "location_family_mismatch" in calls[1]
+    assert "duplicate_story_beat" in calls[1]
+    assert direction.profile_version == "cover-profiles.v3"
+    assert len({plan.composition_family for plan in direction.plans}) == 4
+    assert len({plan.scene_family for plan in direction.plans}) == 4
+    assert len({plan.art_style for plan in direction.plans}) == 4
+    assert len({plan.emotion_register for plan in direction.plans}) == 4
+    assert len({plan.typography_style for plan in direction.plans}) == 4
 
 
 def test_director_count_error_reports_requested_and_received_plans() -> None:
