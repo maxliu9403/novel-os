@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Mapping
+from dataclasses import replace
+from typing import Any, Callable, Mapping, Sequence
 
+from .cover_design import VisualEvidenceLedger, evidence_ledger_from_brief
 from .cover_models_v2 import ArtDirectionSet, CoverBriefV2
+from .cover_novelty import plan_fingerprint
 from .cover_profiles import portfolio_blueprint
 from .cover_validator import ValidationFinding, validate_direction
 
@@ -22,7 +25,7 @@ class CoverArtDirector:
         *,
         complete: Callable[[str, str], str] | None = None,
         model: str = "",
-        profile_version: str = "cover-profiles.v3",
+        profile_version: str = "cover-profiles.v4",
         fixture: Mapping[str, Any] | None = None,
     ) -> None:
         self._complete = complete
@@ -38,23 +41,56 @@ class CoverArtDirector:
             fixture=payload,
         )
 
-    def plan(self, brief: CoverBriefV2, *, count: int) -> ArtDirectionSet:
+    def plan(
+        self,
+        brief: CoverBriefV2,
+        *,
+        count: int,
+        evidence_ledger: VisualEvidenceLedger | None = None,
+        recent_fingerprints: Sequence[Mapping[str, Any]] = (),
+    ) -> ArtDirectionSet:
         if not 3 <= count <= 5:
             raise CoverDirectionError("Cover direction count must be between 3 and 5")
+        ledger = evidence_ledger or evidence_ledger_from_brief(brief)
         if self._fixture is not None:
-            return self._direction_from_payload(dict(self._fixture), brief=brief, count=count)
+            return self._direction_from_payload(
+                dict(self._fixture), brief=brief, count=count,
+                evidence_ledger=evidence_ledger,
+            )
         if self._complete is not None:
             user_prompt = self._user_prompt(
                 brief, count, profile_version=self.profile_version,
+                evidence_ledger=ledger, recent_fingerprints=recent_fingerprints,
             )
             last_direction: ArtDirectionSet | None = None
             for attempt in range(self._MAX_SEMANTIC_REPAIR_ATTEMPTS + 1):
                 raw = self._complete_response(user_prompt)
-                payload = self._decode_response(raw)
-                direction = self._direction_from_payload(payload, brief=brief, count=count)
-                findings = validate_direction(brief, direction)
+                try:
+                    payload = self._decode_response(raw)
+                    direction = self._direction_from_payload(
+                        payload, brief=brief, count=count, evidence_ledger=ledger,
+                    )
+                except CoverDirectionError as exc:
+                    if attempt >= self._MAX_SEMANTIC_REPAIR_ATTEMPTS:
+                        raise
+                    user_prompt = self._schema_repair_prompt(
+                        brief=brief,
+                        count=count,
+                        previous_response=raw,
+                        error=str(exc),
+                        profile_version=self.profile_version,
+                        evidence_ledger=ledger,
+                        recent_fingerprints=recent_fingerprints,
+                    )
+                    continue
+                findings = validate_direction(
+                    brief, direction, recent_fingerprints=recent_fingerprints,
+                )
                 if not findings:
-                    return direction
+                    novelty_report = tuple(
+                        plan_fingerprint(plan) for plan in direction.plans
+                    )
+                    return replace(direction, novelty_report=novelty_report)
                 last_direction = direction
                 if attempt < self._MAX_SEMANTIC_REPAIR_ATTEMPTS:
                     user_prompt = self._repair_prompt(
@@ -63,12 +99,42 @@ class CoverArtDirector:
                         previous_payload=payload,
                         findings=findings,
                         profile_version=self.profile_version,
+                        evidence_ledger=ledger,
+                        recent_fingerprints=recent_fingerprints,
                     )
             assert last_direction is not None
             # Preserve the existing API contract: the route reports semantic
             # validation as a 400 and does not persist the rejected direction.
             return last_direction
         raise CoverDirectionError("cover director is not configured")
+
+    @staticmethod
+    def _schema_repair_prompt(
+        *,
+        brief: CoverBriefV2,
+        count: int,
+        previous_response: str,
+        error: str,
+        profile_version: str,
+        evidence_ledger: VisualEvidenceLedger,
+        recent_fingerprints: Sequence[Mapping[str, Any]],
+    ) -> str:
+        return json.dumps({
+            "task": (
+                "Repair the previous response so it is one valid JSON object matching the exact response "
+                "contract. Preserve valid creative decisions, add or correct only structurally invalid fields, "
+                "and return no Markdown or commentary."
+            ),
+            "schema_error": error,
+            "count": count,
+            "brief": brief.to_dict(),
+            "visual_evidence_ledger": evidence_ledger.prompt_payload(),
+            "recent_cover_fingerprints_to_avoid": list(recent_fingerprints)[:24],
+            "response_contract": CoverArtDirector._response_contract(
+                brief, count, profile_version=profile_version,
+            ),
+            "previous_response": previous_response,
+        }, ensure_ascii=False, sort_keys=True)
 
     def _complete_response(self, user_prompt: str) -> str:
         assert self._complete is not None
@@ -93,6 +159,7 @@ class CoverArtDirector:
         *,
         brief: CoverBriefV2,
         count: int,
+        evidence_ledger: VisualEvidenceLedger | None = None,
     ) -> ArtDirectionSet:
         payload = dict(source)
         payload["director_model"] = str(payload.get("director_model") or self.model or "fixture-director")
@@ -129,6 +196,10 @@ class CoverArtDirector:
                 })
                 hydrated_plans.append(plan)
             payload["plans"] = hydrated_plans
+        if evidence_ledger is not None:
+            # Evidence is application-owned provenance. The director may cite
+            # it but may never rewrite or invent it.
+            payload["evidence_ledger"] = evidence_ledger.to_dict()
         try:
             return ArtDirectionSet.from_dict(payload, brief_sha256=brief.source_prompt_sha256)
         except (TypeError, ValueError) as exc:
@@ -141,7 +212,9 @@ class CoverArtDirector:
         count: int,
         previous_payload: Mapping[str, Any],
         findings: tuple[ValidationFinding, ...],
-        profile_version: str = "cover-profiles.v3",
+        profile_version: str = "cover-profiles.v4",
+        evidence_ledger: VisualEvidenceLedger | None = None,
+        recent_fingerprints: Sequence[Mapping[str, Any]] = (),
     ) -> str:
         return json.dumps({
             "task": (
@@ -151,6 +224,10 @@ class CoverArtDirector:
             ),
             "count": count,
             "brief": brief.to_dict(),
+            "visual_evidence_ledger": (
+                evidence_ledger.prompt_payload() if evidence_ledger is not None else None
+            ),
+            "recent_cover_fingerprints_to_avoid": list(recent_fingerprints)[:24],
             "response_contract": CoverArtDirector._response_contract(
                 brief, count, profile_version=profile_version,
             ),
@@ -163,40 +240,44 @@ class CoverArtDirector:
                 }
                 for item in findings
             ],
-            "repair_rules": [
-                "Use concept_or_evidence to repair the named concept rather than rewriting unrelated plans.",
-                "For group_blocking, state foreground and background explicitly across blocking and depth_plan.",
-                (
-                    "For portfolio treatment findings, copy every required treatment id from the matching "
-                    "portfolio_blueprint slot and redesign that plan's scene rather than renaming the same tableau."
-                ),
-                (
-                    "For duplicate_scene_family, give each plan its prescribed scene_family and stage a "
-                    "different story beat, composition, art style, emotion register, and typography style."
-                ),
-                (
-                    "For location findings, copy locations exactly from allowed_location_families and use each "
-                    "approved location once before repeating one."
-                ),
-                "Preserve concept_id, plan count, allowed character ids, and evidence references.",
-            ],
+            "repair_rules": (
+                [
+                    "Use concept_or_evidence to repair the named concept rather than rewriting unrelated plans.",
+                    "For portfolio_similarity, change the design hypothesis, focal strategy, composition topology, medium, and typography logic together; a crop or palette change is insufficient.",
+                    "For historical_similarity, replace the repeated visual grammar while preserving this book's evidence anchors.",
+                    "For missing_visual_identity, derive one coherent book-specific design language from at least two evidence sources.",
+                    "For missing_design_reasoning, complete the evidence, design, typography, novelty, and visual-signature fields.",
+                    "For missing_human_anchor or missing_reader_anchor, keep the current concept but stage the approved reader-anchor protagonist as a clear, emotionally active person inside it.",
+                    "Object, environment, absence, and typography may lead the idea, while the reader-anchor protagonist remains visibly present and meaningful.",
+                    "Preserve plan count, approved character ids, exact evidence references, and spoiler boundaries.",
+                ]
+                if profile_version.casefold().startswith("cover-profiles.v4")
+                else [
+                    "Use concept_or_evidence to repair the named concept rather than rewriting unrelated plans.",
+                    "For group_blocking, state foreground and background explicitly across blocking and depth_plan.",
+                    "For portfolio treatment findings, copy every required treatment id from the matching portfolio_blueprint slot.",
+                    "Preserve concept_id, plan count, allowed character ids, and evidence references.",
+                ]
+            ),
         }, ensure_ascii=False, sort_keys=True)
 
     @staticmethod
     def _system_prompt() -> str:
         return (
-            "You are a structured theatrical key-art director. Build a deliberately varied portfolio of "
-            "live-action film campaign posters from believable publicity stills. Keep principal characters "
-            "clear and make the core story atmosphere visible, but give each assigned portfolio slot a different "
-            "composition grammar, narrative beat, photographic treatment, emotion, and title-lettering system. "
-            "Use causal foreground/background emotional geography for the relationship ensemble slot; let the "
-            "other slots use their prescribed intimate, evidence-led, kinetic, or environmental grammar. "
-            "Connect people, props, and consequences through gaze, body direction, distance, and interrupted action "
-            "rather than generic facial sadness, flat group poses, or repeated tableaux. "
+            "You are the lead book-cover designer for a world-class publishing studio, not a template filler. "
+            "First derive a visual identity that could belong only to this novel from the supplied source-bound "
+            "evidence. Then privately explore at least eight design hypotheses and return the strongest, most "
+            "structurally different portfolio. Choose character-led, relationship-led, object-led, environment-led, "
+            "absence-led, typographic, graphic, illustrated, photographic, or hybrid language according to the "
+            "story rather than a fixed hierarchy. Every direction must show the approved reader-anchor protagonist "
+            "as a clear, emotionally active human subject whose face, posture, and story action read at thumbnail "
+            "size. A dominant close-up is optional; foreground/background causality is optional. "
+            "Composition, medium, palette, emotional register, and lettering must grow from the novel's own motifs. "
+            "Treat title typography as authored visual storytelling, not a generic text overlay. "
             "Return exactly one JSON object that "
             "matches the supplied response_contract, without Markdown fences or prose. Use only approved "
             "story facts and character ids. Never infer ethnicity, age, class, nationality, "
-            "new characters, unsupported spoilers, or artist styles."
+            "new characters, unsupported spoilers, or named artist identities."
         )
 
     @staticmethod
@@ -204,18 +285,26 @@ class CoverArtDirector:
         brief: CoverBriefV2,
         count: int,
         *,
-        profile_version: str = "cover-profiles.v3",
+        profile_version: str = "cover-profiles.v4",
+        evidence_ledger: VisualEvidenceLedger | None = None,
+        recent_fingerprints: Sequence[Mapping[str, Any]] = (),
     ) -> str:
         return json.dumps({
             "task": (
-                f"Create one coherent {count}-direction cover portfolio, not variations of one scene. "
-                "Give every plan its assigned composition language, narrative beat, photographic art treatment, "
-                "emotion register, and title-lettering system while keeping principal people clear and the "
-                "story conflict truthful. Use a different frozen story beat for every slot; changing only crop, "
-                "pose, palette, prop, or camera angle is a repeated concept."
+                f"Create one coherent {count}-direction cover portfolio whose visual identity belongs only to "
+                "this novel. Use the complete evidence ledger to discover concrete gestures, spaces, objects, "
+                "rituals, emotional reversals, and title semantics. The returned plans are different design "
+                "hypotheses, not variations: changing only crop, pose, palette, prop, location, or camera angle "
+                "is a repeated concept. Do not default to a large hurt protagonist in front of a smaller causal "
+                "relationship. Keep the reader-anchor protagonist visibly present in every plan, then select the "
+                "strongest focal strategy independently for each plan."
             ),
             "count": count,
             "brief": brief.to_dict(),
+            "visual_evidence_ledger": (
+                evidence_ledger or evidence_ledger_from_brief(brief)
+            ).prompt_payload(),
+            "recent_cover_fingerprints_to_avoid": list(recent_fingerprints)[:24],
             "response_contract": CoverArtDirector._response_contract(
                 brief, count, profile_version=profile_version,
             ),
@@ -226,8 +315,10 @@ class CoverArtDirector:
         brief: CoverBriefV2,
         count: int,
         *,
-        profile_version: str = "cover-profiles.v3",
+        profile_version: str = "cover-profiles.v4",
     ) -> dict[str, Any]:
+        if profile_version.casefold().startswith("cover-profiles.v4"):
+            return CoverArtDirector._adaptive_response_contract(brief, count, profile_version)
         treatments = portfolio_blueprint(count)
         hook_types = [item.hook_type for item in treatments]
         character_ids = [item.character_id for item in brief.principal_characters]
@@ -371,6 +462,109 @@ class CoverArtDirector:
                         "a principal face, hand, or primary prop"
                     ),
                     "misleading_risk": "brief factual risk statement, not a numeric score",
+                },
+            },
+            "visual_assumptions": {
+                "type": "array",
+                "item_required_fields": [
+                    "field", "proposed_value", "reason", "status", "critical",
+                ],
+                "allowed_statuses": ["pending_confirmation", "approved"],
+                "rule": "use an empty array when no new visual assumptions are needed",
+            },
+        }
+
+    @staticmethod
+    def _adaptive_response_contract(
+        brief: CoverBriefV2,
+        count: int,
+        profile_version: str,
+    ) -> dict[str, Any]:
+        character_ids = [item.character_id for item in brief.principal_characters]
+        reader_anchor_id = brief.reader_anchor_character.character_id
+        evidence_refs = [
+            *(f"character:{item.character_id}" for item in brief.principal_characters),
+            *(f"node:{item.node_id}" for item in brief.decisive_story_nodes),
+            *(f"signal:{item.signal_id}" for item in brief.secondary_signals),
+        ]
+        return {
+            "top_level_required_fields": [
+                "schema_version", "director_model", "profile_version", "visual_identity",
+                "plans", "visual_assumptions",
+            ],
+            "fixed_values": {
+                "schema_version": 1,
+                "director_model": "configured model id or cover-art-director",
+                "profile_version": profile_version,
+            },
+            "visual_identity_required_fields": [
+                "design_thesis", "dominant_emotional_contradiction", "story_signatures",
+                "visual_grammar", "material_language", "palette_logic", "lighting_logic",
+                "spatial_logic", "typography_voice", "cast_policy", "cliche_blacklist",
+                "uniqueness_anchors", "spoiler_boundary",
+            ],
+            "visual_identity_field_types": {
+                "story_signatures": "array of at least two concrete strings",
+                "visual_grammar": "non-empty string or array of non-empty strings",
+                "material_language": "non-empty string or array of non-empty strings",
+                "cliche_blacklist": "non-empty array of strings",
+                "uniqueness_anchors": "array of at least two concrete strings",
+                "spoiler_boundary": "non-empty string or array of non-empty strings",
+                "all_other_fields": "non-empty string",
+            },
+            "visual_identity_rules": [
+                "Base every identity choice on the supplied brief and evidence ledger, never on a universal cover recipe.",
+                "story_signatures and uniqueness_anchors each contain at least two concrete book-specific details.",
+                "visual_grammar describes a flexible family resemblance across the portfolio, not one repeated composition.",
+                "cliche_blacklist names tempting genre shortcuts that would make this book resemble unrelated books.",
+            ],
+            "allowed_character_ids": character_ids,
+            "reader_anchor_character_id": reader_anchor_id,
+            "base_evidence_refs": evidence_refs,
+            "evidence_ref_rule": (
+                "Use base_evidence_refs or exact evidence:<evidence_id> values copied from visual_evidence_ledger."
+            ),
+            "allowed_location_families": list(brief.lived_environment.primary_spaces),
+            "plans": {
+                "exact_count": count,
+                "required_fields": [
+                    "concept_id", "visual_strategy", "focal_strategy", "story_evidence_refs",
+                    "cast", "focal_character_id", "moment_before", "frozen_action", "moment_after",
+                    "gaze_graph", "blocking", "environment_anchors", "primary_prop", "shot_scale",
+                    "camera_height", "lens", "depth_plan", "motivated_lighting", "color_script",
+                    "title_safe_zone", "visual_hook", "portfolio_slot", "composition_family",
+                    "scene_family", "location_family", "art_style", "emotion_register",
+                    "typography_style", "design_rationale", "evidence_summary",
+                    "typography_rationale", "novelty_rationale", "visual_signature",
+                ],
+                "visual_hook_required_fields": [
+                    "hook_type", "first_glance_subject", "open_question", "identity_anchor",
+                    "genre_signal", "reader_promise", "target_emotion", "misleading_risk",
+                    "expected_thumbnail_read",
+                ],
+                "portfolio_rules": [
+                    "Invent descriptive ids for visual fields; do not copy a fixed portfolio blueprint.",
+                    "Each plan must differ structurally across focal strategy, composition topology, scene source, medium or photographic treatment, emotional register, and typography logic.",
+                    "Every plan includes the reader-anchor protagonist as a clear human subject with readable face, posture, emotion, and story action at mobile size.",
+                    "Object-led, environment-led, absence-led, and typography-led concepts remain valid by integrating the protagonist into their distinct visual grammar rather than deleting the person.",
+                    "Every plan stages one concrete story action grounded in character evidence plus a node, signal, or source-ledger reference; pure decorative symbolism is insufficient.",
+                    "When more than one approved principal character exists, at least one plan stages a relationship scene with two or more named characters.",
+                    "A repeated location is valid when it is a signature space, but the visual hypothesis and story moment must still differ.",
+                    "At least two source types from the evidence ledger should influence each plan when available.",
+                    "Late-spoiler evidence may guide recurring motifs and factual identity but must not expose the resolution.",
+                ],
+                "field_rules": {
+                    "focal_strategy": "character-led, relationship-led, object-led, environment-led, absence-led, typography-led, graphic-metaphor, or a story-specific invented strategy",
+                    "story_evidence_refs": "non-empty exact references copied from base_evidence_refs or visual_evidence_ledger",
+                    "cast": "one or more allowed_character_ids; every plan must include reader_anchor_character_id and only other people essential to this hypothesis",
+                    "focal_character_id": "exactly reader_anchor_character_id",
+                    "gaze_graph": "non-empty visible attention, gesture, or reading-path logic for the reader-anchor protagonist and any other people",
+                    "blocking": "describe the chosen hierarchy without mandatory foreground/background or mandatory large faces",
+                    "location_family": "an approved location or a precise evidence-supported non-location field such as abstract field or object surface",
+                    "art_style": "a medium or photographic treatment justified by this novel; never name a living artist",
+                    "typography_style": "a book-specific lettering system tied to title semantics",
+                    "visual_signature": "one concise fingerprint describing what makes this plan recognizable as this book",
+                    "novelty_rationale": "state how this differs from the other plans and supplied recent fingerprints",
                 },
             },
             "visual_assumptions": {

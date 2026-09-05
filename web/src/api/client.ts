@@ -215,6 +215,8 @@ export interface CoverCandidate {
   attempt_history?: Array<Record<string, unknown>>;
   quality_report?: {
     status: "blocked" | "human_review_required" | "recommended_for_human_review";
+    medium_fidelity?: number | null;
+    photorealism?: number | null;
     blockers: string[];
     repair_codes: string[];
     evidence: string[];
@@ -256,6 +258,12 @@ export interface CoverDirectionPlan {
   art_style?: string;
   emotion_register?: string;
   typography_style?: string;
+  focal_strategy?: string;
+  design_rationale?: string;
+  evidence_summary?: string;
+  typography_rationale?: string;
+  novelty_rationale?: string;
+  visual_signature?: string;
   cast: string[];
   focal_character_id: string;
   frozen_action: string;
@@ -270,6 +278,37 @@ export interface CoverDirectionPlan {
   };
 }
 
+export interface BookVisualIdentity {
+  design_thesis: string;
+  dominant_emotional_contradiction: string;
+  story_signatures: string[];
+  visual_grammar: string[];
+  material_language: string[];
+  palette_logic: string;
+  lighting_logic: string;
+  spatial_logic: string;
+  typography_voice: string;
+  cast_policy: string;
+  cliche_blacklist: string[];
+  uniqueness_anchors: string[];
+  spoiler_boundary: string[];
+}
+
+export interface VisualEvidenceLedger {
+  schema_version: number;
+  source_bundle_sha256: string;
+  source_files: Record<string, string>;
+  items: Array<{
+    evidence_id: string;
+    source_type: string;
+    source_ref: string;
+    summary: string;
+    story_function: string;
+    spoiler_level: "safe" | "tease" | "late_spoiler";
+    visual_tags: string[];
+  }>;
+}
+
 export interface CoverDirection {
   direction_id: string;
   schema_version: number;
@@ -280,6 +319,9 @@ export interface CoverDirection {
   created_at?: string;
   status: "awaiting_approval" | "approved" | "stale" | "rejected";
   plans: CoverDirectionPlan[];
+  visual_identity?: BookVisualIdentity;
+  evidence_ledger?: VisualEvidenceLedger;
+  novelty_report?: Array<Record<string, unknown>>;
   visual_assumptions: Array<{
     field: string; proposed_value: string; reason: string;
     status: "pending_confirmation" | "approved"; critical: boolean;

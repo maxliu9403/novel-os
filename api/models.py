@@ -201,7 +201,7 @@ class ImageProfileUpdate(BaseModel):
     quality: str = "high"
     output_format: str = "jpeg"
     count: int = 4
-    timeout_seconds: float = 180.0
+    timeout_seconds: float = 300.0
 
 
 class ImageProfileOut(ImageProfileUpdate):

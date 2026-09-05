@@ -4,7 +4,10 @@ from dataclasses import replace
 
 from core.cover_director import CoverArtDirector
 from core.cover_validator import validate_direction
-from tests.test_cover_director import _brief, director_fixture, v3_director_fixture
+from core.cover_novelty import plan_fingerprint
+from tests.test_cover_director import (
+    _brief, adaptive_director_fixture, director_fixture, v3_director_fixture,
+)
 
 
 def test_validator_accepts_fixture_direction_with_resolvable_evidence() -> None:
@@ -212,3 +215,106 @@ def test_v3_validator_requires_each_approved_location_before_reusing_the_clinic(
         plan["location_family"] = location
     varied = CoverArtDirector.from_fixture(payload).plan(brief, count=4)
     assert validate_direction(brief, varied) == ()
+
+
+def test_v4_validator_accepts_book_specific_character_free_design_hypotheses() -> None:
+    direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(
+        _brief(), count=4,
+    )
+
+    assert validate_direction(_brief(), direction) == ()
+
+
+def test_v4_validator_blocks_structurally_repeated_plans_without_prescribing_a_style() -> None:
+    payload = adaptive_director_fixture()
+    repeated = dict(payload["plans"][0])
+    repeated.update({
+        "concept_id": "concept-repeated",
+        "visual_strategy": "renamed_strategy",
+        "frozen_action": "same composition with a nominally different instant",
+    })
+    payload["plans"][1] = repeated
+    direction = CoverArtDirector.from_fixture(payload).plan(_brief(), count=4)
+
+    codes = {item.code for item in validate_direction(_brief(), direction)}
+
+    assert "portfolio_similarity" in codes
+
+
+def test_v4_validator_requires_source_bound_visual_identity_and_evidence() -> None:
+    payload = adaptive_director_fixture()
+    payload.pop("visual_identity")
+    payload.pop("evidence_ledger")
+    direction = CoverArtDirector.from_fixture(payload).plan(_brief(), count=4)
+
+    codes = {item.code for item in validate_direction(_brief(), direction)}
+
+    assert {"missing_visual_identity", "missing_evidence_ledger"} <= codes
+
+
+def test_v4_validator_rejects_incomplete_visual_identity_language() -> None:
+    payload = adaptive_director_fixture()
+    payload["visual_identity"]["material_language"] = []
+    direction = CoverArtDirector.from_fixture(payload).plan(_brief(), count=4)
+
+    codes = {item.code for item in validate_direction(_brief(), direction)}
+
+    assert "missing_visual_identity" in codes
+
+
+def test_v4_accepts_designer_prose_for_single_visual_identity_dimensions() -> None:
+    payload = adaptive_director_fixture()
+    identity = payload["visual_identity"]
+    identity["visual_grammar"] = "; ".join(identity["visual_grammar"])
+    identity["material_language"] = "; ".join(identity["material_language"])
+    identity["spoiler_boundary"] = identity["spoiler_boundary"][0]
+    direction = CoverArtDirector.from_fixture(payload).plan(_brief(), count=4)
+
+    codes = {item.code for item in validate_direction(_brief(), direction)}
+
+    assert "missing_visual_identity" not in codes
+
+
+def test_v4_validator_detects_a_near_duplicate_from_another_book() -> None:
+    direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(
+        _brief(), count=4,
+    )
+    recent = [
+        plan_fingerprint(
+            direction.plans[0], project_id="another-book", direction_id="direction-old",
+        )
+    ]
+
+    findings = validate_direction(_brief(), direction, recent_fingerprints=recent)
+
+    assert any(item.code == "historical_similarity" for item in findings)
+
+
+def test_v4_validator_requires_visible_protagonist_anchor_in_every_plan() -> None:
+    payload = adaptive_director_fixture()
+    payload["plans"][1].update({
+        "cast": [],
+        "focal_character_id": "",
+        "gaze_graph": [],
+    })
+    payload["plans"][2].update({
+        "cast": ["char_oren"],
+        "focal_character_id": "char_oren",
+        "gaze_graph": ["char_oren -> doorway"],
+    })
+    direction = CoverArtDirector.from_fixture(payload).plan(_brief(), count=4)
+
+    codes = {item.code for item in validate_direction(_brief(), direction)}
+
+    assert "missing_human_anchor" in codes
+    assert "missing_reader_anchor" in codes
+
+
+def test_v4_validator_requires_scene_evidence_beyond_character_identity() -> None:
+    payload = adaptive_director_fixture()
+    payload["plans"][1]["story_evidence_refs"] = ["character:char_mara"]
+    direction = CoverArtDirector.from_fixture(payload).plan(_brief(), count=4)
+
+    codes = {item.code for item in validate_direction(_brief(), direction)}
+
+    assert "missing_story_scene_evidence" in codes

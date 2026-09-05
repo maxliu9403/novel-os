@@ -441,6 +441,8 @@ function DirectionWorkspace({
   const direction = directions[0];
   const characters = direction.brief?.principal_characters || [];
   const environment = direction.brief?.lived_environment || {};
+  const identity = direction.visual_identity;
+  const evidenceLedger = direction.evidence_ledger;
   const assumptions = [
     ...(Array.isArray(direction.brief?.visual_assumptions)
       ? direction.brief.visual_assumptions
@@ -496,6 +498,53 @@ function DirectionWorkspace({
         </p>
       )}
 
+      {identity && (
+        <div className="mt-4 rounded-[8px] border border-[#c8d2ef] bg-[#f4f7ff] p-4" aria-label="本书视觉语言">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="max-w-3xl">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#526aa5]">本书视觉语言</p>
+              <p className="mt-1.5 text-[13px] font-semibold leading-5 text-ink-text">{identity.design_thesis}</p>
+              <p className="mt-1 text-[11.5px] leading-5 text-ink-muted">
+                情绪矛盾：{identity.dominant_emotional_contradiction}
+              </p>
+            </div>
+            {evidenceLedger && (
+              <span className="rounded-full border border-[#b8c6e8] bg-white px-2.5 py-1 text-[10.5px] font-semibold text-[#526aa5]">
+                {evidenceLedger.items.length} 条故事证据 · {new Set(evidenceLedger.items.map((item) => item.source_type)).size} 类来源
+              </span>
+            )}
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <p className="text-[10.5px] font-semibold text-ink-text">小说专属视觉锚点</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {identity.uniqueness_anchors.map((anchor) => (
+                  <span key={anchor} className="rounded-full bg-white px-2 py-1 text-[10.5px] text-ink-muted">{anchor}</span>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-[10.5px] font-semibold text-ink-text">可用视觉语法</p>
+              <p className="mt-1.5 text-[11px] leading-4 text-ink-muted">{identity.visual_grammar.join(" · ")}</p>
+              <p className="mt-1 text-[11px] leading-4 text-ink-muted">字体：{identity.typography_voice}</p>
+            </div>
+          </div>
+          <details className="mt-3 text-[11px] text-ink-muted">
+            <summary className="cursor-pointer font-semibold text-[#526aa5]">查看视觉证据与设计边界</summary>
+            <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-2">
+              {(evidenceLedger?.items || []).slice(0, 8).map((item) => (
+                <div key={item.evidence_id} className="rounded-[5px] border border-[#d8e0f4] bg-white/80 p-2.5">
+                  <p className="font-semibold text-ink-text">{formatStrategy(item.source_type)} · {item.spoiler_level}</p>
+                  <p className="mt-1 line-clamp-3 leading-4">{item.summary}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2">人物策略：{identity.cast_policy}</p>
+            <p className="mt-1">避免套路：{identity.cliche_blacklist.join("、") || "无额外限制"}</p>
+          </details>
+        </div>
+      )}
+
       {assumptions.length > 0 && (
         <div className="mt-3 border-l-2 border-[#d6a85f] bg-[#fff7e8] px-3 py-2.5 text-[11.5px] text-[#72511d]">
           <p className="font-semibold">
@@ -524,6 +573,7 @@ function DirectionWorkspace({
             {plan.portfolio_slot && (
               <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 rounded-[5px] bg-[#f5f6fb] px-2.5 py-2 text-[10.5px] leading-4 text-ink-muted sm:grid-cols-3">
                 <div><dt className="font-semibold text-ink-text">构图</dt><dd>{formatStrategy(plan.composition_family)}</dd></div>
+                {plan.focal_strategy && <div><dt className="font-semibold text-ink-text">主体策略</dt><dd>{formatStrategy(plan.focal_strategy)}</dd></div>}
                 <div><dt className="font-semibold text-ink-text">场景</dt><dd>{formatStrategy(plan.scene_family)}</dd></div>
                 <div><dt className="font-semibold text-ink-text">地点</dt><dd>{plan.location_family}</dd></div>
                 <div><dt className="font-semibold text-ink-text">美术风格</dt><dd>{formatStrategy(plan.art_style)}</dd></div>
@@ -532,8 +582,16 @@ function DirectionWorkspace({
               </dl>
             )}
             <p className="mt-2 text-[11.5px] leading-4 text-ink-muted">{plan.frozen_action}</p>
-            <p className="mt-1 text-[11px] leading-4 text-ink-muted">出场人物：{plan.cast.join("、")} · 核心道具：{plan.primary_prop}</p>
+            <p className="mt-1 text-[11px] leading-4 text-ink-muted">出场人物：{plan.cast.length ? plan.cast.join("、") : "无人物方案"} · 核心道具/意象：{plan.primary_prop}</p>
             <p className="mt-1 text-[11px] leading-4 text-ink-muted">{plan.visual_hook.open_question}</p>
+            {plan.design_rationale && (
+              <div className="mt-2 border-l-2 border-[#9dafdc] pl-2.5 text-[10.5px] leading-4 text-ink-muted">
+                <p><span className="font-semibold text-ink-text">设计理由：</span>{plan.design_rationale}</p>
+                {plan.evidence_summary && <p className="mt-1"><span className="font-semibold text-ink-text">故事依据：</span>{plan.evidence_summary}</p>}
+                {plan.typography_rationale && <p className="mt-1"><span className="font-semibold text-ink-text">字体表达：</span>{plan.typography_rationale}</p>}
+                {plan.novelty_rationale && <p className="mt-1"><span className="font-semibold text-ink-text">差异说明：</span>{plan.novelty_rationale}</p>}
+              </div>
+            )}
           </article>
         ))}
       </div>

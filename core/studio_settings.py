@@ -43,6 +43,7 @@ _ENV_KEYS = (
 
 _COVER_SIZE = "2048x3072"
 _COVER_MODEL = "gpt-image-2"
+DEFAULT_COVER_TIMEOUT_SECONDS = 300.0
 _COVER_DIRECTOR_TIMEOUT_SECONDS = 600.0
 _COVER_QUALITIES = {"low", "medium", "high", "auto"}
 _COVER_FORMATS = {"png", "jpeg"}
@@ -69,7 +70,7 @@ class CoverSettings:
     quality: str = "high"
     output_format: str = "jpeg"
     count: int = 4
-    timeout_seconds: float = 180.0
+    timeout_seconds: float = DEFAULT_COVER_TIMEOUT_SECONDS
     inherits_base_url: bool = False
     inherits_api_key: bool = False
 
@@ -249,7 +250,10 @@ def resolve_cover_settings(source: Mapping[str, Any] | None = None) -> CoverSett
         "quality": values.get("NOVEL_OS_COVER_QUALITY") or "high",
         "output_format": values.get("NOVEL_OS_COVER_FORMAT") or "jpeg",
         "count": values.get("NOVEL_OS_COVER_COUNT") or 4,
-        "timeout_seconds": values.get("NOVEL_OS_COVER_TIMEOUT_SECONDS") or 180,
+        "timeout_seconds": (
+            values.get("NOVEL_OS_COVER_TIMEOUT_SECONDS")
+            or DEFAULT_COVER_TIMEOUT_SECONDS
+        ),
     })
 
     return CoverSettings(
@@ -294,7 +298,11 @@ def validate_cover_parameters(source: Mapping[str, Any]) -> dict[str, Any]:
 
     try:
         raw_timeout = source.get("timeout_seconds")
-        timeout = float(180 if raw_timeout in (None, "") else raw_timeout)
+        timeout = float(
+            DEFAULT_COVER_TIMEOUT_SECONDS
+            if raw_timeout in (None, "")
+            else raw_timeout
+        )
     except (TypeError, ValueError) as exc:
         raise ValueError("Cover timeout must be a positive number") from exc
     if timeout <= 0:
@@ -328,7 +336,7 @@ def cover_status(source: Mapping[str, Any] | None = None) -> dict[str, Any]:
             "quality": "high",
             "output_format": "jpeg",
             "count": 4,
-            "timeout_seconds": 180.0,
+            "timeout_seconds": DEFAULT_COVER_TIMEOUT_SECONDS,
             "inherits_base_url": False,
             "inherits_api_key": False,
             "director_provider": "",

@@ -13,7 +13,7 @@ def test_cover_settings_default_to_image2_and_exact_2k() -> None:
     assert settings.quality == "high"
     assert settings.output_format == "jpeg"
     assert settings.count == 4
-    assert settings.timeout_seconds == 180.0
+    assert settings.timeout_seconds == 300.0
 
 
 def test_cover_settings_reuse_writing_endpoint_and_key() -> None:

@@ -1147,13 +1147,18 @@ def create_cover_direction(
     director=Depends(get_cover_art_director),
 ):
     from core.cover_director import CoverDirectionError
+    from core.cover_design import collect_visual_evidence
     from core.cover_handoff import resolve_cover_brief_v2
     from core.cover_models_v2 import ArtDirectionSet, CoverBriefV2
+    from core.cover_novelty import recent_direction_fingerprints
     from core.cover_validator import validate_direction
     from core.cover_store import CoverConflict, CoverStore
 
     project = _cover_project(svc, project_id)
     try:
+        recent_fingerprints = recent_direction_fingerprints(
+            svc.base_dir, exclude_project_id=project_id,
+        )
         if (body.brief is None) != (body.direction is None):
             raise ValueError("Cover brief and structured direction must be supplied together")
         if body.brief is None:
@@ -1164,7 +1169,13 @@ def create_cover_direction(
                     "Cover story facts need confirmation before art direction: "
                     + ", ".join(item.field for item in pending)
                 )
-            direction = director.plan(brief, count=body.count)
+            evidence_ledger = collect_visual_evidence(project, brief)
+            direction = director.plan(
+                brief,
+                count=body.count,
+                evidence_ledger=evidence_ledger,
+                recent_fingerprints=recent_fingerprints,
+            )
         else:
             source_sha = body.source_prompt_sha256 or hashlib.sha256(
                 json.dumps(body.brief, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -1179,7 +1190,14 @@ def create_cover_direction(
                 body.direction,
                 brief_sha256=brief.source_prompt_sha256,
             )
-        findings = validate_direction(brief, direction)
+        findings = validate_direction(
+            brief, direction,
+            recent_fingerprints=(
+                recent_fingerprints
+                if direction.profile_version.casefold().startswith("cover-profiles.v4")
+                else ()
+            ),
+        )
         if findings:
             raise ValueError(
                 "Cover direction validation failed: "
@@ -1245,6 +1263,7 @@ def generate_covers(
 ):
     from core.cover_models import CoverBrief, CoverConcept
     from core.cover_models_v2 import CoverBriefV2
+    from core.cover_design import collect_visual_evidence
     from core.cover_handoff import build_cover_concepts, resolve_cover_brief
     from core.cover_prompt_compiler import COMPILER_VERSION, scene_to_cover_concept
     from core.cover_store import CoverConflict, CoverStore
@@ -1302,6 +1321,20 @@ def generate_covers(
                     status_code=409,
                     detail="Cover direction is stale for the current story facts",
                 )
+            if direction.evidence_ledger is not None:
+                current_ledger = collect_visual_evidence(project, brief)
+                if (
+                    current_ledger.source_bundle_sha256
+                    != direction.evidence_ledger.source_bundle_sha256
+                ):
+                    direction_store.mark_direction_stale(body.direction_id, force=True)
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "Cover direction is stale because the prompt, preface, publication copy, "
+                            "story state, or final manuscript changed"
+                        ),
+                    )
             if direction.status != "approved":
                 raise HTTPException(
                     status_code=409,
@@ -1317,7 +1350,15 @@ def generate_covers(
             findings = validate_direction(brief, direction)
             if findings:
                 raise HTTPException(status_code=409, detail="Cover direction is stale or invalid")
-            concepts = [scene_to_cover_concept(brief, plan) for plan in direction.plans]
+            concepts = [
+                scene_to_cover_concept(
+                    brief,
+                    plan,
+                    visual_identity=direction.visual_identity,
+                    evidence_ledger=direction.evidence_ledger,
+                )
+                for plan in direction.plans
+            ]
             brief.validate_concepts(concepts)
             compiler_version = COMPILER_VERSION
         else:

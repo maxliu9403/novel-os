@@ -310,7 +310,10 @@ def _legacy_configuration(values: Mapping[str, Any]) -> dict[str, Any]:
         "quality": values.get("NOVEL_OS_COVER_QUALITY") or "high",
         "output_format": values.get("NOVEL_OS_COVER_FORMAT") or "jpeg",
         "count": values.get("NOVEL_OS_COVER_COUNT") or 4,
-        "timeout_seconds": values.get("NOVEL_OS_COVER_TIMEOUT_SECONDS") or 180,
+        "timeout_seconds": (
+            values.get("NOVEL_OS_COVER_TIMEOUT_SECONDS")
+            or studio_settings.DEFAULT_COVER_TIMEOUT_SECONDS
+        ),
     }
     try:
         cover_parameters = studio_settings.validate_cover_parameters(raw_cover)
@@ -792,7 +795,10 @@ def image_profile_status(
         "quality": str(profile.get("quality") or "high"),
         "output_format": str(profile.get("output_format") or "jpeg"),
         "count": int(profile.get("count") or 4),
-        "timeout_seconds": float(profile.get("timeout_seconds") or 180),
+        "timeout_seconds": float(
+            profile.get("timeout_seconds")
+            or studio_settings.DEFAULT_COVER_TIMEOUT_SECONDS
+        ),
         "configured": configured,
         "error": error,
     }

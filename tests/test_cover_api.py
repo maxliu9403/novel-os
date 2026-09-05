@@ -15,7 +15,7 @@ from core.cover_director import CoverArtDirector
 from core.cover_models import CoverBrief, CoverConcept
 from core.cover_models_v2 import ArtDirectionSet
 from core.image_client import GeneratedImage, ImageClientError
-from tests.test_cover_director import director_fixture
+from tests.test_cover_director import adaptive_director_fixture, director_fixture
 from tests.test_cover_models_v2 import two_character_fixture
 
 
@@ -146,7 +146,7 @@ def test_cover_art_director_uses_its_configured_reasoning_effort(monkeypatch) ->
 
 
 class CanonAwareFixtureDirector:
-    def plan(self, brief, *, count: int) -> ArtDirectionSet:
+    def plan(self, brief, *, count: int, **_context) -> ArtDirectionSet:
         payload = director_fixture()
         character_id = brief.principal_characters[0].character_id
         node_id = brief.decisive_story_nodes[0].node_id
@@ -558,6 +558,132 @@ def test_direction_api_plans_from_persisted_v2_story_facts(tmp_path, monkeypatch
     assert image_client.calls == 0
 
 
+def test_adaptive_direction_binds_preface_and_final_prose_then_generates_image2_prompts(
+    tmp_path, monkeypatch,
+) -> None:
+    client, image_client = _client(
+        tmp_path,
+        monkeypatch,
+        director=CoverArtDirector.from_fixture(adaptive_director_fixture()),
+    )
+    project = client.post(
+        "/api/projects", json={"title": "Evidence Cover", "genre": "Drama"}
+    ).json()
+    project_path = tmp_path / "projects" / project["id"]
+    prompt = project_path / "outputs" / "input" / "prompt.md"
+    prompt.parent.mkdir(parents=True, exist_ok=True)
+    prompt.write_text(
+        "COVER_HANDOFF_BEGIN\n```json\n"
+        + json.dumps(two_character_fixture(), ensure_ascii=False)
+        + "\n```\nCOVER_HANDOFF_END\n",
+        encoding="utf-8",
+    )
+    publication = project_path / "outputs" / "publication" / "publication-copy.json"
+    publication.parent.mkdir(parents=True, exist_ok=True)
+    publication.write_text(json.dumps({
+        "reader_heading": "The Key He Still Expected",
+        "hook_lead": "Can one removed key change who belongs behind the family door?",
+        "spoiler_free_blurb": "A shared doorway becomes an irreversible family boundary.",
+        "whole_book_core_conflict": "Access, care, and belonging stop meaning the same thing.",
+    }), encoding="utf-8")
+    manuscript = project_path / "outputs" / "manuscript"
+    manuscript.mkdir(parents=True, exist_ok=True)
+    manuscript.joinpath("chapter_001_final.md").write_text(
+        "# Chapter 1\n\nMara closes the door while the brass key warms in her palm.",
+        encoding="utf-8",
+    )
+
+    created_response = client.post(
+        f"/api/projects/{project['id']}/covers/directions", json={"count": 4},
+    )
+
+    assert created_response.status_code == 201
+    created = created_response.json()
+    assert created["profile_version"] == "cover-profiles.v4"
+    assert created["visual_identity"]["design_thesis"].startswith("Turn the shared doorway")
+    assert "publication_intro" in {
+        item["source_type"] for item in created["evidence_ledger"]["items"]
+    }
+    design_dir = project_path / "outputs" / "covers" / "design"
+    assert design_dir.joinpath("visual-evidence-ledger.json").is_file()
+    assert design_dir.joinpath("book-visual-identity.json").is_file()
+
+    approved = client.post(
+        f"/api/projects/{project['id']}/covers/directions/{created['direction_id']}/approve",
+        json={
+            "expected_brief_sha256": created["brief_sha256"],
+            "approved_direction_sha256": created["direction_sha256"],
+        },
+    ).json()
+    response = client.post(
+        f"/api/projects/{project['id']}/covers/generate",
+        json={
+            "direction_id": approved["direction_id"],
+            "approved_direction_sha256": approved["direction_sha256"],
+        },
+    )
+
+    assert response.status_code == 202
+    assert _wait(client, response.json()["job_id"])["status"] == "done"
+    assert image_client.calls == 4
+    cover_set = client.get(f"/api/projects/{project['id']}/covers").json()[0]
+    assert "lead book-cover designer" in cover_set["concepts"][0]["generation_prompt"]
+    assert cover_set["compiler_version"] == "cover-compiler.v8"
+
+
+def test_adaptive_direction_becomes_stale_when_publication_intro_changes(
+    tmp_path, monkeypatch,
+) -> None:
+    client, image_client = _client(
+        tmp_path,
+        monkeypatch,
+        director=CoverArtDirector.from_fixture(adaptive_director_fixture()),
+    )
+    project = client.post(
+        "/api/projects", json={"title": "Stale Evidence", "genre": "Drama"}
+    ).json()
+    project_path = tmp_path / "projects" / project["id"]
+    prompt = project_path / "outputs" / "input" / "prompt.md"
+    prompt.parent.mkdir(parents=True, exist_ok=True)
+    prompt.write_text(
+        "COVER_HANDOFF_BEGIN\n```json\n"
+        + json.dumps(two_character_fixture(), ensure_ascii=False)
+        + "\n```\nCOVER_HANDOFF_END\n",
+        encoding="utf-8",
+    )
+    publication = project_path / "outputs" / "publication" / "publication-copy.json"
+    publication.parent.mkdir(parents=True, exist_ok=True)
+    publication.write_text(json.dumps({
+        "hook_lead": "The original spoiler-safe hook uses the shared key.",
+    }), encoding="utf-8")
+    created = client.post(
+        f"/api/projects/{project['id']}/covers/directions", json={"count": 4},
+    ).json()
+    approved = client.post(
+        f"/api/projects/{project['id']}/covers/directions/{created['direction_id']}/approve",
+        json={
+            "expected_brief_sha256": created["brief_sha256"],
+            "approved_direction_sha256": created["direction_sha256"],
+        },
+    ).json()
+    publication.write_text(json.dumps({
+        "hook_lead": "The revised hook now makes the empty chair the central reader promise.",
+    }), encoding="utf-8")
+
+    response = client.post(
+        f"/api/projects/{project['id']}/covers/generate",
+        json={
+            "direction_id": approved["direction_id"],
+            "approved_direction_sha256": approved["direction_sha256"],
+        },
+    )
+
+    assert response.status_code == 409
+    assert "preface" in response.json()["detail"]
+    assert image_client.calls == 0
+    assert client.get(f"/api/projects/{project['id']}/covers/directions").json()[0]["status"] == "stale"
+
+
 def test_direction_api_plans_from_confirmed_legacy_story_facts(tmp_path, monkeypatch) -> None:
     client, image_client = _client(
         tmp_path,
@@ -770,7 +896,7 @@ def test_approved_v2_direction_generates_four_independent_image2_candidates(
     assert image_client.calls == 4
     cover_set = client.get(f"/api/projects/{project['id']}/covers").json()[0]
     assert cover_set["brief_schema_version"] == 2
-    assert cover_set["compiler_version"] == "cover-compiler.v7"
+    assert cover_set["compiler_version"] == "cover-compiler.v8"
     assert cover_set["brief"]["principal_characters"][0]["age"] == 34
     assert [item["model"] for item in cover_set["candidates"]] == ["gpt-image-2"] * 4
     assert all(item["safe_request_parameters"]["n"] == 1 for item in cover_set["candidates"])

@@ -43,6 +43,7 @@ class CoverStore:
         self.root = self.project_path / "outputs" / "covers"
         self.sets_dir = self.root / "sets"
         self.directions_dir = self.root / "directions"
+        self.design_dir = self.root / "design"
         self.index_path = self.root / "index.json"
 
     def create(self, cover_set: CoverSet) -> CoverSet:
@@ -92,6 +93,24 @@ class CoverStore:
         self._write_json(path, created.to_dict())
         if brief is not None:
             self._write_json(self._direction_brief_path(direction_id), dict(brief))
+        if created.evidence_ledger is not None:
+            self._write_json(
+                self.design_dir / f"{direction_id}.evidence.json",
+                created.evidence_ledger.to_dict(),
+            )
+            self._write_json(
+                self.design_dir / "visual-evidence-ledger.json",
+                created.evidence_ledger.to_dict(),
+            )
+        if created.visual_identity is not None:
+            self._write_json(
+                self.design_dir / f"{direction_id}.identity.json",
+                created.visual_identity.to_dict(),
+            )
+            self._write_json(
+                self.design_dir / "book-visual-identity.json",
+                created.visual_identity.to_dict(),
+            )
         return created
 
     def load_direction(self, direction_id: str) -> ArtDirectionSet:
@@ -171,9 +190,23 @@ class CoverStore:
         self._write_json(self._direction_path(direction_id), approved.to_dict())
         return approved
 
-    def mark_direction_stale(self, direction_id: str, brief_sha256: str) -> ArtDirectionSet:
+    def mark_direction_stale(
+        self,
+        direction_id: str,
+        brief_sha256: str = "",
+        *,
+        force: bool = False,
+    ) -> ArtDirectionSet:
+        """Invalidate a direction after either brief or deeper source evidence changes.
+
+        ``brief_sha256`` preserves the historical story-facts check. ``force`` is
+        used by the evidence-ledger seam when final prose, publication copy, or
+        another source outside the brief changed without changing that digest.
+        """
         current = self.load_direction(direction_id)
-        if current.brief_sha256 == brief_sha256 or current.status == "stale":
+        if current.status == "stale":
+            return current
+        if not force and current.brief_sha256 == brief_sha256:
             return current
         stale = replace(current, status="stale")
         # The original content hash remains the immutable identity of the direction.

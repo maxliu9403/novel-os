@@ -7,6 +7,8 @@ import pytest
 from core.cover_models_v2 import CoverBriefV2, CoverScenePlan, VisualHook
 from core.cover_prompt_compiler import compile_cover_prompt, compile_repair_prompt
 from tests.test_cover_models_v2 import two_character_fixture
+from tests.test_cover_director import _brief as director_brief, adaptive_director_fixture
+from core.cover_director import CoverArtDirector
 
 
 def brief_fixture(*, pending_required_assumption: bool = False) -> CoverBriefV2:
@@ -128,7 +130,7 @@ def test_compile_is_deterministic_and_contains_age_environment_and_hook() -> Non
     second = compile_cover_prompt(brief_fixture(), scene_fixture())
 
     assert first.text == second.text
-    assert first.compiler_version == "cover-compiler.v7"
+    assert first.compiler_version == "cover-compiler.v8"
     assert [name for name in first.modules] == [
         "ROLE AND OUTPUT", "STORY TRUTH", "CAST LOCK", "SINGLE CINEMATIC MOMENT",
         "HERO SUBJECT AND CORE STORY ATMOSPHERE",
@@ -505,3 +507,63 @@ def test_title_repair_refreshes_safe_zone_and_art_direction() -> None:
     assert repaired.modules["TITLE AND SAFE ZONE"] != baseline.modules["TITLE AND SAFE ZONE"]
     assert repaired.modules["TITLE ART DIRECTION"] != baseline.modules["TITLE ART DIRECTION"]
     assert "Repair focus: title failure." in repaired.modules["TITLE ART DIRECTION"]
+
+
+def test_adaptive_compile_gives_image2_authority_and_keeps_human_anchor_in_object_led_cover() -> None:
+    brief = director_brief()
+    direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(
+        brief, count=4,
+    )
+    scene = direction.plans[1]
+
+    compiled = compile_cover_prompt(
+        brief,
+        scene,
+        visual_identity=direction.visual_identity,
+        evidence_ledger=direction.evidence_ledger,
+    )
+
+    assert "lead book-cover designer" in compiled.modules["ROLE AND OUTPUT"]
+    assert "You are Image2" in compiled.modules["ROLE AND OUTPUT"]
+    assert "clear, emotionally active human anchor" in compiled.modules["CAST LOCK"]
+    assert "Mara" in compiled.modules["CAST LOCK"]
+    assert "MEDIUM FIDELITY REQUIREMENTS" in compiled.modules
+    assert "PHOTOREALISM REQUIREMENTS" not in compiled.modules
+    assert "overhead ritual still life" in compiled.modules[
+        "CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY"
+    ]
+    assert "foreground/background causality" in compiled.modules[
+        "CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY"
+    ]
+    assert "key-cut" in compiled.modules["TITLE ART DIRECTION"] or "evidence-label" in compiled.modules["TITLE ART DIRECTION"]
+    assert compiled.text.count(brief.title) == 1
+    assert len(compiled.text) <= 12_000
+
+
+def test_adaptive_compile_compacts_verbose_designer_output_without_losing_title() -> None:
+    brief = director_brief()
+    direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(
+        brief, count=4,
+    )
+    assert direction.visual_identity is not None
+    scene = replace(
+        direction.plans[0],
+        design_rationale="specific visual reasoning " * 500,
+        evidence_summary="source-bound doorway and key evidence " * 500,
+        novelty_rationale="structurally different design language " * 500,
+    )
+    identity = replace(
+        direction.visual_identity,
+        design_thesis="book-specific visual thesis " * 500,
+        typography_voice="title-semantic lettering voice " * 500,
+    )
+
+    compiled = compile_cover_prompt(
+        brief,
+        scene,
+        visual_identity=identity,
+        evidence_ledger=direction.evidence_ledger,
+    )
+
+    assert len(compiled.text) <= 12_000
+    assert compiled.text.count(brief.title) == 1

@@ -6,6 +6,11 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Mapping
 
+try:
+    from .cover_design import BookVisualIdentity, VisualEvidenceLedger
+except ImportError:  # pragma: no cover - legacy CLI imports core modules top-level
+    from cover_design import BookVisualIdentity, VisualEvidenceLedger
+
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _REAL_PLACE_MARKERS = {
@@ -516,6 +521,22 @@ class CoverBriefV2:
     def required_characters(self) -> tuple[PrincipalCharacter, ...]:
         return tuple(item for item in self.principal_characters if item.must_appear)
 
+    @property
+    def reader_anchor_character(self) -> PrincipalCharacter:
+        """Return the principal human viewpoint the cover must keep readable."""
+        role_markers = (
+            "protagonist", "heroine", "hero", "main character", "lead", "pov",
+            "narrator", "主角", "女主", "男主",
+        )
+        return next(
+            (
+                character
+                for character in self.principal_characters
+                if any(marker in character.narrative_role.casefold() for marker in role_markers)
+            ),
+            self.principal_characters[0],
+        )
+
     def pending_critical_assumptions(self) -> tuple[VisualAssumption, ...]:
         return tuple(
             item for item in self.visual_assumptions
@@ -638,24 +659,30 @@ class CoverScenePlan:
     art_style: str = ""
     emotion_register: str = ""
     typography_style: str = ""
+    focal_strategy: str = ""
+    design_rationale: str = ""
+    evidence_summary: str = ""
+    typography_rationale: str = ""
+    novelty_rationale: str = ""
+    visual_signature: str = ""
 
     def __post_init__(self) -> None:
         for name in (
-            "concept_id", "visual_strategy", "focal_character_id", "moment_before",
+            "concept_id", "visual_strategy", "moment_before",
             "frozen_action", "moment_after", "blocking", "primary_prop", "shot_scale",
             "camera_height", "lens", "depth_plan", "motivated_lighting", "color_script",
             "title_safe_zone",
         ):
             if not str(getattr(self, name) or "").strip():
                 raise ValueError(f"CoverScenePlan.{name} is required")
-        if not self.cast:
-            raise ValueError("CoverScenePlan.cast is required")
         if not self.story_evidence_refs:
             raise ValueError("CoverScenePlan.story_evidence_refs is required")
-        if not self.gaze_graph:
-            raise ValueError("CoverScenePlan.gaze_graph is required")
         if not self.environment_anchors:
             raise ValueError("CoverScenePlan.environment_anchors is required")
+        if self.cast and not self.focal_character_id:
+            raise ValueError("CoverScenePlan.focal_character_id is required when cast is present")
+        if not self.cast and self.focal_character_id:
+            raise ValueError("CoverScenePlan.focal_character_id must be empty when cast is empty")
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any], *, index: int = 0) -> "CoverScenePlan":
@@ -667,7 +694,9 @@ class CoverScenePlan:
             visual_strategy=_text(data.get("visual_strategy"), f"{prefix}.visual_strategy"),
             story_evidence_refs=values("story_evidence_refs"),
             cast=values("cast"),
-            focal_character_id=_text(data.get("focal_character_id"), f"{prefix}.focal_character_id"),
+            focal_character_id=_text(
+                data.get("focal_character_id"), f"{prefix}.focal_character_id", required=False
+            ),
             moment_before=_text(data.get("moment_before"), f"{prefix}.moment_before"),
             frozen_action=_text(data.get("frozen_action"), f"{prefix}.frozen_action"),
             moment_after=_text(data.get("moment_after"), f"{prefix}.moment_after"),
@@ -704,6 +733,24 @@ class CoverScenePlan:
             typography_style=_text(
                 data.get("typography_style"), f"{prefix}.typography_style", required=False
             ),
+            focal_strategy=_text(
+                data.get("focal_strategy"), f"{prefix}.focal_strategy", required=False
+            ),
+            design_rationale=_text(
+                data.get("design_rationale"), f"{prefix}.design_rationale", required=False
+            ),
+            evidence_summary=_text(
+                data.get("evidence_summary"), f"{prefix}.evidence_summary", required=False
+            ),
+            typography_rationale=_text(
+                data.get("typography_rationale"), f"{prefix}.typography_rationale", required=False
+            ),
+            novelty_rationale=_text(
+                data.get("novelty_rationale"), f"{prefix}.novelty_rationale", required=False
+            ),
+            visual_signature=_text(
+                data.get("visual_signature"), f"{prefix}.visual_signature", required=False
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -737,6 +784,12 @@ class CoverScenePlan:
             "art_style": self.art_style,
             "emotion_register": self.emotion_register,
             "typography_style": self.typography_style,
+            "focal_strategy": self.focal_strategy,
+            "design_rationale": self.design_rationale,
+            "evidence_summary": self.evidence_summary,
+            "typography_rationale": self.typography_rationale,
+            "novelty_rationale": self.novelty_rationale,
+            "visual_signature": self.visual_signature,
         }
         payload.update({key: value for key, value in optional_treatment.items() if value})
         return payload
@@ -750,6 +803,9 @@ class ArtDirectionSet:
     profile_version: str
     plans: tuple[CoverScenePlan, ...]
     visual_assumptions: tuple[VisualAssumption, ...] = ()
+    visual_identity: BookVisualIdentity | None = None
+    evidence_ledger: VisualEvidenceLedger | None = None
+    novelty_report: tuple[dict[str, Any], ...] = ()
     status: str = "awaiting_approval"
     direction_id: str = ""
     direction_sha256: str = ""
@@ -773,6 +829,15 @@ class ArtDirectionSet:
         raw_assumptions = data.get("visual_assumptions") or []
         if not isinstance(raw_assumptions, (list, tuple)):
             raise ValueError("ArtDirectionSet.visual_assumptions must be a list")
+        raw_identity = data.get("visual_identity")
+        if raw_identity is not None and not isinstance(raw_identity, Mapping):
+            raise ValueError("ArtDirectionSet.visual_identity must be an object")
+        raw_ledger = data.get("evidence_ledger")
+        if raw_ledger is not None and not isinstance(raw_ledger, Mapping):
+            raise ValueError("ArtDirectionSet.evidence_ledger must be an object")
+        raw_novelty = data.get("novelty_report") or []
+        if not isinstance(raw_novelty, (list, tuple)):
+            raise ValueError("ArtDirectionSet.novelty_report must be a list")
         return cls(
             schema_version=int(data.get("schema_version") or 1),
             director_model=_text(data.get("director_model"), "art_direction.director_model"),
@@ -788,6 +853,15 @@ class ArtDirectionSet:
                 VisualAssumption.from_dict(_mapping(item, "visual_assumptions"), index=index)
                 for index, item in enumerate(raw_assumptions)
             ),
+            visual_identity=(
+                BookVisualIdentity.from_dict(raw_identity) if raw_identity is not None else None
+            ),
+            evidence_ledger=(
+                VisualEvidenceLedger.from_dict(raw_ledger) if raw_ledger is not None else None
+            ),
+            novelty_report=tuple(
+                dict(item) for item in raw_novelty if isinstance(item, Mapping)
+            ),
             status=str(data.get("status") or "awaiting_approval"),
             direction_id=str(data.get("direction_id") or "").strip(),
             direction_sha256=str(data.get("direction_sha256") or "").strip(),
@@ -795,7 +869,7 @@ class ArtDirectionSet:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "schema_version": self.schema_version,
             "director_model": self.director_model,
             "brief_sha256": self.brief_sha256,
@@ -807,6 +881,13 @@ class ArtDirectionSet:
             "direction_sha256": self.direction_sha256,
             "created_at": self.created_at,
         }
+        if self.visual_identity is not None:
+            payload["visual_identity"] = self.visual_identity.to_dict()
+        if self.evidence_ledger is not None:
+            payload["evidence_ledger"] = self.evidence_ledger.to_dict()
+        if self.novelty_report:
+            payload["novelty_report"] = [dict(item) for item in self.novelty_report]
+        return payload
 
     def content_hash(self) -> str:
         import hashlib
@@ -866,6 +947,7 @@ class CoverQualityReport:
     canon_fidelity: int | None = None
     required_cast_coverage: int | None = None
     age_and_environment_fidelity: int | None = None
+    medium_fidelity: int | None = None
     photorealism: int | None = None
     anatomy_and_physics: int | None = None
     cinematic_storytelling: int | None = None
@@ -883,9 +965,14 @@ class CoverQualityReport:
 
     _DIMENSIONS: ClassVar[tuple[str, ...]] = (
         "canon_fidelity", "required_cast_coverage", "age_and_environment_fidelity",
-        "photorealism", "anatomy_and_physics", "cinematic_storytelling", "genre_emotion",
+        "medium_fidelity", "photorealism", "anatomy_and_physics", "cinematic_storytelling", "genre_emotion",
         "thumbnail_clarity", "hook_promise_alignment", "title_legibility_advisory",
     )
+
+    @property
+    def render_fidelity(self) -> int | None:
+        """Score the chosen visual medium, falling back for historical reports."""
+        return self.medium_fidelity if self.medium_fidelity is not None else self.photorealism
 
     def __post_init__(self) -> None:
         if self.status not in {"blocked", "human_review_required", "recommended_for_human_review"}:
@@ -903,7 +990,7 @@ class CoverQualityReport:
             self.canon_fidelity,
             self.required_cast_coverage,
             self.age_and_environment_fidelity,
-            self.photorealism,
+            self.render_fidelity,
             self.anatomy_and_physics,
         )
         if self.status == "recommended_for_human_review" and not all(

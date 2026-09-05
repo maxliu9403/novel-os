@@ -326,11 +326,31 @@ class CoverService:
         candidate: CoverCandidate,
         repair_codes: Sequence[str],
     ) -> CoverConcept:
+        from core.cover_design import BookVisualIdentity, VisualEvidenceLedger
+
+        scene_payload = dict(concept.scene_plan)
+        identity_raw = scene_payload.get("_visual_identity")
+        ledger_raw = scene_payload.get("_evidence_ledger")
+        visual_identity = (
+            BookVisualIdentity.from_dict(identity_raw) if isinstance(identity_raw, dict) else None
+        )
+        evidence_ledger = (
+            VisualEvidenceLedger.from_dict(ledger_raw) if isinstance(ledger_raw, dict) else None
+        )
         if not repair_codes:
+            if isinstance(brief, CoverBriefV2) and scene_payload:
+                from core.cover_prompt_compiler import scene_to_cover_concept
+
+                scene = CoverScenePlan.from_dict(scene_payload)
+                return scene_to_cover_concept(
+                    brief, scene,
+                    visual_identity=visual_identity,
+                    evidence_ledger=evidence_ledger,
+                )
             return replace(
                 concept,
                 generation_prompt=refresh_cover_concept_prompt(brief, concept),
-                scene_plan=dict(concept.scene_plan),
+                scene_plan=scene_payload,
             )
         report = candidate.quality_report or {}
         reported = set(str(item) for item in report.get("repair_codes") or ())
@@ -339,13 +359,21 @@ class CoverService:
             raise CoverServiceError("Retry repair codes must be reported by the candidate quality report")
         if not isinstance(brief, CoverBriefV2) or not concept.scene_plan:
             raise CoverServiceError("Repair-code retry requires a versioned cover direction")
-        scene = CoverScenePlan.from_dict(concept.scene_plan)
+        scene = CoverScenePlan.from_dict(scene_payload)
         from core.cover_prompt_compiler import compile_cover_prompt, compile_repair_prompt
 
-        baseline = compile_cover_prompt(brief, scene)
+        baseline = compile_cover_prompt(
+            brief, scene,
+            visual_identity=visual_identity,
+            evidence_ledger=evidence_ledger,
+        )
         prior = replace(baseline, revision=max(1, candidate.prompt_revision))
-        compiled = compile_repair_prompt(brief, scene, prior, requested)
-        return replace(concept, generation_prompt=compiled.text, scene_plan=scene.to_dict())
+        compiled = compile_repair_prompt(
+            brief, scene, prior, requested,
+            visual_identity=visual_identity,
+            evidence_ledger=evidence_ledger,
+        )
+        return replace(concept, generation_prompt=compiled.text, scene_plan=scene_payload)
 
     def _quality_report(
         self,
@@ -400,7 +428,7 @@ class CoverService:
             report = replace(report, status="blocked")
         required_scores = (
             report.canon_fidelity, report.required_cast_coverage,
-            report.age_and_environment_fidelity, report.photorealism,
+            report.age_and_environment_fidelity, report.render_fidelity,
             report.anatomy_and_physics,
         )
         if not blockers and all(score is not None and score >= 80 for score in required_scores):

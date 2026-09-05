@@ -73,3 +73,18 @@ def test_quality_report_round_trip_preserves_scores_and_findings() -> None:
         evaluator_model="visual-v1",
     )
     assert CoverQualityReport.from_dict(report.to_dict()) == report
+
+
+def test_non_photographic_cover_uses_medium_fidelity_for_recommendation() -> None:
+    report = CoverQualityReport(
+        status="recommended_for_human_review",
+        canon_fidelity=90,
+        required_cast_coverage=92,
+        age_and_environment_fidelity=88,
+        medium_fidelity=91,
+        photorealism=20,
+        anatomy_and_physics=86,
+    )
+
+    assert report.render_fidelity == 91
+    assert CoverQualityReport.from_dict(report.to_dict()) == report

@@ -6,6 +6,8 @@ import pytest
 
 from core.cover_models import CoverBrief, CoverCandidate, CoverConcept, CoverSet
 from core.cover_store import CoverConflict, CoverStore
+from core.cover_director import CoverArtDirector
+from tests.test_cover_director import _brief as direction_brief, adaptive_director_fixture
 
 
 SHA = "a" * 64
@@ -106,3 +108,18 @@ def test_active_pointer_is_revision_checked(tmp_path) -> None:
     updated = store.set_active(second.cover_set_id, expected_revision=1)
     assert updated.cover_set_id == second.cover_set_id
     assert updated.revision == 2
+
+
+def test_direction_store_persists_visual_identity_and_evidence_as_reviewable_artifacts(tmp_path) -> None:
+    brief = direction_brief()
+    direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(
+        brief, count=4,
+    )
+
+    created = CoverStore(tmp_path).create_direction(direction, brief=brief.to_dict())
+
+    design = tmp_path / "outputs" / "covers" / "design"
+    assert design.joinpath("visual-evidence-ledger.json").is_file()
+    assert design.joinpath("book-visual-identity.json").is_file()
+    assert design.joinpath(f"{created.direction_id}.evidence.json").is_file()
+    assert design.joinpath(f"{created.direction_id}.identity.json").is_file()

@@ -87,6 +87,33 @@ function coverDirection(status: CoverDirection["status"] = "awaiting_approval"):
     direction_sha256: "b".repeat(64),
     status,
     visual_assumptions: [],
+    visual_identity: {
+      design_thesis: "Turn the shared doorway into a measure of who still belongs.",
+      dominant_emotional_contradiction: "domestic warmth against irreversible separation",
+      story_signatures: ["shared brass key", "child backpack by the door"],
+      visual_grammar: ["threshold geometry", "handled domestic evidence"],
+      material_language: ["worn brass", "painted wood"],
+      palette_logic: "warm amber interrupted by cool blue",
+      lighting_logic: "ordinary hall light reveals the decisive object",
+      spatial_logic: "access and distance measure belonging",
+      typography_voice: "doorway-like verticals with one controlled break",
+      cast_policy: "Use people only when their action is stronger than their trace.",
+      cliche_blacklist: ["large crying face", "foreground victim with background lovers"],
+      uniqueness_anchors: ["key leaving the ring", "backpack marking the threshold"],
+      spoiler_boundary: ["do not reveal the final relationship outcome"],
+    },
+    evidence_ledger: {
+      schema_version: 1,
+      source_bundle_sha256: "c".repeat(64),
+      source_files: { "outputs/input/prompt.md": "d".repeat(64) },
+      items: [{
+        evidence_id: "ev-door", source_type: "publication_intro",
+        source_ref: "outputs/publication/publication-copy.json:hook_lead",
+        summary: "Can one removed key protect a child without closing every future door?",
+        story_function: "spoiler-safe opening hook", spoiler_level: "safe",
+        visual_tags: ["reader hook"],
+      }],
+    },
     brief: {
       schema_version: 2,
       title: project.title,
@@ -109,6 +136,12 @@ function coverDirection(status: CoverDirection["status"] = "awaiting_approval"):
       art_style: treatments[index][4],
       emotion_register: treatments[index][5],
       typography_style: treatments[index][6],
+      focal_strategy: index === 0 ? "character_led" : index === 1 ? "object_led" : "environment_led",
+      design_rationale: "This hypothesis turns a different layer of the doorway choice into visual form.",
+      evidence_summary: "The key and backpack are approved recurring story evidence.",
+      typography_rationale: "The title rhythm echoes access and separation.",
+      novelty_rationale: "The subject, topology, and title behavior differ from the other plans.",
+      visual_signature: "One removed key changes the shape of the home.",
       cast: ["char_mara"], focal_character_id: "char_mara",
       frozen_action: "Mara removes the shared key before the door closes",
       blocking: "Mara foreground right at the threshold",
@@ -173,6 +206,10 @@ test("shows story facts and requires exact art direction approval before generat
   expect(screen.getByText("Graphic editorial suspense")).toBeInTheDocument();
   expect(screen.getByText("Cathartic resolve")).toBeInTheDocument();
   expect(screen.getByText("Bold cinematic serif")).toBeInTheDocument();
+  expect(screen.getByText("本书视觉语言")).toBeInTheDocument();
+  expect(screen.getByText("Turn the shared doorway into a measure of who still belongs.")).toBeInTheDocument();
+  expect(screen.getByText("1 条故事证据 · 1 类来源")).toBeInTheDocument();
+  expect(screen.getAllByText(/This hypothesis turns a different layer/)).toHaveLength(4);
   expect(screen.getByRole("button", { name: "生成 4 张封面" })).toBeDisabled();
   await user.click(screen.getByRole("button", { name: "批准美术方向" }));
   await waitFor(() => expect(approve).toHaveBeenCalledWith(
