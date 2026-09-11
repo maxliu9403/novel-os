@@ -1,0 +1,120 @@
+{
+  "book_id": "novel-os:4865afad76bf4bac802ac841536e738b",
+  "classification": {
+    "classification_id": "classification:a510e3c635cd991a0f0bdee934d282dc297e50a21bd5abde5c0f9096dc96992f",
+    "path": "meta/novel-classification.json"
+  },
+  "cover": {
+    "cover_set_id": "cover-h5-fixture",
+    "selected_candidate_id": "candidate-fixture-1",
+    "status": "selected"
+  },
+  "files": [
+    {
+      "cover_selection_state": "",
+      "media_type": "application/epub+zip",
+      "path": "book.epub",
+      "role": "book_export",
+      "sha256": "5eda1e47cb47d84ed015ebaf2c6d9dc5e255221418daeaa3637ef41a83089da8",
+      "size": 47647
+    },
+    {
+      "cover_selection_state": "",
+      "media_type": "text/markdown",
+      "path": "book.md",
+      "role": "book_export",
+      "sha256": "7f2dfb593ce1b4459433d8ad319ea6ac512058c36e2c010a33a1f64e73c0067a",
+      "size": 21682
+    },
+    {
+      "cover_selection_state": "",
+      "media_type": "application/json",
+      "path": "covers/cover-set.json",
+      "role": "cover_metadata",
+      "sha256": "e48f9d453794e184d96c192ba6057c9bc5f5e677c918ee5fd710d72c5886626b",
+      "size": 9275
+    },
+    {
+      "candidate_id": "candidate-fixture-1",
+      "cover_selection_state": "selected",
+      "display_order": 1,
+      "media_type": "image/png",
+      "path": "covers/pending/cover-01.png",
+      "role": "cover_candidate",
+      "sha256": "10a8f97a52b3f7e4b0b792b20986ea2b5a0b65f5f09591881cb5a9c27050aabe",
+      "size": 6311
+    },
+    {
+      "candidate_id": "candidate-fixture-2",
+      "cover_selection_state": "ready",
+      "display_order": 2,
+      "media_type": "image/png",
+      "path": "covers/pending/cover-02.png",
+      "role": "cover_candidate",
+      "sha256": "5d3a49cb1d118a08e139ef1640694466e93c6b8351832ce671cc19eef4863fb3",
+      "size": 6390
+    },
+    {
+      "candidate_id": "candidate-fixture-3",
+      "cover_selection_state": "ready",
+      "display_order": 3,
+      "media_type": "image/png",
+      "path": "covers/pending/cover-03.png",
+      "role": "cover_candidate",
+      "sha256": "e9fe06cbdba7d12e365a7d0634642563394730a82568f9e317012d8bedab8c0f",
+      "size": 6399
+    },
+    {
+      "candidate_id": "candidate-fixture-4",
+      "cover_selection_state": "ready",
+      "display_order": 4,
+      "media_type": "image/png",
+      "path": "covers/pending/cover-04.png",
+      "role": "cover_candidate",
+      "sha256": "a01ed0179e561a83fc2f96b3160a4569ab3b9d3218097d819c9b959e8f63f43d",
+      "size": 6308
+    },
+    {
+      "cover_selection_state": "selected",
+      "media_type": "image/png",
+      "path": "covers/selected-cover.png",
+      "role": "selected_cover",
+      "sha256": "10a8f97a52b3f7e4b0b792b20986ea2b5a0b65f5f09591881cb5a9c27050aabe",
+      "size": 6311
+    },
+    {
+      "cover_selection_state": "",
+      "media_type": "application/json",
+      "path": "meta/h5-import.json",
+      "role": "h5_import",
+      "sha256": "542eaa6d811d51379a96b0a6c60d93c6a8cb40e4133d319f91036f9606ec286c",
+      "size": 49585
+    },
+    {
+      "cover_selection_state": "",
+      "media_type": "application/json",
+      "path": "meta/novel-classification.json",
+      "role": "novel_classification",
+      "sha256": "b51af6d88036fd53a7a8c211bcccb50069ae305d6000b74f69cfcbcf60d9cc85",
+      "size": 1420
+    },
+    {
+      "cover_selection_state": "",
+      "media_type": "application/json",
+      "path": "meta/novel-serialization.json",
+      "role": "novel_serialization",
+      "sha256": "92f483cbb875c6b6186a9b5b1f1a1df1dadcb2344dc243dccbed2f107a95f58d",
+      "size": 6799
+    }
+  ],
+  "h5_import": {
+    "path": "meta/h5-import.json",
+    "schema_version": "novel-h5-import.v1"
+  },
+  "package_revision_sha256": "6146fb222e5305fdc2b9de0fd502eb6383066982a759d4f9cf81f51ec2cbf889",
+  "schema_version": 4,
+  "serialization": {
+    "path": "meta/novel-serialization.json",
+    "serialization_id": "serialization:8c457cf22d0af88bf4119aa4d6a5a9a66d06cfcb6fa78e2658c2565b9b0b9250"
+  }
+}

@@ -22,6 +22,8 @@ from compile_book import gather, inline_runs, render_bytes  # noqa: E402
 from compile_docx import render_docx  # noqa: E402
 from compile_epub import render_epub  # noqa: E402
 from styles import Style, StyleSheet  # noqa: E402
+from novel_classification import infer_classification  # noqa: E402
+from narrative_format import infer_narrative_format, serialization_payload  # noqa: E402
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -63,6 +65,31 @@ def _book_with_publication_copy():
         author="M",
         genre="Literary",
         publication_copy=_PublicationCopyFixture(),
+        chapters=[{"number": 1, "title": "Arrival", "text": "# Arrival\n\nBody."}],
+    )
+
+
+def _classified_book():
+    classification = infer_classification(
+        genre="Women's Fiction / Family / Revenge",
+        audience="women 45-60",
+        premise="A betrayed wife leaves and rebuilds her life.",
+        chapters=1,
+    )
+    format_contract = infer_narrative_format(
+        classification,
+        chapters=1,
+        target_words=900,
+        explicit_length=True,
+    )
+    return gather(
+        title="The Pier",
+        author="M",
+        genre="Women's Fiction / Family / Revenge",
+        classification=classification.to_dict(),
+        serialization=serialization_payload(
+            format_contract, None, allow_legacy_defaults=True
+        ),
         chapters=[{"number": 1, "title": "Arrival", "text": "# Arrival\n\nBody."}],
     )
 
@@ -256,9 +283,11 @@ def test_epub_keeps_story_lead_before_chapter_one_without_renaming_navigation():
 
     z = _zip(render_epub(book, StyleSheet()))
     page = z.read("OEBPS/chap001.xhtml").decode("utf-8")
+    intro = z.read("OEBPS/intro.xhtml").decode("utf-8")
     nav = z.read("OEBPS/nav.xhtml").decode("utf-8")
-    body = page.split("<body>", 1)[1]
-    assert body.index("序") < body.index("第一章 抉择")
+    assert "序" in intro
+    assert 'epub:type="introduction"' in intro
+    assert "她决定拿回一切" not in page
     assert "STORY_LEAD" not in page
     assert "第一章 抉择" in nav
     assert ">序</a>" not in nav
@@ -310,6 +339,40 @@ def test_epub_uses_intro_description_language_and_chapter_only_navigation():
     assert "Arrival" in nav
     assert "intro.xhtml" not in nav
     assert "Before the Story" not in nav
+
+
+def test_epub_embeds_canonical_classification_subjects_and_json_metadata():
+    z = _zip(render_epub(_classified_book(), StyleSheet()))
+    opf = ElementTree.fromstring(z.read("OEBPS/content.opf"))
+    ns = {
+        "opf": "http://www.idpf.org/2007/opf",
+        "dc": "http://purl.org/dc/elements/1.1/",
+    }
+
+    subjects = [item.text for item in opf.findall(".//dc:subject", ns)]
+    assert subjects[:3] == ["womens_fiction", "family_drama", "revenge"]
+    metadata = next(
+        item.text
+        for item in opf.findall(".//opf:meta", ns)
+        if item.get("property") == "novel-os:classification"
+    )
+    assert '"primary_genre_id":"womens_fiction"' in metadata
+    serialization = next(
+        item.text
+        for item in opf.findall(".//opf:meta", ns)
+        if item.get("property") == "novel-os:serialization"
+    )
+    assert '"mode":"short_novel"' in serialization
+
+
+def test_markdown_export_starts_with_machine_readable_classification():
+    markdown = render_bytes(_classified_book(), StyleSheet(), "markdown").decode()
+
+    assert markdown.startswith('---\nnovel_os_schema: "novel-classification.v1"')
+    assert 'primary_genre_id: "womens_fiction"' in markdown
+    assert 'serialization_schema: "novel-serialization.v1"' in markdown
+    assert 'narrative_mode: "short_novel"' in markdown
+    assert markdown.index("filter_type_ids:") < markdown.index("# The Pier")
 
 
 def test_epub_is_byte_stable_for_identical_compiled_input():

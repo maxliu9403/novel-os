@@ -9,6 +9,7 @@ from core.cover_prompt_compiler import compile_cover_prompt, compile_repair_prom
 from tests.test_cover_models_v2 import two_character_fixture
 from tests.test_cover_director import _brief as director_brief, adaptive_director_fixture
 from core.cover_director import CoverArtDirector
+from core.cover_prompt_compiler import _modules, _render, MAX_PROMPT_CODEPOINTS
 
 
 def brief_fixture(*, pending_required_assumption: bool = False) -> CoverBriefV2:
@@ -130,8 +131,9 @@ def test_compile_is_deterministic_and_contains_age_environment_and_hook() -> Non
     second = compile_cover_prompt(brief_fixture(), scene_fixture())
 
     assert first.text == second.text
-    assert first.compiler_version == "cover-compiler.v9"
+    assert first.compiler_version == "cover-compiler.v13"
     assert [name for name in first.modules] == [
+        "PHOTOGRAPHIC RENDER CONTRACT", "HUMAN PERFORMANCE CONTRACT",
         "ROLE AND OUTPUT", "STORY TRUTH", "CAST LOCK", "SINGLE CINEMATIC MOMENT",
         "HERO SUBJECT AND CORE STORY ATMOSPHERE",
         "CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY", "RELATIONSHIP BLOCKING",
@@ -575,3 +577,183 @@ def test_adaptive_compile_compacts_verbose_designer_output_without_losing_title(
 
     assert len(compiled.text) <= 12_000
     assert compiled.text.count(brief.title) == 1
+
+
+def _budget_stress_direction(text="Specific source-bound visual reasoning. "):
+    brief = director_brief()
+    direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(brief, count=4)
+    scene = direction.plans[0]
+    scene = replace(
+        scene, moment_before=scene.moment_before * 6,
+        frozen_action=scene.frozen_action * 6, moment_after=scene.moment_after * 6,
+        blocking=scene.blocking * 6, depth_plan=scene.depth_plan * 6,
+        title_safe_zone=scene.title_safe_zone * 8,
+        design_rationale=text * 100, evidence_summary=text * 100,
+        novelty_rationale=text * 100, typography_rationale=text * 100,
+        emotion_register=text * 100,
+    )
+    identity = replace(
+        direction.visual_identity, design_thesis=text * 100,
+        typography_voice=text * 100,
+    )
+    return brief, scene, dict(
+        visual_identity=identity, evidence_ledger=direction.evidence_ledger,
+        conflict_contract=direction.core_conflict_visual_contract,
+    )
+
+
+@pytest.mark.parametrize("text", ["Specific visual reasoning. ", "明确的故事场景与人物情绪。", "🎨🔑🧑🏽‍🎨 "])
+def test_global_budget_includes_headers_and_preserves_story_locks(text):
+    brief, scene, context = _budget_stress_direction(text)
+    original = _modules(brief, scene, **context)
+    assert len(_render(original)) > MAX_PROMPT_CODEPOINTS
+
+    compiled = compile_cover_prompt(brief, scene, **context)
+
+    assert len(compiled.text) <= MAX_PROMPT_CODEPOINTS
+    assert compiled.text == _render(compiled.modules)
+    assert compiled == compile_cover_prompt(brief, scene, **context)
+    assert compiled.text.count(brief.title) == 1
+    for module in ("CAST LOCK", "CORE CONFLICT VISUAL CONTRACT", "TITLE AND SAFE ZONE",
+                   "SINGLE CINEMATIC MOMENT", "COMPACT FAILURE EXCLUSIONS"):
+        assert compiled.modules[module] == original[module]
+    assert scene.blocking in compiled.modules["CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY"]
+    assert scene.typography_style in compiled.modules["TITLE ART DIRECTION"]
+    assert scene.art_style in compiled.modules["ROLE AND OUTPUT"]
+
+
+def test_long_exact_title_is_never_cut_to_a_module_budget():
+    brief, scene, context = _budget_stress_direction()
+    brief = replace(brief, title="The Door Is Mine " + "a" * 750)
+    compiled = compile_cover_prompt(brief, scene, **context)
+    assert compiled.text.count(brief.title) == 1
+    assert len(compiled.text) <= MAX_PROMPT_CODEPOINTS
+
+
+def test_legacy_prompt_uses_global_budget_too():
+    brief = brief_fixture()
+    brief = replace(brief, emotional_promise="An original emotional promise. " * 500)
+    original = _modules(brief, scene_fixture())
+    compiled = compile_cover_prompt(brief, scene_fixture())
+    assert len(compiled.text) <= MAX_PROMPT_CODEPOINTS
+    assert compiled.modules["CAST LOCK"] == original["CAST LOCK"]
+    assert scene_fixture().blocking in compiled.modules["RELATIONSHIP BLOCKING"]
+
+
+def test_repair_budget_preserves_each_requested_focus_and_story_locks():
+    brief, scene, context = _budget_stress_direction()
+    prior = compile_cover_prompt(brief, scene, **context)
+    codes = ["age_mismatch", "missing_character", "weak_story_action", "title_failure"]
+    repaired = compile_repair_prompt(brief, scene, prior, codes, **context)
+    assert len(repaired.text) <= MAX_PROMPT_CODEPOINTS
+    assert repaired.revision == prior.revision + 1
+    assert repaired.text.count(brief.title) == 1
+    for code in codes:
+        assert f"Repair focus: {code.replace('_', ' ')}." in repaired.text
+    assert "Repair focus: age mismatch." in repaired.modules["CAST LOCK"]
+    assert "Repair focus: missing character." in repaired.modules["CAST LOCK"]
+    assert scene.frozen_action in repaired.text
+    again = compile_repair_prompt(brief, scene, repaired, codes, **context)
+    assert again.text == repaired.text  # Repair notes do not grow on re-entry.
+
+
+def test_protected_content_overflow_is_explicit_instead_of_silently_cutting_canon():
+    brief = replace(brief_fixture(), title="x" * MAX_PROMPT_CODEPOINTS)
+    with pytest.raises(ValueError, match="protected story content"):
+        compile_cover_prompt(brief, scene_fixture())
+
+
+def test_saturated_module_budgets_still_leave_room_for_headings():
+    brief, scene, context = _budget_stress_direction()
+    brief = replace(brief, principal_characters=tuple(
+        replace(character, agency_signal=character.agency_signal + " A clear gaze drives the choice." * 12)
+        for character in brief.principal_characters
+    ))
+    scene = replace(
+        scene, art_style=scene.art_style + " Intentional material detail." * 10,
+        environment_anchors=scene.environment_anchors + ("Story-supported surfaces and practical materials. " * 10,),
+        title_safe_zone=scene.title_safe_zone + " Clear readable negative space." * 10,
+    )
+    context["visual_identity"] = replace(
+        context["visual_identity"],
+        spoiler_boundary=("Do not reveal the final outcome or its decisive evidence. " * 10,),
+    )
+    compiled = compile_cover_prompt(brief, scene, **context)
+    assert len(compiled.text) <= MAX_PROMPT_CODEPOINTS
+    assert compiled.text == _render(compiled.modules)
+    assert scene.blocking in compiled.text
+    assert all(character.agency_signal in compiled.modules["CAST LOCK"]
+               for character in brief.principal_characters)
+
+
+def test_repair_of_exact_limit_prompt_reserves_suffix_space():
+    brief, scene, context = _budget_stress_direction()
+    prior = compile_cover_prompt(brief, scene, **context)
+    padded = dict(prior.modules)
+    padded["BOOK VISUAL IDENTITY"] += "x" * (MAX_PROMPT_CODEPOINTS - len(prior.text))
+    prior = replace(prior, text=_render(padded), modules=padded)
+    assert len(prior.text) == MAX_PROMPT_CODEPOINTS
+    repaired = compile_repair_prompt(brief, scene, prior, ["age_mismatch"], **context)
+    assert len(repaired.text) <= MAX_PROMPT_CODEPOINTS
+    assert "Repair focus: age mismatch." in repaired.modules["CAST LOCK"]
+
+
+@pytest.mark.parametrize("character", ["x", "中", "🎨"])
+def test_prompt_limit_counts_unicode_codepoints_not_utf8_bytes(character):
+    from core.cover_prompt_compiler import _validate_prompt
+
+    _validate_prompt(character * MAX_PROMPT_CODEPOINTS)
+    with pytest.raises(ValueError, match="exceeds 12000 Unicode code points"):
+        _validate_prompt(character * (MAX_PROMPT_CODEPOINTS + 1))
+
+
+def test_verbose_rationale_never_displaces_executable_visual_design():
+    brief, scene, context = _budget_stress_direction()
+    scene = replace(
+        scene,
+        color_script="Midnight blue architecture; amber practical lamps; neutral skin; ivory title.",
+        motivated_lighting="Soft lateral key from the window; controlled negative fill and a warm rim.",
+    )
+    identity = replace(
+        context['visual_identity'],
+        palette_logic="Cold distance against a small warm refuge; no global sepia wash.",
+        lighting_logic="Sculpt faces with soft directional light, not flat room exposure.",
+    )
+    context['visual_identity'] = identity
+    compiled = compile_cover_prompt(brief, scene, **context)
+    repaired = compile_repair_prompt(brief, scene, compiled, ["core_conflict_missing", "title_failure"], **context)
+    for output in (compiled, repaired):
+        assert len(output.text) <= MAX_PROMPT_CODEPOINTS
+        for value in (scene.color_script, scene.motivated_lighting, scene.shot_scale,
+                      scene.camera_height, scene.lens, identity.palette_logic,
+                      identity.lighting_logic, scene.visual_signature):
+            assert value in output.text
+        assert 'one continuous title lockup' in output.modules['TITLE AND SAFE ZONE']
+        assert 'left-to-right, then top-to-bottom' in output.modules['TITLE AND SAFE ZONE']
+
+
+def test_old_compiler_repair_restores_visual_fields_even_without_budget_overflow():
+    brief = director_brief()
+    direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(brief, count=4)
+    scene = direction.plans[0]
+    context = dict(visual_identity=direction.visual_identity,
+                   evidence_ledger=direction.evidence_ledger,
+                   conflict_contract=direction.core_conflict_visual_contract)
+    fresh = compile_cover_prompt(brief, scene, **context)
+    modules = dict(fresh.modules)
+    modules['GENRE EMOTION'] = 'Palette logic…'
+    modules['CAMERA, DEPTH AND MOTIVATED LIGHTING'] = 'Lighting logic…'
+    modules['CAST LOCK'] += ' Repair focus: age mismatch.'
+    prior = replace(fresh, compiler_version='cover-compiler.v11', modules=modules, text=_render(modules))
+    repaired = compile_repair_prompt(brief, scene, prior, ['core_conflict_missing'], **context)
+    assert scene.color_script in repaired.text
+    assert scene.motivated_lighting in repaired.text
+    assert 'Repair focus: age mismatch.' in repaired.text
+    assert repaired.compiler_version == 'cover-compiler.v13'
+
+
+def test_visual_contract_itself_over_budget_is_not_silently_truncated():
+    brief, scene, context = _budget_stress_direction()
+    scene = replace(scene, color_script='Every color is an essential instruction. ' * 500)
+    with pytest.raises(ValueError, match='protected story content and visual design'):
+        compile_cover_prompt(brief, scene, **context)

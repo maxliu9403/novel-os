@@ -8,10 +8,12 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 try:
+    from .cover_render_policy import photographic_medium_issue
     from .cover_models_v2 import ArtDirectionSet, CoverBriefV2
     from .cover_profiles import portfolio_blueprint
     from .cover_novelty import historical_collisions, portfolio_collisions
 except ImportError:  # pragma: no cover - legacy CLI imports core modules top-level
+    from cover_render_policy import photographic_medium_issue
     from cover_models_v2 import ArtDirectionSet, CoverBriefV2
     from cover_profiles import portfolio_blueprint
     from cover_novelty import historical_collisions, portfolio_collisions
@@ -165,6 +167,15 @@ def _validate_adaptive_portfolio(
     recent_fingerprints: Sequence[Mapping[str, Any]] = (),
 ) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
+    if direction.profile_version.casefold().startswith(("cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8")):
+        for plan in direction.plans:
+            issue = photographic_medium_issue(plan.art_style)
+            if issue:
+                findings.append(ValidationFinding(
+                    "non_photographic_medium", "blocker",
+                    "Replan as live-action photography while preserving story, cast and creative diversity",
+                    f"{plan.concept_id}: {issue}",
+                ))
     identity = direction.visual_identity
     if identity is None or not identity.complete:
         findings.append(ValidationFinding(
@@ -180,7 +191,7 @@ def _validate_adaptive_portfolio(
         ))
 
     conflict_contract = direction.core_conflict_visual_contract
-    conflict_profile = direction.profile_version.casefold().startswith("cover-profiles.v5")
+    conflict_profile = direction.profile_version.casefold().startswith(("cover-profiles.v5", "cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8"))
     if conflict_profile:
         if conflict_contract is None:
             findings.append(ValidationFinding(
@@ -409,9 +420,10 @@ def _validate_core_conflict_coverage(
     findings: list[ValidationFinding] = []
     plans = direction.plans
     count = len(plans)
-    direct_minimum = math.ceil(count * 0.75)
-    action_minimum = math.ceil(count * 0.75)
-    ensemble_minimum = math.ceil(count * 0.5)
+    flexible = direction.profile_version.casefold().startswith(("cover-profiles.v7", "cover-profiles.v8"))
+    direct_minimum = 1 if flexible else math.ceil(count * 0.75)
+    action_minimum = 1 if flexible else math.ceil(count * 0.75)
+    ensemble_minimum = 1 if flexible else math.ceil(count * 0.5)
     pressure = set(contract.pressure_character_ids)
 
     direct = [plan for plan in plans if plan.causal_visibility == "direct"]
@@ -419,7 +431,7 @@ def _validate_core_conflict_coverage(
         findings.append(ValidationFinding(
             "portfolio_conflict_undercoverage",
             "blocker",
-            "Most cover directions must show the causal pressure directly while preserving different compositions",
+            "The portfolio must include direct causal pressure while preserving different compositions",
             f"direct {len(direct)}/{count}; required {direct_minimum}",
         ))
     actions = [plan for plan in plans if plan.protagonist_action_visible]
@@ -427,7 +439,7 @@ def _validate_core_conflict_coverage(
         findings.append(ValidationFinding(
             "protagonist_action_undercoverage",
             "blocker",
-            "Most cover directions must show the protagonist making or enacting a decision",
+            "The portfolio must include a protagonist making or enacting a decision",
             f"visible action {len(actions)}/{count}; required {action_minimum}",
         ))
     deliveries = [" ".join(plan.conflict_delivery.casefold().split()) for plan in plans]
@@ -459,7 +471,7 @@ def _validate_core_conflict_coverage(
         findings.append(ValidationFinding(
             "replacement_relationship_undercoverage",
             "blocker",
-            "At least half the portfolio must make the complete approved causal relationship legible",
+            "The portfolio must meet its versioned complete causal relationship coverage",
             f"complete relationship {len(full_ensemble)}/{count}; required {ensemble_minimum}",
         ))
     return findings
@@ -492,7 +504,7 @@ def validate_direction(
         ))
     required = {item.character_id for item in brief.required_characters}
     known = {item.character_id for item in brief.principal_characters}
-    adaptive = direction.profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5"))
+    adaptive = direction.profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5", "cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8"))
     optional_conflict_cast = {
         item.character_id for item in brief.principal_characters if not item.must_appear
     }

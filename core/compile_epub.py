@@ -25,6 +25,8 @@ from typing import Dict, List
 from xml.sax.saxutils import escape, quoteattr
 
 from compile_book import Block, CompiledBook, inline_runs
+from novel_classification import NovelClassification
+from narrative_format import validate_serialization
 from styles import Style, StyleSheet
 
 _FONTS = {
@@ -89,15 +91,16 @@ def _inline_xhtml(text: str) -> str:
     return "".join(out)
 
 
-def _page(title: str, body: str, language: str) -> str:
+def _page(title: str, body: str, language: str, *, kind: str = "chapter") -> str:
     language_attr = quoteattr(language or "en-US")
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<html xmlns="http://www.w3.org/1999/xhtml" '
+        'xmlns:epub="http://www.idpf.org/2007/ops" '
         f"xml:lang={language_attr} lang={language_attr}>"
         f"<head><title>{escape(title)}</title>"
         '<link rel="stylesheet" type="text/css" href="style.css"/></head>'
-        f"<body>{body}</body></html>"
+        f'<body><section epub:type="{kind}">{body}</section></body></html>'
     )
 
 
@@ -125,6 +128,8 @@ def _chapter_files(book: CompiledBook, sheet: StyleSheet) -> Dict[str, str]:
     """One XHTML document per chapter, so navigation and progress work."""
     grouped: Dict[int, List[Block]] = {}
     for block in book.blocks:
+        if block.kind in {"story_lead_label", "story_lead_title", "story_hook", "story_lead"}:
+            continue
         key = block.chapter
         if isinstance(key, int) and not isinstance(key, bool):
             grouped.setdefault(key, []).append(block)
@@ -165,9 +170,60 @@ def _package(
         f"<dc:description>{escape(book.publication_copy.spoiler_free_blurb)}</dc:description>"
         if book.publication_copy else ""
     )
+    classification = (
+        NovelClassification.from_dict(book.classification).to_dict()
+        if book.classification else None
+    )
+    subjects = "".join(
+        f"<dc:subject>{escape(item_id)}</dc:subject>"
+        for item_id in (classification or {}).get("filter_type_ids", [])
+    )
+    classification_meta = (
+        '<meta property="novel-os:classification">'
+        + escape(json.dumps(
+            classification,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ))
+        + "</meta>"
+        if classification else ""
+    )
+    serialization = (
+        validate_serialization(book.serialization)
+        if book.serialization else None
+    )
+    serialization_meta = (
+        '<meta property="novel-os:serialization">'
+        + escape(json.dumps(
+            serialization,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ))
+        + "</meta>"
+        if serialization else ""
+    )
+    chapter_map = {
+        "schema_version": "novel-epub-map.v1",
+        "chapters": [
+            {"number": chapter["number"], "item_id": f"c{index}", "href": name}
+            for index, (chapter, name) in enumerate(zip(book.chapters, chapter_files), 1)
+        ],
+        "non_chapter_items": (
+            [{"item_id": "intro", "href": "intro.xhtml", "kind": "introduction"}]
+            if has_intro else []
+        ),
+    }
+    chapter_map_meta = (
+        '<meta property="novel-os:chapter-map">'
+        + escape(json.dumps(chapter_map, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+        + "</meta>"
+    )
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
+        'prefix="novel-os: https://novel-os.local/vocab/#" '
         'unique-identifier="bookid">'
         '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
         f'<dc:identifier id="bookid">urn:uuid:{book_id}</dc:identifier>'
@@ -175,6 +231,10 @@ def _package(
         f"<dc:language>{escape(book.language)}</dc:language>"
         + (f"<dc:creator>{escape(book.author)}</dc:creator>" if book.author else "")
         + description
+        + subjects
+        + classification_meta
+        + serialization_meta
+        + chapter_map_meta
         + '<meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>'
         "</metadata>"
         "<manifest>"
@@ -219,7 +279,12 @@ def render_epub(book: CompiledBook, sheet: StyleSheet) -> bytes:
     """An EPUB 3 of the compiled manuscript."""
     chapters = _chapter_files(book, sheet)
     names = list(chapters)
-    intro_blocks = [block for block in book.blocks if block.chapter is None]
+    intro_blocks = [
+        block for block in book.blocks
+        if block.chapter is None or block.kind in {
+            "story_lead_label", "story_lead_title", "story_hook", "story_lead",
+        }
+    ]
     intro_title = next(
         (
             block.text
@@ -233,6 +298,7 @@ def render_epub(book: CompiledBook, sheet: StyleSheet) -> bytes:
             intro_title,
             _blocks_to_xhtml(intro_blocks, sheet),
             book.language,
+            kind="introduction",
         )
         if intro_blocks else None
     )

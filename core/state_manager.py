@@ -163,6 +163,14 @@ class PlotThread:
 class ChapterState:
     """Represents the state of a chapter."""
     number: int
+    # Stable serialization binding. One long novel may contain several
+    # volumes; a true series additionally binds the book-level series id.
+    volume_id: str = "volume_01"
+    volume_number: int = 1
+    chapter_in_volume: int = 1
+    volume_role: str = "setup"
+    series_id: str = ""
+    series_book_number: Optional[int] = None
     title: str = ""
     status: str = "planned"  # planned, drafting, drafted, editing, edited, validated, complete
     pov_character: str = ""
@@ -761,7 +769,27 @@ class StoryState:
     
     def create_chapter(self, number: int, title: str = "") -> ChapterState:
         """Create a new chapter entry."""
-        chapter = ChapterState(number=number, title=title)
+        binding: Dict[str, Any] = {}
+        format_payload = self.metadata.get("narrative_format")
+        if isinstance(format_payload, dict):
+            try:
+                from narrative_format import NarrativeFormat, chapter_binding
+
+                binding = chapter_binding(
+                    NarrativeFormat.from_dict(format_payload),
+                    number,
+                    self.story_bible.get("volume_contracts") or (),
+                )
+            except (KeyError, TypeError, ValueError):
+                # Legacy or partially edited metadata is validated at intake;
+                # chapter creation remains available for manual repair.
+                binding = {}
+        if not binding:
+            binding = {
+                "chapter_in_volume": number,
+                "volume_role": "setup" if number == 1 else "escalation",
+            }
+        chapter = ChapterState(number=number, title=title, **binding)
         self.chapters[number] = chapter
         self._log_action('chapter_created', {'chapter': number})
         return chapter

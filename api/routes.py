@@ -524,6 +524,22 @@ def list_projects(svc: ProjectService = Depends(get_service)):
     return svc.list_projects()
 
 
+@router.get("/novel-classification/catalog")
+def novel_classification_catalog():
+    """Return the engine-owned identifiers accepted by project metadata."""
+    from novel_classification import catalog_payload
+
+    return catalog_payload()
+
+
+@router.get("/narrative-format/catalog")
+def narrative_format_catalog():
+    """Return author-selectable length and serialization modes."""
+    from narrative_format import format_catalog_payload
+
+    return format_catalog_payload()
+
+
 @router.patch("/projects/{project_id}", response_model=ProjectDetail)
 def update_project(project_id: str, body: UpdateProject, svc: ProjectService = Depends(get_service)):
     try:
@@ -536,6 +552,8 @@ def update_project(project_id: str, body: UpdateProject, svc: ProjectService = D
             premise=body.premise,
             target_word_count=body.target_word_count,
             session_word_target=body.session_word_target,
+            classification=body.classification,
+            narrative_format=body.narrative_format,
         )
     except ProjectNotFound:
         raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
@@ -549,6 +567,8 @@ def create_project(body: CreateProject, svc: ProjectService = Depends(get_servic
         return svc.create_project(
             body.title, body.genre, body.author,
             genres=body.genres, premise=body.premise,
+            classification=body.classification,
+            narrative_format=body.narrative_format,
         )
     except BadRequest as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1210,7 +1230,7 @@ def create_cover_direction(
             brief, direction,
             recent_fingerprints=(
                 recent_fingerprints
-                if direction.profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5"))
+                if direction.profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5", "cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8"))
                 else ()
             ),
         )

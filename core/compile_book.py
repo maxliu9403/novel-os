@@ -20,10 +20,13 @@ though the author had accepted it.
 from __future__ import annotations
 
 import html
+import json
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
+from novel_classification import markdown_front_matter
+from narrative_format import markdown_front_matter_fields, validate_serialization
 from styles import StyleSheet, Style
 
 if TYPE_CHECKING:
@@ -58,6 +61,8 @@ class CompiledBook:
     genre: str = ""
     language: str = "en-US"
     publication_copy: Optional["PublicationCopy"] = None
+    classification: Dict[str, Any] = field(default_factory=dict)
+    serialization: Dict[str, Any] = field(default_factory=dict)
     blocks: List[Block] = field(default_factory=list)
     chapters: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -80,6 +85,8 @@ class CompiledBook:
             "publication_copy": (
                 self.publication_copy.to_dict() if self.publication_copy else None
             ),
+            "classification": dict(self.classification),
+            "serialization": dict(self.serialization),
             "word_count": self.word_count,
             "chapters": list(self.chapters),
             "blocks": [b.to_dict() for b in self.blocks],
@@ -179,6 +186,8 @@ def gather(
     genre: str,
     chapters: List[Dict[str, Any]],
     publication_copy: Optional["PublicationCopy"] = None,
+    classification: Optional[Dict[str, Any]] = None,
+    serialization: Optional[Dict[str, Any]] = None,
 ) -> CompiledBook:
     """Assemble the book from per-chapter prose.
 
@@ -192,6 +201,11 @@ def gather(
         genre=genre,
         language=publication_copy.language if publication_copy else "en-US",
         publication_copy=publication_copy,
+        classification=dict(classification or {}),
+        serialization=(
+            validate_serialization(serialization)
+            if serialization else {}
+        ),
     )
     if publication_copy:
         book.blocks.extend(_publication_blocks(publication_copy))
@@ -226,10 +240,21 @@ def gather(
             chapter_title = Block(kind="chapter_title", text=heading, chapter=number)
             parsed.insert(insert_at, chapter_title)
 
-        book.chapters.append({
+        chapter_record = {
             "number": number,
             "title": chapter_title.text,
-        })
+        }
+        for field_name in (
+            "volume_id",
+            "volume_number",
+            "chapter_in_volume",
+            "volume_role",
+            "series_id",
+            "series_book_number",
+        ):
+            if field_name in entry:
+                chapter_record[field_name] = entry[field_name]
+        book.chapters.append(chapter_record)
         book.blocks.extend(parsed)
 
     return book
@@ -335,6 +360,28 @@ def render_html(book: CompiledBook, sheet: StyleSheet) -> str:
         "</head><body>",
         f'<h1 style="{_css(sheet.get("title"))}">{title}</h1>',
     ]
+    if book.classification:
+        encoded = html.escape(
+            json.dumps(
+                book.classification,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            quote=True,
+        )
+        out.insert(3, f'<meta name="novel-os:classification" content="{encoded}">')
+    if book.serialization:
+        encoded = html.escape(
+            json.dumps(
+                book.serialization,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            quote=True,
+        )
+        out.insert(3, f'<meta name="novel-os:serialization" content="{encoded}">')
     byline = " · ".join(p for p in (book.author, book.genre) if p)
     if byline:
         out.append(f'<p style="{_css(sheet.get("subtitle"))}">{html.escape(byline)}</p>')
@@ -360,7 +407,16 @@ def render_html(book: CompiledBook, sheet: StyleSheet) -> str:
 
 def render_markdown(book: CompiledBook, sheet: StyleSheet) -> str:
     """Plain markdown - no styling, for writers who take it elsewhere."""
-    out: List[str] = [f"# {book.title}", ""]
+    out: List[str] = []
+    if book.classification:
+        front_matter = markdown_front_matter(book.classification).rstrip().splitlines()
+        if book.serialization:
+            front_matter[-1:-1] = markdown_front_matter_fields(book.serialization)
+        out.extend(front_matter)
+        out.append("")
+    elif book.serialization:
+        out.extend(["---", *markdown_front_matter_fields(book.serialization), "---", ""])
+    out.extend([f"# {book.title}", ""])
     byline = " · ".join(p for p in (book.author, book.genre) if p)
     if byline:
         out += [f"*{byline}*", ""]

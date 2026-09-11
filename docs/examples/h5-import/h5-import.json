@@ -1,0 +1,1596 @@
+{
+  "body_source": "epub",
+  "book_id": "novel-os:4865afad76bf4bac802ac841536e738b",
+  "chapter_count": 80,
+  "chapters": [
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:1",
+      "chapter_in_volume": 1,
+      "epub": {
+        "href": "chap001.xhtml",
+        "item_id": "c1",
+        "spine_index": 1,
+        "xhtml_sha256": "242ebce94e22edd5abb242147b88fbdfb598ac21b10bbe595d9f05b6faa620f6",
+        "xhtml_size": 647,
+        "zip_path": "OEBPS/chap001.xhtml"
+      },
+      "kind": "chapter",
+      "number": 1,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "setup"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:2",
+      "chapter_in_volume": 2,
+      "epub": {
+        "href": "chap002.xhtml",
+        "item_id": "c2",
+        "spine_index": 2,
+        "xhtml_sha256": "eab6a3eb6bb6e22eeda94f9d85d081b4d4cfb5bace38857a20704c46e5332a55",
+        "xhtml_size": 647,
+        "zip_path": "OEBPS/chap002.xhtml"
+      },
+      "kind": "chapter",
+      "number": 2,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:3",
+      "chapter_in_volume": 3,
+      "epub": {
+        "href": "chap003.xhtml",
+        "item_id": "c3",
+        "spine_index": 3,
+        "xhtml_sha256": "340d5c39ab05602eb8301092ca004c7de4e5c474c741700af302f25b8d385117",
+        "xhtml_size": 647,
+        "zip_path": "OEBPS/chap003.xhtml"
+      },
+      "kind": "chapter",
+      "number": 3,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:4",
+      "chapter_in_volume": 4,
+      "epub": {
+        "href": "chap004.xhtml",
+        "item_id": "c4",
+        "spine_index": 4,
+        "xhtml_sha256": "ba9c5782998fd9144fd65c847207ea7adc053812db2f5f94dd13f1f0b4b80ec8",
+        "xhtml_size": 647,
+        "zip_path": "OEBPS/chap004.xhtml"
+      },
+      "kind": "chapter",
+      "number": 4,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:5",
+      "chapter_in_volume": 5,
+      "epub": {
+        "href": "chap005.xhtml",
+        "item_id": "c5",
+        "spine_index": 5,
+        "xhtml_sha256": "487c8e64e881d0b0cdf4d6745289175d50e492c6f31b153b52daa3a3bfaba976",
+        "xhtml_size": 647,
+        "zip_path": "OEBPS/chap005.xhtml"
+      },
+      "kind": "chapter",
+      "number": 5,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:6",
+      "chapter_in_volume": 6,
+      "epub": {
+        "href": "chap006.xhtml",
+        "item_id": "c6",
+        "spine_index": 6,
+        "xhtml_sha256": "6fe9187febd562b955b981cae1d8ef51578da1bc18a4f36b7a6b7ff9edce318f",
+        "xhtml_size": 647,
+        "zip_path": "OEBPS/chap006.xhtml"
+      },
+      "kind": "chapter",
+      "number": 6,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:7",
+      "chapter_in_volume": 7,
+      "epub": {
+        "href": "chap007.xhtml",
+        "item_id": "c7",
+        "spine_index": 7,
+        "xhtml_sha256": "41b4bf669595bd40794ee05edcc6f73954221ff2a60f705fa72fff0365ab1b61",
+        "xhtml_size": 647,
+        "zip_path": "OEBPS/chap007.xhtml"
+      },
+      "kind": "chapter",
+      "number": 7,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:8",
+      "chapter_in_volume": 8,
+      "epub": {
+        "href": "chap008.xhtml",
+        "item_id": "c8",
+        "spine_index": 8,
+        "xhtml_sha256": "7df40557e477c5227ba9f9a02a8ea7e4ae3dafe986852e0eb2316cb546183185",
+        "xhtml_size": 647,
+        "zip_path": "OEBPS/chap008.xhtml"
+      },
+      "kind": "chapter",
+      "number": 8,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:9",
+      "chapter_in_volume": 9,
+      "epub": {
+        "href": "chap009.xhtml",
+        "item_id": "c9",
+        "spine_index": 9,
+        "xhtml_sha256": "81b3cd63d0fabaaa1f5264d45ea6af8a4d2ceacf0424ecc58ed5018a8ea765ca",
+        "xhtml_size": 647,
+        "zip_path": "OEBPS/chap009.xhtml"
+      },
+      "kind": "chapter",
+      "number": 9,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:10",
+      "chapter_in_volume": 10,
+      "epub": {
+        "href": "chap010.xhtml",
+        "item_id": "c10",
+        "spine_index": 10,
+        "xhtml_sha256": "3e4c3ef7390be43d53ba45074ddd7a754452cae900c58af20b836b76f079877b",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap010.xhtml"
+      },
+      "kind": "chapter",
+      "number": 10,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "turning_point"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:11",
+      "chapter_in_volume": 11,
+      "epub": {
+        "href": "chap011.xhtml",
+        "item_id": "c11",
+        "spine_index": 11,
+        "xhtml_sha256": "26c7ebcb82cd46aec6a5b34cb90a883ac632a69d41a40a14d9f3dbd3ac309d12",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap011.xhtml"
+      },
+      "kind": "chapter",
+      "number": 11,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:12",
+      "chapter_in_volume": 12,
+      "epub": {
+        "href": "chap012.xhtml",
+        "item_id": "c12",
+        "spine_index": 12,
+        "xhtml_sha256": "841a16aba271f1ed7ed9d1df9bbd2f195c166a97fd601ee4138b034daad8fb03",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap012.xhtml"
+      },
+      "kind": "chapter",
+      "number": 12,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:13",
+      "chapter_in_volume": 13,
+      "epub": {
+        "href": "chap013.xhtml",
+        "item_id": "c13",
+        "spine_index": 13,
+        "xhtml_sha256": "3d645ac3c080be90a94b2818497bc33012164ded8547370ed8d1ac01202e6b32",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap013.xhtml"
+      },
+      "kind": "chapter",
+      "number": 13,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:14",
+      "chapter_in_volume": 14,
+      "epub": {
+        "href": "chap014.xhtml",
+        "item_id": "c14",
+        "spine_index": 14,
+        "xhtml_sha256": "01a65e1d063b5c8c95dd0c342189a7908c0ce8ee17e1df06c515f8e60ad9d7dd",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap014.xhtml"
+      },
+      "kind": "chapter",
+      "number": 14,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:15",
+      "chapter_in_volume": 15,
+      "epub": {
+        "href": "chap015.xhtml",
+        "item_id": "c15",
+        "spine_index": 15,
+        "xhtml_sha256": "0d2c68b9baba95fabb729708cb11e7f837b03e9e6bc715721eb3b698378dbdd4",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap015.xhtml"
+      },
+      "kind": "chapter",
+      "number": 15,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:16",
+      "chapter_in_volume": 16,
+      "epub": {
+        "href": "chap016.xhtml",
+        "item_id": "c16",
+        "spine_index": 16,
+        "xhtml_sha256": "48a358a2aaf7ada7d300d7bf60493e650f387ae58f6df91ecc7093a5b6d23c1a",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap016.xhtml"
+      },
+      "kind": "chapter",
+      "number": 16,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:17",
+      "chapter_in_volume": 17,
+      "epub": {
+        "href": "chap017.xhtml",
+        "item_id": "c17",
+        "spine_index": 17,
+        "xhtml_sha256": "7f66b331a5047ff855fffe091b08d260be292debed775cd67a75061108decec5",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap017.xhtml"
+      },
+      "kind": "chapter",
+      "number": 17,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:18",
+      "chapter_in_volume": 18,
+      "epub": {
+        "href": "chap018.xhtml",
+        "item_id": "c18",
+        "spine_index": 18,
+        "xhtml_sha256": "8f4ad79815d18e95a2a842a68ffdd33db3b108052fb73a2995e6211b77f57504",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap018.xhtml"
+      },
+      "kind": "chapter",
+      "number": 18,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:19",
+      "chapter_in_volume": 19,
+      "epub": {
+        "href": "chap019.xhtml",
+        "item_id": "c19",
+        "spine_index": 19,
+        "xhtml_sha256": "305247f2f864a0a257d73f8cf695e4af1482ed2e3fb02887baf99ccfd3876cfe",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap019.xhtml"
+      },
+      "kind": "chapter",
+      "number": 19,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "climax"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:20",
+      "chapter_in_volume": 20,
+      "epub": {
+        "href": "chap020.xhtml",
+        "item_id": "c20",
+        "spine_index": 20,
+        "xhtml_sha256": "fb2f6ab690934932220a92c38d9c9269d0c9ad67c710783c7da186be27ead31f",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap020.xhtml"
+      },
+      "kind": "chapter",
+      "number": 20,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_role": "aftermath"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:21",
+      "chapter_in_volume": 1,
+      "epub": {
+        "href": "chap021.xhtml",
+        "item_id": "c21",
+        "spine_index": 21,
+        "xhtml_sha256": "87957dcb93e72bc79c2dcfb41ab2c088e76644fec1b076ca7eb5ecd5b44058a5",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap021.xhtml"
+      },
+      "kind": "chapter",
+      "number": 21,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "setup"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:22",
+      "chapter_in_volume": 2,
+      "epub": {
+        "href": "chap022.xhtml",
+        "item_id": "c22",
+        "spine_index": 22,
+        "xhtml_sha256": "1b2d1a9c542d609d6e603556adf6bdbe8f3526d4d3399a8226da47f99f4d5474",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap022.xhtml"
+      },
+      "kind": "chapter",
+      "number": 22,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:23",
+      "chapter_in_volume": 3,
+      "epub": {
+        "href": "chap023.xhtml",
+        "item_id": "c23",
+        "spine_index": 23,
+        "xhtml_sha256": "083b4ec37bc5020d4c6fb5e607a39a38a126e2e53df2b377e82a48846187bf78",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap023.xhtml"
+      },
+      "kind": "chapter",
+      "number": 23,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:24",
+      "chapter_in_volume": 4,
+      "epub": {
+        "href": "chap024.xhtml",
+        "item_id": "c24",
+        "spine_index": 24,
+        "xhtml_sha256": "b7e428d6e337e46eccd2801593209fe6c122811086ca5573d8691430fb0bd4b6",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap024.xhtml"
+      },
+      "kind": "chapter",
+      "number": 24,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:25",
+      "chapter_in_volume": 5,
+      "epub": {
+        "href": "chap025.xhtml",
+        "item_id": "c25",
+        "spine_index": 25,
+        "xhtml_sha256": "335be46ab22fe86588a9f0142141c62a614f848d99ce005c694fde262d53d549",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap025.xhtml"
+      },
+      "kind": "chapter",
+      "number": 25,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:26",
+      "chapter_in_volume": 6,
+      "epub": {
+        "href": "chap026.xhtml",
+        "item_id": "c26",
+        "spine_index": 26,
+        "xhtml_sha256": "6cbb4bc693080300c303da04508ed3035b7f98e8d90fa9a6425c42e4a4777166",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap026.xhtml"
+      },
+      "kind": "chapter",
+      "number": 26,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:27",
+      "chapter_in_volume": 7,
+      "epub": {
+        "href": "chap027.xhtml",
+        "item_id": "c27",
+        "spine_index": 27,
+        "xhtml_sha256": "92047d35a7da4c1c08aebd6b4279313f39ea790b529f911a81bcd3501ea93e3a",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap027.xhtml"
+      },
+      "kind": "chapter",
+      "number": 27,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:28",
+      "chapter_in_volume": 8,
+      "epub": {
+        "href": "chap028.xhtml",
+        "item_id": "c28",
+        "spine_index": 28,
+        "xhtml_sha256": "8fda9cfb6a220a9c977eb33d18c09427ba7fddcacc673c3a7e7a6b8af248cfe1",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap028.xhtml"
+      },
+      "kind": "chapter",
+      "number": 28,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:29",
+      "chapter_in_volume": 9,
+      "epub": {
+        "href": "chap029.xhtml",
+        "item_id": "c29",
+        "spine_index": 29,
+        "xhtml_sha256": "03223391c803cd779949c2f80a377e8ff17b814e26e8433825a2240e68ceb150",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap029.xhtml"
+      },
+      "kind": "chapter",
+      "number": 29,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:30",
+      "chapter_in_volume": 10,
+      "epub": {
+        "href": "chap030.xhtml",
+        "item_id": "c30",
+        "spine_index": 30,
+        "xhtml_sha256": "92542cf6d36303297ed9928359549009c0b386e95a062b024063ee637b36a751",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap030.xhtml"
+      },
+      "kind": "chapter",
+      "number": 30,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "turning_point"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:31",
+      "chapter_in_volume": 11,
+      "epub": {
+        "href": "chap031.xhtml",
+        "item_id": "c31",
+        "spine_index": 31,
+        "xhtml_sha256": "99e0ac849407ad7edb60d134bb89684d7df37b92f91d002eccbb20b156e9453a",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap031.xhtml"
+      },
+      "kind": "chapter",
+      "number": 31,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:32",
+      "chapter_in_volume": 12,
+      "epub": {
+        "href": "chap032.xhtml",
+        "item_id": "c32",
+        "spine_index": 32,
+        "xhtml_sha256": "916ff93f0cbcc48ec38f6657a3b9a5cbbf3f37de9d1267d6dddd13f9eabbd623",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap032.xhtml"
+      },
+      "kind": "chapter",
+      "number": 32,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:33",
+      "chapter_in_volume": 13,
+      "epub": {
+        "href": "chap033.xhtml",
+        "item_id": "c33",
+        "spine_index": 33,
+        "xhtml_sha256": "bf02414afc957fd71854b5c7e49f2578bb96536e7c0ae6b2be17fbab3b55cb2e",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap033.xhtml"
+      },
+      "kind": "chapter",
+      "number": 33,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:34",
+      "chapter_in_volume": 14,
+      "epub": {
+        "href": "chap034.xhtml",
+        "item_id": "c34",
+        "spine_index": 34,
+        "xhtml_sha256": "1e6c012c4a7b3544d3d17662cb62e0ea426cc8713fb62f39623c9391d31d680e",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap034.xhtml"
+      },
+      "kind": "chapter",
+      "number": 34,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:35",
+      "chapter_in_volume": 15,
+      "epub": {
+        "href": "chap035.xhtml",
+        "item_id": "c35",
+        "spine_index": 35,
+        "xhtml_sha256": "505e540996263de9671fc6b584879ed6406766242d2e49fffe470db16540fbc9",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap035.xhtml"
+      },
+      "kind": "chapter",
+      "number": 35,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:36",
+      "chapter_in_volume": 16,
+      "epub": {
+        "href": "chap036.xhtml",
+        "item_id": "c36",
+        "spine_index": 36,
+        "xhtml_sha256": "a468fe498e4c042a240a57ebebf6beabf5840c6f75b9ae870b3f19cd4651f96f",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap036.xhtml"
+      },
+      "kind": "chapter",
+      "number": 36,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:37",
+      "chapter_in_volume": 17,
+      "epub": {
+        "href": "chap037.xhtml",
+        "item_id": "c37",
+        "spine_index": 37,
+        "xhtml_sha256": "8260167363ba2027e1c303ea8ce4ba1d05ca74f6fbbb92b4393c9e37b605db3a",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap037.xhtml"
+      },
+      "kind": "chapter",
+      "number": 37,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:38",
+      "chapter_in_volume": 18,
+      "epub": {
+        "href": "chap038.xhtml",
+        "item_id": "c38",
+        "spine_index": 38,
+        "xhtml_sha256": "b517bf4a76d0ecbbdadfd0cbf13c5dbcc5a23193a1a6909bb344f193ec808016",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap038.xhtml"
+      },
+      "kind": "chapter",
+      "number": 38,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:39",
+      "chapter_in_volume": 19,
+      "epub": {
+        "href": "chap039.xhtml",
+        "item_id": "c39",
+        "spine_index": 39,
+        "xhtml_sha256": "63d2c3cbc78eedde17f776fe9371066df0983d410b227cca1d4f694f32604730",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap039.xhtml"
+      },
+      "kind": "chapter",
+      "number": 39,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "climax"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:40",
+      "chapter_in_volume": 20,
+      "epub": {
+        "href": "chap040.xhtml",
+        "item_id": "c40",
+        "spine_index": 40,
+        "xhtml_sha256": "12f07197b8a340ee923cb431b4a435c82acf6b7e7720be45f7e897f46cc6e7ad",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap040.xhtml"
+      },
+      "kind": "chapter",
+      "number": 40,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_role": "aftermath"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:41",
+      "chapter_in_volume": 1,
+      "epub": {
+        "href": "chap041.xhtml",
+        "item_id": "c41",
+        "spine_index": 41,
+        "xhtml_sha256": "707367d05fb0762f126d5c00fc7e00fb96f9709b72f48a5099fbe54e6af70f62",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap041.xhtml"
+      },
+      "kind": "chapter",
+      "number": 41,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "setup"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:42",
+      "chapter_in_volume": 2,
+      "epub": {
+        "href": "chap042.xhtml",
+        "item_id": "c42",
+        "spine_index": 42,
+        "xhtml_sha256": "1e8cd18158d29d8c6502fb76ce343bbf5cb8eb37f694e60d576e1f2b1cc4369a",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap042.xhtml"
+      },
+      "kind": "chapter",
+      "number": 42,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:43",
+      "chapter_in_volume": 3,
+      "epub": {
+        "href": "chap043.xhtml",
+        "item_id": "c43",
+        "spine_index": 43,
+        "xhtml_sha256": "ed35a790a06c5c930b65e059f72945d0f8a8d9fe03de0e96cccbe1be25d423bd",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap043.xhtml"
+      },
+      "kind": "chapter",
+      "number": 43,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:44",
+      "chapter_in_volume": 4,
+      "epub": {
+        "href": "chap044.xhtml",
+        "item_id": "c44",
+        "spine_index": 44,
+        "xhtml_sha256": "8deb4f5583fe44faa4faeff53de85fe45f1c8a099045ced7b9ca55229f09c6e4",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap044.xhtml"
+      },
+      "kind": "chapter",
+      "number": 44,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:45",
+      "chapter_in_volume": 5,
+      "epub": {
+        "href": "chap045.xhtml",
+        "item_id": "c45",
+        "spine_index": 45,
+        "xhtml_sha256": "2e484a4c432ba6543f7c80067662741e4375c6de68f5d7cc988c1ef74d150477",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap045.xhtml"
+      },
+      "kind": "chapter",
+      "number": 45,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:46",
+      "chapter_in_volume": 6,
+      "epub": {
+        "href": "chap046.xhtml",
+        "item_id": "c46",
+        "spine_index": 46,
+        "xhtml_sha256": "d3369be2fcd5e65da31e0571b5d3e44da1347532a67796692f726533d14b750e",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap046.xhtml"
+      },
+      "kind": "chapter",
+      "number": 46,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:47",
+      "chapter_in_volume": 7,
+      "epub": {
+        "href": "chap047.xhtml",
+        "item_id": "c47",
+        "spine_index": 47,
+        "xhtml_sha256": "3804c37631cb3507d31d87d60e2cffbc3d84da4fa06c7a6f4c6d70f0340f0dd8",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap047.xhtml"
+      },
+      "kind": "chapter",
+      "number": 47,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:48",
+      "chapter_in_volume": 8,
+      "epub": {
+        "href": "chap048.xhtml",
+        "item_id": "c48",
+        "spine_index": 48,
+        "xhtml_sha256": "e4d5d197b20bf5fe17a37018dd0cf93661f0f6c61f453777e57450a84e9a71e9",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap048.xhtml"
+      },
+      "kind": "chapter",
+      "number": 48,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:49",
+      "chapter_in_volume": 9,
+      "epub": {
+        "href": "chap049.xhtml",
+        "item_id": "c49",
+        "spine_index": 49,
+        "xhtml_sha256": "755c81abd99d18096e9b028de67cf83bd2eaa85fb763449fedeb8415875a15ab",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap049.xhtml"
+      },
+      "kind": "chapter",
+      "number": 49,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:50",
+      "chapter_in_volume": 10,
+      "epub": {
+        "href": "chap050.xhtml",
+        "item_id": "c50",
+        "spine_index": 50,
+        "xhtml_sha256": "a7d7bb208e1ee7c000f3f184a00eceaa1b31382ee9d748a0ec0e1e65f554ec14",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap050.xhtml"
+      },
+      "kind": "chapter",
+      "number": 50,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "turning_point"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:51",
+      "chapter_in_volume": 11,
+      "epub": {
+        "href": "chap051.xhtml",
+        "item_id": "c51",
+        "spine_index": 51,
+        "xhtml_sha256": "9a970b7feb405bed9b595bb68fcd83794bd8144c8698867eb9730406d54497ed",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap051.xhtml"
+      },
+      "kind": "chapter",
+      "number": 51,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:52",
+      "chapter_in_volume": 12,
+      "epub": {
+        "href": "chap052.xhtml",
+        "item_id": "c52",
+        "spine_index": 52,
+        "xhtml_sha256": "c01a55f34a1d0721645d8887640483efccbfa11e6ce2df92dd722cd4c26c4dbc",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap052.xhtml"
+      },
+      "kind": "chapter",
+      "number": 52,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:53",
+      "chapter_in_volume": 13,
+      "epub": {
+        "href": "chap053.xhtml",
+        "item_id": "c53",
+        "spine_index": 53,
+        "xhtml_sha256": "6f6e825ca0ba2aff2ff60dd3102fec954d609b582cce3a304d41adac98b031b7",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap053.xhtml"
+      },
+      "kind": "chapter",
+      "number": 53,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:54",
+      "chapter_in_volume": 14,
+      "epub": {
+        "href": "chap054.xhtml",
+        "item_id": "c54",
+        "spine_index": 54,
+        "xhtml_sha256": "5cbd80cd16571e3bac670f6ff311ea379478f393ea6a5e6c9d6bda46abae3011",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap054.xhtml"
+      },
+      "kind": "chapter",
+      "number": 54,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:55",
+      "chapter_in_volume": 15,
+      "epub": {
+        "href": "chap055.xhtml",
+        "item_id": "c55",
+        "spine_index": 55,
+        "xhtml_sha256": "60594dd196f9ae04313077fdcb836a940afb4f884983859a274fbdcda8cf3634",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap055.xhtml"
+      },
+      "kind": "chapter",
+      "number": 55,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:56",
+      "chapter_in_volume": 16,
+      "epub": {
+        "href": "chap056.xhtml",
+        "item_id": "c56",
+        "spine_index": 56,
+        "xhtml_sha256": "312ca2e89889e090198ebc42f536e0a7fb0da06c0e9b477faa02e58158d3f51e",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap056.xhtml"
+      },
+      "kind": "chapter",
+      "number": 56,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:57",
+      "chapter_in_volume": 17,
+      "epub": {
+        "href": "chap057.xhtml",
+        "item_id": "c57",
+        "spine_index": 57,
+        "xhtml_sha256": "2f8e1df42c041f5d9cc777503a28675b569567179de86c501c7d1c110898acba",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap057.xhtml"
+      },
+      "kind": "chapter",
+      "number": 57,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:58",
+      "chapter_in_volume": 18,
+      "epub": {
+        "href": "chap058.xhtml",
+        "item_id": "c58",
+        "spine_index": 58,
+        "xhtml_sha256": "33a3b1884be772ad923b1ad6a746749f33634de244be6d8413641b61402f6fbc",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap058.xhtml"
+      },
+      "kind": "chapter",
+      "number": 58,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:59",
+      "chapter_in_volume": 19,
+      "epub": {
+        "href": "chap059.xhtml",
+        "item_id": "c59",
+        "spine_index": 59,
+        "xhtml_sha256": "267a77b3f2d97f6d947191cf9a9423045d5538a84c749b7740995d74f8047890",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap059.xhtml"
+      },
+      "kind": "chapter",
+      "number": 59,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "climax"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:60",
+      "chapter_in_volume": 20,
+      "epub": {
+        "href": "chap060.xhtml",
+        "item_id": "c60",
+        "spine_index": 60,
+        "xhtml_sha256": "b808292ed7b4fef4f565b3f6ede19cd076678de11f037d1109e07b1dd1cf7569",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap060.xhtml"
+      },
+      "kind": "chapter",
+      "number": 60,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_role": "aftermath"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:61",
+      "chapter_in_volume": 1,
+      "epub": {
+        "href": "chap061.xhtml",
+        "item_id": "c61",
+        "spine_index": 61,
+        "xhtml_sha256": "bd46e455dcc986a4ca3ea63fde77389d71a9a58877ddc34b6b01f81d11fa3b8a",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap061.xhtml"
+      },
+      "kind": "chapter",
+      "number": 61,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "setup"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:62",
+      "chapter_in_volume": 2,
+      "epub": {
+        "href": "chap062.xhtml",
+        "item_id": "c62",
+        "spine_index": 62,
+        "xhtml_sha256": "d8004342239abbc85e8c3fa0bb5fdf7aa174e0230b8b3f619757881b63dffe84",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap062.xhtml"
+      },
+      "kind": "chapter",
+      "number": 62,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:63",
+      "chapter_in_volume": 3,
+      "epub": {
+        "href": "chap063.xhtml",
+        "item_id": "c63",
+        "spine_index": 63,
+        "xhtml_sha256": "05c7676612673def3d925b09bada905da694236ed44183ff36cb767c79c9f22c",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap063.xhtml"
+      },
+      "kind": "chapter",
+      "number": 63,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:64",
+      "chapter_in_volume": 4,
+      "epub": {
+        "href": "chap064.xhtml",
+        "item_id": "c64",
+        "spine_index": 64,
+        "xhtml_sha256": "123cad2b1fb764b42fb078b2d0b9cb9c02f88efe38ed6f956fdcb733f96507fd",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap064.xhtml"
+      },
+      "kind": "chapter",
+      "number": 64,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:65",
+      "chapter_in_volume": 5,
+      "epub": {
+        "href": "chap065.xhtml",
+        "item_id": "c65",
+        "spine_index": 65,
+        "xhtml_sha256": "5b2d5f91697e7e223d75b227e616d538eb2ed5ad80bdd04124abe3e1ff39f0bc",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap065.xhtml"
+      },
+      "kind": "chapter",
+      "number": 65,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:66",
+      "chapter_in_volume": 6,
+      "epub": {
+        "href": "chap066.xhtml",
+        "item_id": "c66",
+        "spine_index": 66,
+        "xhtml_sha256": "cfe0f4a46e7a700fdef16b493d3fc962e383a068fe974b0ecc8d29ce56b2002b",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap066.xhtml"
+      },
+      "kind": "chapter",
+      "number": 66,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:67",
+      "chapter_in_volume": 7,
+      "epub": {
+        "href": "chap067.xhtml",
+        "item_id": "c67",
+        "spine_index": 67,
+        "xhtml_sha256": "daee32dc4341b88e745dbb5bedb9d8b75fffcc58941e25a6dd0b8821b149a7e5",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap067.xhtml"
+      },
+      "kind": "chapter",
+      "number": 67,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:68",
+      "chapter_in_volume": 8,
+      "epub": {
+        "href": "chap068.xhtml",
+        "item_id": "c68",
+        "spine_index": 68,
+        "xhtml_sha256": "d864139277d55881e9c7751f1427a375bc66431e8c83947882ea369192d42b14",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap068.xhtml"
+      },
+      "kind": "chapter",
+      "number": 68,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:69",
+      "chapter_in_volume": 9,
+      "epub": {
+        "href": "chap069.xhtml",
+        "item_id": "c69",
+        "spine_index": 69,
+        "xhtml_sha256": "e5f65b639bb0060c59c6c6f772b6d8f5d4b3a975e816583b88fd6e1f3fbf53ce",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap069.xhtml"
+      },
+      "kind": "chapter",
+      "number": 69,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:70",
+      "chapter_in_volume": 10,
+      "epub": {
+        "href": "chap070.xhtml",
+        "item_id": "c70",
+        "spine_index": 70,
+        "xhtml_sha256": "5d8c68847179fc4ce0975f0628822a921e42ff6a47fedcb694958760a0e654f2",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap070.xhtml"
+      },
+      "kind": "chapter",
+      "number": 70,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "turning_point"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:71",
+      "chapter_in_volume": 11,
+      "epub": {
+        "href": "chap071.xhtml",
+        "item_id": "c71",
+        "spine_index": 71,
+        "xhtml_sha256": "2ab30cf48badc6da43710fef41b970add6ebeba06a3341d7b1576be44a974465",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap071.xhtml"
+      },
+      "kind": "chapter",
+      "number": 71,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:72",
+      "chapter_in_volume": 12,
+      "epub": {
+        "href": "chap072.xhtml",
+        "item_id": "c72",
+        "spine_index": 72,
+        "xhtml_sha256": "da19650af34f38babf74e08b2f346338f8d917e958e240b66af2bcc7b91c9d6f",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap072.xhtml"
+      },
+      "kind": "chapter",
+      "number": 72,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:73",
+      "chapter_in_volume": 13,
+      "epub": {
+        "href": "chap073.xhtml",
+        "item_id": "c73",
+        "spine_index": 73,
+        "xhtml_sha256": "eb68a2cc496f85af016d4ec31ed00d3b5900a821e9e3beb9798168e2aa207fc2",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap073.xhtml"
+      },
+      "kind": "chapter",
+      "number": 73,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:74",
+      "chapter_in_volume": 14,
+      "epub": {
+        "href": "chap074.xhtml",
+        "item_id": "c74",
+        "spine_index": 74,
+        "xhtml_sha256": "bcd07d00e1b0a9fcda72ce0f378c720ab2f53e00de9c2ab1f8ffbca8f2f0e72f",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap074.xhtml"
+      },
+      "kind": "chapter",
+      "number": 74,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:75",
+      "chapter_in_volume": 15,
+      "epub": {
+        "href": "chap075.xhtml",
+        "item_id": "c75",
+        "spine_index": 75,
+        "xhtml_sha256": "65a28160935b6b9069a3ceacad3ce7cadbe003d02e6c85e908e26822ae32ce42",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap075.xhtml"
+      },
+      "kind": "chapter",
+      "number": 75,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:76",
+      "chapter_in_volume": 16,
+      "epub": {
+        "href": "chap076.xhtml",
+        "item_id": "c76",
+        "spine_index": 76,
+        "xhtml_sha256": "e0532c3b2e3a0973182b2b4b953f2eee72455caf35c1ef4c991b799f4c180732",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap076.xhtml"
+      },
+      "kind": "chapter",
+      "number": 76,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:77",
+      "chapter_in_volume": 17,
+      "epub": {
+        "href": "chap077.xhtml",
+        "item_id": "c77",
+        "spine_index": 77,
+        "xhtml_sha256": "9d4885a8f487a83af20ace27f7534f9055752d577c15f4a9b9d971a46bec1fe8",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap077.xhtml"
+      },
+      "kind": "chapter",
+      "number": 77,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:78",
+      "chapter_in_volume": 18,
+      "epub": {
+        "href": "chap078.xhtml",
+        "item_id": "c78",
+        "spine_index": 78,
+        "xhtml_sha256": "f64e1ec5aefee6cd998fc0d8aa15154d2c3d2913ebf58ffcd1fc2c7f922da416",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap078.xhtml"
+      },
+      "kind": "chapter",
+      "number": 78,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "escalation"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:79",
+      "chapter_in_volume": 19,
+      "epub": {
+        "href": "chap079.xhtml",
+        "item_id": "c79",
+        "spine_index": 79,
+        "xhtml_sha256": "e144b94a65eaa432592797e7e2ea0dafcfaa987cb14392b6e5bdb3e6aecd8c3b",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap079.xhtml"
+      },
+      "kind": "chapter",
+      "number": 79,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "climax"
+    },
+    {
+      "chapter_id": "novel-os:4865afad76bf4bac802ac841536e738b:chapter:80",
+      "chapter_in_volume": 20,
+      "epub": {
+        "href": "chap080.xhtml",
+        "item_id": "c80",
+        "spine_index": 80,
+        "xhtml_sha256": "84bb471c28692d1aaa478ce225107615e6e467ed1d8a127735b5126b846ec8aa",
+        "xhtml_size": 650,
+        "zip_path": "OEBPS/chap080.xhtml"
+      },
+      "kind": "chapter",
+      "number": 80,
+      "series_book_number": null,
+      "series_id": "",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_role": "aftermath"
+    }
+  ],
+  "classification": {
+    "cover_selection_state": "",
+    "media_type": "application/json",
+    "path": "meta/novel-classification.json",
+    "role": "novel_classification",
+    "sha256": "b51af6d88036fd53a7a8c211bcccb50069ae305d6000b74f69cfcbcf60d9cc85",
+    "size": 1420
+  },
+  "cover": {
+    "metadata": {
+      "cover_selection_state": "",
+      "media_type": "application/json",
+      "path": "covers/cover-set.json",
+      "role": "cover_metadata",
+      "sha256": "e48f9d453794e184d96c192ba6057c9bc5f5e677c918ee5fd710d72c5886626b",
+      "size": 9275
+    },
+    "selected": {
+      "cover_selection_state": "selected",
+      "media_type": "image/png",
+      "path": "covers/selected-cover.png",
+      "role": "selected_cover",
+      "sha256": "10a8f97a52b3f7e4b0b792b20986ea2b5a0b65f5f09591881cb5a9c27050aabe",
+      "size": 6311
+    },
+    "selected_candidate_id": "candidate-fixture-1",
+    "selection_action": "replace"
+  },
+  "epub": {
+    "dc_identifier": "urn:uuid:b89017e7-6376-5018-bd3c-6a990eb5d04d",
+    "opf_path": "OEBPS/content.opf",
+    "path": "book.epub",
+    "sha256": "5eda1e47cb47d84ed015ebaf2c6d9dc5e255221418daeaa3637ef41a83089da8",
+    "size": 47647
+  },
+  "import_revision_sha256": "a747a25e8e46d973eb592f026a09ec4618536dff5c9d2bff3e6cea423773375c",
+  "non_chapter_items": [
+    {
+      "epub": {
+        "href": "intro.xhtml",
+        "item_id": "intro",
+        "spine_index": 0,
+        "xhtml_sha256": "3095d36bbf6803857f0f672e1455e13af4431f87c004d8f7dc40087afe516433",
+        "xhtml_size": 610,
+        "zip_path": "OEBPS/intro.xhtml"
+      },
+      "kind": "introduction"
+    }
+  ],
+  "schema_version": "novel-h5-import.v1",
+  "serialization": {
+    "cover_selection_state": "",
+    "media_type": "application/json",
+    "path": "meta/novel-serialization.json",
+    "role": "novel_serialization",
+    "sha256": "92f483cbb875c6b6186a9b5b1f1a1df1dadcb2344dc243dccbed2f107a95f58d",
+    "size": 6799
+  },
+  "status": "ready",
+  "versions": {
+    "classification_sha256": "b51af6d88036fd53a7a8c211bcccb50069ae305d6000b74f69cfcbcf60d9cc85",
+    "content_sha256": "507946a79bd9b6f4e1a47723ca0b1f3f71bc764b35be1d4817b9d12fbe4676ad",
+    "cover_metadata_sha256": "e48f9d453794e184d96c192ba6057c9bc5f5e677c918ee5fd710d72c5886626b",
+    "epub_sha256": "5eda1e47cb47d84ed015ebaf2c6d9dc5e255221418daeaa3637ef41a83089da8",
+    "front_matter_sha256": "8d8498f7e99818e16d229174afdbc5050f2aacf39103df4629f74cd3e38995b5",
+    "publication_copy_sha256": null,
+    "selected_cover_sha256": "10a8f97a52b3f7e4b0b792b20986ea2b5a0b65f5f09591881cb5a9c27050aabe",
+    "serialization_sha256": "92f483cbb875c6b6186a9b5b1f1a1df1dadcb2344dc243dccbed2f107a95f58d"
+  }
+}

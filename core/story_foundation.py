@@ -6,6 +6,10 @@ from collections.abc import Mapping
 from typing import Any
 
 from commercial_story import CommercialStoryContract
+from narrative_format import (
+    NarrativeFormat,
+    bind_foundation_serialization,
+)
 from state_manager import Character, PlotThread, StoryState
 
 
@@ -28,6 +32,27 @@ def apply_story_foundation(
         raise ValueError("story foundation plot_threads must be a list")
     if not isinstance(chapters, list):
         raise ValueError("story foundation chapters must be a list")
+
+    format_payload = foundation.get("narrative_format")
+    if format_payload is not None:
+        try:
+            format_contract = NarrativeFormat.from_dict(format_payload)
+            existing_format = state.metadata.get("narrative_format")
+            if (
+                isinstance(existing_format, Mapping)
+                and NarrativeFormat.from_dict(existing_format).format_id
+                != format_contract.format_id
+            ):
+                raise ValueError("story foundation changed the confirmed narrative format")
+            foundation = bind_foundation_serialization(foundation, format_contract)
+            chapters = foundation["chapters"]
+            state.set_metadata("narrative_format", format_contract.to_dict())
+            state.update_story_bible("narrative_format", format_contract.to_dict())
+            state.update_story_bible(
+                "volume_contracts", list(foundation["volume_contracts"])
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"story foundation narrative format is invalid: {exc}") from exc
 
     if foundation.get("title") and state.metadata.get("title") in (None, "", "Untitled"):
         state.set_metadata("title", str(foundation["title"]))
@@ -128,6 +153,16 @@ def apply_story_foundation(
         chapter = state.get_chapter(number) or state.create_chapter(number)
         was_complete = chapter.status == "complete"
         chapter.title = str(raw.get("title") or f"Chapter {number}")
+        for field in (
+            "volume_id",
+            "volume_number",
+            "chapter_in_volume",
+            "volume_role",
+            "series_id",
+            "series_book_number",
+        ):
+            if field in raw:
+                setattr(chapter, field, raw[field])
         chapter.pov_character = str(raw.get("pov") or "")
         summary = str(raw.get("summary") or "").strip()
         if summary and summary not in chapter.plot_advances:

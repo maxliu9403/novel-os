@@ -32,7 +32,7 @@ class PipelineLLM:
 
     def complete(self, *, system, user):
         type(self).calls.append(system.splitlines()[0])
-        if system.startswith("whole-book-conflict.v2"):
+        if system.startswith("whole-book-conflict.v3"):
             source = json.loads(user.rsplit("as canonical JSON:\n", 1)[1])
             chapters = source["chapters"]
             by_number = {item["number"]: item for item in chapters}
@@ -457,7 +457,20 @@ def test_real_orchestrator_pipeline_completes_two_chapters(tmp_path: Path):
     assert (project / "outputs/deliverables/package-manifest.json").is_file()
     with zipfile.ZipFile(project / "outputs/deliverables/book-package.zip") as package:
         assert "book.md" in package.namelist()
+        assert "meta/novel-classification.json" in package.namelist()
         assert "package-manifest.json" in package.namelist()
+        classification = json.loads(
+            package.read("meta/novel-classification.json")
+        )
+        assert classification["schema_version"] == "novel-classification.v1"
+        assert classification["primary_genre_id"]
+        assert classification["filter_type_ids"]
+        assert classification["audience"]["channel"] in {
+            "female", "male", "general",
+        }
+        assert classification["length"]["form"] in {
+            "short", "long", "unknown",
+        }
 
 
 def test_real_orchestrator_commercial_pipeline_persists_originality_gate(
@@ -1430,9 +1443,9 @@ def test_resume_reloads_bound_canon_proposal_by_id(tmp_path: Path):
     assert PipelineLLM.calls[: len(before_calls)] == before_calls
     assert all(
         call in {
-            "whole-book-conflict.v2",
+            "whole-book-conflict.v3",
             "publication-copy-writer.v2",
-            "publication-copy-validator.v2",
+            "publication-copy-validator.v3",
         }
         for call in PipelineLLM.calls[len(before_calls) :]
     )

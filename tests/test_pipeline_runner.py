@@ -170,7 +170,7 @@ class _PublicationCompletionClient:
 
     def complete(self, *, system, user):
         self.owner.publication_model_calls.append((self.role, system.splitlines()[0]))
-        if system.startswith("whole-book-conflict.v2"):
+        if system.startswith("whole-book-conflict.v3"):
             source = json.loads(user.rsplit("as canonical JSON:\n", 1)[1])
             chapters = source["chapters"]
             by_number = {item["number"]: item for item in chapters}
@@ -923,8 +923,13 @@ def test_stage_order_and_publication_inputs_are_source_bound(tmp_path: Path):
         "outputs/deliverables/book.epub",
         "outputs/deliverables/book.pdf",
         "outputs/deliverables/book.docx",
+        "outputs/publication/novel-classification.json",
+        "outputs/publication/novel-serialization.json",
     ]
     assert manifest.get("delivery.package").artifact_paths == [
+        "outputs/deliverables/meta/novel-classification.json",
+        "outputs/deliverables/meta/novel-serialization.json",
+        "outputs/deliverables/meta/h5-import.json",
         "outputs/deliverables/package-manifest.json",
         "outputs/deliverables/book-package.zip",
     ]
@@ -938,6 +943,7 @@ def test_stage_order_and_publication_inputs_are_source_bound(tmp_path: Path):
     )
     roles = {entry["path"]: entry["role"] for entry in package_manifest["files"]}
     assert roles["meta/publication-copy.json"] == "publication_copy"
+    assert roles["meta/novel-serialization.json"] == "novel_serialization"
     assert not any(path.startswith("h5-publication/") for path in roles)
 
 

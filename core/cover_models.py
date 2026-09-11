@@ -333,7 +333,10 @@ class CoverSet:
     def from_dict(cls, data: Mapping[str, Any]) -> "CoverSet":
         raw_brief = dict(data.get("brief") or {})
         if int(raw_brief.get("schema_version") or 1) == 2:
-            from .cover_models_v2 import CoverBriefV2
+            try:
+                from .cover_models_v2 import CoverBriefV2
+            except ImportError:  # Legacy CLI imports core modules by top-level name.
+                from cover_models_v2 import CoverBriefV2
             brief = CoverBriefV2.from_dict(
                 raw_brief,
                 source_prompt_sha256=str(

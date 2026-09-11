@@ -147,8 +147,8 @@ def test_cover_skill_requires_confirmed_design_and_distinct_concepts() -> None:
     assert "premium US commercial fiction magazine cover" in body
     assert "visible action, reaction, and stakes" in body
     assert "Western editorial typography" in body
-    assert "emotional consequence" in body
-    assert "causal relationship action" in body
+    assert "visible causal evidence and a readable protagonist response" in body
+    assert "complete approved causal relationship directly" in body
     assert "flat group portrait" in body
 
 

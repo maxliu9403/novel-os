@@ -27,6 +27,8 @@ Commands:
            Retry the current stage of a failed or blocked run
   novel-cover [PROMPT]
            Generate or manage portrait 2:3 cover candidates without restarting services
+  cover-rollback capture|status|restore
+           Save or switch cover-only source checkpoints; no deployment or data rollback
 EOF
 }
 
@@ -596,7 +598,7 @@ novel_retry() {
 command="${1:-up}"
 if [[ "$command" != "help" && "$command" != "-h" && "$command" != "--help" \
       && !( "$command" == "novel" && ( "${2:-}" == "help" || "${2:-}" == "-h" || "${2:-}" == "--help" ) ) ]]; then
-  if [[ "$command" != "novel-cover" ]]; then
+  if [[ "$command" != "novel-cover" && "$command" != "cover-rollback" ]]; then
     require_docker
   fi
 fi
@@ -646,6 +648,11 @@ case "$command" in
     ;;
   novel-cover)
     run_novel_cover "${@:2}"
+    ;;
+  cover-rollback)
+    python_bin="python3"
+    [[ ! -x "$ROOT_DIR/venv/bin/python" ]] || python_bin="$ROOT_DIR/venv/bin/python"
+    "$python_bin" "$ROOT_DIR/scripts/cover_rollback.py" "${@:2}"
     ;;
   -h|--help|help)
     usage

@@ -525,3 +525,82 @@ def test_stale_set_selection_requires_explicit_confirmation(tmp_path) -> None:
             project, stale.cover_set_id, stale.candidates[0].candidate_id,
             expected_revision=stale.revision, expected_active_revision=0,
         )
+
+
+@pytest.mark.parametrize('regression', ['title', 'lighting', 'unknown', 'failure', 'improved'])
+def test_automatic_repair_keeps_original_unless_story_and_art_both_pass(tmp_path, regression):
+    from core.cover_models_v2 import CoverQualityReport
+    from tests.test_cover_director import adaptive_director_fixture
+
+    brief = _brief_v2()
+    direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(brief, count=4)
+    concepts = [scene_to_cover_concept(brief, plan) for plan in direction.plans]
+    original = _jpeg(marker=b'original')
+    replacement = _jpeg(marker=b'replacement')
+    outcomes = [original, ImageClientError('timeout') if regression == 'failure' else replacement,
+                *[_jpeg(marker=bytes([i])) for i in range(3)]]
+    calls = []
+
+    def evaluate(image, *_args):
+        scores = {name: 90 for name in CoverQualityReport._DIMENSIONS}
+        report = dict(status='human_review_required', **scores)
+        calls.append(image)
+        if image == original:
+            report.update(status='blocked', blockers=['core_conflict_missing'],
+                          repair_codes=['core_conflict_missing'], core_conflict_fidelity=30)
+        elif image == replacement:
+            if regression == 'title':
+                # Some evaluators put the visible failure only in findings.
+                report['findings'] = [dict(code='title_reading_order_ambiguous', severity='warning',
+                    message='The second clause reads before the first', evidence='left/right columns')]
+            elif regression == 'lighting':
+                report['cinematic_storytelling'] = 40
+            elif regression == 'unknown':
+                report['thumbnail_clarity'] = None
+        return report
+
+    client = FakeImageClient(outcomes)
+    media = LocalMediaStore(tmp_path / 'media')
+    service = CoverService(image_client=client, media_store=media, media_add=Registrar(),
+        visual_evaluator=CoverVisualEvaluator(complete=evaluate),
+        thumbnail_projector=lambda *_args, **_kwargs: b'thumbnail')
+    project = tmp_path / 'project'
+    result = service.generate('project-one', project, brief, concepts)
+    candidate = result.candidates[0]
+    assert len(client.prompts) == 5  # one bounded correction, never an unbounded loop
+    assert len(candidate.attempt_history) == 2
+    assert candidate.attempt_history[0]['image_sha256'] == digest(original)
+    promote = regression == 'improved'
+    assert candidate.sha256 == digest(replacement if promote else original)
+    assert (project / candidate.relative_path).read_bytes() == (replacement if promote else original)
+    assert candidate.prompt_revision == (2 if promote else 1)
+    assert candidate.generation_prompt == result.concepts[0].generation_prompt
+    assert CoverStore(project).load(result.cover_set_id).candidates[0] == candidate
+    assert not result.selected_candidate_id
+    if regression != 'failure':
+        assert candidate.attempt_history[1]['image_sha256'] == digest(replacement)
+        assert media.read('project-one', digest(replacement), '.jpg') == replacement
+    if not promote:
+        assert 'repair_not_promoted' in {f['code'] for f in candidate.quality_report['findings']}
+
+
+def test_manual_retry_after_unpromoted_repair_uses_a_new_prompt_revision(tmp_path):
+    from tests.test_cover_director import adaptive_director_fixture
+    brief = _brief_v2()
+    direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(brief, count=4)
+    concepts = [scene_to_cover_concept(brief, scene) for scene in direction.plans]
+    client = FakeImageClient([_jpeg(marker=bytes([i])) for i in range(10)])
+    evaluator = CoverVisualEvaluator(complete=lambda *_args: dict(
+        status='blocked', blockers=['core_conflict_missing'], repair_codes=['core_conflict_missing']))
+    service = CoverService(image_client=client, media_store=LocalMediaStore(tmp_path / 'media'),
+        media_add=Registrar(), visual_evaluator=evaluator,
+        thumbnail_projector=lambda *_args, **_kwargs: b'thumbnail')
+    result = service.generate('project-one', tmp_path / 'project', brief, concepts)
+    original = result.candidates[0]
+    assert original.prompt_revision == 1
+    updated = service.retry_candidate('project-one', tmp_path / 'project', result.cover_set_id,
+        original.candidate_id, expected_revision=result.revision, repair_codes=['core_conflict_missing'])
+    retried = updated.candidates[0]
+    assert [a['prompt_revision'] for a in retried.attempt_history] == [1, 2, 3]
+    assert retried.prompt_revision == 3
+    assert retried.attempt_history[:2] == original.attempt_history

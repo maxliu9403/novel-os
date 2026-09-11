@@ -274,7 +274,7 @@ def test_live_director_repairs_invalid_json_shape_before_semantic_review() -> No
     assert len(calls) == 2
     assert "cover director response must be a JSON object" in calls[1]
     assert direction.visual_identity is not None
-    assert direction.profile_version == "cover-profiles.v5"
+    assert direction.profile_version == "cover-profiles.v8"
 
 
 def test_director_rejects_provider_failure_before_image_generation() -> None:
@@ -308,7 +308,7 @@ def test_director_prompt_defines_exact_machine_readable_response_contract() -> N
         "causal_visibility", "conflict_delivery", "conflict_read", "cause_signal",
         "consequence_signal", "conflict_character_ids", "protagonist_action_visible",
     }
-    assert contract["fixed_values"]["profile_version"] == "cover-profiles.v5"
+    assert contract["fixed_values"]["profile_version"] == "cover-profiles.v8"
     assert "core_conflict_visual_contract" in contract["top_level_required_fields"]
     assert "visual_identity" in contract["top_level_required_fields"]
     assert contract["allowed_character_ids"] == ["char_mara", "char_oren"]
@@ -434,3 +434,15 @@ def test_director_count_error_reports_requested_and_received_plans() -> None:
         match="requested 4, received 3",
     ):
         director.plan(_brief(), count=4)
+
+
+def test_v7_plan_and_repair_prompts_do_not_restore_ensemble_quotas():
+    prompt = json.loads(CoverArtDirector._user_prompt(_brief(), 4))
+    rules = prompt['response_contract']['plans']['portfolio_rules']
+    assert any('no fixed percentage' in rule for rule in rules)
+    assert all('At most one' not in rule and '3 of 4' not in rule for rule in rules)
+    field_rules = prompt['response_contract']['plans']['field_rules']
+    assert 'key/fill' in field_rules['motivated_lighting']
+    assert 'left-to-right' in field_rules['title_safe_zone']
+    repaired = CoverArtDirector._repair_prompt(brief=_brief(), count=4, previous_payload={}, findings=())
+    assert 'three quarters' not in repaired

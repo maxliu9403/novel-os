@@ -46,6 +46,19 @@ from h5_publication import (
     validate_h5_publication_root,
 )
 from llm_client import LLMError
+from novel_classification import classification_from_metadata
+from narrative_format import (
+    NarrativeFormat,
+    chapter_binding,
+    narrative_format_from_metadata,
+    serialization_from_state,
+)
+from long_form_quality import (
+    LongFormReport,
+    audit_due_chapters,
+    evaluate_progress as evaluate_long_form_progress,
+    write_report as write_long_form_report,
+)
 from pipeline_models import ManifestStore, RunManifest, RunSpec, StageResult
 from prompt_intake import ingest_prompt
 from project_identity import ensure_project_instance_id
@@ -527,6 +540,11 @@ class PipelineRunner:
                     f"outputs/deliverables/book.{self._format_extension(fmt)}"
                     for fmt in manifest.spec.output_formats
                 ] + [
+                    "outputs/publication/novel-classification.json",
+                    "outputs/publication/novel-serialization.json",
+                    "outputs/deliverables/meta/novel-classification.json",
+                    "outputs/deliverables/meta/novel-serialization.json",
+                    "outputs/deliverables/meta/h5-import.json",
                     "outputs/deliverables/package-manifest.json",
                     "outputs/deliverables/book-package.zip",
                 ]
@@ -678,6 +696,7 @@ class PipelineRunner:
                     "outputs/outline.json",
                     "outputs/input/foundation.json",
                     "outputs/story_bible.md",
+                    "outputs/quality/long-form/plan-report.json",
                 ],
             )
             commercial_story = self._foundation_commercial_story(project)
@@ -715,6 +734,8 @@ class PipelineRunner:
                 self._validate_foundation_commit,
                 [foundation_receipt],
             )
+            narrative_format = self._narrative_format(project)
+            long_form_audits = set(audit_due_chapters(narrative_format))
             commercial_review_enabled = (
                 commercial_story is not None
                 and manifest.spec.quality_policy == "evidence_v1"
@@ -728,6 +749,22 @@ class PipelineRunner:
             )
             for chapter in range(1, manifest.spec.num_chapters + 1):
                 self._run_chapter(manifest, project, store, orchestrator, chapter)
+                if chapter in long_form_audits:
+                    audit_relative = (
+                        f"outputs/quality/long-form/chapter_{chapter:03d}_audit.json"
+                    )
+                    self._stage(
+                        manifest,
+                        project,
+                        store,
+                        "long_form.audit",
+                        chapter,
+                        lambda current=chapter: self._evaluate_and_write_long_form(
+                            project, current
+                        ),
+                        self._validate_long_form_result,
+                        [audit_relative],
+                    )
                 if commercial_review_enabled and chapter == free_trial_chapter:
                     self._stage(
                         manifest,
@@ -814,6 +851,9 @@ class PipelineRunner:
                 [
                     f"outputs/deliverables/book.{self._format_extension(fmt)}"
                     for fmt in manifest.spec.output_formats
+                ] + [
+                    "outputs/publication/novel-classification.json",
+                    "outputs/publication/novel-serialization.json",
                 ],
             )
             self._stage(
@@ -825,6 +865,9 @@ class PipelineRunner:
                 lambda: self._deliver_package(manifest, project),
                 lambda value: bool(value),
                 [
+                    "outputs/deliverables/meta/novel-classification.json",
+                    "outputs/deliverables/meta/novel-serialization.json",
+                    "outputs/deliverables/meta/h5-import.json",
                     "outputs/deliverables/package-manifest.json",
                     "outputs/deliverables/book-package.zip",
                 ],
@@ -1554,6 +1597,20 @@ class PipelineRunner:
                     "commercial book review requires a run manifest", blocked=True
                 )
             return commercial_book_input_hashes(project, manifest.spec.num_chapters)
+        if phase == "long_form.audit":
+            current = chapter or 0
+            span = PipelineRunner._narrative_format(project).volume_for_chapter(current)
+            relatives = ["outputs/state/story_state.json"]
+            for number in range(span.chapter_start, current + 1):
+                relatives.extend([
+                    PipelineRunner._chapter_outline(number),
+                    PipelineRunner._chapter_stage(number, "final"),
+                ])
+            return {
+                relative: PipelineRunner._sha256(project / relative)
+                for relative in relatives
+                if (project / relative).is_file()
+            }
         inputs: Dict[str, list[str]] = {
             "outline": ["outputs/input/prompt.md", "outputs/input/brief.json"],
             "foundation.commit": ["outputs/input/foundation.json"],
@@ -1653,6 +1710,28 @@ class PipelineRunner:
             file_hashes[
                 "outputs/publication/publication-copy.json"
             ] = PipelineRunner._sha256(publication_path)
+
+        if phase in {"compile", "delivery.package"}:
+            file_hashes["epub_import_policy_sha256"] = hashlib.sha256(
+                b"novel-epub-map.v1/novel-h5-import.v1"
+            ).hexdigest()
+            classification = PipelineRunner._publication_delivery_metadata(
+                project
+            )["classification"]
+            file_hashes["novel_classification_sha256"] = hashlib.sha256(
+                canonical_json_bytes(classification)
+            ).hexdigest()
+            serialization = PipelineRunner._publication_delivery_metadata(
+                project
+            )["serialization"]
+            file_hashes["novel_serialization_sha256"] = hashlib.sha256(
+                json.dumps(
+                    serialization,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8") + b"\n"
+            ).hexdigest()
 
         if phase == "delivery.package":
             for fmt in manifest.spec.output_formats:
@@ -1983,6 +2062,16 @@ class PipelineRunner:
                 f"commercial_book_report_id:{value.report_id}",
             ]
 
+        if result.phase == "long_form.audit" and isinstance(
+            value, LongFormReport
+        ):
+            result.findings = [item.to_dict() for item in value.findings]
+            result.decisions = [
+                f"long_form_status:{value.status}",
+                f"long_form_audit_type:{value.audit_type}",
+                f"long_form_report_id:{value.report_id}",
+            ]
+
         if result.phase == "intake":
             from state_manager import StoryState
 
@@ -2005,7 +2094,10 @@ class PipelineRunner:
             result.story_contract_revision_id = self._current_contract_revision_id(
                 artifacts, 0, "story_contract"
             )
-            if manifest.spec.quality_policy == "evidence_v1":
+            if (
+                manifest.spec.quality_policy == "evidence_v1"
+                or self._long_form_enforced(project)
+            ):
                 contract = self._parse_chapter_contract(
                     project / self._chapter_outline(result.chapter),
                     result.chapter,
@@ -2884,7 +2976,9 @@ class PipelineRunner:
     def _publication_delivery_metadata(project: Path) -> Dict[str, Any]:
         from state_manager import StoryState
 
-        metadata = StoryState(str(project)).metadata
+        state = StoryState(str(project))
+        metadata = state.metadata
+        classification = classification_from_metadata(metadata)
         return {
             "title": str(metadata.get("title") or "Untitled"),
             "alternate_titles": PipelineRunner._metadata_text_list(
@@ -2893,7 +2987,51 @@ class PipelineRunner:
             "tags": PipelineRunner._metadata_text_list(
                 metadata.get("tags"), "tags"
             ),
+            "classification": classification.to_dict(),
+            "serialization": serialization_from_state(
+                metadata,
+                state.story_bible,
+                classification=classification,
+            ),
         }
+
+    @staticmethod
+    def _long_form_enforced(project: Path) -> bool:
+        return PipelineRunner._narrative_format(project).is_long_form
+
+    @staticmethod
+    def _narrative_format(project: Path):
+        from state_manager import StoryState
+
+        state = StoryState(str(project))
+        classification = classification_from_metadata(state.metadata)
+        return narrative_format_from_metadata(
+            state.metadata,
+            classification=classification,
+            premise=str(state.story_bible.get("premise") or ""),
+        )
+
+    @staticmethod
+    def _evaluate_and_write_long_form(
+        project: Path, chapter: int
+    ) -> LongFormReport:
+        report = evaluate_long_form_progress(project, chapter)
+        write_long_form_report(project, report, as_of_chapter=chapter)
+        return report
+
+    @staticmethod
+    def _validate_long_form_result(value: Any) -> None:
+        if not isinstance(value, LongFormReport):
+            raise PipelineError(
+                "Long-form audit returned no structured report", blocked=True
+            )
+        if value.status == "blocked":
+            details = "; ".join(item.message for item in value.blockers)
+            raise PipelineError(
+                "Long-form quality audit blocked later chapters: "
+                + (details or "volume obligations were not met"),
+                blocked=True,
+            )
 
     @staticmethod
     def _metadata_text_list(value: Any, name: str) -> list[str]:
@@ -3617,6 +3755,23 @@ class PipelineRunner:
         from state_manager import StoryState
 
         state = StoryState(str(project))
+        classification = classification_from_metadata(state.metadata)
+        classification_payload = classification.to_dict()
+        classification_path = (
+            project / "outputs/publication/novel-classification.json"
+        )
+        self._atomic_json(classification_path, classification_payload)
+        serialization = serialization_from_state(
+            state.metadata,
+            state.story_bible,
+            classification=classification,
+        )
+        serialization_path = (
+            project / "outputs/publication/novel-serialization.json"
+        )
+        self._atomic_json(serialization_path, serialization)
+        format_contract = NarrativeFormat.from_dict(serialization["format"])
+        volume_contracts = serialization["volumes"]
         artifacts = ArtifactStore(project)
         publication_copy = (
             self._load_publication_copy(manifest, project)
@@ -3649,17 +3804,23 @@ class PipelineRunner:
                     blocked=True,
                 )
             chapter = state.get_chapter(number)
-            chapters.append({
+            chapter_record = {
                 "number": number,
                 "title": chapter.title if chapter else f"Chapter {number}",
                 "text": text,
-            })
+            }
+            chapter_record.update(
+                chapter_binding(format_contract, number, volume_contracts)
+            )
+            chapters.append(chapter_record)
         book = gather(
             title=state.metadata.get("title", "Untitled"),
             author=state.metadata.get("author", ""),
             genre=state.metadata.get("genre", ""),
             chapters=chapters,
             publication_copy=publication_copy,
+            classification=classification_payload,
+            serialization=serialization,
         )
         if len(book.chapters) != manifest.spec.num_chapters:
             raise PipelineError(
@@ -3686,7 +3847,20 @@ class PipelineRunner:
         from delivery_package import build_delivery_package
 
         if not require_publication_copy:
-            return _DeliveryStageValue(build_delivery_package(project), None)
+            return _DeliveryStageValue(
+                build_delivery_package(
+                    project,
+                    publication_copy_path=None,
+                    classification_path=(
+                        project / "outputs/publication/novel-classification.json"
+                    ),
+                    serialization_path=(
+                        project / "outputs/publication/novel-serialization.json"
+                    ),
+                    h5_root=None,
+                ),
+                None,
+            )
 
         publication_copy = self._load_publication_copy(manifest, project)
         source = build_publication_source_set(
@@ -3721,11 +3895,19 @@ class PipelineRunner:
                 metadata["title"],
                 metadata["alternate_titles"],
                 metadata["tags"],
+                metadata["classification"],
+                metadata["serialization"],
             )
             package_result = build_delivery_package(
                 project,
                 publication_copy_path=(
                     project / "outputs/publication/publication-copy.json"
+                ),
+                classification_path=(
+                    project / "outputs/publication/novel-classification.json"
+                ),
+                serialization_path=(
+                    project / "outputs/publication/novel-serialization.json"
                 ),
                 h5_root=h5_result.root if h5_result is not None else None,
             )

@@ -1,0 +1,326 @@
+{
+  "age_bands": [
+    "adult",
+    "midlife",
+    "teen",
+    "unknown"
+  ],
+  "audience_channels": [
+    "female",
+    "general",
+    "male"
+  ],
+  "axes": {
+    "primary_genres": [
+      {
+        "id": "romance",
+        "labels": {
+          "en-US": "Romance",
+          "zh-CN": "浪漫"
+        },
+        "priority_tier": "core"
+      },
+      {
+        "id": "womens_fiction",
+        "labels": {
+          "en-US": "Women's Fiction",
+          "zh-CN": "女性小说"
+        },
+        "priority_tier": "core"
+      },
+      {
+        "id": "family_drama",
+        "labels": {
+          "en-US": "Family Drama",
+          "zh-CN": "家庭"
+        },
+        "priority_tier": "core"
+      },
+      {
+        "id": "mystery",
+        "labels": {
+          "en-US": "Mystery",
+          "zh-CN": "悬疑"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "id": "thriller",
+        "labels": {
+          "en-US": "Thriller",
+          "zh-CN": "惊悚"
+        },
+        "legacy_labels": [
+          "惊悚片"
+        ],
+        "priority_tier": "growth"
+      },
+      {
+        "id": "fantasy",
+        "labels": {
+          "en-US": "Fantasy",
+          "zh-CN": "奇幻"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "id": "supernatural",
+        "labels": {
+          "en-US": "Supernatural",
+          "zh-CN": "超自然"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "id": "contemporary_realism",
+        "labels": {
+          "en-US": "Contemporary Realism",
+          "zh-CN": "情感现实主义"
+        },
+        "priority_tier": "core"
+      },
+      {
+        "id": "young_adult",
+        "labels": {
+          "en-US": "Young Adult",
+          "zh-CN": "青春"
+        },
+        "legacy_labels": [
+          "青春激情"
+        ],
+        "priority_tier": "experimental"
+      },
+      {
+        "id": "general_fiction",
+        "labels": {
+          "en-US": "General Fiction",
+          "zh-CN": "综合小说"
+        },
+        "priority_tier": "compatibility"
+      }
+    ],
+    "settings": [
+      {
+        "id": "contemporary_urban",
+        "labels": {
+          "en-US": "Contemporary Urban",
+          "zh-CN": "现代城市"
+        },
+        "priority_tier": "core"
+      },
+      {
+        "id": "social_life",
+        "labels": {
+          "en-US": "Social Life",
+          "zh-CN": "社交生活"
+        },
+        "priority_tier": "experimental"
+      },
+      {
+        "id": "family_domestic",
+        "labels": {
+          "en-US": "Family / Domestic",
+          "zh-CN": "家庭生活"
+        },
+        "priority_tier": "core"
+      },
+      {
+        "id": "royal_court",
+        "labels": {
+          "en-US": "Royal Court",
+          "zh-CN": "宫廷"
+        },
+        "priority_tier": "experimental"
+      },
+      {
+        "id": "western",
+        "labels": {
+          "en-US": "Western",
+          "zh-CN": "西部"
+        },
+        "priority_tier": "experimental"
+      },
+      {
+        "id": "post_apocalyptic",
+        "labels": {
+          "en-US": "Post-Apocalyptic",
+          "zh-CN": "后末日"
+        },
+        "priority_tier": "experimental"
+      }
+    ],
+    "story_types": [
+      {
+        "design_requirement": "Build earned tenderness, relational safety, and visible reciprocal care.",
+        "id": "sweet_romance",
+        "labels": {
+          "en-US": "Sweet Romance",
+          "zh-CN": "甜蜜浪漫"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "design_requirement": "Make the power imbalance produce consequential choices rather than decorative wealth.",
+        "id": "ceo_romance",
+        "labels": {
+          "en-US": "CEO Romance",
+          "zh-CN": "CEO浪漫"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "design_requirement": "Sustain danger, moral pressure, and costly attraction with a coherent emotional contract.",
+        "id": "dark_romance",
+        "labels": {
+          "en-US": "Dark Romance",
+          "zh-CN": "黑暗浪漫"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "design_requirement": "Establish the injury, an active counter-plan, escalating countermoves, and a visible consequence.",
+        "id": "revenge",
+        "labels": {
+          "en-US": "Revenge",
+          "zh-CN": "复仇"
+        },
+        "priority_tier": "core"
+      },
+      {
+        "design_requirement": "Make renewed trust depend on demonstrated change and a fresh high-cost choice.",
+        "id": "second_chance",
+        "labels": {
+          "en-US": "Second Chance",
+          "zh-CN": "第二次机会"
+        },
+        "priority_tier": "core"
+      },
+      {
+        "design_requirement": "Use the criminal power structure as active pressure on loyalty, intimacy, and survival.",
+        "id": "mafia",
+        "labels": {
+          "en-US": "Mafia",
+          "zh-CN": "黑手党"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "design_requirement": "Turn pack rules, identity, and bond expectations into causal story constraints.",
+        "id": "werewolf",
+        "labels": {
+          "en-US": "Werewolf",
+          "zh-CN": "狼人"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "design_requirement": "Tie every alliance and betrayal to succession, legitimacy, or access to power.",
+        "id": "royal_intrigue",
+        "labels": {
+          "en-US": "Royal Intrigue",
+          "zh-CN": "宫廷阴谋"
+        },
+        "priority_tier": "experimental"
+      },
+      {
+        "design_requirement": "Reveal a concrete intimate betrayal, its family cost, and the protagonist's decisive response.",
+        "id": "domestic_betrayal",
+        "labels": {
+          "en-US": "Domestic Betrayal",
+          "zh-CN": "家庭背叛"
+        },
+        "priority_tier": "core"
+      },
+      {
+        "design_requirement": "Center incompatible marital choices and force a durable change in the relationship structure.",
+        "id": "marriage_crisis",
+        "labels": {
+          "en-US": "Marriage Crisis",
+          "zh-CN": "婚姻危机"
+        },
+        "priority_tier": "core"
+      }
+    ],
+    "tones": [
+      {
+        "id": "angst",
+        "labels": {
+          "en-US": "Angst",
+          "zh-CN": "虐心"
+        },
+        "legacy_labels": [
+          "焦虑"
+        ],
+        "priority_tier": "core"
+      },
+      {
+        "id": "sweet",
+        "labels": {
+          "en-US": "Sweet",
+          "zh-CN": "甜蜜"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "id": "dark",
+        "labels": {
+          "en-US": "Dark",
+          "zh-CN": "黑暗"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "id": "suspenseful",
+        "labels": {
+          "en-US": "Suspenseful",
+          "zh-CN": "紧张悬疑"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "id": "passionate",
+        "labels": {
+          "en-US": "Passionate",
+          "zh-CN": "激情"
+        },
+        "priority_tier": "experimental"
+      },
+      {
+        "id": "emotional_realism",
+        "labels": {
+          "en-US": "Emotional Realism",
+          "zh-CN": "情感现实主义"
+        },
+        "priority_tier": "core"
+      }
+    ]
+  },
+  "catalog_version": "novel-types.2026-09",
+  "chapter_bands": [
+    "chapters_0_50",
+    "chapters_101_150",
+    "chapters_151_200",
+    "chapters_201_plus",
+    "chapters_51_100",
+    "unknown"
+  ],
+  "combination_rules": {
+    "mutually_exclusive_story_types": [
+      [
+        "sweet_romance",
+        "dark_romance"
+      ]
+    ],
+    "primary_genre_count": 1,
+    "secondary_genre_max": 2,
+    "setting_max": 2,
+    "story_type_max": 3,
+    "tone_max": 3
+  },
+  "length_forms": [
+    "long",
+    "short",
+    "unknown"
+  ],
+  "schema_version": "novel-classification.v1"
+}

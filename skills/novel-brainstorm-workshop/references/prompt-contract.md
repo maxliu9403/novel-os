@@ -17,10 +17,27 @@ Words: <total prose target>
 
 Use actual values in the final artifact. `Audience` must come from a user-confirmed target audience decision; when it is missing, return to the question loop before generating the Prompt. A range may be discussed in the body, but the top-level run needs one fixed chapter count and one total target.
 
+## Required novel classification
+
+Load `references/novel-classification.md`, select only its canonical ids, and
+emit exactly one `[NOVEL_CLASSIFICATION_JSON]` block. Treat the selected ids as
+locked story-design obligations. The broad genre remains reader-facing; the
+classification block is the machine-readable publication and H5 filter source.
+
+## Required author-confirmed narrative format
+
+Load `references/narrative-format.md` and emit exactly one
+`[NARRATIVE_FORMAT_JSON]` block. The Workshop asks the customer to select short,
+standalone long, multi-volume, or multi-book series packaging. An AI
+recommendation is advisory until the customer confirms it. The final block must
+use `confirmation_status: confirmed`, cover every chapter exactly once, and
+preserve the customer-approved chapter count, word target, volume boundaries,
+and optional series identity.
+
 ## Required body sections
 
 1. **Core task**: premise, scope, length, originality, and what the final reader sees.
-2. **Story contract**: event, relationship, emotional, and meaning promises.
+2. **Story contract, classification, and narrative format**: event, relationship, emotional, and meaning promises plus the canonical type contract and customer-confirmed publication shape.
 3. **Story engine**: external objective, relationship dilemma, internal misbelief, secret/question, and adaptive pressure.
 4. **Audience profile and regional adaptation**: user-confirmed audience segment, life stage, reading motivation, country or cultural region, language and register, release scope, platform context, and approved creative implications.
 5. **Character ledger**: public identity, desire, need, capability, limitation, fear, boundary, secret, resources, knowledge, pressure response, personality core, visible behaviours, decision style, speech habits, emotional expression, strengths, flaws, change evidence, and personality conflicts or complements.

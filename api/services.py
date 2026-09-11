@@ -21,6 +21,16 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 from state_manager import StoryState  # noqa: E402
+from novel_classification import (  # noqa: E402
+    NovelClassification,
+    classification_from_metadata,
+    infer_classification,
+    markdown_front_matter,
+)
+from narrative_format import (  # noqa: E402
+    NarrativeFormat,
+    narrative_format_from_metadata,
+)
 
 from artifacts import (  # noqa: E402
     ArtifactCommitUncertain,
@@ -282,6 +292,12 @@ class ProjectService:
             premise=premise,
             target_word_count=max(0, target),
             session_word_target=max(0, session_target),
+            classification=classification_from_metadata(s.metadata).to_dict(),
+            narrative_format=narrative_format_from_metadata(
+                s.metadata,
+                classification=classification_from_metadata(s.metadata),
+                premise=premise,
+            ).to_dict(),
         )
 
     def project_detail(self, project_id: str) -> ProjectDetail:
@@ -312,13 +328,21 @@ class ProjectService:
             premise=premise,
             target_word_count=max(0, target),
             session_word_target=max(0, session_target),
+            classification=classification_from_metadata(s.metadata).to_dict(),
+            narrative_format=narrative_format_from_metadata(
+                s.metadata,
+                classification=classification_from_metadata(s.metadata),
+                premise=premise,
+            ).to_dict(),
         )
 
     def update_project(self, project_id: str, *, content_rating: str | None = None,
                        title: str | None = None, genre: str | None = None,
                        genres: list[str] | None = None, premise: str | None = None,
                        target_word_count: int | None = None,
-                       session_word_target: int | None = None) -> ProjectDetail:
+                       session_word_target: int | None = None,
+                       classification: dict | None = None,
+                       narrative_format: dict | None = None) -> ProjectDetail:
         s = self._load(project_id)
         if content_rating is not None:
             if content_rating not in ("general", "mature"):
@@ -346,6 +370,41 @@ class ProjectService:
             if session_word_target < 0:
                 raise BadRequest("session_word_target must be >= 0")
             s.set_metadata("session_word_target", int(session_word_target))
+        if classification is not None:
+            try:
+                canonical = NovelClassification.from_dict(classification).with_source(
+                    "author_confirmed", 1.0
+                )
+            except (TypeError, ValueError) as exc:
+                raise BadRequest(f"Invalid novel classification: {exc}") from exc
+            s.set_metadata("classification", canonical.to_dict())
+            s.update_story_bible("classification", canonical.to_dict())
+        elif genre is not None or genres is not None or premise is not None:
+            canonical = infer_classification(
+                genre=str(s.metadata.get("genre") or ""),
+                genres=tuple(s.metadata.get("genres") or ()),
+                premise=str(s.metadata.get("premise") or ""),
+                audience=str(s.metadata.get("audience") or ""),
+                tone=str(s.metadata.get("tone") or ""),
+                chapters=(
+                    int(s.metadata["target_chapters"])
+                    if s.metadata.get("target_chapters") is not None
+                    else None
+                ),
+            )
+            s.set_metadata("classification", canonical.to_dict())
+            s.update_story_bible("classification", canonical.to_dict())
+        if narrative_format is not None:
+            try:
+                format_contract = NarrativeFormat.from_dict(narrative_format)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise BadRequest(f"Invalid narrative format: {exc}") from exc
+            if format_contract.confirmation_status != "confirmed":
+                raise BadRequest("Project narrative format must be author-confirmed")
+            s.set_metadata("narrative_format", format_contract.to_dict())
+            s.set_metadata("target_chapters", format_contract.total_chapters)
+            s.set_metadata("target_word_count", format_contract.target_words)
+            s.update_story_bible("narrative_format", format_contract.to_dict())
         s.save_state()
         return self.project_detail(project_id)
 
@@ -359,6 +418,12 @@ class ProjectService:
                 word_count=c.word_count,
                 pov=c.pov_character or "",
                 target_word_count=int(c.target_word_count or 2500),
+                volume_id=c.volume_id,
+                volume_number=c.volume_number,
+                chapter_in_volume=c.chapter_in_volume,
+                volume_role=c.volume_role,
+                series_id=c.series_id,
+                series_book_number=c.series_book_number,
             )
             for c in sorted(s.chapters.values(), key=lambda c: c.number)
         ]
@@ -379,6 +444,12 @@ class ProjectService:
             word_count=c.word_count,
             pov=c.pov_character or "",
             target_word_count=int(c.target_word_count or 2500),
+            volume_id=c.volume_id,
+            volume_number=c.volume_number,
+            chapter_in_volume=c.chapter_in_volume,
+            volume_role=c.volume_role,
+            series_id=c.series_id,
+            series_book_number=c.series_book_number,
             outline=outline_path.read_text(encoding="utf-8") if outline_path.exists() else None,
             draft=draft_path.read_text(encoding="utf-8") if draft_path.exists() else None,
         )
@@ -1883,12 +1954,37 @@ Foreshadowing_Planted: …
     # ----- Tier 0: create / edit the world
 
     def create_project(self, title: str, genre: str = "", author: str = "",
-                       genres: list[str] | None = None, premise: str = "") -> ProjectSummary:
+                       genres: list[str] | None = None, premise: str = "",
+                       classification: dict | None = None,
+                       narrative_format: dict | None = None) -> ProjectSummary:
         title = title.strip()
         if not title:
             raise BadRequest("Title is required.")
         normalized = _normalize_genres(genres, genre)
         label = _genre_label(normalized, genre)
+        try:
+            canonical_classification = (
+                NovelClassification.from_dict(classification).with_source(
+                    "author_confirmed", 1.0
+                )
+                if classification is not None
+                else infer_classification(
+                    genre=label,
+                    genres=tuple(normalized),
+                    premise=premise,
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            raise BadRequest(f"Invalid novel classification: {exc}") from exc
+        try:
+            canonical_format = (
+                NarrativeFormat.from_dict(narrative_format)
+                if narrative_format is not None else None
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise BadRequest(f"Invalid narrative format: {exc}") from exc
+        if canonical_format is not None and canonical_format.confirmation_status != "confirmed":
+            raise BadRequest("Project narrative format must be author-confirmed")
         slug = _slugify(title)
         base = self.base_dir
         n = 2
@@ -1914,6 +2010,8 @@ Foreshadowing_Planted: …
                         normalized_genres=normalized,
                         genre_label=label,
                         premise=premise,
+                        classification=canonical_classification,
+                        narrative_format=canonical_format,
                     )
             except ProjectMutationBlocked:
                 folder = base / f"{slug}-{n}"
@@ -1928,6 +2026,8 @@ Foreshadowing_Planted: …
         normalized_genres: list[str],
         genre_label: str,
         premise: str,
+        classification: NovelClassification,
+        narrative_format: NarrativeFormat | None,
     ) -> ProjectSummary:
         """Create one canonical project while its operation lease is held."""
         folder.mkdir(parents=True, exist_ok=True)
@@ -1937,6 +2037,13 @@ Foreshadowing_Planted: …
         db.project_claim(folder.name, self.workspace.id if self.workspace
                          else tenancy.DEFAULT_WORKSPACE_ID)
         s = StoryState(str(folder))
+        s.set_metadata("classification", classification.to_dict())
+        s.update_story_bible("classification", classification.to_dict())
+        if narrative_format is not None:
+            s.set_metadata("narrative_format", narrative_format.to_dict())
+            s.set_metadata("target_chapters", narrative_format.total_chapters)
+            s.set_metadata("target_word_count", narrative_format.target_words)
+            s.update_story_bible("narrative_format", narrative_format.to_dict())
         if normalized_genres:
             s.set_metadata("genres", normalized_genres)
             s.set_metadata("genre", genre_label)
@@ -2109,7 +2216,10 @@ Foreshadowing_Planted: …
     def export_markdown(self, project_id: str) -> str:
         """Compile the manuscript, preferring the human-reviewed Final per chapter."""
         s = self._load(project_id)
+        classification = classification_from_metadata(s.metadata).to_dict()
         lines = [
+            *markdown_front_matter(classification).rstrip().splitlines(),
+            "",
             f"# {s.metadata.get('title', 'Untitled')}",
             "",
             f"*{s.metadata.get('genre', 'Fiction')}*",
@@ -2188,6 +2298,7 @@ Foreshadowing_Planted: …
             genre=s.metadata.get("genre", ""),
             chapters=chapters,
             publication_copy=publication_copy,
+            classification=classification_from_metadata(s.metadata).to_dict(),
         )
         sheet = StyleSheet.from_dict(s.compile_styles)
         try:

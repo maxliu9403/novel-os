@@ -67,3 +67,6 @@ novel_os*.db
 
 # --- Docker deployment data ---
 /docker-data/
+
+# --- Local cover-only rollback checkpoints (source snapshots, not release code) ---
+/.cover-checkpoints/

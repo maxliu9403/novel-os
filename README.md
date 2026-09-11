@@ -508,9 +508,9 @@ flowchart LR
     E --> D["Cover Director<br/>文本规划模型"]
     D --> V["Book Visual Identity<br/>本书视觉语言"]
     D --> C["Core Conflict Contract<br/>核心冲突视觉契约"]
-    V & C --> P["3–5 个差异化方向<br/>cover-profiles.v5"]
+    V & C --> P["3–5 个差异化摄影方向<br/>cover-profiles.v8"]
     P --> A["人工审批方向与内容哈希"]
-    A --> X["cover-compiler.v9<br/>编译图片提示词"]
+    A --> X["cover-compiler.v13<br/>编译图片提示词"]
     X --> I["gpt-image-2<br/>渲染封面"]
     I --> Q["原图 + 手机缩略图<br/>二进制与多模态复核"]
     Q -->|语义缺失| R["定向修复并自动重试一次"]
@@ -538,21 +538,23 @@ flowchart LR
 |---|---|---|
 | `novel-brainstorm-workshop` | 完成故事设计并输出严格的封面交接事实 | 不直接调用图片模型 |
 | `novel-cover-studio` | 在 Codex 主机侧组织封面规划、审批、生成和选图流程 | 不替代 Web 后端代码 |
-| Cover Director | 读取证据并动态决定构图、场景、媒介、情绪和字体系统 | 不渲染图片 |
-| `cover-compiler.v9` | 把审批后的方向编译成不超过 12,000 Unicode code points 的生成提示词 | 不重新发明故事事实 |
+| Cover Director | 读取证据并动态决定构图、场景、摄影处理、情绪和字体系统 | 不渲染图片 |
+| `cover-compiler.v13` | 保护人物、冲突、书名、具体镜头/布光/配色及视觉语言，在统一 12,000 Unicode code points 总预算内编译提示词 | 不重新发明故事事实 |
 | `gpt-image-2` | 按方向生成原生分辨率的竖版 `2:3` 图片 | 不决定整组封面的策划逻辑 |
 | 多模态视觉复核 | 对照原图、手机缩略图和方向契约检查实际可见结果 | 不代替运营最终选图 |
 
-例如 `Textured gouache-and-ink editorial illustration with natural proportions
-and selectively modeled faces` 这类描述不是写死的风格预设，也不是 Image2 返回的
-规划文字。它由 Cover Director 根据该书证据动态写入 `art_style`，再交给 Image2
-执行。系统只提供出版品质、人物可读性、市场字体、事实边界等高层护栏；摄影、
-水粉墨线、版画、拼贴、图形隐喻或其他媒介由规划模型为每本书重新选择，并且不
-使用在世艺术家的名字作为风格指令。
+默认采用**真人实拍质感的电影宣传照**，保留清晰人物、自然年龄与皮肤、真实服装、
+合理光线和可读的故事动作。艺术性来自构图、镜头、人物调度、场景、光色和字体，
+而非把不同方案分别转成油画、水粉、版画、纸浮雕或 3D。
+
+旧版 Cover Director 曾自动写入 `gouache-and-ink editorial illustration` 等
+`art_style`。v8 规划会检查并修复这类媒介偏差；编译器也会在生图前拦截旧的绘画方向，
+提示重新规划。摄影要求计入总字符预算并保持完整，图片质检同样检查实际渲染的摄影感。
+`high` 和高分辨率并不会自行纠正油画提示词；默认请求保持 `2048x3072 / high`。
 
 #### 本书视觉语言与核心冲突视觉契约
 
-`cover-profiles.v5` 会先生成两份书级设计约束，再规划单张封面：
+`cover-profiles.v8` 保留核心冲突规则，先生成两份书级设计约束，再规划单张封面：
 
 1. **Book Visual Identity**：设计命题、情绪矛盾、故事签名、材料语言、调色和
    光线逻辑、空间逻辑、字体声音、人物策略、陈词滥调黑名单、独特性锚点和剧透
@@ -579,17 +581,42 @@ and selectively modeled faces` 这类描述不是写死的风格预设，也不�
 
 默认四张封面是四种不同的设计论点，不是同一张图换颜色或镜头：
 
-- 至少 **3/4** 直接表现造成伤害或选择的压力来源；
-- 当压力由人物关系构成时，至少 **2/4** 完整呈现已批准的冲突人物关系；
-- 至少 **3/4** 展现主角清晰、主动且符合剧情的行为；
-- 最多 **1/4** 使用间接或偏象征表达，而且仍要保留具体因果证据；
+- 至少一张直接呈现完整的已批准因果关系（人物是压力来源时，完整呈现该关系）；
+- 至少一张展现主角清晰、主动且符合剧情的决定；
+- 其余方案按具体故事选择人物数量和表达方式，每张仍需可见的原因、主角反应与后果；
+- 间接表达必须有具体、可辨认的剧情证据，既不是无人物静物，也不是泛化的悲伤肖像；
+- 新 v7 不再采用旧 v5/v6 的 3/4、2/4 多人关系配额，旧方向仍按原版本校验；
 - 四张必须使用不同的 `conflict_delivery`，并同时改变构图拓扑、场景来源、视觉
-  媒介、情绪温度和字体逻辑。
+  摄影处理、情绪温度和字体逻辑。
 
 系统要求每张都有清晰可读的主角人物，但不固定“主角占据前景、其他人物缩小放在
 背景”的公式。根据故事可以使用关系空间、门槛行动、镜面或玻璃反射、环境压力、
 证据发现、人物群像、字体与场景融合等设计语言。人物、原因、后果和阅读路径仍需
 在手机缩略图尺寸成立。
+
+#### 视觉执行预算与电影宣传照质感
+
+v13 编译器先保护人物与故事事实，再完整保留本张镜头、布光、配色、空间语法、
+视觉标识和标题系统；只压缩设计理由、证据解释等辅助文字，不用截断光影换取剧情说明。
+总上限仍为 12,000 Unicode code points；受保护内容本身超限时明确报错，不悄悄丢弃字段。
+真人摄影不等于生活纪实：真实年龄和普通场所同样需要精心布光、自然肤色、主体分离、
+清晰表演和完整标题层级。书名保持一个连续的标题组，英文按从左到右、从上到下读取，
+不为映射人物关系而拆成顺序相反的两列；对齐、字号和留白仍可按每本小说设计。
+
+#### 人物自然度：设计海报，导演真实反应
+
+v8 方向沿用已有构图自由度，通过 `frozen_action`、`gaze_graph`、`blocking` 和
+`depth_plan` 指导人物：单一可拍摄瞬间、具体注视对象、不同反应节拍、自然重心和真实
+手部接触。拒绝和决心是人物意图，不等于每张都举掌、握拳或瞪眼；道具不必全部向镜头展示。
+
+v13 增加完整保留的 `HUMAN PERFORMANCE CONTRACT`，并区分角色背景状态与本张具体
+动作，避免同时执行一串姿势。保留海报布光、色彩、标题和核心冲突，以真实焦点过渡、
+自然皮肤变化和克制表情减少摆拍感；不靠磨皮、加皱纹、噪点或模糊掩盖问题。
+视觉复核将人物僵硬、目光无目标、合成边缘等记录为具体证据，使用既有
+`generic_ai_face` / `weak_story_action` 修复码，不增加新的硬性评分维度或自动生图次数。
+
+改动前可通过 `./deploy.sh cover-rollback capture` 保存运行版和本地候选版，
+回退工具默认只预览、仅切换 6 个封面源文件；详见 [封面回退说明](docs/cover-rollback.md)。
 
 #### 生成后的质量复核与自动修复
 
@@ -608,6 +635,13 @@ and selectively modeled faces` 这类描述不是写死的风格预设，也不�
 - `core_conflict_missing`
 - `causal_relationship_missing`
 - `protagonist_action_missing`
+
+自动修复图不再因为“更新”就覆盖当前候选：只有故事与视觉维度评分均可评估、达到
+80 分且已知维度不低于原图，并且没有剩余阻断/修复项时，才提升为当前待审候选。
+标题顺序歧义即使被评估器列作 warning，也会归入 `title_failure` 阻断。
+修复失败、退步或评分缺失时保留原候选；两次图片及报告通过 `attempt_history` 和
+内容寻址媒体保留，`repair_not_promoted` 说明未提升原因。历史图片以媒体 ID/SHA
+定位，不以可被后续候选覆盖的 pending 投影路径定位。任何自动提升都不等于出版选中。
 
 复核结果分为 `recommended_for_human_review`、`human_review_required` 和 `blocked`。
 即使系统推荐，书名拼写、人物观感、市场吸引力和最终出版选择仍由运营确认。如果
@@ -645,8 +679,8 @@ outputs/covers/
 交付图片和最终 ZIP 仍位于 `outputs/deliverables/`。方向、生成尝试、修复代码、
 提示词版本、供应商请求信息和质量报告都会保留，方便复盘而不是覆盖历史。
 
-旧版 v4 方向和已经生成的图片继续保留并可查看。它们不会被后台自动改写；要让
-现有小说应用 v5 核心冲突与差异化规则，需要在 Cover Studio 点击 **重新规划方向**，
+旧版 v4/v5 方向和已经生成的图片继续保留并可查看。它们不会被后台自动改写；要让
+现有小说应用 v8 摄影、核心冲突与差异化规则，需要在 Cover Studio 点击 **重新规划方向**，
 审批新的方向后再生成一组图片。
 
 #### 封面模型配置
@@ -995,6 +1029,9 @@ docker-data/projects/PROJECT/outputs/deliverables/
 ```text
 outputs/deliverables/
 |-- book.md / book.epub / book.pdf / book.docx
+|-- meta/novel-classification.json
+|-- meta/novel-serialization.json
+|-- meta/h5-import.json
 |-- covers/pending/cover-01.jpg ... cover-05.jpg
 |-- covers/selected-cover.jpg
 |-- covers/cover-set.json
@@ -1004,7 +1041,64 @@ outputs/deliverables/
 
 `package-manifest.json` 为每个文件记录路径、媒体类型、大小、SHA-256、角色和
 封面选择状态。候选与小说导出都不存在时对应文件自然缺席；不要把 ZIP 本身再次
-打包。选择历史封面版本时，系统按候选 SHA-256 从内容寻址媒体恢复原图。
+打包。选择历史封面版本时，系统按候选 SHA-256 从内容寻址媒体恢复原图。H5 导入
+ZIP 时应通过 `package-manifest.json.classification.path`（或 `files[].role ==
+"novel_classification"`）定位每本书的分类数据，而不是依赖固定文件名；封面重新生成、
+选择或替换后，打包器会继续携带当前分类数据。
+
+EPUB、JSON 和常用封面/书稿格式的 MIME 由打包器固定输出，不依赖宿主机或
+Docker 系统类型库；EPUB 始终为 `application/epub+zip`。旧包出现
+`application/octet-stream` 时，更新后端代码后使用原项目产物重新打包即可，
+无需重写正文或生成封面。包摘要会重新计算，书籍和章节身份保留。
+注意：下载 ZIP 接口只返回现存归档，不触发重建；仅刷新页面或重新下载旧包
+不会修正已有字段。完整类型表和摘要规则见 [H5 交接文档](docs/h5-import-handoff.md)。
+
+#### 小说类型契约与 H5 读取
+
+Novel OS 使用 `novel-classification.v1` 将主类型、辅助类型、故事模型、情绪、
+背景、受众和篇幅拆分为稳定字段。新 Prompt 可以通过唯一的
+`[NOVEL_CLASSIFICATION_JSON]` 块锁定分类；旧项目在读取或重新编译时由引擎从
+原有 `genre`、简介、受众和标签确定性映射。模型产生的目录外类型不会进入发布
+产物。
+
+篇幅和系列结构由独立的 `narrative-format.v1` 管理。策划 Skill 会先让客户选择
+短篇、单本长篇、单本多卷或多本系列；AI 的长篇适配评分只用于推荐。客户明确给出
+章节数时视为主动选择，推荐方案经过客户确认后才写入生产 Prompt。新 Prompt 使用
+唯一的 `[NARRATIVE_FORMAT_JSON]` 块保存这一决定。
+
+H5 正文继续使用 EPUB，所有 MD 正文均忽略。交付 Manifest V4 新增
+`meta/h5-import.json`，记录稳定书籍身份、每章 EPUB item ID/href、序言识别及
+独立的正文/封面/分类版本。旧 PublicationPackage V3 作为证据投影保留。
+H5 导入字段分工：
+
+```text
+meta/novel-classification.json
+  -> primary_genre_id / filter_type_ids / story_type_ids
+  -> tone_ids / setting_ids / audience / length
+meta/novel-serialization.json
+  -> format.mode / format.volume_count / volumes[]
+meta/h5-import.json
+  -> book_id / versions / import_revision_sha256
+  -> chapters[].chapter_id / chapters[].number / chapters[].epub
+  -> chapters[].volume_id
+  -> chapters[].chapter_in_volume
+  -> chapters[].volume_role
+  -> chapters[].series_id
+  -> chapters[].series_book_number
+```
+
+现有合并式“小说类型”筛选直接索引 `classification.filter_type_ids`；分面筛选再按
+各自数组建索引。完整字段、兼容策略和 TypeScript 读取示例见
+[`docs/novel-classification.md`](docs/novel-classification.md)。Novel OS 同时提供只读
+目录接口 `GET /api/novel-classification/catalog`。长短篇决策、分卷质量门和 H5
+章节映射见 [`docs/narrative-format.md`](docs/narrative-format.md)，格式目录接口为
+`GET /api/narrative-format/catalog`。
+
+完整交接、哈希口径、重复导入和异常处理见
+[`docs/h5-import-handoff.md`](docs/h5-import-handoff.md)。
+实际联调包与完整 JSON 见 [`docs/examples/h5-import/`](docs/examples/h5-import/)。
+先导入 01（Introduction + 80 章/4 卷），再导入 02（同一本书仅换封面），验证
+第 1 章定位、跨卷收费和已解锁权益。书籍身份使用 `book_id`，结构摘要允许多本书共享。
 
 #### 7. 更新、停止和故障排查
 

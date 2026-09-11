@@ -13,6 +13,7 @@ from .cover_models_v2 import ArtDirectionSet, CoverBriefV2
 from .cover_novelty import plan_fingerprint
 from .cover_profiles import portfolio_blueprint
 from .cover_validator import ValidationFinding, validate_direction
+from .cover_render_policy import RENDER_POLICY, PHOTOGRAPHIC_RENDER_CONTRACT, HUMAN_PERFORMANCE_CONTRACT
 
 
 class CoverDirectionError(ValueError):
@@ -27,7 +28,7 @@ class CoverArtDirector:
         *,
         complete: Callable[[str, str], str] | None = None,
         model: str = "",
-        profile_version: str = "cover-profiles.v5",
+        profile_version: str = "cover-profiles.v8",
         fixture: Mapping[str, Any] | None = None,
     ) -> None:
         self._complete = complete
@@ -214,7 +215,7 @@ class CoverArtDirector:
         count: int,
         previous_payload: Mapping[str, Any],
         findings: tuple[ValidationFinding, ...],
-        profile_version: str = "cover-profiles.v5",
+        profile_version: str = "cover-profiles.v8",
         evidence_ledger: VisualEvidenceLedger | None = None,
         recent_fingerprints: Sequence[Mapping[str, Any]] = (),
     ) -> str:
@@ -245,17 +246,18 @@ class CoverArtDirector:
             "repair_rules": (
                 [
                     "Use concept_or_evidence to repair the named concept rather than rewriting unrelated plans.",
-                    "For portfolio_similarity, change the design hypothesis, focal strategy, composition topology, medium, and typography logic together; a crop or palette change is insufficient.",
+                    "For portfolio_similarity, change the story instant, focal strategy, composition topology, lighting and typography together while retaining live-action photography; a crop or palette change is insufficient.",
+                    "For non_photographic_medium, re-stage the same story facts as a physically plausible photographic scene; replace painted figures, relief stages and illustration instructions throughout the plan, not just art_style.",
                     "For historical_similarity, replace the repeated visual grammar while preserving this book's evidence anchors.",
                     "For missing_visual_identity, derive one coherent book-specific design language from at least two evidence sources.",
                     "For missing_design_reasoning, complete the evidence, design, typography, novelty, and visual-signature fields.",
                     "For missing_human_anchor or missing_reader_anchor, keep the current concept but stage the approved reader-anchor protagonist as a clear, emotionally active person inside it.",
                     "Object, environment, absence, and typography may lead the idea, while the reader-anchor protagonist remains visibly present and meaningful.",
                     "For conflict findings, preserve the distinct design hypothesis while making the approved pressure source, protagonist consequence, and protagonist action legible at thumbnail size.",
-                    "Across the portfolio, use direct causal visibility in at least three quarters of plans and the complete approved pressure-character group in at least half; use reflection, spatial division, embedded typography, or another book-specific grammar instead of repeating one foreground/background tableau.",
+                    "Follow the versioned portfolio_rules in response_contract. Preserve different visual hypotheses; do not repair every plan into a crowded ensemble or the same foreground/background tableau.",
                     "Preserve plan count, approved character ids, exact evidence references, and spoiler boundaries.",
                 ]
-                if profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5"))
+                if profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5", "cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8"))
                 else [
                     "Use concept_or_evidence to repair the named concept rather than rewriting unrelated plans.",
                     "For group_blocking, state foreground and background explicitly across blocking and depth_plan.",
@@ -275,17 +277,18 @@ class CoverArtDirector:
             "consequence makes the protagonist's response active. Then privately explore at least eight design "
             "hypotheses and return the strongest, most "
             "structurally different portfolio. Choose character-led, relationship-led, object-led, environment-led, "
-            "absence-led, typographic, graphic, illustrated, photographic, or hybrid language according to the "
+            "absence-led or typography-led photographic campaign language according to the "
             "story rather than a fixed hierarchy. Every direction must show the approved reader-anchor protagonist "
             "as a clear, emotionally active human subject whose face, posture, and story action read at thumbnail "
             "size. Every plan must communicate the same source-bound cause-and-consequence story, but through a "
             "different visual language. A dominant close-up is optional; foreground/background causality is optional. "
-            "Composition, medium, palette, emotional register, and lettering must grow from the novel's own motifs. "
+            "Composition, photographic treatment, palette, emotional register, and lettering must grow from the novel's own motifs. "
             "Treat title typography as authored visual storytelling, not a generic text overlay. "
             "Return exactly one JSON object that "
             "matches the supplied response_contract, without Markdown fences or prose. Use only approved "
             "story facts and character ids. Never infer ethnicity, age, class, nationality, "
-            "new characters, unsupported spoilers, or named artist identities."
+            "new characters, unsupported spoilers, or named artist identities. "
+            + PHOTOGRAPHIC_RENDER_CONTRACT + " " + HUMAN_PERFORMANCE_CONTRACT
         )
 
     @staticmethod
@@ -293,7 +296,7 @@ class CoverArtDirector:
         brief: CoverBriefV2,
         count: int,
         *,
-        profile_version: str = "cover-profiles.v5",
+        profile_version: str = "cover-profiles.v8",
         evidence_ledger: VisualEvidenceLedger | None = None,
         recent_fingerprints: Sequence[Mapping[str, Any]] = (),
     ) -> str:
@@ -307,11 +310,19 @@ class CoverArtDirector:
                 "relationship. Keep the reader-anchor protagonist visibly present in every plan, then select the "
                 "strongest focal strategy independently for each plan. Do not confuse an emotional aftermath with "
                 "the core conflict: each thumbnail must preserve a readable cause, consequence, and protagonist "
-                "decision. When approved characters embody the causal pressure, show them directly in at least "
-                "three quarters of the portfolio and show the complete causal relationship in at least half."
+                "decision. Follow response_contract.portfolio_rules for causal coverage. Choose cast per story moment, "
+                "not a numerical group quota. Treat lighting, palette, negative space, performance and typography "
+                "as one finished film campaign design rather than a literal documentary record. "
+                "Write concise executable visual fields (usually one or two sentences), not repeated story essays. "
+                "Keep detailed justifications in rationale fields; never bury lighting or colors there. "
+                "Express the story through actor behavior rather than a display of plot symbols. Refusal, "
+                "shock and resolve are intentions, not mandatory gestures: invent their physical expression "
+                "from this scene instead of repeating raised palms, finger-pointing or clenched fists. "
+                "Emotional intensity need not mean a larger grimace. Props support the event, not an inventory display."
             ),
             "count": count,
             "brief": brief.to_dict(),
+            "render_policy": RENDER_POLICY,
             "visual_evidence_ledger": (
                 evidence_ledger or evidence_ledger_from_brief(brief)
             ).prompt_payload(),
@@ -326,9 +337,9 @@ class CoverArtDirector:
         brief: CoverBriefV2,
         count: int,
         *,
-        profile_version: str = "cover-profiles.v5",
+        profile_version: str = "cover-profiles.v8",
     ) -> dict[str, Any]:
-        if profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5")):
+        if profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5", "cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8")):
             return CoverArtDirector._adaptive_response_contract(brief, count, profile_version)
         treatments = portfolio_blueprint(count)
         hook_types = [item.hook_type for item in treatments]
@@ -497,7 +508,7 @@ class CoverArtDirector:
             *(f"node:{item.node_id}" for item in brief.decisive_story_nodes),
             *(f"signal:{item.signal_id}" for item in brief.secondary_signals),
         ]
-        conflict_profile = profile_version.casefold().startswith("cover-profiles.v5")
+        conflict_profile = profile_version.casefold().startswith(("cover-profiles.v5", "cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8"))
         explicitly_named_conflict_ids = [
             item.character_id
             for item in brief.principal_characters
@@ -565,7 +576,7 @@ class CoverArtDirector:
                 ],
                 "portfolio_rules": [
                     "Invent descriptive ids for visual fields; do not copy a fixed portfolio blueprint.",
-                    "Each plan must differ structurally across focal strategy, composition topology, scene source, medium or photographic treatment, emotional register, and typography logic.",
+                    "Each plan must differ structurally across focal strategy, composition topology, scene source, photographic treatment, emotional register, and typography logic; all remain live-action photography.",
                     "Every plan includes the reader-anchor protagonist as a clear human subject with readable face, posture, emotion, and story action at mobile size.",
                     "Object-led, environment-led, absence-led, and typography-led concepts remain valid by integrating the protagonist into their distinct visual grammar rather than deleting the person.",
                     "Every plan stages one concrete story action grounded in character evidence plus a node, signal, or source-ledger reference; pure decorative symbolism is insufficient.",
@@ -581,8 +592,8 @@ class CoverArtDirector:
                     "focal_character_id": "exactly reader_anchor_character_id",
                     "gaze_graph": "non-empty visible attention, gesture, or reading-path logic for the reader-anchor protagonist and any other people",
                     "blocking": "describe the chosen hierarchy without mandatory foreground/background or mandatory large faces",
-                    "location_family": "an approved location or a precise evidence-supported non-location field such as abstract field or object surface",
-                    "art_style": "a medium or photographic treatment justified by this novel; never name a living artist",
+                    "location_family": "an approved physical location or evidence-supported practical tabletop set, with the real photographed protagonist present; not an abstract or illustrated world",
+                    "art_style": "an explicitly photographic, live-action treatment justified by this novel; no illustration, oil painting, relief, CGI or 3D; never name a living artist",
                     "typography_style": "a book-specific lettering system tied to title semantics",
                     "visual_signature": "one concise fingerprint describing what makes this plan recognizable as this book",
                     "novelty_rationale": "state how this differs from the other plans and supplied recent fingerprints",
@@ -625,14 +636,38 @@ class CoverArtDirector:
             "causal_visibility", "conflict_delivery", "conflict_read", "cause_signal",
             "consequence_signal", "conflict_character_ids", "protagonist_action_visible",
         ])
-        plan_contract["portfolio_rules"].extend([
-            "Every plan communicates the core conflict contract at thumbnail size; atmosphere or sadness alone is insufficient.",
-            f"At least {math.ceil(count * 0.75)} of {count} plans use causal_visibility=direct and visibly cast approved pressure characters when the contract names them.",
-            f"At least {math.ceil(count * 0.5)} of {count} plans show the complete pressure-character relationship when the contract names people.",
-            f"At least {math.ceil(count * 0.75)} of {count} plans set protagonist_action_visible=true and depict a concrete active response.",
-            "At most one plan may use causal_visibility=indirect; it must still show specific source-bound evidence of the cause and a readable protagonist consequence.",
-            "Use a different conflict_delivery in every plan, such as direct event, spatial opposition, reflection, embedded typography, environmental trace, or another story-specific solution; these are examples, not a fixed template.",
-        ])
+        flexible = profile_version.casefold().startswith(("cover-profiles.v7", "cover-profiles.v8"))
+        if flexible:
+            plan_contract["portfolio_rules"].extend([
+                "Every plan communicates the core conflict through specific source-bound cause and protagonist consequence; sadness alone is insufficient.",
+                "At least one plan shows the complete approved causal relationship directly; no fixed percentage of ensemble scenes or fixed cast count for the remaining plans.",
+                "Other plans may show direct pressure or indirect, visibly legible evidence of it. Select cast for the story moment; never add people merely to satisfy a quota.",
+                "At least one plan shows a concrete active protagonist decision. In every other plan the protagonist still visibly reacts to the specific conflict, not a decorative mood pose.",
+                "Every conflict_delivery is distinct; design different narrative moments and spatial hierarchies, not alternate crops of one scene.",
+            ])
+            plan_contract["field_rules"].update({
+                "motivated_lighting": "concise executable key/fill/practical light directions, subject separation and exposure; motivated cinematic polish without automatic grit or flat ambient exposure",
+                "color_script": "specific color relationships and focal accents; natural skin, intentional contrast; no mandatory sepia or muted brown palette",
+                "title_safe_zone": "one continuous title lockup; English reads left-to-right then top-to-bottom in exact title order, never split into competing clause columns",
+                "typography_style": "a book-specific lettering system with coherent hierarchy and exact reading order, readable at thumbnail size",
+            })
+        else:
+            plan_contract["portfolio_rules"].extend([
+                "Every plan communicates the core conflict contract at thumbnail size; atmosphere or sadness alone is insufficient.",
+                f"At least {math.ceil(count * 0.75)} of {count} plans use causal_visibility=direct and visibly cast approved pressure characters when the contract names them.",
+                f"At least {math.ceil(count * 0.5)} of {count} plans show the complete pressure-character relationship when the contract names people.",
+                f"At least {math.ceil(count * 0.75)} of {count} plans set protagonist_action_visible=true and depict a concrete active response.",
+                "At most one plan may use causal_visibility=indirect; it must still show specific source-bound evidence of the cause and a readable protagonist consequence.",
+                "Use a different conflict_delivery in every plan, such as direct event, spatial opposition, reflection, embedded typography, environmental trace, or another story-specific solution; these are examples, not a fixed template.",
+            ])
+        if profile_version.casefold().startswith("cover-profiles.v8"):
+            plan_contract["field_rules"].update({
+                "frozen_action": "one physically possible captured beat, one primary action per person; before/after are context, not extra simultaneous actions; describe the actor's intention and motivated response rather than a symbolic pose",
+                "gaze_graph": "each visible person has one visible target of attention at this instant; distinguish listening, avoidance, concern or divided loyalty through supported eyelines, not everybody staring at camera or exchanging identical glares",
+                "blocking": "natural weight distribution, balance, shoulder/hip orientation, relaxed joints and believable hand/prop contact; preserve story hierarchy without mandatory foreground/background or arranging every person and object for frontal display",
+                "depth_plan": "physically coherent focus falloff; focal face and essential causal gesture remain legible while secondary detail resolves naturally, not identical pore-level sharpness on every face, hand, fabric and prop",
+                "art_style": "live-action photographic campaign still with unselfconscious actor behavior; premium composition without beauty-ad skin, exaggerated wrinkles, showroom perfection or synthetic rim outlines",
+            })
         plan_contract["field_rules"].update({
             "causal_visibility": "exactly direct or indirect; direct means the source of pressure itself is visually readable, not merely inferred from sadness",
             "conflict_delivery": "one concise, plan-specific description of how cause and consequence share the visual reading path; unique across the portfolio",

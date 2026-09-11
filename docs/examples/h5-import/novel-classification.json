@@ -1,0 +1,72 @@
+{
+  "audience": {
+    "age_band": "midlife",
+    "channel": "female"
+  },
+  "catalog_version": "novel-types.2026-09",
+  "classification_id": "classification:a510e3c635cd991a0f0bdee934d282dc297e50a21bd5abde5c0f9096dc96992f",
+  "commercial_tier": "core",
+  "confidence": 0.9,
+  "display_labels": {
+    "en-US": {
+      "primary_genre": "Women's Fiction",
+      "secondary_genres": [
+        "Family Drama"
+      ],
+      "settings": [
+        "Family / Domestic"
+      ],
+      "story_types": [
+        "Revenge",
+        "Domestic Betrayal"
+      ],
+      "tones": [
+        "Angst"
+      ]
+    },
+    "zh-CN": {
+      "primary_genre": "女性小说",
+      "secondary_genres": [
+        "家庭"
+      ],
+      "settings": [
+        "家庭生活"
+      ],
+      "story_types": [
+        "复仇",
+        "家庭背叛"
+      ],
+      "tones": [
+        "虐心"
+      ]
+    }
+  },
+  "filter_type_ids": [
+    "womens_fiction",
+    "family_drama",
+    "revenge",
+    "domestic_betrayal",
+    "angst",
+    "family_domestic"
+  ],
+  "length": {
+    "chapter_band": "chapters_51_100",
+    "form": "long"
+  },
+  "primary_genre_id": "womens_fiction",
+  "schema_version": "novel-classification.v1",
+  "secondary_genre_ids": [
+    "family_drama"
+  ],
+  "setting_ids": [
+    "family_domestic"
+  ],
+  "source": "engine_inferred",
+  "story_type_ids": [
+    "revenge",
+    "domestic_betrayal"
+  ],
+  "tone_ids": [
+    "angst"
+  ]
+}

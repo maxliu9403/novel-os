@@ -467,7 +467,7 @@ def test_generate_requires_three_buckets_and_records_all_model_provenance(tmp_pa
     assert publication_copy.generation.to_dict() == {
         "conflict_provider": "style-provider",
         "conflict_model": "style-model",
-        "conflict_prompt_version": "whole-book-conflict.v2",
+        "conflict_prompt_version": "whole-book-conflict.v3",
         "conflict_response_sha256": hashlib.sha256(conflict_raw.encode()).hexdigest(),
         "writer_provider": "style-provider",
         "writer_model": "style-model",
@@ -475,7 +475,7 @@ def test_generate_requires_three_buckets_and_records_all_model_provenance(tmp_pa
         "writer_response_sha256": hashlib.sha256(writer_raw.encode()).hexdigest(),
         "validator_provider": "guardian-provider",
         "validator_model": "guardian-model",
-        "validator_prompt_version": "publication-copy-validator.v2",
+        "validator_prompt_version": "publication-copy-validator.v3",
         "validator_response_sha256": _provenance_hash(
             preflight_raw, guardian_raw
         ),
@@ -724,7 +724,7 @@ def test_semantic_failure_repairs_at_most_twice_without_regenerating_conflict(tm
     publication_copy = _generate(tmp_path, writer, guardian)
 
     assert publication_copy.validation.status == "pass"
-    assert writer.prompt_versions.count("whole-book-conflict.v2") == 1
+    assert writer.prompt_versions.count("whole-book-conflict.v3") == 1
     assert writer.prompt_versions.count("publication-copy-writer.v2") == 3
     feedback = sorted(
         (tmp_path / "outputs/runs/run-001/feedback").glob(
@@ -789,7 +789,7 @@ def test_deterministic_failure_is_repaired_before_guardian_is_called(tmp_path):
     _generate(tmp_path, writer, guardian)
 
     assert len(guardian.calls) == 2
-    assert guardian.prompt_versions[0] == "publication-copy-validator.v2"
+    assert guardian.prompt_versions[0] == "publication-copy-validator.v3"
     feedback = (
         tmp_path
         / "outputs/runs/run-001/feedback/publication-copy-attempt-00.raw"
@@ -862,7 +862,7 @@ def test_invalid_json_blocks_preserves_existing_artifact_and_writes_raw_feedback
     guardian = FakeClient([], provider="guardian-provider", model="guardian-model")
 
     with pytest.raises(PublicationCopyBlocked, match="JSON"):
-        _generate(tmp_path, writer, guardian)
+        _generate(tmp_path, writer, guardian, max_repairs=0)
 
     assert artifact.read_bytes() == b"previous-authoritative-artifact\n"
     assert (
@@ -1029,7 +1029,7 @@ def test_feedback_reentry_allocates_new_numbers_without_overwriting_prior_raw(tm
     )
     guardian = FakeClient([], provider="guardian-provider", model="guardian-model")
     with pytest.raises(PublicationCopyBlocked):
-        _generate(tmp_path, first_writer, guardian)
+        _generate(tmp_path, first_writer, guardian, max_repairs=0)
 
     second_writer = FakeClient(
         ["second invalid conflict"],
@@ -1037,7 +1037,7 @@ def test_feedback_reentry_allocates_new_numbers_without_overwriting_prior_raw(tm
         model="style-model",
     )
     with pytest.raises(PublicationCopyBlocked):
-        _generate(tmp_path, second_writer, guardian)
+        _generate(tmp_path, second_writer, guardian, max_repairs=0)
 
     feedback = tmp_path / "outputs/runs/run-001/feedback"
     assert (feedback / "publication-copy-attempt-00.raw").read_text() == (
@@ -1083,7 +1083,7 @@ def test_long_source_consolidates_different_fragments_and_emits_bound_evidence_l
     publication_copy = _generate(tmp_path, writer, guardian, source=source)
 
     assert publication_copy.whole_book_core_conflict.to_dict() == _long_conflict()
-    assert writer.prompt_versions.count("whole-book-conflict.v2") == 3
+    assert writer.prompt_versions.count("whole-book-conflict.v3") == 3
     assert writer.prompt_versions[-1] == "publication-copy-writer.v2"
     assert len(guardian.calls) == 4
     assert "group_reports" in guardian.calls[-1][1]
@@ -1139,6 +1139,239 @@ def test_long_source_final_guardian_coverage_rejects_claims_omitted_by_all_group
 
     assert len(guardian.calls) == 4
     assert not (tmp_path / "outputs/publication/publication-copy.json").exists()
+
+
+@pytest.mark.parametrize("fault", [
+    "bucket", "revision_id", "sha256", "invalid_json", "missing_quote",
+    "empty_bucket", "wrong_bucket", "invented_quote", "quote_not_in_ledger",
+])
+def test_conflict_consolidation_repairs_schema_and_evidence_without_reextracting(tmp_path, fault):
+    fragments = [_raw(value) for value in _long_conflict_fragments()]
+    invalid = _long_conflict()
+    item = invalid["evidence"]["opening"][0]
+    if fault in {"bucket", "revision_id", "sha256"}:
+        item[fault] = "opening" if fault == "bucket" else "a" * 64
+    elif fault == "missing_quote":
+        del item["source_quote"]
+    elif fault == "empty_bucket":
+        invalid["evidence"]["opening"] = []
+    elif fault == "wrong_bucket":
+        invalid["evidence"]["opening"], invalid["evidence"]["late"] = (
+            invalid["evidence"]["late"], invalid["evidence"]["opening"],
+        )
+    elif fault == "invented_quote":
+        item["source_quote"] = "An event absent from the novel."
+    elif fault == "quote_not_in_ledger":
+        # Still an exact Final substring, but not one of the extracted quotes.
+        item["source_quote"] = "hides it from her family"
+    invalid_raw = "not JSON" if fault == "invalid_json" else _raw(invalid)
+    corrected_raw = _raw(_long_conflict())
+    writer = FakeClient(
+        [*fragments, invalid_raw, corrected_raw, _raw(_writer_candidate())],
+        provider="style-provider", model="style-model",
+    )
+    guardian = FakeClient(
+        [_raw(_preflight_pass()), _raw(_guardian_pass()),
+         _raw(_guardian_report(claim_evidence=[])), _raw(_guardian_pass())],
+        provider="guardian-provider", model="guardian-model",
+    )
+
+    publication = _generate(tmp_path, writer, guardian, source=_long_source_set())
+
+    assert publication.whole_book_core_conflict.to_dict() == _long_conflict()
+    assert len(writer.calls) == 5  # Two groups, failed merge, repaired merge, copy.
+    assert len(guardian.calls) == 4
+    assert "Validation error:" in writer.calls[3][1]
+    assert invalid_raw in writer.calls[3][1]
+    assert writer.calls[2][1] in writer.calls[3][1]
+    assert "exactly chapter and source_quote" in writer.calls[3][0]
+    assert "allowed_output_evidence" in writer.calls[2][1]
+    assert publication.generation.conflict_response_sha256 == _provenance_hash(
+        *fragments, invalid_raw, corrected_raw,
+    )
+
+
+@pytest.mark.parametrize("field", ["bucket", "revision_id", "sha256"])
+def test_conflict_extraction_repairs_ledger_fields_instead_of_pausing(tmp_path, field):
+    invalid = _conflict()
+    invalid["evidence"]["opening"][0][field] = "extra metadata"
+    invalid_raw = _raw(invalid)
+    corrected_raw = _raw(_conflict())
+    writer = FakeClient(
+        [invalid_raw, corrected_raw, _raw(_writer_candidate())],
+        provider="style-provider", model="style-model",
+    )
+    guardian = FakeClient(
+        [_raw(_preflight_pass()), _raw(_guardian_pass())],
+        provider="guardian-provider", model="guardian-model",
+    )
+
+    publication = _generate(tmp_path, writer, guardian)
+
+    assert publication.whole_book_core_conflict.to_dict() == _conflict()
+    assert len(writer.calls) == 3
+    assert f"unknown conflict evidence quote field: {field}" in writer.calls[1][1]
+    assert publication.generation.conflict_response_sha256 == _provenance_hash(
+        invalid_raw, corrected_raw,
+    )
+
+
+@pytest.mark.parametrize("stage", ["extraction", "consolidation"])
+@pytest.mark.parametrize("max_repairs", [0, 1, 2])
+def test_conflict_contract_repair_is_bounded_and_preserves_all_raw(tmp_path, stage, max_repairs):
+    fragments = [_raw(value) for value in _long_conflict_fragments()]
+    # Fail in the second group to ensure the first group's provenance survives.
+    prefix = fragments[:1] if stage == "extraction" else fragments
+    invalid = _long_conflict_fragments()[1] if stage == "extraction" else _long_conflict()
+    invalid["evidence"]["late"][0]["bucket"] = "late"
+    invalid_raw = _raw(invalid)
+    writer = FakeClient(
+        [*prefix, *([invalid_raw] * (max_repairs + 1)), "unused response"],
+        provider="style-provider", model="style-model",
+    )
+    guardian = FakeClient([], provider="guardian-provider", model="guardian-model")
+
+    with pytest.raises(PublicationCopyBlocked, match=rf"repair attempts exhausted \({max_repairs}\)"):
+        _generate(tmp_path, writer, guardian, source=_long_source_set(), max_repairs=max_repairs)
+
+    assert writer.responses == ["unused response"]
+    assert guardian.calls == []
+    assert not (tmp_path / "outputs/publication/publication-copy.json").exists()
+    raw_paths = list((tmp_path / "outputs/runs/run-001/feedback").glob("*.raw"))
+    assert len(raw_paths) == 1
+    body = raw_paths[0].read_text()
+    assert all(raw in body for raw in prefix)
+    assert body.count(invalid_raw) == max_repairs + 1
+    assert Path(str(raw_paths[0]) + ".sha256").read_text().strip() == hashlib.sha256(body.encode()).hexdigest()
+
+
+@pytest.mark.parametrize("max_repairs", [1, 2])
+def test_conflict_consolidation_schema_and_quote_repair_share_budget(tmp_path, max_repairs):
+    invalid = _long_conflict()
+    invalid["evidence"]["late"][0]["source_quote"] = "invented quote"
+    prefix = [_raw(value) for value in _long_conflict_fragments()]
+    responses = [*prefix, "invalid JSON", _raw(invalid), _raw(_long_conflict())]
+    writer = FakeClient(responses, provider="style-provider", model="style-model")
+    service = PublicationCopyService(writer, None, max_repairs=max_repairs)
+    if max_repairs == 1:
+        with pytest.raises(ValueError, match=r"repair attempts exhausted \(1\)"):
+            service._extract_conflict(_long_source_set(), {})
+        assert writer.responses == [responses[-1]]
+    else:
+        conflict, raw_responses, _ = service._extract_conflict(_long_source_set(), {})
+        assert conflict.to_dict() == _long_conflict()
+        assert raw_responses == responses
+        assert writer.responses == []
+
+
+@pytest.mark.parametrize("fault", ["omitted_quote", "extra_quote", "shortened_quote", "wrong_chapter"])
+def test_long_source_repairs_final_coverage_without_regenerating_groups(tmp_path, fault):
+    source = _long_source_set()
+    fragments = _long_conflict_fragments()
+    writer = FakeClient(
+        [*[_raw(fragment) for fragment in fragments], _raw(_long_conflict()), _raw(_writer_candidate())],
+        provider="style-provider", model="style-model",
+    )
+    claims = [
+        {"claim": "Adrian freezes the account.", "chapter": 2, "source_quote": "Adrian freezes the family account"},
+        {"claim": "The home remains at risk.", "chapter": 4, "source_quote": "the family home remains at risk"},
+    ]
+    invalid_claims = [dict(item) for item in claims]
+    if fault == "omitted_quote":
+        invalid_claims.pop()
+    elif fault == "extra_quote":
+        invalid_claims.append({"claim": "Mara acts.", "chapter": 2, "source_quote": "Mara files her appeal"})
+    elif fault == "shortened_quote":
+        invalid_claims[0]["source_quote"] = "freezes the family account"
+    else:
+        invalid_claims[0]["chapter"] = 3
+    group_raws = [_raw(_guardian_report(claim_evidence=[])), _raw(_guardian_report(claim_evidence=claims))]
+    invalid_raw = _raw(_guardian_report(claim_evidence=invalid_claims))
+    corrected_raw = _raw(_guardian_report(claim_evidence=claims))
+    preflight_raw = _raw(_preflight_pass())
+    guardian = FakeClient(
+        [preflight_raw, *group_raws, invalid_raw, corrected_raw],
+        provider="guardian-provider", model="guardian-model",
+    )
+
+    publication = _generate(tmp_path, writer, guardian, source=source)
+
+    assert publication.validation.status == "pass"
+    assert [item.to_dict() for item in publication.validation.claim_evidence] == claims
+    assert len(writer.calls) == 4  # No repeated conflict extraction or copywriting.
+    assert len(guardian.calls) == 5  # Only the final merge is retried.
+    assert "source-group evidence" in guardian.calls[-1][1]
+    assert publication.generation.validator_response_sha256 == _provenance_hash(
+        preflight_raw, *group_raws, invalid_raw, corrected_raw,
+    )
+    assert "required_claim_evidence" in guardian.calls[-1][1]
+    assert "coverage_difference=" in guardian.calls[-1][1]
+    context_paths = list((tmp_path / "outputs/runs/run-001/feedback").glob("guardian-coverage-context-*.json"))
+    assert len(context_paths) == 1
+    context = json.loads(context_paths[0].read_bytes())
+    assert context["required_claim_evidence"] == claims
+    assert context["group_reports"] == [json.loads(raw) for raw in group_raws]
+    assert context["candidate"] == _writer_candidate()
+    assert context_paths[0].stem.endswith(hashlib.sha256(context_paths[0].read_bytes()).hexdigest())
+
+
+@pytest.mark.parametrize("max_repairs", [0, 1, 2])
+def test_final_coverage_repairs_are_bounded_and_never_publish_mismatched_evidence(tmp_path, max_repairs):
+    fragments = _long_conflict_fragments()
+    writer = FakeClient(
+        [*[_raw(fragment) for fragment in fragments], _raw(_long_conflict()), _raw(_writer_candidate())],
+        provider="style-provider", model="style-model",
+    )
+    claims = [
+        {"claim": "Adrian freezes the account.", "chapter": 2, "source_quote": "Adrian freezes the family account"},
+        {"claim": "The home remains at risk.", "chapter": 4, "source_quote": "the family home remains at risk"},
+    ]
+    invalid_raw = _raw(_guardian_report(claim_evidence=claims[:1]))
+    corrected_raw = _raw(_guardian_report(claim_evidence=claims))
+    guardian = FakeClient(
+        [_raw(_preflight_pass()), _raw(_guardian_report(claim_evidence=[])), corrected_raw,
+         *([invalid_raw] * (max_repairs + 1)), corrected_raw],
+        provider="guardian-provider", model="guardian-model",
+    )
+
+    with pytest.raises(PublicationCopyBlocked, match=rf"repair attempts exhausted \({max_repairs}\)"):
+        _generate(tmp_path, writer, guardian, source=_long_source_set(), max_repairs=max_repairs)
+
+    assert len(guardian.calls) == 4 + max_repairs
+    assert len(writer.calls) == 4
+    assert guardian.responses == [corrected_raw]
+    assert not (tmp_path / "outputs/publication/publication-copy.json").exists()
+    feedback = tmp_path / "outputs/runs/run-001/feedback"
+    raw_paths = sorted(feedback.glob("publication-copy-attempt-*.raw"))
+    assert len(raw_paths) == max_repairs + 1
+    assert all(path.read_text() == invalid_raw for path in raw_paths)
+    assert len(list(feedback.glob("guardian-coverage-context-*.json"))) == 1
+
+
+def test_schema_and_coverage_repair_share_one_budget(tmp_path):
+    fragments = _long_conflict_fragments()
+    writer = FakeClient(
+        [*[_raw(fragment) for fragment in fragments], _raw(_long_conflict()), _raw(_writer_candidate())],
+        provider="style-provider", model="style-model",
+    )
+    claims = [
+        {"claim": "Adrian freezes the account.", "chapter": 2, "source_quote": "Adrian freezes the family account"},
+        {"claim": "The home remains at risk.", "chapter": 4, "source_quote": "the family home remains at risk"},
+    ]
+    corrected_raw = _raw(_guardian_report(claim_evidence=claims))
+    wrong_schema = _guardian_report(claim_evidence=claims)
+    wrong_schema["reader_pull"]["extra_rubric"] = True
+    responses = [
+        _raw(_preflight_pass()), _raw(_guardian_report(claim_evidence=[])), corrected_raw,
+        _raw(wrong_schema), _raw(_guardian_report(claim_evidence=claims[:1])), corrected_raw,
+    ]
+    guardian = FakeClient(list(responses), provider="guardian-provider", model="guardian-model")
+
+    publication = _generate(tmp_path, writer, guardian, source=_long_source_set(), max_repairs=2)
+
+    assert publication.validation.status == "pass"
+    assert len(guardian.calls) == 6
+    assert publication.generation.validator_response_sha256 == _provenance_hash(*responses)
 
 
 def test_long_source_final_guardian_coverage_rejects_invented_group_evidence(

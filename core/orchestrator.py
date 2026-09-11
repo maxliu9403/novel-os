@@ -56,6 +56,17 @@ from commercial_quality import (
     write_commercial_report,
 )
 from story_foundation import apply_story_foundation
+from narrative_format import (
+    NarrativeFormat,
+    bind_foundation_serialization,
+    chapter_binding,
+    infer_narrative_format,
+    obligations_for_chapter,
+    validate_volume_contracts,
+    volume_contract_template,
+)
+from novel_classification import classification_from_metadata
+from long_form_quality import evaluate_foundation_plan, write_report as write_long_form_report
 
 
 class NovelOrchestrator:
@@ -476,6 +487,59 @@ class NovelOrchestrator:
             if brief_path.exists()
             else {}
         )
+        try:
+            if "narrative_format" in brief_data:
+                narrative_format = NarrativeFormat.from_dict(
+                    brief_data["narrative_format"]
+                )
+            else:
+                narrative_format = infer_narrative_format(
+                    classification_from_metadata(self.state.metadata),
+                    chapters=num_chapters,
+                    target_words=target_words,
+                    premise=str(self.state.story_bible.get("premise") or ""),
+                    explicit_length=True,
+                    source="author_selected",
+                )
+                self.state.set_metadata(
+                    "narrative_format", narrative_format.to_dict()
+                )
+                self.state.update_story_bible(
+                    "narrative_format", narrative_format.to_dict()
+                )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"structured brief narrative format is invalid: {exc}") from exc
+        if (
+            narrative_format.total_chapters != num_chapters
+            or narrative_format.target_words != target_words
+        ):
+            if narrative_format.confirmation_status != "pending_confirmation":
+                raise ValueError("run targets diverge from the narrative format contract")
+            narrative_format = infer_narrative_format(
+                classification_from_metadata(self.state.metadata),
+                chapters=num_chapters,
+                target_words=target_words,
+                premise=str(self.state.story_bible.get("premise") or ""),
+                raw_prompt=raw_prompt,
+                explicit_length=True,
+                source="author_selected",
+            )
+            brief_data["target_chapters"] = num_chapters
+            brief_data["target_words"] = target_words
+            brief_data["narrative_format"] = narrative_format.to_dict()
+            self.state.set_metadata("narrative_format", narrative_format.to_dict())
+            self.state.update_story_bible(
+                "narrative_format", narrative_format.to_dict()
+            )
+        canonical_narrative_format = json.dumps(
+            narrative_format.to_dict(), ensure_ascii=False, sort_keys=True, indent=2
+        )
+        volume_contract_scaffold = json.dumps(
+            volume_contract_template(narrative_format),
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        )
         approved_commercial_story = None
         if brief_data.get("commercial_story_contract") is not None:
             approved_commercial_story = CommercialStoryContract.from_dict(
@@ -525,6 +589,26 @@ authoritative plan that every later chapter outline must follow.
 {brief}
 ```
 
+The structured brief's `classification` object is the locked Novel OS type
+contract. Build the causal story engine so every selected `story_type_id` is
+materially visible in the premise, escalating decisions, climax, and ending.
+Apply every `classification_design_requirements` item. Keep the canonical ids
+unchanged and avoid inventing replacement categories.
+
+The `narrative_format` object records the customer's length decision. Its mode,
+chapter count, series identity, volume count, boundaries, and structural roles
+are immutable. Its suitability score is advisory and must not replace the
+customer's confirmed choice.
+
+## Confirmed Narrative Format
+```json
+{canonical_narrative_format}
+```
+
+For every long-form volume, design a distinct conflict engine, promise,
+protagonist shift, climax, payoff, and carryover consequence. Expanding the
+same misunderstanding or confrontation across multiple volumes is invalid.
+
 ## Author's Original Prompt
 ```markdown
 {raw_prompt or '[No source prompt was saved; use StoryState metadata.]'}
@@ -567,6 +651,8 @@ Before the Markdown analysis, emit exactly one JSON object inside these tags:
       "type": "main", "priority": 5, "resolution_chapter": {num_chapters}
     }}
   ],
+  "narrative_format": {canonical_narrative_format},
+  "volume_contracts": {volume_contract_scaffold},
   "ending_contract": {{
     "schema_version": 1, "enforce": true,
     "finale_window": {{"start_chapter": {max(1, num_chapters - 4)}, "end_chapter": {num_chapters}}},
@@ -625,7 +711,18 @@ genre-appropriate assumptions rather than asking questions.
                     result,
                     num_chapters,
                     approved_commercial_story,
+                    narrative_format,
                 )
+                long_form_report = evaluate_foundation_plan(foundation)
+                write_long_form_report(self.project_path, long_form_report)
+                if long_form_report.status == "blocked":
+                    details = "; ".join(
+                        item.message for item in long_form_report.blockers
+                    )
+                    raise ValueError(
+                        "long-form plan quality gate blocked: "
+                        + (details or "volume architecture is incomplete")
+                    )
                 foundation_path = self.outputs_dir / "input" / "foundation.json"
                 foundation_path.parent.mkdir(parents=True, exist_ok=True)
                 foundation_path.write_text(
@@ -658,6 +755,7 @@ genre-appropriate assumptions rather than asking questions.
         text: str,
         num_chapters: int,
         approved_commercial_story: CommercialStoryContract | None = None,
+        narrative_format: NarrativeFormat | None = None,
     ) -> Dict[str, Any]:
         match = re.search(
             r"\[STORY_FOUNDATION_JSON\]\s*(\{.*?\})\s*\[/STORY_FOUNDATION_JSON\]",
@@ -703,6 +801,8 @@ genre-appropriate assumptions rather than asking questions.
             raise ValueError(
                 "story foundation cannot activate an unapproved commercial story contract"
             )
+        if narrative_format is not None:
+            data = bind_foundation_serialization(data, narrative_format)
         ending = data.get("ending_contract")
         if ending is not None:
             if not isinstance(ending, dict):
@@ -891,6 +991,35 @@ genre-appropriate assumptions rather than asking questions.
                 f"{raw.get('description') or '[Not specified]'}"
             )
 
+        narrative = foundation.get("narrative_format") or {}
+        if isinstance(narrative, dict):
+            lines.extend([
+                "",
+                "## Narrative Format",
+                f"- Mode: {narrative.get('mode') or '[Not specified]'}",
+                f"- Customer decision: {narrative.get('selection_source') or '[Not specified]'} / "
+                f"{narrative.get('confirmation_status') or '[Not specified]'}",
+                f"- Chapters: {narrative.get('total_chapters') or '[Not specified]'}",
+                f"- Volumes: {narrative.get('volume_count') or '[Not specified]'}",
+                f"- Long-form suitability: "
+                f"{(narrative.get('long_form_suitability') or {}).get('score', '[Not scored]')}",
+            ])
+        volumes = foundation.get("volume_contracts") or []
+        if volumes:
+            lines.extend(["", "## Volume Contracts"])
+            for raw in volumes:
+                lines.extend([
+                    f"### Volume {raw.get('volume_number')}: {raw.get('title')}",
+                    f"- Chapters: {raw.get('chapter_start')}-{raw.get('chapter_end')}",
+                    f"- Central conflict: {raw.get('central_conflict')}",
+                    f"- Reader promise: {raw.get('volume_promise')}",
+                    f"- Protagonist shift: {raw.get('protagonist_shift')}",
+                    f"- Climax: chapter {raw.get('climax_chapter')}",
+                    f"- Payoff: {raw.get('payoff')}",
+                    f"- Carryover: {raw.get('carryover_hook') or '[Book closure]'}",
+                    "",
+                ])
+
         ending = foundation.get("ending_contract")
         if isinstance(ending, dict):
             window = ending.get("finale_window") or {}
@@ -1037,6 +1166,7 @@ genre-appropriate assumptions rather than asking questions.
         )
 
         ending_context = self._ending_contract_context(chapter.number)
+        serialization_context = self._narrative_chapter_context(chapter.number)
         commercial_contract = None
         commercial_payload = self.state.story_bible.get("commercial_story_contract")
         if commercial_payload is not None:
@@ -1064,6 +1194,7 @@ later expand into prose. This is a PLANNING artifact.
 
 {pack_md}
 {ending_context}
+{serialization_context}
 ## Required Output Format
 
 Return ONLY the outline, in this Markdown structure do NOT write any prose,
@@ -1092,7 +1223,14 @@ dialogue, or narrative paragraphs:
 
 Write the beat-sheet now. Outline only no prose.
 """
-        if self.quality_policy == "evidence_v1":
+        format_payload = self.state.metadata.get("narrative_format")
+        long_form = False
+        if isinstance(format_payload, dict):
+            try:
+                long_form = NarrativeFormat.from_dict(format_payload).is_long_form
+            except (KeyError, TypeError, ValueError):
+                long_form = False
+        if self.quality_policy == "evidence_v1" or long_form:
             if commercial_contract is not None:
                 commercial = commercial_contract
                 design_context = self._commercial_chapter_design_context(
@@ -1187,6 +1325,54 @@ After the Markdown outline, emit exactly one JSON object inside these tags:
                     1,
                 )
         return prompt
+
+    def _narrative_chapter_context(self, chapter_number: int) -> str:
+        """Bind an Architect chapter plan to its book/volume obligations."""
+        payload = self.state.metadata.get("narrative_format")
+        if not isinstance(payload, dict):
+            return ""
+        try:
+            format_contract = NarrativeFormat.from_dict(payload)
+            volumes = validate_volume_contracts(
+                format_contract,
+                self.state.story_bible.get("volume_contracts"),
+                allow_legacy_defaults=True,
+            )
+            binding = chapter_binding(format_contract, chapter_number, volumes)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"stored narrative format is invalid: {exc}") from exc
+        volume = next(
+            item for item in volumes if item["volume_id"] == binding["volume_id"]
+        )
+        obligations = obligations_for_chapter(volumes, chapter_number)
+        obligation_text = (
+            "\n".join(
+                f"- `{item['event_id']}` ({item['kind']}): include this exact id "
+                "in the chapter contract's `world_event_ids` after designing the on-page event."
+                for item in obligations
+            )
+            or "- No fixed volume milestone is due in this chapter."
+        )
+        return f"""## Narrative Serialization Contract
+
+- Format: `{format_contract.mode}`
+- Volume: `{binding['volume_id']}` ({binding['volume_number']}/{len(format_contract.volumes)})
+- Chapter in volume: {binding['chapter_in_volume']}
+- Structural role: `{binding['volume_role']}`
+- Volume chapters: {volume['chapter_start']}-{volume['chapter_end']}
+- Volume title: {volume['title']}
+- Central conflict: {volume['central_conflict']}
+- Reader promise: {volume['volume_promise']}
+- Required protagonist shift: {volume['protagonist_shift']}
+- Planned payoff: {volume['payoff']}
+- Carryover consequence: {volume['carryover_hook'] or '[final volume closes the book]'}
+
+### Milestones due now
+{obligation_text}
+
+Every beat must serve this volume contract while advancing the whole-book arc.
+Do not substitute a repeated confrontation for an irreversible state change.
+"""
 
     def _commercial_chapter_design_context(self, chapter_number: int) -> str:
         """Expose persisted resource continuity and relevant gate feedback."""

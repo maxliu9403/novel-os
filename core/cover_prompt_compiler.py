@@ -8,6 +8,7 @@ from dataclasses import replace
 from typing import Sequence
 
 try:
+    from .cover_render_policy import PHOTOGRAPHIC_RENDER_CONTRACT, HUMAN_PERFORMANCE_CONTRACT, photographic_medium_issue
     from .cover_design import BookVisualIdentity, VisualEvidenceLedger
     from .cover_models_v2 import (
         COVER_REPAIR_CODES,
@@ -24,6 +25,7 @@ try:
         resolve_title_typography,
     )
 except ImportError:  # pragma: no cover - legacy CLI imports core modules top-level
+    from cover_render_policy import PHOTOGRAPHIC_RENDER_CONTRACT, HUMAN_PERFORMANCE_CONTRACT, photographic_medium_issue
     from cover_design import BookVisualIdentity, VisualEvidenceLedger
     from cover_models_v2 import (
         COVER_REPAIR_CODES,
@@ -41,7 +43,7 @@ except ImportError:  # pragma: no cover - legacy CLI imports core modules top-le
     )
 
 
-COMPILER_VERSION = "cover-compiler.v9"
+COMPILER_VERSION = "cover-compiler.v13"
 MAX_PROMPT_CODEPOINTS = 12_000
 _MARKETING_SHORTCUTS = ("viral", "high ctr", "high conversion", "click-through", "masterpiece")
 _FORBIDDEN_NEGATIONS = (
@@ -71,7 +73,7 @@ def _character_block(character: PrincipalCharacter) -> str:
         f"Appearance: {appearance}.",
         f"Wardrobe: {character.daily_wardrobe or 'approved everyday clothing'}.",
         (
-            f"Expression/action: {character.current_emotional_state or 'approved emotion'}; "
+            f"Character context: {character.current_emotional_state or 'approved emotion'}; "
             f"{character.agency_signal}."
         ),
     ]
@@ -178,6 +180,12 @@ def _validate_scene(
     if missing and not adaptive:
         raise ValueError(f"cover scene cast is missing required characters: {', '.join(sorted(missing))}")
     if adaptive:
+        medium_issue = photographic_medium_issue(scene.art_style)
+        if medium_issue:
+            raise ValueError(
+                f"cover direction requires photographic replanning: {scene.concept_id}: {medium_issue}; "
+                "create a new direction while retaining the original story and character facts"
+            )
         reader_anchor_id = brief.reader_anchor_character.character_id
         if not cast:
             raise ValueError("adaptive cover scene requires a visible principal human subject")
@@ -381,6 +389,34 @@ def _selected_evidence(
     return " | ".join(_without_title(value, brief.title) for value in values[:5])
 
 
+def _blocking_lock(scene: CoverScenePlan) -> str:
+    return (
+        f"Composition family: {scene.composition_family}. Scene family: {scene.scene_family}. "
+        f"Blocking and hierarchy: {scene.blocking}. "
+    )
+
+
+def _identity_design_lock(identity: BookVisualIdentity) -> str:
+    return (
+        f"Visual grammar: {', '.join(identity.visual_grammar)}. Spatial logic: {identity.spatial_logic}. "
+    )
+
+
+def _focal_design_lock(scene: CoverScenePlan) -> str:
+    return f"Focal strategy: {scene.focal_strategy}. Visual signature: {scene.visual_signature}. "
+
+
+def _palette_design_lock(identity: BookVisualIdentity, scene: CoverScenePlan) -> str:
+    return f"Color script for this direction: {scene.color_script}. Palette logic: {identity.palette_logic}. "
+
+
+def _camera_design_lock(identity: BookVisualIdentity, scene: CoverScenePlan) -> str:
+    return (
+        f"Chosen viewing system: {scene.shot_scale}, {scene.camera_height}, {scene.lens}. "
+        f"Direction-specific light: {scene.motivated_lighting}. Lighting logic: {identity.lighting_logic}. "
+    )
+
+
 def _adaptive_modules(
     brief: CoverBriefV2,
     scene: CoverScenePlan,
@@ -399,12 +435,9 @@ def _adaptive_modules(
     if selected_cast:
         reader_anchor = brief.reader_anchor_character
         subject_direction = (
-            f"Use exactly the approved cast above. The focal character is {scene.focal_character_id}. "
-            f"Keep {reader_anchor.name} ({reader_anchor.character_id}) as a clear, emotionally active human anchor. "
-            "Choose character scale from the design hypothesis, but keep the protagonist's face, posture, emotion, "
-            "and story action readable at mobile size rather than tiny, decorative, hidden, or anonymous. Objects, "
-            "environment, or typography may lead the concept while remaining causally connected to that action. "
-            "Every visible face, hand, clothing, age, and gesture remains clear and canon-faithful."
+            f"Use exactly this cast; focal: {scene.focal_character_id}. Keep {reader_anchor.name} a clear, emotionally active human anchor. "
+            "Face, posture and story gesture must read at mobile size. Props, space or lettering may lead the "
+            "design, but people remain recognizable and physically present. Preserve approved identities."
         )
     else:
         cast_lock = "This direction intentionally contains no visible characters."
@@ -419,15 +452,11 @@ def _adaptive_modules(
     blacklist = tuple(dict.fromkeys((*identity.cliche_blacklist, *profile.prohibited_shortcuts)))
     if conflict_contract is not None:
         conflict_contract_text = (
-            f"Conflict kind: {conflict_contract.conflict_kind}. Pressure source: "
-            f"{conflict_contract.pressure_source}. Relationship or status at stake: "
-            f"{conflict_contract.relationship_stakes}. Visible cause: "
-            f"{conflict_contract.visible_cause}. Decisive consequence: "
-            f"{conflict_contract.decisive_consequence}. Required visual signals: "
-            f"{'; '.join(conflict_contract.required_visual_signals)}. This plan communicates it through "
-            f"{scene.conflict_delivery}; causal visibility is {scene.causal_visibility}. Thumbnail story: "
-            f"{scene.conflict_read}. Cause signal: {scene.cause_signal}. Consequence signal: "
-            f"{scene.consequence_signal}. Do not reveal: {conflict_contract.spoiler_boundary}."
+            f"Conflict kind: {conflict_contract.conflict_kind}. Pressure source: {conflict_contract.pressure_source}. "
+            f"Required visual signals: {'; '.join(conflict_contract.required_visual_signals)}. "
+            f"This plan communicates it through {scene.conflict_delivery}; causal visibility is {scene.causal_visibility}. "
+            f"Thumbnail story: {scene.conflict_read}. Cause signal: {scene.cause_signal}. "
+            f"Consequence signal: {scene.consequence_signal}. Do not reveal: {conflict_contract.spoiler_boundary}."
         )
     else:
         conflict_contract_text = (
@@ -436,18 +465,14 @@ def _adaptive_modules(
         )
     modules = {
         "ROLE AND OUTPUT": (
-            "You are Image2 acting as the lead book-cover designer, not a scene-rendering operator. Produce a "
-            "finished portrait 2:3 "
-            "commercial novel cover whose visual solution could belong only to this story. Interpret the evidence "
-            f"through this direction's chosen medium: {scene.art_style}. Make expert composition, material, camera, "
-            "negative-space, color, and lettering decisions inside the canon locks below."
+            "You are Image2, the lead book-cover designer. Deliver finished portrait 2:3 film campaign key art "
+            "unique to this novel. Design camera, light, negative space, performance and title together within canon. "
+            f"Photographic treatment: {scene.art_style}."
         ),
         "BOOK VISUAL IDENTITY": (
-            f"Design thesis: {_without_title(identity.design_thesis, brief.title)}. Emotional contradiction: "
-            f"{identity.dominant_emotional_contradiction}. Story signatures: {', '.join(identity.story_signatures)}. "
-            f"Visual grammar: {', '.join(identity.visual_grammar)}. Material language: "
-            f"{', '.join(identity.material_language)}. Spatial logic: {identity.spatial_logic}. "
-            f"Uniqueness anchors: {', '.join(identity.uniqueness_anchors)}."
+            _identity_design_lock(identity) + f"Design thesis: {_without_title(identity.design_thesis, brief.title)}. Emotional contradiction: "
+            f"{identity.dominant_emotional_contradiction}. Material language: {', '.join(identity.material_language)}. "
+            f"Story signatures: {', '.join(identity.story_signatures)}. Uniqueness anchors: {', '.join(identity.uniqueness_anchors)}."
         ),
         "STORY TRUTH": (
             f"Core conflict: {brief.core_conflict}. Hero's task: {brief.core_task}. "
@@ -455,44 +480,41 @@ def _adaptive_modules(
         ),
         "CORE CONFLICT VISUAL CONTRACT": conflict_contract_text,
         "EVIDENCE ANCHORS": evidence or "Use the approved brief evidence references exactly as supplied.",
-        "CAST LOCK": f"{cast_lock}\n{identity.cast_policy} {subject_direction} Never invent identity traits.",
+        "CAST LOCK": f"{cast_lock}\n{subject_direction} Never invent identity traits.",
         "SINGLE CINEMATIC MOMENT": (
-            f"This may be a literal instant or one coherent conceptual cover, never a collage. Immediately before: "
-            f"{scene.moment_before}. Designed focal event: {scene.frozen_action}. Immediately after: {scene.moment_after}. "
-            "Show the approved protagonist physically performing or reacting within this specific story moment; "
-            "the person, setting, evidence object, and emotional consequence must read as one scene."
+            f"One coherent scene. Immediately before: {scene.moment_before}. "
+            f"Designed focal event: {scene.frozen_action}. Immediately after: {scene.moment_after}."
         ),
         "HERO SUBJECT AND CORE STORY ATMOSPHERE": (
-            f"Focal strategy: {scene.focal_strategy}. Visual signature: {scene.visual_signature}. "
-            f"First read: {scene.visual_hook.first_glance_subject}. {subject_direction} Make the core conflict and "
+            _focal_design_lock(scene)
+            + f"First read: {scene.visual_hook.first_glance_subject}. Make the core conflict and "
             "emotional contradiction legible without relying on generic sadness, glamour, or a stock genre pose. "
             f"Protagonist action visible: {scene.protagonist_action_visible}."
         ),
         "CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY": (
-            f"Composition family: {scene.composition_family}. Scene family: {scene.scene_family}. "
-            f"Design rationale: {scene.design_rationale}. Blocking and hierarchy: {scene.blocking}. "
+            _blocking_lock(scene)
+            + f"Design rationale: {scene.design_rationale}. "
             "Use the topology best suited to this concept; foreground/background causality, a dominant face, or a "
             "multi-character tableau appears only when this plan specifically calls for it."
         ),
         "RELATIONSHIP BLOCKING": (
             f"Visible attention, gesture, or reading-path logic: {gaze}. Depth and hierarchy: {scene.depth_plan}. "
             f"Approved causal characters visible in this plan: {', '.join(scene.conflict_character_ids) or 'none; use approved evidence instead'}. "
-            "Connect cause, consequence, and response through one deliberate reading path at thumbnail size."
+            "Keep one thumbnail-readable causal path."
         ),
         "LIVED ENVIRONMENT AND PRIMARY PROP": (
             f"Primary field or setting: {location}. Environment anchors: {', '.join(scene.environment_anchors)}. "
-            f"Primary story-bearing prop or intentional absence: {scene.primary_prop}. Show credible material, wear, "
-            "scale, and story function rather than decorative symbolism."
+            f"Primary story-bearing prop or intentional absence: {scene.primary_prop}. "
+            "Use credible physical materials and scale; wear only when supported by the story."
         ),
         "GENRE EMOTION": (
-            f"Genre: {brief.genre}. Target emotion: {scene.emotion_register}; "
-            f"{scene.visual_hook.target_emotion}. Palette logic: {identity.palette_logic}. "
-            f"Color script for this direction: {scene.color_script}. Avoid: {', '.join(blacklist)}."
+            _palette_design_lock(identity, scene)
+            + f"Genre: {brief.genre}. Target emotion: {scene.emotion_register}; "
+            f"{scene.visual_hook.target_emotion}. Avoid: {', '.join(blacklist)}."
         ),
         "CAMERA, DEPTH AND MOTIVATED LIGHTING": (
-            f"Chosen viewing system: {scene.shot_scale}, {scene.camera_height}, {scene.lens}. "
-            f"Lighting logic: {identity.lighting_logic}. Direction-specific light: {scene.motivated_lighting}. "
-            f"Execute {scene.art_style} consistently rather than drifting into a generic synthetic composite."
+            _camera_design_lock(identity, scene)
+            + "Control exposure and subject/background separation as finished film campaign key art, not a flat room snapshot."
         ),
         "MOBILE COMMERCIAL COVER OBJECTIVE": (
             f"At {brief.commercial_visual_goal.thumbnail_reference_width}x{brief.commercial_visual_goal.thumbnail_reference_height}, "
@@ -503,19 +525,22 @@ def _adaptive_modules(
         "TITLE AND SAFE ZONE": (
             f"Render the exact title \"{brief.title}\" exactly once in {brief.language}. No other text. "
             f"Use this title field: {title_zone}. Integrate lettering with the composition while preserving exact "
-            "spelling, word order, legibility, and clear separation from critical story evidence."
+            "spelling, word order, legibility, and clear separation from critical story evidence. "
+            "Use one continuous title lockup with one unambiguous reading path: for English, "
+            "left-to-right, then top-to-bottom. Line breaks and size contrast may vary, but never "
+            "separate clauses into competing columns or reverse them to mirror character positions."
         ),
         "TITLE ART DIRECTION": (
-            f"Book-level typography voice: {identity.typography_voice}. Direction system: "
-            f"{scene.typography_style}. Rationale: {scene.typography_rationale}. Let title semantics affect scale, "
+            f"Direction system: {scene.typography_style}. "
+            f"Book-level typography voice: {identity.typography_voice}. "
+            f"Rationale: {scene.typography_rationale}. Let title semantics affect scale, "
             "spacing, rhythm, material, or placement. Keep the result authored and readable rather than a generic "
             "centered text overlay; do not replace or distort letters."
         ),
         "MEDIUM FIDELITY REQUIREMENTS": (
-            f"Medium fidelity requirement: execute {scene.art_style} with professional publishing craft. "
-            "For photography, preserve natural skin, anatomy, lens behavior, light, and contact. For illustration, "
-            "graphic, object-led, or typographic work, preserve intentional edges, materials, perspective, print "
-            "texture, and coherent human anatomy wherever people appear."
+            f"Photographic fidelity requirement: execute {scene.art_style} with professional publishing craft. "
+            "Preserve natural skin, anatomy, lens behavior, material detail, motivated light and physical contact. "
+            "Objects and lettering support live human action; never turn the people into painted or sculpted figures."
         ),
         "COMPACT FAILURE EXCLUSIONS": (
             "Exclude duplicated or merged people, anatomy errors, age mismatch, impossible perspective, floating "
@@ -539,18 +564,26 @@ def _modules(
     conflict_contract: CoreConflictVisualContract | None = None,
 ) -> dict[str, str]:
     if scene.focal_strategy:
-        return _adaptive_modules(
+        modules = _adaptive_modules(
             brief, scene, visual_identity=visual_identity, evidence_ledger=evidence_ledger,
             conflict_contract=conflict_contract,
         )
-    return _legacy_modules(brief, scene)
+    else:
+        modules = _legacy_modules(brief, scene)
+    return {
+        "PHOTOGRAPHIC RENDER CONTRACT": PHOTOGRAPHIC_RENDER_CONTRACT,
+        "HUMAN PERFORMANCE CONTRACT": HUMAN_PERFORMANCE_CONTRACT,
+        **modules,
+    }
 
 
 def _render(modules: dict[str, str]) -> str:
     return "\n\n".join(f"{name}\n{body}" for name, body in modules.items())
 
 
-_ADAPTIVE_MODULE_BUDGETS = {
+# Soft body allocations, not independent maxima: headings, separators, story
+# locks and repair suffixes are reserved by the shared global fitter below.
+_MODULE_BODY_BUDGETS = {
     "ROLE AND OUTPUT": 550,
     "BOOK VISUAL IDENTITY": 850,
     "STORY TRUTH": 600,
@@ -573,16 +606,102 @@ _ADAPTIVE_MODULE_BUDGETS = {
 }
 
 
-def _compact_adaptive_modules(modules: dict[str, str]) -> dict[str, str]:
-    compacted: dict[str, str] = {}
-    for name, body in modules.items():
-        limit = _ADAPTIVE_MODULE_BUDGETS.get(name, 600)
-        if len(body) <= limit:
-            compacted[name] = body
-            continue
-        clipped = body[:limit].rsplit(" ", 1)[0].rstrip(" ,;:")
-        compacted[name] = f"{clipped}."
-    return compacted
+def _clip_explanation(text: str, limit: int) -> str:
+    """Bound optional prose, including punctuation, using Unicode code points."""
+    if len(text) <= limit:
+        return text
+    if limit <= 0:
+        return ""
+    head = text[:limit - 1]
+    boundary = head.rfind(" ")
+    if boundary >= len(head) * 0.8:
+        head = head[:boundary]
+    return head.rstrip(" ,;:") + "…"
+
+
+def _content_locks(
+    modules: dict[str, str], brief: CoverBriefV2, scene: CoverScenePlan,
+) -> dict[str, str]:
+    # Never cut away a cast member, an exact title, a cause/consequence signal,
+    # the depicted action, the primary prop, or a spoiler exclusion to save space.
+    whole = {
+        "PHOTOGRAPHIC RENDER CONTRACT", "HUMAN PERFORMANCE CONTRACT",
+        "ROLE AND OUTPUT", "CAST LOCK", "CORE CONFLICT VISUAL CONTRACT",
+        "SINGLE CINEMATIC MOMENT", "RELATIONSHIP BLOCKING",
+        "LIVED ENVIRONMENT AND PRIMARY PROP", "TITLE AND SAFE ZONE",
+        "COMPACT FAILURE EXCLUSIONS",
+    }
+    locks = {name: body for name, body in modules.items() if name in whole}
+    prefixes = {"STORY TRUTH": f"Core conflict: {brief.core_conflict}. "}
+    if scene.focal_strategy:
+        prefixes.update({
+            "CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY": _blocking_lock(scene),
+            "TITLE ART DIRECTION": f"Direction system: {scene.typography_style}. ",
+            "HERO SUBJECT AND CORE STORY ATMOSPHERE": _focal_design_lock(scene),
+        })
+        # These boundaries are compiler-owned labels, after all executable fields.
+        for name, boundary in (
+            ("BOOK VISUAL IDENTITY", "Design thesis: "),
+            ("GENRE EMOTION", "Genre: "),
+            ("CAMERA, DEPTH AND MOTIVATED LIGHTING", "Control exposure and subject/background separation"),
+        ):
+            body = modules.get(name, "")
+            # Legacy layouts are kept whole; repairs rebuild old compilers below.
+            prefixes[name] = body.rpartition(boundary)[0] if boundary in body else body
+    for name, prefix in prefixes.items():
+        if name in modules:
+            if scene.focal_strategy:
+                prefix = _without_title(prefix, brief.title)
+            # Historical module layouts remain intact instead of guessing where
+            # their required fields end.
+            locks[name] = prefix if modules[name].startswith(prefix) else modules[name]
+    return locks
+
+
+def _fit_prompt_modules(
+    modules: dict[str, str], brief: CoverBriefV2, scene: CoverScenePlan,
+    *, suffixes: dict[str, str] | None = None,
+) -> dict[str, str]:
+    suffixes = suffixes or {}
+    rendered = {name: body + suffixes.get(name, "") for name, body in modules.items()}
+    if len(_render(rendered)) <= MAX_PROMPT_CODEPOINTS:
+        return rendered
+    locks = _content_locks(modules, brief, scene)
+    tails = {name: body[len(locks.get(name, "")):] for name, body in modules.items()}
+    # Reserve some explanatory content in every unlocked module. The rest is
+    # allocated proportionally, with exact integer accounting across the prompt.
+    minima = {name: min(80, len(tail)) if not locks.get(name) else 0
+              for name, tail in tails.items()}
+    overhead = len(_render({name: "" for name in modules}))
+    required = overhead + sum(
+        len(locks.get(name, "")) + len(suffixes.get(name, "")) + minima[name]
+        for name in modules
+    )
+    if required > MAX_PROMPT_CODEPOINTS:
+        raise ValueError(
+            f"cover prompt protected story content and visual design require {required} Unicode code points; "
+            f"limit is {MAX_PROMPT_CODEPOINTS}; shorten the approved title, cast, scene or visual contract"
+        )
+    demands = {
+        name: max(0, min(len(tail), _MODULE_BODY_BUDGETS.get(name, 600)
+                         - len(locks.get(name, ""))) - minima[name])
+        for name, tail in tails.items()
+    }
+    remaining = min(MAX_PROMPT_CODEPOINTS - required, sum(demands.values()))
+    total = sum(demands.values())
+    allocations = {name: demand * remaining // total if total else 0
+                   for name, demand in demands.items()}
+    leftover = remaining - sum(allocations.values())
+    for name in modules:
+        if leftover and allocations[name] < demands[name]:
+            allocations[name] += 1
+            leftover -= 1
+    return {
+        name: locks.get(name, "")
+        + _clip_explanation(tails[name], minima[name] + allocations[name])
+        + suffixes.get(name, "")
+        for name in modules
+    }
 
 
 def _validate_prompt(text: str) -> None:
@@ -621,10 +740,8 @@ def compile_cover_prompt(
         brief, scene, visual_identity=visual_identity, evidence_ledger=evidence_ledger,
         conflict_contract=conflict_contract,
     )
+    modules = _fit_prompt_modules(modules, brief, scene)
     text = _render(modules)
-    if scene.focal_strategy and len(text) > MAX_PROMPT_CODEPOINTS:
-        modules = _compact_adaptive_modules(modules)
-        text = _render(modules)
     _validate_prompt(text)
     return CompiledCoverPrompt(text=text, compiler_version=compiler_version, modules=modules)
 
@@ -667,18 +784,23 @@ _REPAIR_MODULES = {
     "age_mismatch": ("CAST LOCK",),
     "missing_character": ("CAST LOCK", "RELATIONSHIP BLOCKING"),
     "generic_ai_face": (
+        "PHOTOGRAPHIC RENDER CONTRACT", "HUMAN PERFORMANCE CONTRACT",
         "HERO SUBJECT AND CORE STORY ATMOSPHERE",
         "PHOTOREALISM REQUIREMENTS",
         "MEDIUM FIDELITY REQUIREMENTS",
         "CAMERA, DEPTH AND MOTIVATED LIGHTING",
     ),
     "weak_story_action": (
+        "HUMAN PERFORMANCE CONTRACT",
         "SINGLE CINEMATIC MOMENT",
         "HERO SUBJECT AND CORE STORY ATMOSPHERE",
         "CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY",
         "EVIDENCE ANCHORS",
     ),
-    "genre_drift": ("BOOK VISUAL IDENTITY", "GENRE EMOTION"),
+    "genre_drift": (
+        "PHOTOGRAPHIC RENDER CONTRACT", "MEDIUM FIDELITY REQUIREMENTS",
+        "PHOTOREALISM REQUIREMENTS", "BOOK VISUAL IDENTITY", "GENRE EMOTION",
+    ),
     "thumbnail_clutter": (
         "HERO SUBJECT AND CORE STORY ATMOSPHERE",
         "CONFLICT TABLEAU AND EMOTIONAL GEOGRAPHY",
@@ -728,15 +850,39 @@ def compile_repair_prompt(
     if unknown:
         raise ValueError(f"unknown cover repair code: {', '.join(unknown)}")
     fresh = compile_cover_prompt(
-        brief, scene, compiler_version=prior.compiler_version,
+        brief, scene,
         visual_identity=visual_identity, evidence_ledger=evidence_ledger,
         conflict_contract=conflict_contract,
     )
     modules = dict(prior.modules)
-    for code in repair_codes:
+    # Keep prior repair focus suffixes separate so fitting never clips them.
+    notes: dict[str, list[str]] = {}
+    for name, body in modules.items():
+        match = re.search(r"(?: Repair focus: [a-z ]+\.)+$", body)
+        if match:
+            notes[name] = re.findall(r" Repair focus: [a-z ]+\.", match.group())
+            modules[name] = body[:match.start()]
+    if prior.compiler_version != fresh.compiler_version:
+        modules = dict(fresh.modules)
+    for code in dict.fromkeys(repair_codes):
         for module in _REPAIR_MODULES[code]:
             if module in fresh.modules:
-                modules[module] = fresh.modules[module] + f" Repair focus: {code.replace('_', ' ')}."
+                modules[module] = fresh.modules[module]
+                note = f" Repair focus: {code.replace('_', ' ')}."
+                if note not in notes.setdefault(module, []):
+                    notes[module].append(note)
+    suffixes = {name: "".join(values) for name, values in notes.items()}
+    if len(_render({name: body + suffixes.get(name, "") for name, body in modules.items()})) > MAX_PROMPT_CODEPOINTS:
+        # Rebalance from the approved source, not repeatedly truncated output.
+        # Keep existing and newly requested repair focuses across that rebuild.
+        modules = _modules(
+            brief, scene, visual_identity=visual_identity,
+            evidence_ledger=evidence_ledger, conflict_contract=conflict_contract,
+        )
+    modules = _fit_prompt_modules(modules, brief, scene, suffixes=suffixes)
     text = _render(modules)
     _validate_prompt(text)
-    return replace(prior, text=text, revision=prior.revision + 1, modules=modules)
+    return replace(
+        prior, text=text, compiler_version=fresh.compiler_version,
+        revision=prior.revision + 1, modules=modules,
+    )

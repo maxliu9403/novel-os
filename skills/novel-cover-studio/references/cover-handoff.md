@@ -72,9 +72,29 @@ COVER_HANDOFF_END
 - Compile facts before style and reject critical assumptions, invented identity,
   unknown evidence, extra text, real landmarks, collage scenes, and prompts over
   12,000 Unicode code points before calling `gpt-image-2`.
-- New directions use `cover-profiles.v5`. They derive a source-bound core-conflict
-  visual contract, require cause and consequence in every plan, direct causal
-  visibility in at least three quarters of the portfolio, complete approved
-  pressure-character coverage in at least half, and visible protagonist action
-  in at least three quarters. These are semantic coverage rules, not a fixed
-  demand for foreground/background staging.
+- New directions use `cover-profiles.v8` and explicitly declare live-action
+  photography in `art_style`. Illustration, oil painting, relief and CGI are
+  rendering mismatches, not alternative diversity slots. Older directions remain
+  readable; create a new photographic direction rather than rewriting their hashes.
+  New directions derive a source-bound core-conflict
+  visual contract and require visible cause and consequence in every plan.
+  At least one plan shows the complete causal relationship directly and at least
+  one shows a concrete active protagonist decision. Other plans may use visible
+  evidence of pressure, not generic sadness; no fixed ensemble percentage.
+  Historical v5/v6 directions retain their original validation rules.
+- `cover-compiler.v13` protects executable lighting, color, camera, spatial
+  grammar and typography as well as story locks. It trims explanatory rationale
+  under the shared 12,000-code-point budget, never the tail of a lighting plan.
+  Repairing a historical prompt recompiles from its approved scene fields.
+  The title is one continuous readable lockup in exact word order.
+- Automated semantic correction records both attempts. A correction replaces the
+  active candidate only with complete passing story/craft scores, no known score
+  regression, and no blockers or repair codes. Otherwise retain the original and
+  add `repair_not_promoted`. This does not select a cover for publication.
+
+- V8 keeps the established JSON scene schema and flexible portfolio coverage.
+  Acting instructions belong in `frozen_action`, `gaze_graph`, `blocking` and
+  `depth_plan`; no new required schema fields. V13 protects a compact human
+  performance module through normal compilation and face/action repairs.
+  Existing approved direction facts and images remain unchanged; replan to
+  obtain newly designed performance rather than only retrying an old gesture.

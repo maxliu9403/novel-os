@@ -1,4 +1,4 @@
-"""Immutable Novel OS projections for the H5 PublicationPackage V1 contract."""
+"""Immutable Novel OS projections for the H5 PublicationPackage V3 contract."""
 
 from __future__ import annotations
 
@@ -12,18 +12,34 @@ import shutil
 import stat
 import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 try:  # Package import in tests; top-level import in the pipeline CLI.
+    from .novel_classification import NovelClassification, infer_classification
+    from .narrative_format import (
+        NarrativeFormat,
+        chapter_binding,
+        infer_narrative_format,
+        serialization_payload,
+        validate_serialization,
+    )
     from .publication_copy import PublicationCopy
     from .publication_source import (
         PublicationSourceSet,
         publication_source_input_hash,
     )
 except ImportError:  # pragma: no cover - exercised through pipeline integration
+    from novel_classification import NovelClassification, infer_classification
+    from narrative_format import (
+        NarrativeFormat,
+        chapter_binding,
+        infer_narrative_format,
+        serialization_payload,
+        validate_serialization,
+    )
     from publication_copy import PublicationCopy
     from publication_source import (
         PublicationSourceSet,
@@ -31,7 +47,7 @@ except ImportError:  # pragma: no cover - exercised through pipeline integration
     )
 
 
-H5_PUBLICATION_POLICY_VERSION = "h5-publication-v1"
+H5_PUBLICATION_POLICY_VERSION = "h5-publication-v3"
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _FINAL_CHECKS = {
@@ -47,20 +63,26 @@ _PACKAGE_FIELDS = {
     "hook_lead",
     "spoiler_free_blurb",
     "tags",
+    "classification",
+    "serialization",
     "chapters",
     "total_runes",
     "counting_policy",
     "final_checks",
     "finalization_source",
 }
-_CHAPTER_FIELDS = {"number", "title", "path", "rune_count", "body_sha256"}
+_CHAPTER_FIELDS = {
+    "number", "title", "path", "rune_count", "body_sha256",
+    "volume_id", "volume_number", "chapter_in_volume", "volume_role",
+    "series_id", "series_book_number",
+}
 _FINALIZATION_FIELDS = {"merged_manuscript_sha256", "finalized_at", "receipts"}
 _RECEIPT_FIELDS = {"chapter_number", "body_sha256", "verdict"}
 _DELIVERY_FIELDS = {"snapshot_sha256", "delivered_at"}
 
 
 class H5PublicationError(RuntimeError):
-    """An H5 V1 projection failed its immutable byte contract."""
+    """An H5 V3 projection failed its immutable byte contract."""
 
 
 @dataclass(frozen=True)
@@ -97,8 +119,10 @@ def project_h5_publication(
     title: str,
     alternate_titles: Sequence[str],
     tags: Sequence[str],
+    classification: Mapping[str, Any] | None = None,
+    serialization: Mapping[str, Any] | None = None,
 ) -> H5PublicationResult | None:
-    """Project Final chapter bytes into an immutable H5 V1 delivery root."""
+    """Project Final chapter bytes into an immutable H5 V3 delivery root."""
 
     project = Path(project).resolve()
     if not isinstance(run_id, str) or not _RUN_ID.fullmatch(run_id):
@@ -115,6 +139,43 @@ def project_h5_publication(
     primary_title = _trimmed(title, "primary title")
     alternates = _trimmed_sequence(alternate_titles, "alternate title")
     catalog_tags = _catalog_tags(tags)
+    try:
+        canonical_classification = (
+            NovelClassification.from_dict(classification)
+            if classification is not None
+            else infer_classification(
+                genre=" ".join(catalog_tags),
+                premise=str(getattr(publication_copy, "spoiler_free_blurb", "") or ""),
+                source="legacy_migration",
+            )
+        )
+    except (TypeError, ValueError) as exc:
+        raise H5PublicationError(f"novel classification is invalid: {exc}") from exc
+    try:
+        if serialization is not None:
+            canonical_serialization = validate_serialization(serialization)
+        else:
+            fallback_format = infer_narrative_format(
+                canonical_classification,
+                chapters=len(source.chapters),
+                target_words=max(
+                    len(source.chapters),
+                    sum(len(chapter.text.split()) for chapter in source.chapters),
+                ),
+                premise=str(getattr(publication_copy, "spoiler_free_blurb", "") or ""),
+                explicit_length=True,
+                source="legacy_migration",
+            )
+            canonical_serialization = serialization_payload(
+                fallback_format, None, allow_legacy_defaults=True
+            )
+        format_contract = NarrativeFormat.from_dict(
+            canonical_serialization["format"]
+        )
+        if format_contract.total_chapters != len(source.chapters):
+            raise ValueError("serialization chapter count differs from Final source")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise H5PublicationError(f"novel serialization is invalid: {exc}") from exc
     hook_lead = _trimmed(
         getattr(publication_copy, "hook_lead", None), "publication hook_lead"
     )
@@ -136,24 +197,31 @@ def project_h5_publication(
     delivered_at = _trimmed(compile_finished_at, "compile finished_at")
 
     chapter_bodies = [chapter.text.encode("utf-8") for chapter in source.chapters]
-    chapter_records = [
-        {
+    chapter_records = []
+    for chapter in source.chapters:
+        record = {
             "number": chapter.number,
             "title": chapter.title,
             "path": f"chapters/{chapter.number:02d}.md",
             "rune_count": len(chapter.text),
             "body_sha256": chapter.sha256,
         }
-        for chapter in source.chapters
-    ]
+        record.update(chapter_binding(
+            format_contract,
+            chapter.number,
+            canonical_serialization["volumes"],
+        ))
+        chapter_records.append(record)
     package_payload = {
-        "version": 1,
+        "version": 3,
         "platform": "novel-os",
         "primary_title": primary_title,
         "alternate_titles": alternates,
         "hook_lead": hook_lead,
         "spoiler_free_blurb": spoiler_free_blurb,
         "tags": catalog_tags,
+        "classification": canonical_classification.to_dict(),
+        "serialization": canonical_serialization,
         "chapters": chapter_records,
         "total_runes": sum(item["rune_count"] for item in chapter_records),
         "counting_policy": "utf8-runes",
@@ -225,7 +293,7 @@ def validate_h5_publication_root(
     expected_finalized_at: str | None = None,
     expected_delivered_at: str | None = None,
 ) -> str:
-    """Validate the generated bytes with the H5 V1 importer's rules."""
+    """Validate the generated bytes with the H5 V3 importer's rules."""
 
     root = Path(root)
     if root.is_symlink() or not root.is_dir():
@@ -235,13 +303,22 @@ def validate_h5_publication_root(
     delivery_raw = _ordinary_bytes(root / "meta/delivery.json")
     package = _json_object(package_raw, "publication package")
     _exact_fields(package, _PACKAGE_FIELDS, "publication package")
-    if package["version"] != 1 or package["platform"] != "novel-os":
+    if package["version"] != 3 or package["platform"] != "novel-os":
         raise H5PublicationError("publication package version or platform is invalid")
     _trimmed(package["primary_title"], "primary title")
     _trimmed_sequence(package["alternate_titles"], "alternate title")
     _trimmed(package["hook_lead"], "hook_lead")
     _trimmed(package["spoiler_free_blurb"], "spoiler_free_blurb")
     _catalog_tags(package["tags"])
+    try:
+        NovelClassification.from_dict(package["classification"])
+    except (TypeError, ValueError) as exc:
+        raise H5PublicationError(f"publication classification is invalid: {exc}") from exc
+    try:
+        serialization = validate_serialization(package["serialization"])
+        format_contract = NarrativeFormat.from_dict(serialization["format"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise H5PublicationError(f"publication serialization is invalid: {exc}") from exc
     if package["counting_policy"] != "utf8-runes":
         raise H5PublicationError("publication counting_policy must be utf8-runes")
     if package["final_checks"] != _FINAL_CHECKS:
@@ -251,6 +328,8 @@ def validate_h5_publication_root(
     records = package["chapters"]
     if not isinstance(records, list) or len(records) < 4:
         raise H5PublicationError("publication package must contain at least 4 chapters")
+    if format_contract.total_chapters != len(records):
+        raise H5PublicationError("serialization chapter count differs from package chapters")
     titles: set[str] = set()
     chapter_bodies: list[bytes] = []
     chapter_hashes: list[str] = []
@@ -259,6 +338,13 @@ def validate_h5_publication_root(
         _exact_fields(record, _CHAPTER_FIELDS, "publication chapter")
         if record["number"] != expected_number:
             raise H5PublicationError("chapter numbers must be contiguous from 1")
+        expected_binding = chapter_binding(
+            format_contract, expected_number, serialization["volumes"]
+        )
+        if any(record.get(name) != value for name, value in expected_binding.items()):
+            raise H5PublicationError(
+                f"chapter {expected_number} serialization binding is divergent"
+            )
         expected_path = f"chapters/{expected_number:02d}.md"
         if record["path"] != expected_path:
             raise H5PublicationError(f"chapter {expected_number} path is noncanonical")

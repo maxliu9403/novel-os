@@ -37,6 +37,7 @@ from core.image_client import (
 )
 from core.cover_quality import (
     UnavailableCoverVisualEvaluator,
+    automatic_repair_improves,
     ThumbnailProjectionError,
     evaluate_binary_cover,
     human_review_report,
@@ -104,12 +105,12 @@ class CoverService:
                 if code in _AUTO_SEMANTIC_REPAIR_CODES
             )
             if reviewed.status == "ready" and repair_codes:
+                original_concept = next(
+                    item for item in current.concepts if item.concept_id == reviewed.concept_id
+                )
                 repaired = self._repair_concept(
                     current.brief,
-                    next(
-                        item for item in current.concepts
-                        if item.concept_id == reviewed.concept_id
-                    ),
+                    original_concept,
                     reviewed,
                     repair_codes,
                 )
@@ -128,6 +129,7 @@ class CoverService:
                     candidate.candidate_id,
                     repair_codes=repair_codes,
                     prompt_revision=reviewed.prompt_revision + 1,
+                    automatic_repair_original=original_concept,
                 )
         current = self._finalize(store, current)
         build_delivery_package(project, cover_set=current)
@@ -289,17 +291,22 @@ class CoverService:
         *,
         repair_codes: Sequence[str] = (),
         prompt_revision: int | None = None,
+        automatic_repair_original: CoverConcept | None = None,
     ) -> CoverSet:
         candidate = self._candidate(current, candidate_id)
         concept = next(
             item for item in current.concepts if item.concept_id == candidate.concept_id
         )
-        prompt_revision = prompt_revision or candidate.prompt_revision
+        prompt_revision = max(
+            prompt_revision or candidate.prompt_revision,
+            max((int(item.get("prompt_revision") or 0) for item in candidate.attempt_history), default=0) + 1,
+        )
         try:
             assert self.image_client is not None
             generated = self.image_client.generate(concept.generation_prompt)
             ready = self._persist_generated(
-                project_id, project, current, candidate, concept, generated
+                project_id, project, current, candidate, concept, generated,
+                project_pending=automatic_repair_original is None,
             )
             report = self._quality_report(
                 current.brief,
@@ -345,10 +352,37 @@ class CoverService:
                 error=error,
                 created_at=self._now(),
             )
+        if automatic_repair_original is not None:
+            prior_report = CoverQualityReport.from_dict(candidate.quality_report or {})
+            promote = (
+                attempt.status == "ready"
+                and attempt.quality_report is not None
+                and automatic_repair_improves(prior_report, attempt.quality_report)
+            )
+            if promote:
+                # Publish the pending projection only after checking both story
+                # and visual craft. Immutable media/attempt provenance is kept either way.
+                try:
+                    self._atomic_write(project / ready.relative_path, generated.data)
+                except OSError:
+                    promote = False
+            if not promote:
+                review = replace(prior_report, findings=(*prior_report.findings, QualityFinding(
+                    "repair_not_promoted", "warning",
+                    "Automatic repair retained in history; original remains active for human review",
+                    f"{attempt.attempt_id}: repair/projection failed, lacked craft evidence, or introduced a regression",
+                )))
+                ready = replace(candidate, quality_report=review.to_dict())
+                current = replace(current, concepts=tuple(
+                    automatic_repair_original if item.concept_id == concept.concept_id else item
+                    for item in current.concepts
+                ))
+        else:
+            promote = attempt.status == "ready"
         ready = replace(
             ready,
             attempt_history=(*candidate.attempt_history, attempt.to_dict()),
-            prompt_revision=prompt_revision if attempt.status == "ready" else ready.prompt_revision,
+            prompt_revision=prompt_revision if promote else ready.prompt_revision,
         )
         updated = replace(
             current,
@@ -472,6 +506,17 @@ class CoverService:
             return human_review_report(str(exc))
         blockers = list(report.blockers)
         repair_codes = list(report.repair_codes)
+        for finding in report.findings:
+            title_failure = finding.code in {
+                "title_failure", "title_reading_order_ambiguous", "title_reading_order_reversed",
+                "title_text_mismatch",
+            }
+            if finding.severity == "blocker" or title_failure:
+                code = "title_failure" if title_failure else finding.code
+                if code not in blockers:
+                    blockers.append(code)
+                if title_failure and code not in repair_codes:
+                    repair_codes.append(code)
         if scene.causal_visibility:
             semantic_failures = (
                 (
@@ -509,7 +554,8 @@ class CoverService:
         required_scores = (
             report.canon_fidelity, report.required_cast_coverage,
             report.age_and_environment_fidelity, report.render_fidelity,
-            report.anatomy_and_physics,
+            report.anatomy_and_physics, report.cinematic_storytelling, report.genre_emotion,
+            report.thumbnail_clarity, report.hook_promise_alignment, report.title_legibility_advisory,
         )
         if scene.causal_visibility:
             required_scores = (*required_scores,
@@ -531,6 +577,7 @@ class CoverService:
         candidate: CoverCandidate,
         concept: CoverConcept,
         generated: GeneratedImage,
+        *, project_pending: bool = True,
     ) -> CoverCandidate:
         mime = content_type(generated.data)
         width, height = dimensions(generated.data)
@@ -562,7 +609,8 @@ class CoverService:
             if item.candidate_id == candidate.candidate_id
         )
         relative = Path("outputs/deliverables/covers/pending") / f"cover-{index:02d}{extension}"
-        self._atomic_write(project / relative, generated.data)
+        if project_pending:
+            self._atomic_write(project / relative, generated.data)
         media = self.media_add(
             project_id=project_id,
             sha=sha,

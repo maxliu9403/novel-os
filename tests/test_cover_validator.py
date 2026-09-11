@@ -381,3 +381,29 @@ def test_v4_validator_requires_scene_evidence_beyond_character_identity() -> Non
     codes = {item.code for item in validate_direction(_brief(), direction)}
 
     assert "missing_story_scene_evidence" in codes
+
+
+def test_v7_allows_story_evidence_designs_without_fixed_ensemble_quotas():
+    direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(_brief(), count=4)
+    plans = tuple(
+        plan if index == 0 else replace(plan, cast=('char_mara',),
+            causal_visibility='indirect', conflict_character_ids=(),
+            protagonist_action_visible=True,
+            cause_signal='The shared key denied to Oren lies in Mara\'s open hand')
+        for index, plan in enumerate(direction.plans)
+    )
+    current = replace(direction, profile_version='cover-profiles.v7', plans=plans)
+    assert validate_direction(_brief(), current) == ()
+    legacy = replace(current, profile_version='cover-profiles.v6')
+    assert 'portfolio_conflict_undercoverage' in {f.code for f in validate_direction(_brief(), legacy)}
+
+
+def test_v7_still_requires_visible_protagonist_causal_evidence_and_a_relationship_plan():
+    direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(_brief(), count=4)
+    current = replace(direction, profile_version='cover-profiles.v7', plans=tuple(
+        replace(p, cast=('char_mara',), causal_visibility='indirect',
+                conflict_character_ids=(), cause_signal='', protagonist_action_visible=False)
+        for p in direction.plans))
+    codes = {f.code for f in validate_direction(_brief(), current)}
+    assert {'missing_core_conflict', 'portfolio_conflict_undercoverage',
+            'protagonist_action_undercoverage'} <= codes

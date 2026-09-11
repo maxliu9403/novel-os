@@ -431,6 +431,8 @@ def test_generation_automatically_repairs_a_render_that_drops_the_causal_relatio
                 core_conflict_fidelity=92,
                 causal_relationship_clarity=92,
                 protagonist_agency=92,
+                cinematic_storytelling=92, genre_emotion=92, thumbnail_clarity=92,
+                hook_promise_alignment=92, title_legibility_advisory=92,
             )
             if self.calls == 1:
                 return CoverQualityReport(
@@ -633,10 +635,12 @@ def test_direction_api_plans_from_persisted_v2_story_facts(tmp_path, monkeypatch
 def test_adaptive_direction_binds_preface_and_final_prose_then_generates_image2_prompts(
     tmp_path, monkeypatch,
 ) -> None:
+    photographic_fixture = adaptive_director_fixture()
+    photographic_fixture["profile_version"] = "cover-profiles.v8"
     client, image_client = _client(
         tmp_path,
         monkeypatch,
-        director=CoverArtDirector.from_fixture(adaptive_director_fixture()),
+        director=CoverArtDirector.from_fixture(photographic_fixture),
     )
     project = client.post(
         "/api/projects", json={"title": "Evidence Cover", "genre": "Drama"}
@@ -671,7 +675,7 @@ def test_adaptive_direction_binds_preface_and_final_prose_then_generates_image2_
 
     assert created_response.status_code == 201
     created = created_response.json()
-    assert created["profile_version"] == "cover-profiles.v5"
+    assert created["profile_version"] == "cover-profiles.v8"
     assert created["visual_identity"]["design_thesis"].startswith("Turn the shared doorway")
     assert "publication_intro" in {
         item["source_type"] for item in created["evidence_ledger"]["items"]
@@ -701,7 +705,7 @@ def test_adaptive_direction_binds_preface_and_final_prose_then_generates_image2_
     assert image_client.calls == 4
     cover_set = client.get(f"/api/projects/{project['id']}/covers").json()[0]
     assert "lead book-cover designer" in cover_set["concepts"][0]["generation_prompt"]
-    assert cover_set["compiler_version"] == "cover-compiler.v9"
+    assert cover_set["compiler_version"] == "cover-compiler.v13"
 
 
 def test_adaptive_direction_becomes_stale_when_publication_intro_changes(
@@ -969,7 +973,7 @@ def test_approved_v2_direction_generates_four_independent_image2_candidates(
     assert image_client.calls == 4
     cover_set = client.get(f"/api/projects/{project['id']}/covers").json()[0]
     assert cover_set["brief_schema_version"] == 2
-    assert cover_set["compiler_version"] == "cover-compiler.v9"
+    assert cover_set["compiler_version"] == "cover-compiler.v13"
     assert cover_set["brief"]["principal_characters"][0]["age"] == 34
     assert [item["model"] for item in cover_set["candidates"]] == ["gpt-image-2"] * 4
     assert all(item["safe_request_parameters"]["n"] == 1 for item in cover_set["candidates"])

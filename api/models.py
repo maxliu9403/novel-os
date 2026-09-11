@@ -18,6 +18,8 @@ class ProjectSummary(BaseModel):
     premise: str = ""
     target_word_count: int = 80000
     session_word_target: int = 1000
+    classification: dict = {}
+    narrative_format: dict = {}
 
 
 class ProjectDetail(BaseModel):
@@ -34,6 +36,8 @@ class ProjectDetail(BaseModel):
     premise: str = ""
     target_word_count: int = 80000
     session_word_target: int = 1000
+    classification: dict = {}
+    narrative_format: dict = {}
 
 
 class ProjectDeletionInventory(BaseModel):
@@ -69,6 +73,8 @@ class UpdateProject(BaseModel):
     premise: str | None = None
     target_word_count: int | None = None
     session_word_target: int | None = None
+    classification: dict | None = None
+    narrative_format: dict | None = None
 
 
 class StudioLlmUpdate(BaseModel):
@@ -263,6 +269,12 @@ class ChapterSummary(BaseModel):
     word_count: int
     pov: str
     target_word_count: int = 2500
+    volume_id: str = "volume_01"
+    volume_number: int = 1
+    chapter_in_volume: int = 1
+    volume_role: str = "setup"
+    series_id: str = ""
+    series_book_number: int | None = None
 
 
 class ChapterDetail(ChapterSummary):
@@ -691,6 +703,8 @@ class CreateProject(BaseModel):
     genres: list[str] = []
     premise: str = ""
     author: str = ""
+    classification: dict | None = None
+    narrative_format: dict | None = None
 
 
 class AddCharacter(BaseModel):

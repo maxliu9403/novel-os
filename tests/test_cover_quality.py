@@ -146,3 +146,9 @@ def test_multimodal_visual_evaluator_audits_rendered_conflict_not_prompt_intent(
     assert client.images == (b"full-image", b"thumbnail")
     assert "Judge only" not in client.user
     assert "causal_visibility" in client.user
+    assert '"medium": "live_action_photography"' in client.user
+    assert "fail the photographic contract" in client.user
+    assert "human naturalness is separate from anatomy correctness" in client.user
+    assert "generic_ai_face with concrete visual evidence" in client.user
+    assert "do not replace every gesture with a raised palm" in client.user
+    assert "not equally sharp" in client.user

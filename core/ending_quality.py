@@ -127,15 +127,25 @@ def _resolved_foreshadowing(state: StoryState) -> Dict[str, Dict[str, Any]]:
 
 
 def _payoff_events(state: StoryState) -> Dict[str, Dict[str, Any]]:
+    """Select completion evidence, not merely the last mention of a payoff.
+
+    A recall revisits an established result; it does not revoke an earlier
+    paid event. Preserve the first completion and its source chapter. For
+    payoffs without completion evidence, retain the latest declared status.
+    Persisted chapter keys may be lexicographically ordered, so traverse the
+    numeric chapter sequence rather than relying on mapping insertion order.
+    """
     events: Dict[str, Dict[str, Any]] = {}
-    for chapter in state.chapters.values():
+    for chapter in sorted(state.chapters.values(), key=lambda item: item.number):
         for event in _as_list(getattr(chapter, "payoff_events", [])):
             if not isinstance(event, dict):
                 continue
             payoff_id = str(event.get("payoff_id") or "").strip()
             status = str(event.get("status") or "").strip().lower()
             if payoff_id and status in {"paid", "intentional_open", "recalled"}:
-                events[payoff_id] = {**event, "chapter": chapter.number}
+                if events.get(payoff_id, {}).get("status") == "paid":
+                    continue
+                events[payoff_id] = {**event, "status": status, "chapter": chapter.number}
     return events
 
 

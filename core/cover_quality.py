@@ -24,6 +24,7 @@ from .cover_models_v2 import (
     QualityFinding,
 )
 from .image_binary import aspect_ratio_matches, content_type, dimensions
+from .cover_render_policy import RENDER_POLICY, PHOTOGRAPHIC_RENDER_CONTRACT, HUMAN_PERFORMANCE_CONTRACT
 
 
 MAX_COVER_BYTES = 10 * 1024 * 1024
@@ -201,6 +202,27 @@ def unavailable_evaluator(reason: str = "No compatible visual evaluator is confi
     return UnavailableCoverVisualEvaluator(reason)
 
 
+def automatic_repair_improves(
+    prior: CoverQualityReport, repaired: CoverQualityReport,
+) -> bool:
+    """Conservative promotion, not an aesthetic ranking or publication approval.
+
+    Missing scores are unknown, never a pass. A semantic gain must not buy a
+    regression in light/composition, genre emotion, thumbnail or title craft.
+    Both attempts remain available for human review regardless of this result.
+    """
+    if repaired.blockers or repaired.repair_codes or repaired.status == "blocked":
+        return False
+    dimensions = tuple(name for name in CoverQualityReport._DIMENSIONS
+                       if name not in {"medium_fidelity", "photorealism"}) + ("render_fidelity",)
+    for dimension in dimensions:
+        after = getattr(repaired, dimension)
+        before = getattr(prior, dimension)
+        if after is None or after < 80 or (before is not None and after < before):
+            return False
+    return True
+
+
 def build_llm_visual_evaluator(client: Any) -> CoverVisualEvaluator:
     """Bind a multimodal LLM client to the strict cover review contract."""
 
@@ -214,7 +236,7 @@ def build_llm_visual_evaluator(client: Any) -> CoverVisualEvaluator:
             "You are a forensic book-cover art director. Compare the first attached full cover and the "
             "second attached mobile thumbnail against the supplied source-bound scene contract. Judge only "
             "what is visibly present. Do not reward prompt intent that the image failed to render. Return one "
-            "JSON object and no Markdown."
+            "JSON object and no Markdown. " + PHOTOGRAPHIC_RENDER_CONTRACT + " " + HUMAN_PERFORMANCE_CONTRACT
         )
         user = json.dumps({
             "task": "Audit cover semantics, cast, story causality, craft, anatomy, title, and thumbnail reading.",
@@ -226,6 +248,7 @@ def build_llm_visual_evaluator(client: Any) -> CoverVisualEvaluator:
             },
             "approved_characters": [item.to_dict() for item in brief.principal_characters],
             "scene_contract": scene.to_dict(),
+            "render_policy": RENDER_POLICY,
             "required_output": {
                 "status": "blocked when any semantic or fidelity blocker exists; otherwise human_review_required",
                 "scores_0_to_100": list(CoverQualityReport._DIMENSIONS),
@@ -248,8 +271,19 @@ def build_llm_visual_evaluator(client: Any) -> CoverVisualEvaluator:
                 "protagonist_agency measures whether the protagonist visibly acts, chooses, refuses, discovers, confronts, or departs rather than merely poses",
                 "when causal_visibility is direct and planned conflict characters are absent or unreadable, add blocker and repair code causal_relationship_missing",
                 "when the cover reads only as separation, loneliness, or atmosphere instead of the planned conflict, add core_conflict_missing",
-                "when the protagonist has no readable action, add protagonist_action_missing",
+                "when protagonist_action_visible is true but the planned response is absent, add protagonist_action_missing; an approved visible reaction is not required to become a new plot action",
+                "indirect plans may communicate pressure through their approved visible evidence; do not demand absent pressure characters or rewrite them as ensemble scenes",
+                "cinematic_storytelling evaluates designed hierarchy, motivated key/fill lighting, tonal separation and expressive performance, not simply the number of literal story details",
+                "genre_emotion evaluates the novel-specific emotional atmosphere and color relationships, not generic sadness or sepia grading",
+                "thumbnail_clarity evaluates readable faces, gestures, uncluttered hierarchy and integrated lettering at mobile size",
+                "title_legibility_advisory includes exact spelling AND exact reading order: English left-to-right then top-to-bottom; visually reversed or competing title clauses require blocker title_failure and repair code title_failure, even when every word exists",
+                "return numeric scores for dimensions you can assess from the images; use null for genuinely unassessable dimensions, never assume a pass",
+                "human naturalness is separate from anatomy correctness: inspect stiffness, actual eyeline targets, expression differences, body balance and hand/prop contact; staged gesture readability alone is not good acting",
+                "for visibly waxy or overprocessed faces, glassy eyes, repeated facial affect or synthetic cutout edges, use generic_ai_face with concrete visual evidence; do not demand beauty filtering or younger faces",
+                "for mannequin posing or implausible simultaneous actions, use weak_story_action with concrete visual evidence; retain the scene and do not replace every gesture with a raised palm",
+                "subtle, asymmetric, partially turned expressions can be believable and readable; do not penalize natural focus falloff merely because all background textures are not equally sharp",
                 "use only repair codes relevant to visible failures",
+                "painting, illustration, CGI, sculpted figures, canvas grain or artificial skin fail the photographic contract even when an older scene contract requested them; report genre_drift and visible evidence",
             ],
         }, ensure_ascii=False, sort_keys=True)
         raw = client.complete_with_images(system, user, (image, thumbnail))
