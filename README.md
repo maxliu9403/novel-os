@@ -1065,6 +1065,13 @@ Docker 系统类型库；EPUB 始终为 `application/epub+zip`。旧包出现
 
 具体配置、恢复、重评、接口和 H5 验收边界见 [P0/P1 使用说明](docs/implementation/2026-09-12-narrative-methods-p1.md)。
 
+##### P2 前的独立验证工具
+
+- `scripts/method_experiment.py`：冻结 A/B 计划、显式限额执行、完整盲评包和双编辑汇总；不启用生产自动改稿。默认英文示例为 18 份多章样本、最多 54 次逻辑调用，真实运行需明确确认预算。
+- `scripts/h5_acceptance.py`：只读预检 ZIP、生成验收计划、检查 H5 团队返回的实测回执；不修改或代替 H5 导入器。
+- [16 个技术交付用例](docs/examples/method-validation/README.md)：短篇免费 3/4 章、48 章/4 卷、80 章基准、独立更新和错误包。`invalid-*` 为故意损坏样本，不能用于发布。
+- 用法、冻结与恢复规则、H5 回执字段及验收边界见 [验证工具说明](docs/implementation/2026-09-12-method-validation-tools.md)。
+
 #### 小说类型契约与 H5 读取
 
 Novel OS 使用 `novel-classification.v1` 将主类型、辅助类型、故事模型、情绪、

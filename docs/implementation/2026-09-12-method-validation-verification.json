@@ -1,0 +1,199 @@
+{
+  "schema": "novel-method-validation-implementation-receipt.v1",
+  "created_at": "2026-09-12T13:55:09.834061+00:00",
+  "base_commit": "b7d1180501d4ef579f9625edec7da071442302ec",
+  "branch": "feat/novel-quality-closure",
+  "scope": "isolated_pre_P2_experiment_and_H5_acceptance_tools",
+  "implementation_status": "implemented_and_locally_tested",
+  "release_status": "live_model_editor_reader_and_external_H5_acceptance_pending",
+  "tests": {
+    "backend": {
+      "command": "venv/bin/python -m pytest --junitxml=/private/tmp/novel-method-validation-final.xml",
+      "passed": 1583,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "new_cases": 50,
+      "suite_seconds": 154.175,
+      "cli_wall_seconds": 154.33,
+      "existing_fork_deprecation_warnings": 4,
+      "evidence": {
+        "path": "/private/tmp/novel-method-validation-final.xml",
+        "sha256": "8e6d421069ee542486b3a239e7ecfb0a9c284451835af7545a628ba332106a8d"
+      }
+    },
+    "targeted": {
+      "command": "venv/bin/python -m pytest tests/test_h5_acceptance.py tests/test_method_experiments.py tests/test_h5_import.py tests/test_h5_publication.py tests/test_delivery_package.py",
+      "passed": 85,
+      "evidence": {
+        "path": "/private/tmp/novel-method-validation-targeted.log",
+        "sha256": "de3597bf100e4de9ed4f5461052dcf9ca03b61fa5a3cf2e1c63331f10254442f"
+      }
+    },
+    "web": {
+      "command": "npm test -- --reporter=default --reporter=json --outputFile.json=/private/tmp/novel-method-validation-web-final.json",
+      "cwd": "web",
+      "passed": 107,
+      "files": 17,
+      "failures": 0,
+      "evidence": {
+        "path": "/private/tmp/novel-method-validation-web-final.json",
+        "sha256": "19ca450659e9ae8ae0e34c73c56a7a416e1322589cf28ae031481541405b56ac"
+      }
+    },
+    "web_build": {
+      "command": "npm run build",
+      "cwd": "web",
+      "exit_code": 0,
+      "evidence": {
+        "path": "/private/tmp/novel-method-validation-web-build.log",
+        "sha256": "eee6be77f86fddb371a4484774fa8d23b6fa5e348def8f391676611fb26d384a"
+      }
+    },
+    "web_lint": {
+      "command": "npm run lint",
+      "cwd": "web",
+      "exit_code": 0,
+      "evidence": {
+        "path": "/private/tmp/novel-method-validation-web-lint.log",
+        "sha256": "4fc0be1d4733dded50b42bc610e759c00a07e818610b381a7deb7600199e8d3a"
+      }
+    },
+    "execution_order": "backend_then_web_tests_then_build_then_lint"
+  },
+  "review": {
+    "standards": "reviewed_scope_has_no_unclosed_blocker",
+    "spec": "reviewed_scope_has_no_unclosed_blocker",
+    "regression_coverage": [
+      "project_directory_isolation",
+      "P1_runtime_byte_preservation",
+      "raw_oversized_response_retention",
+      "request_task_and_plan_binding",
+      "frozen_execution_dependencies",
+      "complete_multichapter_volume_boundary",
+      "separate_baseline_and_enhanced_critical_counts",
+      "empty_or_altered_acceptance_plan_rejection",
+      "private_schema_and_public_role_path_checks",
+      "volume_rows_and_native_foreign_keys",
+      "normalized_invalid_package_rejection_reason",
+      "book_count_and_result_consistency"
+    ]
+  },
+  "artifacts": {
+    "sample_zip_count": 13,
+    "case_count": 16,
+    "all_sample_hashes_verified": true,
+    "original_samples_byte_identical": {
+      "02-same-book-cover-only-update.zip": "b830924ddc7faf251d4cd8d0ae5627e5342da57baec4496b1984104ece08fea6",
+      "01-introduction-80-chapters-4-volumes.zip": "333a432676dd8b318adcd39ab30bcd32a738cb8c9e25922dda22ecaaa6c42818",
+      "03-different-book-same-structure.zip": "a76054bcb2d120dd6575f3eec146d542a0a2c546cbc08951d6e240c454944740"
+    },
+    "long": {
+      "chapters": 48,
+      "volumes": 4,
+      "introduction_count": 1,
+      "chapter_13_volume": "volume_02"
+    },
+    "short": {
+      "chapters": 22,
+      "volumes": 1,
+      "introduction_count": 1
+    },
+    "model_calls": 0,
+    "planned_calls": 54,
+    "external_h5_cases_remaining": 16,
+    "production_paths_unchanged": [
+      "core/narrative_methods/runtime.py",
+      "agents",
+      "core/pipeline_runner.py",
+      "core/compile_book.py",
+      "core/delivery_package.py",
+      "web",
+      "api"
+    ]
+  },
+  "experiment": {
+    "scope": "Scribe_prompt_probe_not_full_pipeline",
+    "offline_example_windows": 18,
+    "offline_example_max_logical_complete_calls": 54,
+    "real_model_calls_executed": 0,
+    "two_real_English_editor_reviews_received": false,
+    "target_reader_validation_executed": false,
+    "production_release_ready": false,
+    "status_evidence": {
+      "path": "/private/tmp/novel-method-pilot-status-final.json",
+      "sha256": "9a7e60e2522d2f7a625b5d9e2a778c234a6734b62edc2ded44cbd56d7ef05f4c"
+    }
+  },
+  "H5": {
+    "contract_changed": false,
+    "ai_novel_h5_modified": false,
+    "fixture_cases": 16,
+    "fixture_ZIPs": 13,
+    "engine_preflight": "passed_for_expected_valid_and_invalid_cases",
+    "actual_current_H5_importer_executed": false,
+    "external_import_status": "pending",
+    "receipt_checker_scope": "external_claim_consistency_not_independent_execution_or_authentication",
+    "fixture_scope": "synthetic_Final_files_through_actual_compile_and_package_not_full_pipeline",
+    "private_sidecar_package_bytes_unchanged": true,
+    "pending_evidence": {
+      "path": "/private/tmp/novel-h5-validation-pending.json",
+      "sha256": "63a8a6c021e58b918579153f1ea4344b8c02b6305e814c69a841659847cd7e9d"
+    }
+  },
+  "boundaries": {
+    "P2_production_enforced_writing_implemented": false,
+    "production_prompts_modified": false,
+    "production_pipeline_modified": false,
+    "P1_runtime_modified": false,
+    "production_exporter_modified": false,
+    "real_novel_files_modified": false,
+    "novel_creation_resumed": false,
+    "services_restarted": false,
+    "deployed": false,
+    "pushed": false,
+    "P1_baseline_locally_committed": true,
+    "tooling_commit_state_at_verification": "not_yet_committed"
+  },
+  "source_files_sha256": {
+    "CONTEXT.md": "52e95f88f20bbb0f5e09e8e7c926d6b42c42e5522fb633cdde0ac6df6e8542fb",
+    "README.md": "508ab7c6f2d77d955d4e7f383a0f3b2c3f972c4091e54ef07788611c5cdc70d9",
+    "core/h5_acceptance.py": "b01278d805b3d924668c9d63e52f54d33eb5056e67eda2129afe5e5800fa209d",
+    "core/method_experiments/__init__.py": "a91477027f3fb9c7ad9a8114a84a8232de875359a6add20417007f3a9ac07fac",
+    "core/method_experiments/lab.py": "e39bfad99e2f67cf8ae5bd70a19137157e9c7fb7b26592a3c4455c5fc43f35ed",
+    "core/method_experiments/models.py": "2c87defd1fd02774ff650e2a5b9491aae9227ea832292be809c93a02bf7c840c",
+    "core/method_experiments/prompts.py": "7448edc7fbcbbb0c2c4b08f0f4c036dc791ccf87a56c55131fcd25b56fb8bfba",
+    "core/method_experiments/review.py": "509d02209a6da02a22dc8a45a3b032e1c0956b91b50764b47f1253cc58739509",
+    "core/method_experiments/store.py": "de74d6b8c5dff364d0245430041e6556b61bf3d59398a43c840795630defc416",
+    "core/model_router.py": "93756960f42e020a96202f89b89bb0502da084306fc190272002369977507aeb",
+    "docs/implementation/2026-09-12-method-validation-tools.md": "6f15b045060d705b38324560a72aa239a34a8655529b61828fc869792a794de0",
+    "resources/method-experiments/english-pilot.example.json": "ec4b7dd602f1c701bf6036824d9092d06f2db7b1ecc48519233c930ecc94ae42",
+    "scripts/build_method_validation_samples.py": "7580f9a68bbb300f1783007c95a77dd5c9064cb032f3d88bfba700920643b407",
+    "scripts/h5_acceptance.py": "7454c7a34f95608c7eb3e3dac915bfe53f1c8b051fcf9a4f40a938482e419827",
+    "scripts/method_experiment.py": "e8a024ef915cfb3fe14676f94b33e268206a67e16b135c93d221e7dfb6c9b455",
+    "tests/test_h5_acceptance.py": "0629926f4d0305ad3bb35b8696c31e61f1f57269b6359e4835dc1c71f3b3811a",
+    "tests/test_method_experiments.py": "3aac367f5faa85f6017d96d1961240be103b0c443d85b63bd4a79ffb0d086b0a"
+  },
+  "source_bundle_sha256": "faeea590c1bac78cca4957a20006fafa613daf63b3ee162ec463d47f05955305",
+  "fixture_files_sha256": {
+    "docs/examples/method-validation/01-introduction-80-chapters-4-volumes.zip": "333a432676dd8b318adcd39ab30bcd32a738cb8c9e25922dda22ecaaa6c42818",
+    "docs/examples/method-validation/02-same-book-cover-only-update.zip": "b830924ddc7faf251d4cd8d0ae5627e5342da57baec4496b1984104ece08fea6",
+    "docs/examples/method-validation/03-different-book-same-structure.zip": "a76054bcb2d120dd6575f3eec146d542a0a2c546cbc08951d6e240c454944740",
+    "docs/examples/method-validation/README.md": "2841619075ecc6ecdedbc257cc265a55fc1bd8f8c03f5463a6f232d90cebbccd",
+    "docs/examples/method-validation/acceptance-plan.json": "a6685b9dd00b3d372fb3827ee57ee410040120c42b6a924b66a451b625c42c35",
+    "docs/examples/method-validation/cases.json": "6cfaf23bf3dd8d41f360ae7bdcf41787dd021d1971cc7c3dfa3222ef7159a7a1",
+    "docs/examples/method-validation/chapter-update.zip": "b2fc4f386764b2fed18fa0668b41d0e946d9ba4570de8a0a574c22b2fb20d8ec",
+    "docs/examples/method-validation/classification-update.zip": "7f2ef3fe1c4961965256556fec44bc65d0c3acdfba0bbc1aa7cf49de4ad7b5b0",
+    "docs/examples/method-validation/importer-receipt-template.json": "908f84ef3e87af5fe43d0758fa68167025bf3e72c348b400e5541903a085ddee",
+    "docs/examples/method-validation/intro-update.zip": "0783f8d6ed6c9f388960cbf20b5be99a4ba73699f2f8c0ca23b066c886d4ef4b",
+    "docs/examples/method-validation/invalid-chapter_mapping.zip": "81ca7bed8319f43c6c541df61ffe6353be61242dffee00c640519bdd5172ba1c",
+    "docs/examples/method-validation/invalid-duplicate_zip_path.zip": "acf244c33cfe53326b092ccf2649701574fd62b1e7e090c7c63fb188394ed569",
+    "docs/examples/method-validation/invalid-epub_media_type.zip": "ffd92dfed12f80bf0b8c3ca9e220c933225ce032358264002672ecbe37a89089",
+    "docs/examples/method-validation/invalid-file_digest.zip": "76c5be208c69a34aedb213236f951bdb9a96ae55e478f01d2ac8a738b7ffd28c",
+    "docs/examples/method-validation/long-48.zip": "f54bbeaf37a42b8ddbd8d630220dea92148e5de7b6785c61e4625c8f5d38eabd",
+    "docs/examples/method-validation/short-22.zip": "25f767a0692111638bbf2d1ef5a1115cabc8fb27b00461f6681bf741b940fe83",
+    "docs/examples/method-validation/verification.json": "17b1f22b2310c615ced6310ad8f4445869e29eb6d5470cc4bbbf614d4ad27d2e",
+    "docs/examples/method-validation/volume-title-update.zip": "62d94cbf66f9623c3a8b70f41d486daf65dcdff2c66304d5ffa82772c4a019cb"
+  },
+  "log_retention_note": "Runtime logs are local /private/tmp evidence; hashes and summarized results are retained in this receipt."
+}

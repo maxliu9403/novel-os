@@ -1,0 +1,61 @@
+{
+  "archives": [
+    {
+      "name": "01-introduction-80-chapters-4-volumes.zip",
+      "sha256": "333a432676dd8b318adcd39ab30bcd32a738cb8c9e25922dda22ecaaa6c42818"
+    },
+    {
+      "name": "02-same-book-cover-only-update.zip",
+      "sha256": "b830924ddc7faf251d4cd8d0ae5627e5342da57baec4496b1984104ece08fea6"
+    },
+    {
+      "name": "03-different-book-same-structure.zip",
+      "sha256": "a76054bcb2d120dd6575f3eec146d542a0a2c546cbc08951d6e240c454944740"
+    },
+    {
+      "name": "chapter-update.zip",
+      "sha256": "b2fc4f386764b2fed18fa0668b41d0e946d9ba4570de8a0a574c22b2fb20d8ec"
+    },
+    {
+      "name": "classification-update.zip",
+      "sha256": "7f2ef3fe1c4961965256556fec44bc65d0c3acdfba0bbc1aa7cf49de4ad7b5b0"
+    },
+    {
+      "name": "intro-update.zip",
+      "sha256": "0783f8d6ed6c9f388960cbf20b5be99a4ba73699f2f8c0ca23b066c886d4ef4b"
+    },
+    {
+      "name": "invalid-chapter_mapping.zip",
+      "sha256": "81ca7bed8319f43c6c541df61ffe6353be61242dffee00c640519bdd5172ba1c"
+    },
+    {
+      "name": "invalid-duplicate_zip_path.zip",
+      "sha256": "acf244c33cfe53326b092ccf2649701574fd62b1e7e090c7c63fb188394ed569"
+    },
+    {
+      "name": "invalid-epub_media_type.zip",
+      "sha256": "ffd92dfed12f80bf0b8c3ca9e220c933225ce032358264002672ecbe37a89089"
+    },
+    {
+      "name": "invalid-file_digest.zip",
+      "sha256": "76c5be208c69a34aedb213236f951bdb9a96ae55e478f01d2ac8a738b7ffd28c"
+    },
+    {
+      "name": "long-48.zip",
+      "sha256": "f54bbeaf37a42b8ddbd8d630220dea92148e5de7b6785c61e4625c8f5d38eabd"
+    },
+    {
+      "name": "short-22.zip",
+      "sha256": "25f767a0692111638bbf2d1ef5a1115cabc8fb27b00461f6681bf741b940fe83"
+    },
+    {
+      "name": "volume-title-update.zip",
+      "sha256": "62d94cbf66f9623c3a8b70f41d486daf65dcdff2c66304d5ffa82772c4a019cb"
+    }
+  ],
+  "case_count": 16,
+  "engine_contract_status": "passed",
+  "external_import_status": "pending",
+  "fixture_scope": "synthetic_Final_files_through_real_compile_and_package_not_full_pipeline",
+  "private_sidecar_package_bytes_unchanged": true
+}

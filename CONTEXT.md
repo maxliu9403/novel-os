@@ -33,3 +33,7 @@ integration.
 - **Explicit method retry**: a user-requested new critique of the same input, linked to its failed predecessor; repeating that same request is idempotent.
 
 Method sidecars are private diagnostics, not canon and not H5 publication metadata.
+
+- **Method experiment**: an isolated, budget-confirmed comparison of frozen Scribe prompt variants; it has no promotion authority.
+- **Blind pair**: both planned multi-chapter samples and their shared design, exported without arm or model labels; failures remain in the denominator.
+- **H5 acceptance receipt**: externally supplied importer/database observations bound to exact package bytes; local consistency checks do not prove external execution.

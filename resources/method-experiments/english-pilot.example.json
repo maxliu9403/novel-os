@@ -1,0 +1,67 @@
+{
+  "schema_version": "novel-method-experiment.v1",
+  "name": "english-method-pilot",
+  "seed": 9271,
+  "repetitions": 3,
+  "input_max_chars": 64000,
+  "model": {
+    "provider": "codex",
+    "model": "REPLACE_WITH_EXPLICIT_MODEL",
+    "connection_id": "REPLACE_WITH_EXISTING_CONNECTION_ID",
+    "base_url": "",
+    "configured_base_url": "",
+    "reasoning_effort": "medium",
+    "max_tokens": 6000,
+    "timeout_seconds": 300,
+    "azure_endpoint": "",
+    "azure_api_version": ""
+  },
+  "cases": [
+    {
+      "id": "three-chapter-window",
+      "kind": "free_trial_window",
+      "free_trial_end": 3,
+      "language": "en",
+      "audience": "English-speaking Western women, especially midlife readers; emotionally clear domestic fiction without complex finance.",
+      "facts": "Original synthetic editorial test, not an existing novel. Jo Reed, 49, repairs musical instruments. Her husband Ben has invited his former partner Ruth to a neighborhood concert and printed Ruth as co-host, although Jo organized it. No secret child, fortune, violence or new affair may be invented. The conflict is Ben taking Jo's agreement for granted. Limited third person through Jo. Ben avoids direct answers; Jo asks concrete questions; Ruth is observant rather than a caricature. Local promise: Jo speaks for herself and changes the concert arrangements. Future tension: whether Ben will publicly accept the boundary he privately resents.",
+      "prior_context": "",
+      "rules": ["nonfunctional_reaction", "voice_convergence", "ownership"],
+      "chapters": [
+        {"number": 1, "min_words": 800, "max_words": 900, "outline": "At rehearsal Jo finds the printed program. Ben calls the co-host change a harmless favor. Jo asks the organizer to pause printing and stays to finish a promised repair. End on the organizer asking whose decision the program actually records. Jo does not yet make a public announcement."},
+        {"number": 2, "min_words": 800, "max_words": 900, "outline": "Jo speaks privately with Ruth and learns Ruth was told Jo requested the change. Ruth agrees to correct that claim but does not solve the dispute for Jo. Jo tells Ben the concert will use separate host duties. He asks her to leave the old program in place for tonight. End on Jo deciding to answer the organizer herself."},
+        {"number": 3, "min_words": 800, "max_words": 900, "outline": "Before guests arrive Jo calmly corrects the program with the organizer, and Ruth accepts her own distinct role. Show the corrected arrangement actually taking effect; this is the local payoff, not just a promise. Ben must introduce the concert using the correction. End as he walks toward the microphone after asking Jo for a private concession that she has declined. Do not resolve the marriage or introduce an unrelated mystery."}
+      ]
+    },
+    {
+      "id": "four-chapter-dialogue-window",
+      "kind": "free_trial_window",
+      "free_trial_end": 4,
+      "language": "en",
+      "audience": "English-speaking Western women, especially midlife readers; family dialogue, earned emotional agency, accessible prose.",
+      "facts": "Original synthetic editorial test. Mara Ellis, 53, hosts a weekly family dinner. Her adult daughter Tess has been declining invitations because Mara's sister June keeps explaining Tess's choices to everyone. Mara previously smoothed over these interruptions. Nobody is secretly pregnant, cheating or pursuing money. Limited third person through Mara; she knows only what she witnesses or is told. June couches demands in cheerful generalizations, Tess speaks cautiously but specifically, Mara learns to tolerate silence. Local promise: Tess answers a family question in her own words and Mara respects an answer she dislikes.",
+      "prior_context": "",
+      "rules": ["emotion_restatement", "voice_convergence", "earned_bridge"],
+      "chapters": [
+        {"number": 1, "min_words": 800, "max_words": 900, "outline": "Mara sets a place for Tess, who arrives briefly to collect a baking dish rather than stay. June answers a question meant for Tess. Mara notices Tess preparing to leave and asks to hear her answer. End when Tess says she does not trust that the table will stay quiet long enough."},
+        {"number": 2, "min_words": 800, "max_words": 900, "outline": "In the kitchen Mara asks Tess what she has done to contribute to the problem. Tess gives one specific example already implicit in the dinner situation, not a new dramatic secret. Mara listens without a defense. She invites Tess to choose whether to return next week, with a clear promise not to volunteer her explanations."},
+        {"number": 3, "min_words": 800, "max_words": 900, "outline": "Before the next dinner Mara tells June that questions for Tess will stay with Tess. June feels publicly displaced although this talk is private. Give Mara a quiet practical task while she resists rehearsing a speech. Tess arrives by her own choice. End as a familiar question is asked and June begins to answer."},
+        {"number": 4, "min_words": 800, "max_words": 900, "outline": "Mara interrupts the interruption without humiliating June. Tess states that she will stop attending every Sunday; Mara accepts the boundary despite sadness. Show dinner continuing under the changed arrangement. This delivered choice is the local payoff. End on June asking Mara whether their own weekly plans are also open to change, a concrete consequence rather than an unrelated cliffhanger."}
+      ]
+    },
+    {
+      "id": "volume-one-to-two",
+      "kind": "volume_transition",
+      "free_trial_end": null,
+      "volume_boundary_after": 12,
+      "language": "en",
+      "audience": "English-speaking Western women; a four-volume, 48-chapter family story with distinct volume payoffs and no complex financial plot.",
+      "facts": "Original synthetic editorial test. Nell Ward runs a volunteer reading room. Her friend Ada publicly took credit for Nell's restoration of a set of recorded family interviews. Limited third person through Nell. Volume one ends with Nell receiving correct attribution, not with a complete reconciliation. Volume two tests whether she will choose which family stories she actually wishes to hear. No new villain or anonymous threat. The old blue case contains the original recording list; it is a practical continuity object, not a treasure or legal asset.",
+      "prior_context": "Chapters 1–11: Nell found her name missing from an exhibition program, requested a correction herself, and obtained agreement from the curator. In chapter 3 she placed the original recording list in the blue case. In chapter 8 the reader saw Ada privately tell the curator she feared Nell would hear an interview about their estranged friendship. Nell was absent from that conversation and does not know Ada's fear or the interview's contents. At the end of chapter 11 the curator confirms the attribution correction and asks Nell to select the first recording for the reopened room. Nell has not selected one.",
+      "rules": ["mechanical_scene_execution", "choice_causality", "ownership"],
+      "chapters": [
+        {"number": 12, "min_words": 800, "max_words": 900, "outline": "Close volume one at the reopening. Nell sees the corrected attribution displayed and acknowledges the volunteers, retaining ownership of her request. She retrieves the original list from the blue case planted in chapter 3. Ada congratulates her awkwardly without confessing her private fear. Nell chooses to decide which recording to play tomorrow. End with a meaningful changed relationship, not another repetition of the attribution dispute."},
+        {"number": 13, "min_words": 800, "max_words": 900, "outline": "Open volume two with Nell reviewing the list and setting her own listening boundaries. Ada asks to listen with her but gives no explanation beyond discomfort. Nell can notice this behavior but must not narrate Ada's hidden fear as known fact. Nell proposes that they listen together only after Ada says what she is asking for. Show Nell's new authority through the choice, while the recording contents remain unheard. No reset of the resolved attribution conflict."}
+      ]
+    }
+  ]
+}

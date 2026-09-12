@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import urlsplit
 from typing import Final
 
 from llm_client import LLMClient
@@ -99,6 +100,31 @@ class ModelRouter:
 
     def __repr__(self) -> str:
         return "ModelRouter()"
+
+    @staticmethod
+    def public_snapshot(client):
+        # P1 keeps an identical private implementation in its frozen runtime.
+        # Editing that file solely to deduplicate would invalidate existing run
+        # implementation hashes. Unify only with explicit schema compatibility.
+        configured = str(getattr(client, "snapshot_configured_base_url", None)
+                         if getattr(client, "snapshot_configured_base_url", None) is not None
+                         else getattr(client, "_explicit_base_url", "") or "")
+        effective = str(getattr(getattr(client, "_backend", None), "base_url", "") or
+                        getattr(client, "_explicit_base_url", "") or "")
+        azure_endpoint = str(getattr(client, "azure_endpoint", "") or "")
+        for endpoint in (configured, effective, azure_endpoint):
+            parts = urlsplit(endpoint)
+            if parts.username or parts.password or parts.query or parts.fragment:
+                raise ValueError("review endpoint must not embed credentials or query parameters")
+        return {"provider": str(getattr(client, "provider_name", "") or getattr(client, "provider", "")),
+                "model": str(getattr(client, "model", "")),
+                "reasoning_effort": str(getattr(client, "reasoning_effort", "") or ""),
+                "max_tokens": getattr(client, "max_tokens", None),
+                "timeout_seconds": getattr(client, "timeout_seconds", None),
+                "base_url": effective, "configured_base_url": configured,
+                "azure_endpoint": azure_endpoint,
+                "azure_api_version": str(getattr(client, "azure_api_version", "") or ""),
+                "connection_id": str(getattr(client, "configuration_id", "") or "")}
 
     @staticmethod
     def client_from_snapshot(snapshot: dict) -> LLMClient:
