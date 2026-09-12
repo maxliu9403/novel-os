@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel
 
@@ -698,6 +698,7 @@ class FinalDocSave(BaseModel):
 
 
 class CreateProject(BaseModel):
+    method_mode: Literal["off", "advisory"] = "advisory"
     title: str
     genre: str = ""
     genres: list[str] = []

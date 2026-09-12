@@ -1,0 +1,30 @@
+{
+  "id": "en-functional-prose.v1",
+  "title": "Functional English prose",
+  "language": "en",
+  "source": {
+    "repository": "https://github.com/zenstory-ai/oh-story-claudecode",
+    "commit": "aa3574fe6887fe1204168167b747d709607e77b6",
+    "license": "MIT",
+    "adaptation": "Original English rules and examples for Novel OS; method ideas informed by pinned source. No runtime upstream dependency."
+  },
+  "rules": {
+    "nonfunctional_reaction": "Flag a repeated bodily response only when removing it loses no perception, choice, concealment, relationship signal or causal transition. Stillness and direct telling can be effective.",
+    "emotion_restatement": "Flag explanations that repeat an emotion already legible in action or dialogue without adding a changed interpretation or consequence.",
+    "unearned_commentary": "Flag authorial conclusions that instruct the reader how to feel without support in the viewpoint or scene. Respect deliberate retrospective narration.",
+    "voice_convergence": "Compare actual dialogue from at least two distinct speakers in this candidate. Look at intention, diction and evasion, not forced accents or decorative catchphrases.",
+    "mechanical_scene_execution": "Check whether sensory details and scene transitions have a present purpose rather than fulfilling a quota. Do not demand three senses or continuous high tension."
+  },
+  "examples": [
+    {
+      "context": "A witness hides that she recognizes a name.",
+      "functional": "She turned the visitor book toward the clerk, keeping one finger over the signature.",
+      "reason": "The gesture conceals information and changes what the other person can see."
+    },
+    {
+      "context": "A quiet character finally answers a question.",
+      "functional": "\"No,\" she said. This time she let the silence stand.",
+      "reason": "Direct, minimal telling can mark a consequential boundary; adding bodily reactions would dilute it."
+    }
+  ]
+}

@@ -54,8 +54,9 @@ class ModelRouter:
             f"NOVEL_OS_{role.upper()}_{suffix}"
         ) or cls._nonblank_env(cls._GLOBAL_ENV[suffix])
 
-    def client_for(self, role: str) -> LLMClient:
+    def client_for(self, role: str, *, timeout_seconds: float | None = None) -> LLMClient:
         normalized = self.normalize_role(role)
+        options = {"timeout_seconds": timeout_seconds} if timeout_seconds is not None else {}
         try:
             try:
                 from .provider_settings import (
@@ -72,14 +73,17 @@ class ModelRouter:
             configuration = load_configuration()
             if configuration.get("source") == "v2":
                 route = resolve_text_route(normalized)
-                return LLMClient(
+                client = LLMClient(
                     provider=route["provider"] or None,
                     model=route["model"] or None,
                     base_url=route["base_url"] or None,
                     api_key=route["api_key"] or None,
                     max_tokens=route["max_tokens"],
                     reasoning_effort=route["reasoning_effort"] or None,
+                    **options,
                 )
+                client.configuration_id = route.get("connection_id", "")
+                return client
         except ProviderSettingsError:
             if configuration.get("source") == "v2":
                 raise
@@ -90,10 +94,39 @@ class ModelRouter:
             model=self._field_for(normalized, "MODEL"),
             base_url=self._field_for(normalized, "BASE_URL"),
             max_tokens=max_tokens,
+            **options,
         )
 
     def __repr__(self) -> str:
         return "ModelRouter()"
+
+    @staticmethod
+    def client_from_snapshot(snapshot: dict) -> LLMClient:
+        """Restore public routing values; credentials stay in the provider store."""
+        key = None
+        if snapshot.get("connection_id"):
+            try:
+                from .provider_settings import resolve_connection_credential
+            except ImportError:
+                from provider_settings import resolve_connection_credential
+            key = resolve_connection_credential(
+                snapshot["connection_id"], snapshot["provider"], snapshot["configured_base_url"],
+            )
+        azure_options = ({"azure_endpoint": snapshot["azure_endpoint"],
+                          "azure_api_version": snapshot["azure_api_version"]}
+                         if snapshot["provider"] == "azure" else {})
+        client = LLMClient(
+            provider=snapshot["provider"], model=snapshot["model"],
+            base_url=snapshot.get("base_url") or None, api_key=key or None,
+            max_tokens=snapshot.get("max_tokens"),
+            reasoning_effort=snapshot.get("reasoning_effort") or None,
+            timeout_seconds=snapshot.get("timeout_seconds"),
+            **azure_options,
+        )
+        client.configuration_id = snapshot.get("connection_id", "")
+        # Keep the connection's configured value distinct from its SDK-effective URL.
+        client.snapshot_configured_base_url = snapshot.get("configured_base_url", "")
+        return client
 
 
 __all__ = ["ModelRouter"]

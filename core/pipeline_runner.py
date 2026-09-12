@@ -200,9 +200,11 @@ def _project_execution_lock(project: Path, run_id: str):
 
 
 class PipelineRunner:
-    def __init__(self, project_path: str | Path | None = None, *, orchestrator_factory: Optional[Callable[[str], Any]] = None):
+    def __init__(self, project_path: str | Path | None = None, *, orchestrator_factory: Optional[Callable[[str], Any]] = None,
+                 method_client_factory: Optional[Callable[[], Any]] = None):
         self.project_path = Path(project_path) if project_path else None
         self._orchestrator_factory = orchestrator_factory or self._default_orchestrator
+        self._method_client_factory = method_client_factory
 
     @staticmethod
     def _default_orchestrator(project_path: str):
@@ -226,8 +228,21 @@ class PipelineRunner:
         manifest = RunManifest.new(spec)
         store = self._store(project, manifest.run_id)
         with _project_execution_lock(project, manifest.run_id):
+            method_policy_error = ""
+            if spec.method_policy is None:
+                from narrative_methods import MethodPolicy
+                from narrative_methods.store import MethodStore
+                try:
+                    spec.method_policy = MethodStore(project).policy()["data"]["policy"]
+                except Exception as exc:
+                    spec.method_policy = MethodPolicy(mode="off").to_dict()
+                    method_policy_error = type(exc).__name__
+            if not spec.dry_run:
+                print(f"Narrative methods: {spec.method_policy['mode']} (read-only; approved English free-trial window; judge route; at most 2 model calls/chapter).")
             self._reconciled_promotions = set()
             self._prepare_run(manifest, store)
+            if method_policy_error:
+                self._event(manifest, "methods.policy_unavailable", error_type=method_policy_error)
             return self._execute(manifest, project, store)
 
     def resume(
@@ -646,6 +661,7 @@ class PipelineRunner:
         self._rerun_started = False
         self._last_valid_state_snapshot = ""
         self._active_orchestrator = None
+        self._method_reviews = None
         if manifest.spec.model:
             os.environ["NOVEL_OS_MODEL"] = manifest.spec.model
         try:
@@ -734,6 +750,7 @@ class PipelineRunner:
                 self._validate_foundation_commit,
                 [foundation_receipt],
             )
+            self._prepare_method_reviews(manifest, project, store, commercial_story)
             narrative_format = self._narrative_format(project)
             long_form_audits = set(audit_due_chapters(narrative_format))
             commercial_review_enabled = (
@@ -1196,12 +1213,72 @@ class PipelineRunner:
                     chapter=number,
                     repair_attempt=commercial_attempt,
                 )
+        self._review_methods(manifest, project, number)
         self._stage(
             manifest, project, store, "chapter.promote", number,
             lambda: self._promote(manifest, project, number),
             lambda value: bool(value),
             [self._chapter_stage(number, "final" if spec.approval_policy == "auto" else "candidate_final")],
         )
+
+    def _prepare_method_reviews(self, manifest, project, store, commercial_story):
+        """Advisory sidecars never participate in production checkpoint invalidation."""
+        from narrative_methods import MethodPolicy
+        from narrative_methods.runtime import MethodReviews
+
+        if manifest.spec.method_policy is None:
+            return  # Pre-feature runs are not silently opted in on resume.
+        policy = MethodPolicy.from_dict(manifest.spec.method_policy)
+        if policy.mode == "off":
+            return
+        try:
+            brief = json.loads((project / "outputs/input/brief.json").read_text(encoding="utf-8"))
+            reviews = MethodReviews(project, client_factory=self._method_client_factory)
+            allow_create = not manifest.method_snapshot_started
+            manifest.method_snapshot_started = True
+            store.save(manifest)
+            snapshot = reviews.prepare(
+                manifest.run_id, policy, language=str(brief.get("language", "")),
+                free_trial_end=commercial_story.free_trial_arc.chapter_count if commercial_story else None,
+                contracts={"commercial_story": commercial_story.to_dict()} if commercial_story else {},
+                allow_create=allow_create,
+            )
+            if manifest.method_lock_sha256 and manifest.method_lock_sha256 != snapshot["sha256"]:
+                raise ValueError("run method lock diverged from manifest")
+            manifest.method_lock_sha256 = snapshot["sha256"]
+            store.save(manifest)
+            self._method_reviews = reviews
+            self._method_free_trial_end = snapshot["data"].get("free_trial_end")
+            self._event(manifest, "methods.prepared", status=snapshot["data"].get("status"),
+                        method_lock_sha256=snapshot["sha256"])
+        except Exception as exc:
+            self._event(manifest, "methods.unavailable", error_type=type(exc).__name__)
+
+    def _review_methods(self, manifest, project, number):
+        reviews = getattr(self, "_method_reviews", None)
+        end = getattr(self, "_method_free_trial_end", None)
+        if reviews is None or end is None or number > end:
+            return
+        try:
+            from narrative_methods import ReviewInput
+            artifacts = ArtifactStore(project)
+            candidate = self._latest_candidate_stage(manifest, number)
+            if candidate is None or not candidate.revision_id:
+                raise ValueError("method review needs an immutable candidate")
+            contracts = {}
+            if candidate.chapter_contract_revision_id:
+                contracts["chapter_contract"] = artifacts.read_text(candidate.chapter_contract_revision_id)
+                contracts["chapter_contract_revision_id"] = candidate.chapter_contract_revision_id
+            report = reviews.review(manifest.run_id, ReviewInput(
+                revision_id=candidate.revision_id, chapter=number,
+                text=artifacts.read_text(candidate.revision_id), language="", free_trial_end=None,
+                contracts=contracts,
+            ))
+            self._event(manifest, "methods.reviewed", chapter=number,
+                        report_id=report["report_id"], status=report["status"],
+                        model_calls=report["usage"]["model_calls"])
+        except Exception as exc:
+            self._event(manifest, "methods.unavailable", chapter=number, error_type=type(exc).__name__)
 
     def _restore_committed_tail_state(
         self,

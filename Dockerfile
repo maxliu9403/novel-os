@@ -24,6 +24,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY api ./api
 COPY core ./core
+COPY resources ./resources
 COPY agents ./agents
 COPY templates ./templates
 COPY docker-entrypoint.sh /usr/local/bin/novel-os-entrypoint

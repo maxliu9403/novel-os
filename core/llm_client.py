@@ -140,6 +140,8 @@ class LLMClient:
         api_key: Optional[str] = None,
         timeout_seconds: float | None = None,
         reasoning_effort: str | None = None,
+        azure_endpoint: str | None = None,
+        azure_api_version: str | None = None,
     ):
         if timeout_seconds is not None and timeout_seconds <= 0:
             raise ValueError("LLM timeout must be positive")
@@ -149,6 +151,8 @@ class LLMClient:
         self._explicit_api_key = api_key
         self.timeout_seconds = timeout_seconds
         self.reasoning_effort = reasoning_effort
+        self.azure_endpoint = azure_endpoint
+        self.azure_api_version = azure_api_version
 
         # Map alias -> openai_compatible with preset base_url/model/key
         self._backend, self.model = self._build_backend(model)
@@ -286,8 +290,10 @@ class LLMClient:
         except ImportError as e:
             raise LLMError("Install: pip install openai") from e
         key = self._explicit_api_key or os.environ.get("AZURE_OPENAI_API_KEY")
-        endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
-        api_version = os.environ.get("AZURE_OPENAI_API_VERSION", DEFAULT_AZURE_API_VERSION)
+        endpoint = self.azure_endpoint or os.environ.get("AZURE_OPENAI_ENDPOINT")
+        api_version = self.azure_api_version or os.environ.get("AZURE_OPENAI_API_VERSION", DEFAULT_AZURE_API_VERSION)
+        self.azure_endpoint = endpoint
+        self.azure_api_version = api_version
         if not (key and endpoint):
             raise LLMError("Azure needs AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT.")
         if not deployment:

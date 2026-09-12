@@ -24,3 +24,12 @@
 The Novel OS repository owns classification generation and publication. The H5
 application consumes the published contract through a separately scheduled
 integration.
+
+## Narrative methods
+
+- **Method policy**: a private, versioned selection of writing methods and review scope; P1 supports off and advisory only.
+- **Run method lock**: a frozen method/configuration snapshot bound to a logical project and run, not a mutable global setting.
+- **Method critique**: a read-only opinion about an exact artifact revision. Verified quotations do not prove the opinion or grant promotion authority.
+- **Explicit method retry**: a user-requested new critique of the same input, linked to its failed predecessor; repeating that same request is idempotent.
+
+Method sidecars are private diagnostics, not canon and not H5 publication metadata.

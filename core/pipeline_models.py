@@ -57,11 +57,15 @@ class RunSpec:
     dry_run: bool = False
     model: str = ""
     quality_policy: str = "legacy"
+    method_policy: Optional[Dict[str, Any]] = None
 
     def __post_init__(self) -> None:
         self.project_path = str(self.project_path)
         self.prompt_path = str(self.prompt_path)
         self.output_formats = _as_tuple(self.output_formats)
+        if self.method_policy is not None:
+            from narrative_methods import MethodPolicy
+            self.method_policy = MethodPolicy.from_dict(self.method_policy).to_dict()
         if self.num_chapters is not None and self.num_chapters < 1:
             raise ValueError("num_chapters must be at least 1")
         if self.target_words is not None and self.target_words < 1:
@@ -145,6 +149,8 @@ class RunManifest:
     updated_at: str = field(default_factory=_now)
     stages: Dict[str, StageResult] = field(default_factory=dict)
     error: Optional[str] = None
+    method_snapshot_started: bool = False
+    method_lock_sha256: str = ""
 
     def __post_init__(self) -> None:
         if self.status not in RUN_STATUSES:
@@ -178,6 +184,8 @@ class RunManifest:
             "updated_at": self.updated_at,
             "stages": {key: value.to_dict() for key, value in self.stages.items()},
             "error": self.error,
+            "method_snapshot_started": self.method_snapshot_started,
+            "method_lock_sha256": self.method_lock_sha256,
         }
 
     @classmethod
@@ -195,6 +203,8 @@ class RunManifest:
                 for key, value in data.get("stages", {}).items()
             },
             error=data.get("error"),
+            method_snapshot_started=bool(data.get("method_snapshot_started", False)),
+            method_lock_sha256=str(data.get("method_lock_sha256", "")),
         )
 
 

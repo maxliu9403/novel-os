@@ -569,6 +569,7 @@ def create_project(body: CreateProject, svc: ProjectService = Depends(get_servic
             genres=body.genres, premise=body.premise,
             classification=body.classification,
             narrative_format=body.narrative_format,
+            method_mode=body.method_mode,
         )
     except BadRequest as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -2067,3 +2068,9 @@ def chapter_quality_receipt(
     if receipt is None:
         raise HTTPException(status_code=404, detail="Promotion receipt not found")
     return PromotionReceiptOut(**receipt)
+
+
+# Shares the existing project mutation and tenancy guards; no H5 routes are changed.
+from .method_routes import register_method_routes
+
+register_method_routes(router, get_service)

@@ -3116,6 +3116,8 @@ Examples:
                             choices=['legacy', 'evidence_v1'],
                             help='Select legacy projection or evidence-backed promotion')
     run_parser.add_argument('--max-retries', type=int, default=5)
+    run_parser.add_argument('--method-mode', choices=['off', 'advisory'], default=None,
+                            help='Read-only narrative review; inherits project policy (new default: advisory)')
     run_parser.add_argument('--retry-backoff', type=float, default=2.0,
                             help='Initial retry delay in seconds (exponential, capped at 30s)')
     run_parser.add_argument('--max-quality-repairs', type=int, default=2,
@@ -3203,6 +3205,7 @@ Examples:
                     edit_mode=args.edit_mode,
                     approval_policy=args.approval,
                     quality_policy=args.quality_policy,
+                    method_policy=({'mode': args.method_mode} if args.method_mode else None),
                     max_retries=args.max_retries,
                     max_quality_repairs=args.max_quality_repairs,
                     retry_backoff_seconds=args.retry_backoff,

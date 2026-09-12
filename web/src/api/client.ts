@@ -692,7 +692,42 @@ async function upload<T>(path: string, form: FormData): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
+export interface MethodPolicyRecord {
+  sha256: string;
+  data: { policy: { mode: "off" | "advisory"; [key: string]: unknown } };
+}
+export interface MethodFinding {
+  rule_id: string; severity: string; explanation: string; suggestion: string;
+  gate_disposition: "advisory";
+  evidence: { start: number; end: number; quote: string; location_corrected: boolean }[];
+}
+export interface MethodReport {
+  report_id: string; run_id: string; chapter: number; revision_id: string;
+  candidate_sha256: string; status: string; error_code: string; summary: string;
+  findings: MethodFinding[]; blocking: false; created_at: string;
+  usage: { model_calls: number; uncertain_model_calls?: number; tokens: number | null; transport_attempts: number | null; elapsed_seconds: number };
+  coverage: { complete_input: boolean; candidate_length: number; submitted_intervals: number[][] };
+}
+export interface MethodReviewData {
+  reports: MethodReport[];
+  runs: { run_id: string; mode: string; status: string; reason: string; free_trial_end: number | null }[];
+  revisions: { revision_id: string; kind: string; sha256: string; timestamp: string }[];
+  decisions: { report_id: string; finding_index: number; decision: string }[];
+}
+
 export const api = {
+  methodReviewSource: (id: string, reportId: string) =>
+    get<{ revision_id: string; sha256: string; text: string }>(`/api/projects/${id}/method-reviews/${reportId}/source`),
+  methodPolicy: (id: string) => get<MethodPolicyRecord>(`/api/projects/${id}/method-policy`),
+  saveMethodPolicy: (id: string, expected_revision: string, policy: MethodPolicyRecord["data"]["policy"]) =>
+    send<MethodPolicyRecord>(`/api/projects/${id}/method-policy`, "PUT", { expected_revision, policy }),
+  methodReviews: (id: string, chapter: number) =>
+    get<MethodReviewData>(`/api/projects/${id}/chapters/${chapter}/method-reviews`),
+  startMethodReview: (id: string, chapter: number, run_id: string, revision_id: string, retry_of?: string) =>
+    send<JobStatus>(`/api/projects/${id}/chapters/${chapter}/method-review`, "POST", { run_id, revision_id, retry_of }),
+  keepMethodFinding: (id: string, report_id: string, revision_id: string, finding_index: number) =>
+    send<MethodReviewData["decisions"][number]>(`/api/projects/${id}/method-reviews/${report_id}/keep`, "POST", { revision_id, finding_index }),
+
   projects: () => get<ProjectSummary[]>("/api/projects"),
   project: (id: string) => get<ProjectDetail>(`/api/projects/${id}`),
   projectDeletionPreview: (id: string) =>
@@ -874,6 +909,7 @@ export const api = {
   saveFinalDoc: (id: string, n: number, doc: FinalDoc["doc"]) =>
     send<FinalDoc>(`/api/projects/${id}/chapters/${n}/final/doc`, "PUT", { doc }),
   createProject: (body: {
+    method_mode?: "off" | "advisory";
     title: string; genre?: string; author: string;
     genres?: string[]; premise?: string;
   }) =>

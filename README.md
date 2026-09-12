@@ -1053,6 +1053,18 @@ Docker 系统类型库；EPUB 始终为 `application/epub+zip`。旧包出现
 注意：下载 ZIP 接口只返回现存归档，不触发重建；仅刷新页面或重新下载旧包
 不会修正已有字段。完整类型表和摘要规则见 [H5 交接文档](docs/h5-import-handoff.md)。
 
+#### 创作方法增强（P0 / P1，仅评审）
+
+新建作品可选择只读英文评审，针对已批准的免费章节窗口检查功能性表达、人物选择、回报归属和阅读期待。全书流水线保存独立报告，不改写正文、封面或 H5 数据格式；章节页的“写作评审 · 只读”可查看精确版本、历史原稿高亮、调用记录和显式重评。
+
+- `run --method-mode advisory` / `run --method-mode off`；省略时继承项目默认值。
+- 模型沿用 Judge 路由，需显式模型名；开启时可能增加调用费用。
+- 报告失败不阻断原有正文流程；主观文风建议不是发布审批。
+- Docker 构建包含 `resources/narrative-methods/`，仅同步 skills 不会更新引擎实现。
+- 本阶段没有自动改稿、长篇知识视图或旧书迁移。
+
+具体配置、恢复、重评、接口和 H5 验收边界见 [P0/P1 使用说明](docs/implementation/2026-09-12-narrative-methods-p1.md)。
+
 #### 小说类型契约与 H5 读取
 
 Novel OS 使用 `novel-classification.v1` 将主类型、辅助类型、故事模型、情绪、

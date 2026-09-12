@@ -461,6 +461,7 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
   const [genres, setGenres] = useState<string[]>([]);
   const [otherGenre, setOtherGenre] = useState("");
   const [premise, setPremise] = useState("");
+  const [methodReview, setMethodReview] = useState(true);
   const [author, setAuthor] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -476,6 +477,7 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
         genres: merged,
         genre: merged.join(" · "),
         premise: premise.trim(),
+        method_mode: methodReview ? "advisory" : "off",
       });
       toast("作品已创建", "success");
       navigate(`/projects/${p.id}`);
@@ -536,6 +538,12 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
             选填。用两到四句话描述构想，架构师会以此规划故事。
           </p>
         </div>
+        <label className="flex items-start gap-2 rounded-lg bg-white/50 p-3 text-xs leading-relaxed text-ink-muted">
+          <input type="checkbox" checked={methodReview} onChange={e => setMethodReview(e.target.checked)} className="mt-1" />
+          <span>启用只读写作评审：检查英文表达与免费章节的选择、回报和阅读期待。
+            全书任务使用 Judge 路由，按已批准的免费窗口每章增加一次评审，格式修正最多一次；可能增加模型费用。
+            不自动修改正文，单阶段写作不触发。可在章节评审面板关闭未来运行的默认值。</span>
+        </label>
         <div className="sticky bottom-0 -mx-1 mt-4 flex justify-end gap-3 border-t border-[rgba(74,91,133,0.08)] bg-gradient-to-t from-white/95 via-white/90 to-transparent px-1 pb-1 pt-4">
           <button type="button" onClick={onClose} className="btn-ghost">
             取消

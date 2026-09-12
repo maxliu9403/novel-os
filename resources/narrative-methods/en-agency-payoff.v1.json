@@ -1,0 +1,23 @@
+{
+  "id": "en-agency-payoff.v1",
+  "title": "Agency and earned reader value",
+  "language": "en",
+  "source": {
+    "repository": "https://github.com/zenstory-ai/oh-story-claudecode",
+    "commit": "aa3574fe6887fe1204168167b747d709607e77b6",
+    "license": "MIT",
+    "adaptation": "Original English rules and examples for Novel OS; method ideas informed by pinned source. No runtime upstream dependency."
+  },
+  "rules": {
+    "choice_causality": "Locate a consequential choice and its observed consequence. Distinguish deliberate constrained action from events that merely happen to the protagonist; preserve the approved design.",
+    "ownership": "Check whether the person assigned a decision or local payoff by the approved contract actually owns it. Allies may help; do not require a lone hero, humiliation or revenge.",
+    "earned_bridge": "Check this chapter contribution to local reader value and a concrete next consequence. Respect chapter assignments. Do not demand every payoff in every chapter or make a whole-window absence claim."
+  },
+  "examples": [
+    {
+      "context": "A protagonist has been expected to keep a family dispute private.",
+      "functional": "She gives the host her own explanation before taking her seat. The host then asks the spouse to answer it.",
+      "reason": "The choice changes who controls the conversation. Further reading follows a real consequence, not a withheld sentence."
+    }
+  ]
+}

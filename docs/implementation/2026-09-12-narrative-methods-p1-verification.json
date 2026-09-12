@@ -1,0 +1,125 @@
+{
+  "schema": "novel-methods-implementation-verification.v1",
+  "created_at": "2026-09-12T09:53:06.751290+00:00",
+  "scope": [
+    "P0",
+    "P1"
+  ],
+  "base_commit": "dea7d586026cc7d8e25b4b5a445a955602f23c84",
+  "branch": "feat/novel-quality-closure",
+  "implementation_status": "implemented_and_locally_tested",
+  "release_status": "not_deployed_h5_acceptance_pending",
+  "tests": {
+    "backend": {
+      "command": "venv/bin/python -m pytest --junitxml=/private/tmp/novel-methods-p1-junit.xml",
+      "passed": 1533,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite_seconds": 170.36,
+      "cli_wall_seconds": 173.15,
+      "existing_fork_deprecation_warnings": 4,
+      "evidence_path": "/private/tmp/novel-methods-p1-junit.xml",
+      "evidence_sha256": "3de2de1c56cdb4675c80bdb3a364daf67ffa531dded78d37cc6d23abe322ad75"
+    },
+    "new_backend_cases": {
+      "passed": 33,
+      "included_in_full_suite": true
+    },
+    "web": {
+      "command": "npm test -- --reporter=default --reporter=json --outputFile.json=/private/tmp/novel-methods-p1-web-final.json",
+      "cwd": "web",
+      "files": 17,
+      "passed": 107,
+      "failures": 0,
+      "evidence_path": "/private/tmp/novel-methods-p1-web-final.json",
+      "evidence_sha256": "3f2f356f60b353aab57485d0495cf6fdb251183762e4f773d7252e683c6da9e8"
+    },
+    "web_build": {
+      "command": "npm run build",
+      "cwd": "web",
+      "exit_code": 0,
+      "evidence_sha256": "db3e5f53f4ce7ab1d8e8a3dfa882da40b081ac5169f449201fdbc1940f15795b"
+    },
+    "web_lint": {
+      "command": "npm run lint",
+      "cwd": "web",
+      "exit_code": 0,
+      "evidence_sha256": "4fc0be1d4733dded50b42bc610e759c00a07e818610b381a7deb7600199e8d3a"
+    },
+    "diff_check": {
+      "command": "git diff --check",
+      "exit_code": 0
+    },
+    "catalog_hashes": "all_match"
+  },
+  "observations": [
+    {
+      "type": "transient_frontend_wait_timeout",
+      "test": "ChapterView / Final pane auto-seeds from revised and saves edits",
+      "observed_during": "simultaneous backend and web full suites",
+      "isolation_rerun": "2 passed",
+      "subsequent_full_web_rerun": "107 passed",
+      "test_or_timeout_modified": false,
+      "cause": "resource contention suspected, not conclusively established"
+    }
+  ],
+  "h5": {
+    "contract_change": false,
+    "real_engine_zip_member_and_manifest_comparison": "passed",
+    "private_method_files_exported": false,
+    "current_h5_importer_executed": false,
+    "release_gate": "actual importer acceptance required"
+  },
+  "boundaries": {
+    "mode": "off_or_advisory_only",
+    "scope": "approved_english_free_trial_window",
+    "automatic_prose_rewrite": false,
+    "promotion_blocking_authority": false,
+    "P2_P3_P4_implemented": false,
+    "live_model_ab_quality_or_cost_assessment": false,
+    "old_book_migration": false,
+    "ai_novel_h5_modified": false,
+    "deployed": false,
+    "services_restarted": false,
+    "novel_creation_resumed": false,
+    "committed": false,
+    "pushed": false
+  },
+  "design_sha256": "6d5fbd3369560de3c8cb1e209e71c29b76f832127d68dd276e31d1da9384d90a",
+  "implementation_files_sha256": {
+    "CONTEXT.md": "39579a06a732ea008ba4c909d652beb52f7ab3414f07a7f65bd4b0275d2551a9",
+    "Dockerfile": "b0a7c62a8427d28fa67fcd39d422c641b08a7bcc225f3fc63bccdc4ad5dfaad3",
+    "README.md": "1ad86dc8ac4e3a7c4cd4e597e16cf5d0b288c1b9c15fa4775571abf497a9cbcb",
+    "api/method_routes.py": "4e6c0f63b319d0d85f6a9aa500368393d403e80c03a4239d73e9e60a956454f6",
+    "api/models.py": "27dfe65c7596401b837638515ad04bb75fb606942bb3bdefbb7181ff4813b360",
+    "api/routes.py": "9a8151f511b90e5bf3cdeeb339b36e38879fd9d0e3a591da63bceff468759c77",
+    "api/services.py": "4de5c0a6029a2e2c6f9924e8e4c976c5b7707fafd0c412841bd1ee2406cdca8e",
+    "core/llm_client.py": "93c47699fa81103104ec8c466a3e29ac553d368722ec6aa91d189313a004c866",
+    "core/model_router.py": "64440af67479ef6a0d537d5aed402e03aadca708f1179fcfa0f71ab7b9440644",
+    "core/narrative_methods/__init__.py": "1277ba30b6aabf750ede63311d59681ba460f10ea8f2c5a6f10e1478549b6f9d",
+    "core/narrative_methods/compiler.py": "31e868d4c3f0d5813768409042c54a68f42b09ae8f6ebe38f13132461d91cada",
+    "core/narrative_methods/models.py": "2b71fc2f06d7911561dc34baaea3e4fea3a5589380eb58648d5276d3c5dd9980",
+    "core/narrative_methods/runtime.py": "623b08214722406ca3961871a44f53d4e4f88b6f46027af372f51acfcf33b582",
+    "core/narrative_methods/store.py": "222151c46a50976bbbe922e3db4c76c071363bb69cd5322e0623be45aa4df402",
+    "core/orchestrator.py": "b48bd311a89c52df21b1cad446ac278ed5a9b99b31703916ccaf50d8489f967e",
+    "core/pipeline_models.py": "915264a4b11f4cec0a9cb2b3bd778d412688b86929502d485c825c819a80e7cf",
+    "core/pipeline_runner.py": "97df82efb394d6f2c278e87cac2450aa03e1224e58c328fbf7098188196fe2e1",
+    "core/provider_settings.py": "8504fc0495c8420a5ee1b6005d683742ed4dd354c1d7f2ceccc7b54a7c4c8dda",
+    "docs/implementation/2026-09-12-narrative-methods-p1.md": "52165284834e8b20f07c459acf25c7ff9e97155e93c1403226076922902fae87",
+    "docs/third-party/oh-story-attribution.md": "d7d7f1fc3973e69ed7da969246e5b893b770c5731a96844f153fffa8e2d36f87",
+    "resources/narrative-methods/catalog.json": "d570bb0020ec0e586cbcc17204f520c9cdab6b78cce79c7f51528d4d042bccbc",
+    "resources/narrative-methods/en-agency-payoff.v1.json": "0187056e77b93bc2fa210ada3072aba3ad397e1022f094a313f605221fc5992a",
+    "resources/narrative-methods/en-functional-prose.v1.json": "8c97588b9bc1d3722b0b4e855a1bc84a166e889df8ce3acd6dc0a7dccdbf2dcd",
+    "tests/conftest.py": "e481e74677108afe908c552c6586b9fc7cddcfbd3e0be4b6491d97dbe4b2e587",
+    "tests/test_method_reviews_api.py": "e28ee0865a99f838faf4d511e1d99682cae010063223685a773ad9f4aceb6ea5",
+    "tests/test_narrative_methods.py": "1c879f50066f1edccb0e18bbc9efb4f282221c504a00d460dc34410b365c4a1e",
+    "web/src/api/client.ts": "471582bdf0eaec646f264385aebbfc42009c55edb92bfcdb0fe1d11fec6bb3ef",
+    "web/src/components/MethodReviews.tsx": "b1dfd124a900d628d1408b8d59b081f87af5a50fc469ce1f0a8b64574f6156fc",
+    "web/src/lib/methodEvidence.ts": "745352c91156881f350d6ed7a4f6890c4d9a3d82d77fb4ca8b801cd55c64a051",
+    "web/src/routes/ChapterView.tsx": "eae101aa672c2cbcfc0a6628c371b6ef3d8ad803dacf09fb3592454fbfbe516c",
+    "web/src/routes/ProjectsList.tsx": "4379a1762c141619e0eb90345ffab9f4afe4dc6240fa682c106e58599a865ccc",
+    "web/src/test/methodReviews.test.tsx": "a99f5268b08fbfde5872435036427b685cc9bd45bba46902807a15f5dc157139"
+  },
+  "implementation_bundle_sha256": "38ad10e8e6d0f6e18fb11b65a2eccf8e29606551c53b181ba11604c35f15a668"
+}

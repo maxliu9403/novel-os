@@ -693,6 +693,22 @@ def save_text_routes(routes: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]
         return text_routes_status(configuration)
 
 
+def resolve_connection_credential(connection_id: str, provider: str, base_url: str) -> str:
+    """Read live credentials for a frozen route, never retarget a saved run.
+
+    Rotating a credential is supported. Editing/deleting its connection requires
+    explicit configuration repair rather than sending it to another endpoint.
+    """
+    connection = _connection(load_configuration(), connection_id)
+    if str(connection.get("provider") or "") != provider or str(connection.get("base_url") or "") != base_url:
+        raise ProviderSettingsError("Frozen reviewer connection changed")
+    status, error = _connection_status(connection)
+    if status != "ready":
+        raise ProviderSettingsError(error or "Frozen reviewer credentials are unavailable")
+    # Explicit no-key providers must not pick up another connection's env key.
+    return _connection_secret(connection) or "not-needed"
+
+
 def resolve_text_route(route_id: str) -> dict[str, Any]:
     aliases = {"scribe": "writer", "continuity_guardian": "guardian", "style_curator": "style"}
     normalized = aliases.get(route_id.strip().lower(), route_id.strip().lower())

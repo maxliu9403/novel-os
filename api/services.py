@@ -1956,7 +1956,13 @@ Foreshadowing_Planted: …
     def create_project(self, title: str, genre: str = "", author: str = "",
                        genres: list[str] | None = None, premise: str = "",
                        classification: dict | None = None,
-                       narrative_format: dict | None = None) -> ProjectSummary:
+                       narrative_format: dict | None = None,
+                       method_mode: str = "advisory") -> ProjectSummary:
+        from narrative_methods import MethodPolicy
+        try:
+            MethodPolicy(mode=method_mode)
+        except ValueError as exc:
+            raise BadRequest(str(exc)) from exc
         title = title.strip()
         if not title:
             raise BadRequest("Title is required.")
@@ -2012,6 +2018,7 @@ Foreshadowing_Planted: …
                         premise=premise,
                         classification=canonical_classification,
                         narrative_format=canonical_format,
+                        method_mode=method_mode,
                     )
             except ProjectMutationBlocked:
                 folder = base / f"{slug}-{n}"
@@ -2028,6 +2035,7 @@ Foreshadowing_Planted: …
         premise: str,
         classification: NovelClassification,
         narrative_format: NarrativeFormat | None,
+        method_mode: str = "advisory",
     ) -> ProjectSummary:
         """Create one canonical project while its operation lease is held."""
         folder.mkdir(parents=True, exist_ok=True)
@@ -2063,6 +2071,9 @@ Foreshadowing_Planted: …
                     )
                     bible.write_text(text, encoding="utf-8")
         s.save_state()
+        from narrative_methods import MethodPolicy
+        from narrative_methods.store import MethodStore
+        MethodStore(folder).set_policy(MethodPolicy(mode=method_mode), "")
         return self._summary(folder.name, s, folder / "outputs" / "state" / "story_state.json")
 
     def create_sample_project(self) -> ProjectSummary:
