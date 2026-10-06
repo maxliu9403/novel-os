@@ -1,0 +1,1682 @@
+{
+  "schema_version": 1,
+  "artifact_type": "story_design_proposal",
+  "approval_status": "author_confirmed_2026-10-04",
+  "title": "The Hours I Kept",
+  "title_status": "author_confirmed",
+  "planning_language": "Chinese",
+  "manuscript_language": "English",
+  "confirmed_user_contract": {
+    "approach": "A：婚姻中无偿劳动承诺、以真实代价退出并重建",
+    "market": "美国",
+    "audience": "50–65岁女性",
+    "emotional_promise": [
+      "婚姻背叛",
+      "尊严反击",
+      "人生重建"
+    ],
+    "packaging": "single_standalone_short_novel",
+    "total_chapters": 24,
+    "words_per_chapter": 1200,
+    "target_word_count": 28800
+  },
+  "story_outline": {
+    "title": "The Hours I Kept",
+    "genre": "Women's Fiction",
+    "subgenre": "Domestic Betrayal / Midlife Reinvention",
+    "target_word_count": 28800,
+    "estimated_chapters": 24,
+    "acts": [
+      {
+        "act_number": 1,
+        "name": "未经同意的承诺",
+        "percent_complete": 25,
+        "chapters": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "key_beats": [
+          {
+            "beat_name": "开场背叛及首次拒绝",
+            "chapter": 1,
+            "description": "正在洽谈的交易把女主未来半年免费劳动视为条件。"
+          },
+          {
+            "beat_name": "小兑现与有代价的门槛",
+            "chapter": 3,
+            "description": "十二份试做完成，女主正式放弃旧报价并付出后续试做费用。"
+          }
+        ]
+      },
+      {
+        "act_number": 2,
+        "name": "重新计算自己",
+        "percent_complete": 50,
+        "chapters": [
+          7,
+          8,
+          9,
+          10,
+          11,
+          12
+        ],
+        "key_beats": [
+          {
+            "beat_name": "不对等承诺的完整真相",
+            "chapter": 8,
+            "description": "丈夫曾要求自己的引介工作单独计费。"
+          },
+          {
+            "beat_name": "自致失败",
+            "chapter": 10,
+            "description": "过度承诺导致退款及资金损失。"
+          },
+          {
+            "beat_name": "中点方案",
+            "chapter": 12,
+            "description": "拒绝有薪但长期的依附，提出有限有偿交接。"
+          }
+        ]
+      },
+      {
+        "act_number": 3,
+        "name": "让别人也有选择",
+        "percent_complete": 75,
+        "chapters": [
+          13,
+          14,
+          15,
+          16,
+          17,
+          18
+        ],
+        "key_beats": [
+          {
+            "beat_name": "分居与独立生活",
+            "chapter": 14,
+            "description": "明确分居并启动独立生活安排；最终婚姻选择在第20章完成。"
+          },
+          {
+            "beat_name": "边界的收入代价",
+            "chapter": 18,
+            "description": "放弃超出个人业务范围的有利订单，明确交易边界。"
+          }
+        ]
+      },
+      {
+        "act_number": 4,
+        "name": "完成退出，开始生活",
+        "percent_complete": 100,
+        "chapters": [
+          19,
+          20,
+          21,
+          22,
+          23,
+          24
+        ],
+        "key_beats": [
+          {
+            "beat_name": "高潮选择",
+            "chapter": 20,
+            "description": "接受真实价格及有限交接；丈夫开始承担责任仍不导致复婚。"
+          },
+          {
+            "beat_name": "外部终局",
+            "chapter": 22,
+            "description": "履约、移交和约定交易完成。"
+          },
+          {
+            "beat_name": "一年后",
+            "chapter": 24,
+            "description": "持续收入、独立生活及互相尊重的关系有了实际证据。"
+          }
+        ]
+      }
+    ]
+  },
+  "section_a": {
+    "logline": "一位58岁的餐饮经营者发现，丈夫把她未来半年的免费劳动作为共同退休交易的筹码；她必须在旧厨房八周后交还前完成已有责任、谈成不再依赖她无限服务的退出安排，并验证一条属于自己的谋生道路。",
+    "event_promise": "每次争取边界，都通过工作、交易或家庭安排产生可见收益与代价。",
+    "relationship_promise": "婚姻不对等被具体行动揭示；母女与同事关系逐渐建立在互相尊重之上。",
+    "emotional_promise": "从被默认牺牲的愤怒与伤心，走向有代价的反击、哀悼和可维持的希望。",
+    "meaning_promise": "可以认真对待别人，也把自己的时间当作必须征得同意的东西。",
+    "external_objective": "D56之前履行旧单并完成可实施的企业退出；不接受半年无偿或无限待命的交接；以有限试做检验个人工作。",
+    "failure_cost": "成交失败可能降低资产回收；接受旧安排会失去再次自主安排生活的机会；个人试做失败会消耗有限预算。",
+    "five_forces": {
+      "objective": "完成有边界的经营退出",
+      "relationship": "与有共同历史但长期替她作主的丈夫分开",
+      "misbelief": "被需要才值得被爱",
+      "question": "丈夫是否真正把两人的未来视为同等重要",
+      "adaptive_pressure": "买方真实成本、八周期限、员工自主选择及有限个人资金"
+    },
+    "shared_future_at_stake": "两人已把交還厨房后的一段三周湖区自驾旅行写进共同日历；Helen还计划回程后每周只做有限家庭餐。Paul知道这个期待，却在与买方谈判时把她未来半年重新排满。"
+  },
+  "section_b": {
+    "characters": [
+      {
+        "id": "helen",
+        "name": "Helen Mercer",
+        "age": 58,
+        "role": "女主；Mercer Table共同所有人及实际运营负责人",
+        "desire": "有足够收入、可以自主安排时间的独立生活",
+        "misbelief": "只要始终有用、随时能救场，就值得被爱",
+        "capability": "采购、备餐组织、排班、成本核算与客户履约",
+        "limitation": "启动资金有限；习惯漏算本人劳动并过度承诺",
+        "boundary": "不接受未经同意替她许诺的服务；也必须学会不这样对待别人",
+        "stress_response": "先说我来，再牺牲睡眠和私人安排",
+        "voice": "注意分量、剩余时间和谁还没有吃饭；对外说具体事项，难以直接说自己的欲望",
+        "arc_evidence": [
+          3,
+          10,
+          11,
+          15,
+          18,
+          20,
+          21,
+          24
+        ],
+        "required_arc_stage": "resolution",
+        "required_outcome": "self_directed_independence",
+        "ending_evidence": "有独立住所；连续数月的经营记录支持日常预算；保留约定休息日；婚姻和企业交接均已完成"
+      },
+      {
+        "id": "paul",
+        "name": "Paul Mercer",
+        "age": 61,
+        "role": "丈夫；共同所有人，负责销售和客户关系",
+        "desire": "以较高价格出售企业，保住退休预算与能干丈夫的形象",
+        "misbelief": "共同利益允许他先替妻子答应，她最终总会认同",
+        "capability": "销售、谈判、客户维护",
+        "limitation": "无法独立承担厨房运营；出售依赖共同决策和买方核查",
+        "boundary": "没有替妻子签服务合同或单方面处分全部公司资产的权力",
+        "stress_response": "淡化承诺、施加价格压力，再提出有偿留任等实际让步",
+        "voice": "常把个人判断说成我们都知道；能记住Helen的喜好，却忽略她的日程",
+        "arc_evidence": [
+          1,
+          8,
+          12,
+          20,
+          22,
+          24
+        ],
+        "required_arc_stage": "resolution",
+        "required_outcome": "accountable_separation",
+        "ending_evidence": "公开纠正无偿承诺；接受真实交接成本及收益减少；承担各自生活与婚姻终止的后果",
+        "relationship_history": "创业初期曾共同抬设备、分担育儿及厨房杂务；大客户增长后，Paul逐渐把自己的销售视为创造收入，把Helen的运营当作家庭默认支持。其感情记忆真实，不能抵消此刻的有意识选择。"
+      },
+      {
+        "id": "tess",
+        "name": "Tess Mercer",
+        "age": 30,
+        "role": "成年女儿；工业设计项目经理",
+        "desire": "接受外地职业机会，同时与父母维持关系",
+        "capability": "组织工作、清楚表达时间范围",
+        "limitation": "全职工作与迁居准备；无法替母亲运营新生意",
+        "stress_response": "用明确时间界限结束无休止协调",
+        "voice": "谈父母争执时谨慎而简短；谈自己的产品模型和新项目会讲很多具体细节，避免只作为边界导师。",
+        "arc_evidence": [
+          2,
+          5,
+          8,
+          11,
+          14,
+          17,
+          20,
+          23,
+          24
+        ],
+        "required_arc_stage": "resolution",
+        "required_outcome": "reciprocal_adult_bond",
+        "ending_evidence": "赴新岗位；与母亲保持有约定的联系，双方都尊重对方日程"
+      },
+      {
+        "id": "marisol",
+        "name": "Marisol Vega",
+        "age": 46,
+        "role": "旧企业厨房主管",
+        "desire": "稳定报酬、明确权限和可预期工时",
+        "capability": "带领团队、执行备餐及应变流程",
+        "limitation": "有固定家庭开销，不能陪Helen无薪冒险",
+        "stress_response": "要求明确报酬、结束时间和谁拥有决定权",
+        "voice": "主要通过现场安排、实操判断和明确要求表现专业，不反复解释人生道理。",
+        "arc_evidence": [
+          1,
+          4,
+          7,
+          10,
+          13,
+          16,
+          19,
+          22
+        ],
+        "required_arc_stage": "resolution",
+        "required_outcome": "chosen_professional_authority",
+        "ending_evidence": "自主接受买方的岗位与职权，独立完成服务；与Helen保持平等友谊"
+      },
+      {
+        "id": "dana",
+        "name": "Dana Brooks",
+        "age": 49,
+        "role": "潜在买家；已有经营场地的餐饮业主",
+        "desire": "购买可持续运营的宴会品牌、设备和业务机会",
+        "capability": "判断运营风险、核算接替人员成本",
+        "limitation": "预算上限与员工去留不受她单方面控制",
+        "stress_response": "减少模糊条款、重报价格、保留退出选项",
+        "voice": "反复要求谁做、多久、费用如何计算",
+        "arc_evidence": [
+          1,
+          2,
+          8,
+          12,
+          13,
+          16,
+          18,
+          19,
+          20,
+          22
+        ],
+        "required_arc_stage": "resolution",
+        "required_outcome": "bounded_acquisition",
+        "ending_evidence": "取得明确范围的业务资产并安排有薪接替；无权把Helen视作随资产转让的人"
+      },
+      {
+        "id": "jo",
+        "name": "Jo Bennett",
+        "age": 55,
+        "role": "独立共享厨房经营者",
+        "desire": "可靠出租、按时交台，也有自己的下班生活",
+        "capability": "时段管理、设备维护及小规模运营经验",
+        "limitation": "无法无偿提供空间、资金或无限加时",
+        "stress_response": "照约收费并要求可执行的排期",
+        "voice": "谈工作直截了当；谈到鸟类与自己的糟糕照片会兴奋、会自嘲，不能每次出场都讲边界道理。",
+        "arc_evidence": [
+          3,
+          6,
+          9,
+          12,
+          15,
+          18,
+          21,
+          24
+        ],
+        "required_arc_stage": "resolution",
+        "required_outcome": "sustainable_collaboration",
+        "ending_evidence": "Helen成为正常付费且守时的长期租户；两人有工作外的交往",
+        "independent_personal_goal": "珍惜每周四的湿地观鸟与业余摄影时间；想探索新的短途步行路线，既期待有人同行也能自己出发。"
+      }
+    ],
+    "voice": {
+      "pov": "第一人称、Helen严格限知",
+      "tense": "past",
+      "register": "自然美式英语，成熟、具体，允许克制幽默与复杂哀伤",
+      "attention": "分量、工时、动线、谁在补位及谁没能坐下吃饭",
+      "rhythm": "压力场景动作与对话较紧；余波场景留出感知和沉默，避免每句都是格言",
+      "knowledge_rule": "丈夫的意图先以行为和说辞呈现；叙述推断明确带有Helen的判断性质",
+      "dialogue": "Paul用共同利益淡化个人选择；Tess说清时间范围；Dana确认条件；Marisol提出工作要求；Jo按实际规则办事"
+    }
+  },
+  "section_c": {
+    "setting_policy": {
+      "mode": "fictionalized",
+      "town": "Bellwether（虚构小镇）",
+      "old_business": "Mercer Table（虚构企业）",
+      "shared_kitchen": "Common Oven（虚构场地）",
+      "place_policy": "故事中的城镇、机构及地标使用虚构名称；美国仅为市场与现实机制参照"
+    },
+    "timeline_baseline": {
+      "marriage_years": 32,
+      "business_years": 24,
+      "main_duration_days": 56,
+      "pre_opening": "出售讨论已持续数周；夫妻已经决定不续原厨房租约；Helen的少量家庭餐试做筹备与场地、必要手续已完成并为Paul所知。 两人早已约定结束后进行三周湖区自驾旅行，具体休假在同一份日历上；该计划是共同未来的情绪依据。",
+      "epilogue": "一年后；不把特定离婚办理时长说成普遍法律规则。",
+      "weekday_anchor": "D1为星期四；D3为星期六；D50为星期四。相对日期用于连续性，不指定现实年份或城市。"
+    },
+    "world_rules": [
+      {
+        "id": "W1",
+        "rule": "共同所有权及重要出售须共同同意，来自本故事企业既有治理安排；丈夫提出服务设想不等于妻子已签订个人服务义务。"
+      },
+      {
+        "id": "W2",
+        "rule": "八周后原厨房交还；买方已有场地，收购重点为约定品牌、设备等资产及发展宴会业务的机会。旧订单履行、客户后续选择与员工新岗位均分别处理。"
+      },
+      {
+        "id": "W3",
+        "rule": "交易处于洽谈阶段，高报价以不真实的未来免费劳动假设为基础；重新计入替代人员与有限培训成本后报价下降，双方均承受收益减少。"
+      },
+      {
+        "id": "W4",
+        "rule": "企业经营款、工资与供应商等义务、客户预付款、双方生活开支及个人试做预算分开记录；个人试做不挪用公司资产或名单。"
+      },
+      {
+        "id": "W5",
+        "rule": "Helen开篇前已用公开约定的有限预算筹备家庭餐试做，完成当地所需的经营与场地安排；使用商业厨房不被等同于自动拥有一切许可。"
+      },
+      {
+        "id": "W6",
+        "rule": "八周只安排三次主要试做：十二份、过度扩大且部分退款的二十四份、收缩后的十六份；与旧业务排期逐项核对。"
+      },
+      {
+        "id": "W7",
+        "rule": "买方愿谈是因为品牌、员工、设备及客户关系仍有价值，且有接替方案；她不负责解决婚姻，也可因成本不合退出。"
+      },
+      {
+        "id": "W8",
+        "rule": "有序停业及资产处置是更低收益的实际备选，女主的拒绝不是自动致富的按钮。"
+      },
+      {
+        "id": "W9",
+        "rule": "D36由Helen、Paul与Dana确认独立有偿培训安排，明确由Dana付款、任务清单、最多四十小时和D50结束。D36付约定首款，D50核对已完成工时并结清；报酬不以资产交易最终成交为条件。D26的运营展示属于旧企业正常工作，不计入这四十小时。D50后Helen仍处理D56前约定的业主结算及交割事项。"
+      },
+      {
+        "id": "W10",
+        "rule": "婚姻终止与企业出售分别处理，必要专业程序不被一句宣告替代。时间跳转后交代结果，不展开新的诉讼悬疑线。"
+      },
+      {
+        "id": "W11",
+        "rule": "个人家庭餐计划在D2向买方如实披露；D40讨论的是最终交易排除范围。D56以后的宴会询价由客户自行决定是否与买方另谈，旧公司不再为交割后履约作保证。"
+      }
+    ],
+    "resource_ledger": [
+      {
+        "resource": "本人时间",
+        "opening": "日常待命与大量无形管理工作",
+        "changes": "试做超载失败→限制菜单和产量→四十小时交接→稳定工作及休息日"
+      },
+      {
+        "resource": "资金",
+        "opening": "有限且已约定可用的个人试做预算；共同资产尚未变现",
+        "changes": "报价下降、场地费用和退款损失→限制再投入→完成出售并留足义务支出→尾声用持续经营记录验证生活预算"
+      },
+      {
+        "resource": "住房",
+        "opening": "夫妻共有生活安排仍在",
+        "changes": "D29明确分开并选择付费短租→出售后过渡→尾声独立且可负担的住所"
+      },
+      {
+        "resource": "团队与客户",
+        "opening": "既有企业资源，不自动属于个人新项目",
+        "changes": "员工自主择业、公开区分业务、新顾客来自独立公开渠道"
+      }
+    ],
+    "secrets": [
+      {
+        "id": "secret_1",
+        "truth": "Paul在妻子未同意时，以半年免费运营协助作为提高报价的条件。",
+        "knowledge": "Paul知道自己未取得同意；Dana开场前以为这只是待确认安排；Helen在第1章得知。",
+        "first_clue": 1,
+        "fair_misreading": "紧张谈判中表达错误或双方对退休含义理解不同。",
+        "payoff": 2,
+        "changed_action": "Helen拒绝确认并要求按真实接替成本重做方案。"
+      },
+      {
+        "id": "secret_2",
+        "truth": "Paul曾为自己的客户引介提出另计报酬，却把Helen的工作列作免费。",
+        "knowledge": "Paul及Dana知道曾讨论；Helen第8章联合核对时得到完整说明。",
+        "first_clue": 2,
+        "fair_misreading": "Paul提到退休后少量可用时间，可能只是普通善后。",
+        "escalation": 6,
+        "payoff": 8,
+        "changed_action": "她不再把问题归为疏忽，开始把婚姻退出与交易分开考虑。"
+      },
+      {
+        "id": "question_3",
+        "truth": "一次小试可行不代表全能经营；Helen的过度承诺会伤害自己也侵占别人时间。",
+        "knowledge": "Jo及Marisol较早看见限制；Helen从第9–11章才承认。",
+        "first_clue": 3,
+        "fair_misreading": "专业经验足以吸收额外任务。",
+        "escalation": 9,
+        "payoff": 10,
+        "changed_action": "缩菜单、设上限、退款和尊重别人拒绝。"
+      }
+    ],
+    "budget_planning": {
+      "status": "fictional_planning_values_not_market_quotes",
+      "currency": "USD",
+      "opening_personal_available_cash": 8400,
+      "funding_origin": "双方早已认可的业主提取中积存的本人可用现金；不把独立账户自动等同于法律上的个人财产。",
+      "pre_close_spending_caps": [
+        {
+          "item": "三次试做、场地、设备及退款损失的总投入上限",
+          "amount": 900,
+          "window": "D1–D32",
+          "note": "按保守最高投入预留；预收餐款须留够未履行订单退款，不用于生活。"
+        },
+        {
+          "item": "前四周约定住房和共同开支",
+          "amount": 1400,
+          "window": "D1–D28"
+        },
+        {
+          "item": "八周食品、通勤、保险及其他生活支出",
+          "amount": 1700,
+          "window": "D1–D56"
+        },
+        {
+          "item": "本人咨询和临时安排相关专业费用",
+          "amount": 1000,
+          "window": "D14–D56",
+          "note": "企业交易自身费用另从公司结算中保留，避免重复记账。"
+        },
+        {
+          "item": "短租首月租金及可退押金",
+          "amount": 1800,
+          "window": "D29",
+          "detail": {
+            "first_month_rent": 900,
+            "refundable_deposit": 900
+          }
+        }
+      ],
+      "worst_case_cash_before_training_pay": 1600,
+      "training_agreement": {
+        "payer": "Dana",
+        "hourly_rate": 40,
+        "hour_cap": 40,
+        "max_total": 1600,
+        "advance_day": 36,
+        "advance": 800,
+        "settlement_day": 50,
+        "condition": "按独立协议及实际工时结算；不依赖最终交易成交。"
+      },
+      "epilogue_model": {
+        "basis": "一年后，至少连续十二周实际记录；如下数字为统一创作预算，正文只出现必要几项。",
+        "monthly_receipts_for_fulfilled_orders": 12500,
+        "monthly_business_costs_and_reserves": [
+          {
+            "item": "食材与包装",
+            "amount": 4400
+          },
+          {
+            "item": "厨房",
+            "amount": 1450
+          },
+          {
+            "item": "有偿协助",
+            "amount": 950
+          },
+          {
+            "item": "支付、交通及配送相关",
+            "amount": 700
+          },
+          {
+            "item": "经营保险、账务、维护及手续摊销",
+            "amount": 500
+          },
+          {
+            "item": "税费预留",
+            "amount": 1200
+          }
+        ],
+        "business_reinvestment_reserve": 400,
+        "available_for_personal_life": 2900,
+        "personal_monthly_budget": 2550,
+        "personal_monthly_buffer": 350,
+        "own_work_pattern": "每周约四天；自身劳动报酬来自可用经营所得，不能既算作成本又再当一份额外收入。",
+        "sales_proceeds_treatment": "出售回款作为储备与约定财产安排，不靠持续消耗回款支付普通月度生活；新业务经营所得与旧资产变现严格区分。",
+        "legal_limit": "所有费率与预算是小说规划值，不声称为普遍税率、市场租金、保险报价或可适用于现实读者的财务建议。"
+      }
+    }
+  },
+  "chapter_map": [
+    {
+      "chapter": 1,
+      "title": "Six Months of Me",
+      "time": "D1",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "开场碰撞",
+      "entry_state": "出售洽谈已开展数周；Helen以为两人将一起退出日常经营。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "宴席收尾时，Dana当面询问Helen未来半年的到岗安排；她一边调整服务动线，一边确认自己从未答应。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "服务完成后，Helen拒绝确认免费交接；Paul试图把它说成惯常帮忙，Dana要求重新核实成本。"
+        }
+      ],
+      "primary_plot_advancement": "把未经同意的劳动承诺变成必须解决的交易问题。",
+      "character_arc_advancement": "Helen首次在客户面前不给Paul补上承诺。",
+      "emotional_beat": "震动与克制",
+      "ending_hook_type": "decision",
+      "exit_state": "旧有高价方案失去她的支持，真实交接安排待核。",
+      "next_consequence": "次日核算替代人工及报价影响。",
+      "subplot_touches": [
+        "staff"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 2,
+      "title": "The Cost of Staying",
+      "time": "D2",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "证据与成本",
+      "entry_state": "Paul认为补一句自愿协助就能恢复原报价。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Helen和Dana按实际任务、工时与交接需求重做测算；旧测算低估未来接替成本，不能把这一点写成已证实财务犯罪。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Helen与Tess通话，承认共同日历上的三周湖区自驾将受影响；她核清可用现金与早已办妥的试做安排，并在同日向Dana公开家庭餐计划及独立资源范围。"
+        }
+      ],
+      "primary_plot_advancement": "让报价下调有可核对的经营原因，并证明Helen能自主试做的资源早已存在。",
+      "character_arc_advancement": "她看见拒绝也会减少自己的收益，仍维持拒绝。",
+      "emotional_beat": "清醒中的失落",
+      "ending_hook_type": "cost",
+      "exit_state": "买方保留谈判，但要求真实成本和明确服务范围。",
+      "next_consequence": "完成既定周末小试，再决定是否放弃原报价。",
+      "subplot_touches": [
+        "daughter"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 3,
+      "title": "Twelve Suppers",
+      "time": "D3",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "第一次小兑现与门槛",
+      "entry_state": "她只有已备妥的单一菜单、十二份预订和独立付费厨房时段。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Helen完成十二份家庭餐的集中取餐；把采购、清洁和本人劳动都计入，得到少量真实结余。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "她支付后续两次试做的不可退时段费，并向买方明确放弃依赖半年免费劳动的原方案；Dana撤回该版本，双方改谈较低价格。"
+        }
+      ],
+      "primary_plot_advancement": "一次完整试做证明有限可行性；放弃原报价及花出的试做费用构成可见代价。",
+      "character_arc_advancement": "Helen为自己的安排作出实际承诺，尚未证明生意能养活她。",
+      "emotional_beat": "谨慎的喜悦",
+      "ending_hook_type": "threshold",
+      "exit_state": "旧价方案退出谈判；个人试做资金已投入；旧企业履约责任仍在。",
+      "next_consequence": "面对收益下降带来的员工与家庭担忧。",
+      "subplot_touches": [
+        "friendship"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 4,
+      "title": "Everybody's Friday",
+      "time": "D4",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "承接门槛后果",
+      "entry_state": "员工听到售价变化，担心工资与去留。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "工资确认日前，Marisol拿着下一周排班表要求兑现已答应的带薪休假；Helen不能借出售将近取消承诺，现场重排值班并确认工资支出。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "夫妻对照已签订单和工资、供应商付款节点，协商减少非必要业主提取以保留履约资金；Helen看到自己的可用生活开支也随之缩小。"
+        }
+      ],
+      "primary_plot_advancement": "让第三章的选择立即影响资金安排，工资责任与个人创业分账。",
+      "character_arc_advancement": "她开始公开承担决定的代价，而不是许诺大家都不会受损。",
+      "emotional_beat": "忧虑中的踏实",
+      "ending_hook_type": "obligation",
+      "exit_state": "八周内须完成的订单、人员及资金责任被列明。",
+      "next_consequence": "家庭也将要求她解释成本。",
+      "subplot_touches": [
+        "staff"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 5,
+      "title": "Two Hours on Sunday",
+      "time": "D6",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "母女边界第一次冲撞",
+      "entry_state": "Tess希望父母先把出售完成，也正考虑外地职位。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "这场谈话发生于D6星期二；Helen请女儿顺手接管报名与客户回复，Tess只答应下一个周日的明确两小时时段，不承诺持续接管。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Helen把拒绝听成不支持，Tess则拒绝成为父母调停人；双方约定下次再谈，关系留下真实不适。"
+        }
+      ],
+      "primary_plot_advancement": "让女主无意中索取他人劳动的问题进入主线。",
+      "character_arc_advancement": "她还不能把别人的界限与对自己的爱分开。",
+      "emotional_beat": "委屈与防备",
+      "ending_hook_type": "relationship",
+      "exit_state": "女儿不会成为免费运营人员；Helen必须自己调整工作量。",
+      "next_consequence": "旧的救场习惯将侵入她的新事业。",
+      "subplot_touches": [
+        "daughter"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 6,
+      "title": "Closing Time",
+      "time": "D8",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "日常余波与有限帮助",
+      "entry_state": "她有固定厨房时段，却仍按大宴席思路扩大菜单。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Helen带第3章实际采购、清洁与交台记录回Common Oven复盘，不另开一次试做；Jo据首试实际工时指出下次排期预留的缓冲不足，并确认下次订场费用，随后赶去自己期待的观鸟行程。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Paul带回两人常吃的晚餐，凭多年默契逗她发笑；他们翻到早已标出的湖区自驾日期，他又轻描淡写地建议她先把旅行往后挪，失去共同未来的疼痛具体出现。"
+        }
+      ],
+      "primary_plot_advancement": "呈现婚姻值得哀悼的部分，以及经营边界的日常成本。",
+      "character_arc_advancement": "她开始分辨被照顾的小动作与被尊重的选择权。",
+      "emotional_beat": "温暖夹着不安",
+      "ending_hook_type": "recognition",
+      "exit_state": "新计划仍受过度服务与熟悉情感牵引。",
+      "next_consequence": "员工的独立选择进一步考验她。",
+      "subplot_touches": [
+        "friendship"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 7,
+      "title": "Her Own Offer",
+      "time": "D11",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "员工自主权",
+      "entry_state": "Helen希望Marisol将来能协助自己的小生意。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Marisol说明买方正在谈稳定岗位，她不能为感情放弃收入；Helen先失落，继而提供真实工作证明。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Dana观察Marisol带队，确认新企业的运营价值不只存在于Helen一人身上。"
+        }
+      ],
+      "primary_plot_advancement": "建立替代管理能力，使交易在没有半年免费劳动的情况下仍可能成立。",
+      "character_arc_advancement": "Helen开始承认别人不必通过追随她来证明忠诚。",
+      "emotional_beat": "刺痛后的尊重",
+      "ending_hook_type": "alliance",
+      "exit_state": "Marisol拥有独立去向，接替方案有了实际人选。",
+      "next_consequence": "共同报价核对将揭开Paul对两人时间的不同估值。",
+      "subplot_touches": [
+        "staff"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 8,
+      "title": "His Rate, My Time",
+      "time": "D14",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "核心秘密兑现",
+      "entry_state": "Paul一直声称免费交接是双方为共同退休作出的牺牲。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "联合核对服务范围时，Dana提出Paul要求另计报酬的客户引介方案；他自己的时间早已在报价中有价。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "两人独处时，Helen问Paul在何时已经决定将自己的引介单独计价，又为何仍和她一起安排旅行；他承认早于见买家，却解释为对两人都好。场景留给两人承受这一认识；之后向Tess说明事实只作简短过渡。"
+        }
+      ],
+      "primary_plot_advancement": "明确背叛是有意识的不对等安排；没有秘密侵吞已经到手的钱。",
+      "character_arc_advancement": "她放弃只是沟通疏漏的解释。",
+      "emotional_beat": "愤怒与决绝",
+      "ending_hook_type": "revelation",
+      "exit_state": "关系信任遭到实质破坏，价格问题与婚姻问题无法再互相替代。",
+      "next_consequence": "她急于证明自己能独立，容易过量接单。",
+      "subplot_touches": [
+        "daughter"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 9,
+      "title": "A Full Order Book",
+      "time": "D16",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "带隐患的进展",
+      "entry_state": "第一次小试让她相信扩大数量能尽快填补财务缺口。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "面对公开招来的新顾客，Helen把第二次试做扩至二十四份并接受多种定制。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Jo提醒其采购和清洁时间不在炉灶时间之外自动消失；她仍相信熟练能弥补，已确认的旧企业服务也占用同一周。"
+        }
+      ],
+      "primary_plot_advancement": "成功诱发她自己的错误选择；失败所需条件提前展示。",
+      "character_arc_advancement": "她把不依赖丈夫误解为必须独自证明全能。",
+      "emotional_beat": "兴奋与逞强",
+      "ending_hook_type": "risk",
+      "exit_state": "两套已接受的任务争夺有限工时。",
+      "next_consequence": "下一章必须实际处理过度承诺。",
+      "subplot_touches": [
+        "friendship"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 10,
+      "title": "The Orders I Returned",
+      "time": "D19",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "中点前的自致失败",
+      "entry_state": "个人试做与旧订单准备挤在同一时段。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Marisol拒绝额外补班；Helen无法把排期错误转交给员工，只能保障既有企业服务。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "她提前通知部分个人顾客、退款并承担准备损失和场地费用；不以不安全食品或欺瞒顾客抢救收入。"
+        }
+      ],
+      "primary_plot_advancement": "女主因自己的选择付出钱与声誉代价，取消全能创业的幻想。",
+      "character_arc_advancement": "她第一次承认能力不能抵消有限时间。",
+      "emotional_beat": "羞愧与疲惫",
+      "ending_hook_type": "consequence",
+      "exit_state": "第二次试做没有实现预期；资金和信心下降，但守约方式保留部分信任。",
+      "next_consequence": "她必须面对与女儿争执中相同的索取模式。",
+      "subplot_touches": [
+        "staff"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 11,
+      "title": "What I Asked of Her",
+      "time": "D20",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "母女修复与误信重估",
+      "entry_state": "Helen仍觉得亲人本该在她最难时多帮一点。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "母女按约见面，Tess解释支持并不等于随时接管工作，并说明外地职位的意义。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Helen道歉，承认自己也常把先答应再请人补位视为正常；她询问女儿想要什么，接受这次谈话不能自动消除旧伤。"
+        }
+      ],
+      "primary_plot_advancement": "让自我觉察通过对话、倾听和安排变化发生。",
+      "character_arc_advancement": "她开始把互相尊重纳入亲密的标准。",
+      "emotional_beat": "难过后的亲近",
+      "ending_hook_type": "understanding",
+      "exit_state": "Tess保有自己的选择，Helen不再将她列入免费劳动力。",
+      "next_consequence": "重新设计经营模式，而不是加倍用力。",
+      "subplot_touches": [
+        "daughter"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 12,
+      "title": "The Better Offer",
+      "time": "D22",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "中点两难",
+      "entry_state": "试做受挫，较高售价仍能缓解未来的不安。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Paul提出改成有偿的半年留任，真实薪酬使旧选项更有吸引力；Dana愿讨论，但仍需明确责任。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Helen向Jo核对小规模工作的真实节奏后，提出最多四十小时、明确报酬与结束日期的交接替代案。"
+        }
+      ],
+      "primary_plot_advancement": "对手作出实质适应；女主须在经济诱惑与时间自主之间选择。",
+      "character_arc_advancement": "她愿接受必要的有限工作，不再用无限待命换安全感。",
+      "emotional_beat": "动摇后的坚定",
+      "ending_hook_type": "dilemma",
+      "exit_state": "有限交接成为待验证的新方案，而非自动被买方接受。",
+      "next_consequence": "必须证明替代管理和流程确实可行。",
+      "subplot_touches": [
+        "friendship"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 13,
+      "title": "Let Her Run the Room",
+      "time": "D26",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "交接能力的检验",
+      "entry_state": "Dana需要看见没有Helen全程接管也能运转的团队。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "在旧企业正常付费工作内，Marisol负责一场服务，却因Helen仍保留替换供应商的批准权而被卡住；Helen看见口头授权并未真正交出判断权，现场明确可决定范围。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Marisol完成调整，Dana据此评估还需哪些权限、人员和有限培训。此章属于旧企业的运营展示，不提前消耗尚未签署的四十小时培训。"
+        }
+      ],
+      "primary_plot_advancement": "以服务现场的结果支撑交易，而非万能合同。",
+      "character_arc_advancement": "Helen忍住接管的冲动，看见自己培养的人能够胜任。",
+      "emotional_beat": "紧张转为欣慰",
+      "ending_hook_type": "competence",
+      "exit_state": "团队能力存在，但权限须真正移交；有限培训所需任务得到澄清。",
+      "next_consequence": "她须对婚姻与生活安排作出单独决定。",
+      "subplot_touches": [
+        "staff"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 14,
+      "title": "A Room I Chose",
+      "time": "D29",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "明确分居与生活成本",
+      "entry_state": "企业可能卖成，但关系信任并未因此恢复。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Helen向Paul提出付费分居并分别取得必要专业意见，明确自己不再继续现有婚姻安排；当下先处理开支、居住和经营责任，不用一次争执完成全部感情告别。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "她在预算内寻找正常付费短租，Tess按约帮忙比较两个选择；没有免费住所或突然遗产。"
+        }
+      ],
+      "primary_plot_advancement": "将当下分开的决定转为可执行的居住与财务变化，保留第20章在条件改善后完成最终婚姻选择的空间。",
+      "character_arc_advancement": "她接受小一些的生活空间与短期不舒适。",
+      "emotional_beat": "哀伤与笃定",
+      "ending_hook_type": "separation",
+      "exit_state": "夫妻不再以关系修复作为交易条件；独立生活产生持续成本。",
+      "next_consequence": "新事业须以更小规模再次验证。",
+      "subplot_touches": [
+        "daughter"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 15,
+      "title": "One Menu",
+      "time": "D32",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "修正后的第二次兑现",
+      "entry_state": "她仅余有限试做预算，不能再次大量退款。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Helen把第三次试做缩成单一菜单、十六份上限、固定取餐，不承诺临时配送。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "守时交台与回访使她获得一组愿按边界继续订餐的顾客；实际记录仍只代表试验，不是稳定收入。"
+        }
+      ],
+      "primary_plot_advancement": "用不同策略修复第十章失败，而非靠更拼命。",
+      "character_arc_advancement": "她开始愿意让适合自己的经营规模定义成功。",
+      "emotional_beat": "轻快与踏实",
+      "ending_hook_type": "recovery",
+      "exit_state": "有限模式可继续试行，钱与工时记录更可信。",
+      "next_consequence": "旧企业员工也要作出确定选择。",
+      "subplot_touches": [
+        "friendship"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 16,
+      "title": "Nobody Came With Me",
+      "time": "D36",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "员工关系终局的铺垫",
+      "entry_state": "Helen仍暗中希望旧团队能陪伴自己的下一步。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Marisol亲自与Dana谈岗位、排期、工资和采购决定权，不由Helen替她接受；她选择对自己合适的运营主管工作。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "D36三方确认Dana单独付费的四十小时培训协议：列明任务、首款、结束日期和不依赖成交的报酬。Helen按约开始培训，同时承认旧团队可以拥有各自的未来。"
+        }
+      ],
+      "primary_plot_advancement": "员工亲自谈妥有实权的岗位；独立有偿培训在开始前取得明确条款及首款。",
+      "character_arc_advancement": "她失去熟悉团队，却获得更平等的关系。",
+      "emotional_beat": "失落与释然",
+      "ending_hook_type": "identity",
+      "exit_state": "岗位与培训安排实际落实；没有以未来可能成交为名再次无偿工作。",
+      "next_consequence": "家庭同样需要容许各自离开。",
+      "subplot_touches": [
+        "staff"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 17,
+      "title": "Her Good News",
+      "time": "D38",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "母女关系的行为验证",
+      "entry_state": "Tess得到外地职位，担心离开会增加母亲压力。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Tess展示新岗位将参与的产品模型，Helen陪她试用并认真听那些与自己无关的设计细节；庆祝的这一餐没有报名表或客户电话交给女儿处理。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Tess谈迁居后的期待与不安，Helen既分享自己的新生活尝试，也询问合适的联系频率；她允许女儿带着喜悦离开，而不是在临走时追加任务。"
+        }
+      ],
+      "primary_plot_advancement": "用行为验证第十一章的道歉，保留非危机情绪场景。",
+      "character_arc_advancement": "她能在不被需要的时刻感到与女儿亲近。",
+      "emotional_beat": "真诚的喜悦",
+      "ending_hook_type": "belonging",
+      "exit_state": "母女形成成人之间的新联系约定。",
+      "next_consequence": "她也须给个人业务与旧企业划清范围。",
+      "subplot_touches": [
+        "daughter"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 18,
+      "title": "The Work I Didn't Take",
+      "time": "D40",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "有代价的经营边界",
+      "entry_state": "交易范围尚需明确，Paul转来一笔利润诱人的宴会询价。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Helen与Dana把第2章已经披露的家庭餐计划落实为最终交易排除范围，逐项确认品牌、设备、客户资料和业务类型；不把家庭餐偷偷移出交易。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Paul转来一笔D56之后的宴会询价，Helen放弃个人承接，把买方联系方式交给客户自行考虑；旧公司不新作交割后履约保证。Jo按正常付费条件预留未来时段，不靠赠送场地救场。"
+        }
+      ],
+      "primary_plot_advancement": "让独立不是拿走所有价值，交易双方都有可执行边界。",
+      "character_arc_advancement": "她放弃能快速证明自己的机会，保护长期选择。",
+      "emotional_beat": "心疼后的安心",
+      "ending_hook_type": "restraint",
+      "exit_state": "个人业务被清楚排除在出售范围外；她接受其较慢增长。",
+      "next_consequence": "最后一批旧订单与交接须兑现。",
+      "subplot_touches": [
+        "friendship"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 19,
+      "title": "The Last Big Service",
+      "time": "D43",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "兑现可接替性",
+      "entry_state": "Dana仍需要确认关键客户不会因Helen退出而立即放弃合作。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "D43的大型旧订单仍由旧企业负责，Marisol已获明确现场权限；她独立作出一次有额外成本的供应调整并说明理由。Helen履行约定的在场责任，克制接管冲动，Dana看见团队能承担判断结果。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "客户误以为Helen将继续跟随以后的服务，Paul未经她提醒就澄清原许诺不成立，接受客户重新考虑及买方不恢复旧价的后果；客户之后自行决定是否与Dana另谈。"
+        }
+      ],
+      "primary_plot_advancement": "团队承担实际判断的成本；Paul第一次通过失去谈判便利的行动承认Helen的选择权。",
+      "character_arc_advancement": "Helen既看见自己确实可以退出，也看见Paul开始作出真实但有限的改变。",
+      "emotional_beat": "紧张后的自豪",
+      "ending_hook_type": "proof",
+      "exit_state": "买方有团队表现和客户反馈作为成交依据。",
+      "next_consequence": "剩余选择是接受真实价格及各自未来。",
+      "subplot_touches": [
+        "staff"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 20,
+      "title": "What the Price Could Buy",
+      "time": "D47",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "高潮选择",
+      "entry_state": "较低价格与有限交接方案已具备可实施条件。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "双方比较能成交的真实价格与有序停业的较低回收；Helen核对生活预算，接受不再以自己半年劳动换取差价。第16章已签的培训报酬不被重新谈成附带条件。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Paul提出在公平条款下重新安排共同生活，之前的主动澄清使邀请有了实际分量。Helen承认他的变化，却决定结束婚姻：她已看见并选择自己的生活，而非等他重新为两人命名未来。"
+        }
+      ],
+      "primary_plot_advancement": "外部收益与婚姻的最终选择在同一场景相遇，不用道歉抹去后果。",
+      "character_arc_advancement": "她能同时承认共同岁月的价值与结束关系的必要。",
+      "emotional_beat": "悲痛中的确定",
+      "ending_hook_type": "final_choice",
+      "exit_state": "双方按较低价格、明确有偿交接和业务边界准备成交；婚姻方向不再摇摆。",
+      "next_consequence": "完成有限服务后，检验她是否真会停止待命。",
+      "subplot_touches": [
+        "daughter"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 21,
+      "title": "An Afternoon Kept",
+      "time": "D50",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "退出行为与情绪兑现",
+      "entry_state": "约定的四十小时培训进入最后时段，未来运营已有人负责。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "D50完成独立协议范围内的培训，核对工时并结清报酬；普通后续运营询问由已有权限的Marisol接手。Helen仍为D56前的业主结算与交割负责，休息不等于遗弃未尽义务。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "她按早已约好的安排，与Jo去湿地步行观鸟；Jo讲起自己总拍糊的照片。Helen初次能把一个完整下午留给正在发生的生活，而不急着证明这段时间有用。"
+        }
+      ],
+      "primary_plot_advancement": "兑现她想要的日常生活；安静场景证明改变已能执行。",
+      "character_arc_advancement": "她结束工作而不寻找新的救场理由。",
+      "emotional_beat": "轻松与陌生",
+      "ending_hook_type": "afterglow",
+      "exit_state": "四十小时以内的培训责任完成且报酬结清；余下交割事项有安排，她守住一次具体的私人时间。",
+      "next_consequence": "资产交割和旧场地交还仍须完成。",
+      "subplot_touches": [
+        "friendship"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 22,
+      "title": "The Signatures",
+      "time": "D54–56",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "外部冲突终局",
+      "entry_state": "旧订单已履行，交接完成，交易所需条件逐项满足。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "最后零星旧单也已履行；经必要专业复核，双方完成约定资产交易，为工资、供应商、税费及未决结算保留资金，再处理可分配款并交还旧厨房。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "在相关方核对交接时，Paul明确承认Helen从未答应半年免费服务，自己承担对方的反应，Helen不再替他找理由；Marisol以谈妥的实权接手下一阶段工作。"
+        }
+      ],
+      "primary_plot_advancement": "主线出售与退出完成，丈夫的代价落实为减少的收益和失去妻子的持续服务。",
+      "character_arc_advancement": "Helen作为平等决策者签署自己认可的安排。",
+      "emotional_beat": "苦涩的完成感",
+      "ending_hook_type": "closure",
+      "exit_state": "旧企业经营已移交；双方未来经营与服务范围清楚。",
+      "next_consequence": "独立生活需要脱离交易危机后的日常形状。",
+      "subplot_touches": [
+        "staff"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 23,
+      "title": "Enough for One",
+      "time": "D60–70",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "关系与生活余波",
+      "entry_state": "她已入住正常付费的较小住所，企业危机结束但生活仍需适应。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Helen在小住处拆开日常用品、摆好一张自己选的桌子，仍下意识做了两人份晚餐；她把另一份留给明天，体验空下来的时间与安静，而不立刻接工作填满它。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "她与Tess按新约定通话，听女儿谈新工作的具体见闻，也描述自己想怎样布置房间；通话按双方的日程结束。经营计划与真实预算存在，但不占据整个场景。"
+        }
+      ],
+      "primary_plot_advancement": "给胜利后的孤独、损失与新关系足够篇幅。",
+      "character_arc_advancement": "她不以立即快乐作为独立成功的唯一证据。",
+      "emotional_beat": "孤独中的安稳",
+      "ending_hook_type": "emotional_resolution",
+      "exit_state": "新生活已开始，持续经营是否可行交由时间验证。",
+      "next_consequence": "尾声用真实持续记录兑现希望。",
+      "subplot_touches": [
+        "daughter"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    },
+    {
+      "chapter": 24,
+      "title": "The Hours I Kept",
+      "time": "一年后",
+      "pov": "Helen Mercer",
+      "word_count_target": 1200,
+      "function": "全书闭合",
+      "entry_state": "时间跳转后，婚姻终止及约定财产事项已经办妥。",
+      "scenes": [
+        {
+          "scene": 1,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "一年后，离婚及约定财产安排已经办妥。Helen在例行月末核对中看见至少连续十二周经营所得能承担自己的日常预算，且不需不断消耗出售回款；数字只作为生活成立的短证据。"
+        },
+        {
+          "scene": 2,
+          "pov": "Helen Mercer",
+          "planned_action_or_experience": "Helen主动安排并完成一次与朋友的湖畔短途出行，大家各自承担约好的准备；她也坐下来喝完自己的咖啡。自由已经有了具体内容，母女联系保持彼此方便的节奏，结尾不再新增危机。"
+        }
+      ],
+      "primary_plot_advancement": "生活持续性已有记录；她主动发起并完成自己的生活安排，兑现开篇共同旅行落空后仍能拥有未来的承诺。",
+      "character_arc_advancement": "她的价值不再取决于全天待命。",
+      "emotional_beat": "平静的希望",
+      "ending_hook_type": "ending",
+      "exit_state": "主线与人物弧均闭合，新恋情不承担救赎任务。",
+      "next_consequence": "无待兑现的核心承诺。",
+      "subplot_touches": [
+        "friendship",
+        "daughter"
+      ],
+      "status": "planned",
+      "draft_review": "not_run"
+    }
+  ],
+  "opening_contract": {
+    "retention_profile": "retention_first",
+    "reader_promise": "看见长期付出被轻视的女人，以具体能力和有代价的选择夺回时间与生活决定权。",
+    "opening_event": "宴席尚在收尾，买方询问女主未来半年的免费到岗安排。",
+    "opening_stakes": "女主以为即将共同退休，未来时间却被丈夫当作谈判条件。",
+    "opening_question": "她拒绝这项承诺后，是否仍能完成经营退出并养活自己？",
+    "protagonist_immediate_choice": "先完成已承担的宴席责任，随后明确拒绝确认未经同意的服务。",
+    "first_screen_window": {
+      "unit": "words",
+      "target_range": [
+        100,
+        180
+      ]
+    },
+    "first_screen_signals": [
+      "event",
+      "contradiction",
+      "cost",
+      "choice"
+    ],
+    "chapter_1_value": "能力得到现场证明，女主首次公开拒绝，买方停止把她的同意视作既定事实。",
+    "chapter_2_reversal_or_resource": "真实接替成本与个人试做资源被核实；拒绝造成的收益损失可见。",
+    "chapter_3_irreversible_step": "完成十二份试做后投入不可退的下一步费用，明确放弃旧报价；买方撤回旧版本，新的责任与预算开始生效。",
+    "conflict_braid": [
+      "work_and_money",
+      "marriage",
+      "self_worth_and_time"
+    ],
+    "satisfaction_loop": "别人默认她补位→她核清任务和资源→提出或执行边界→对方改变条件→她承受成本并获得具体选择→下一轮目标改变。",
+    "atmosphere_pressure": "服务钟点、热盘、清洁交台、站着吃饭和仍亮着的厨房灯，具体影响可用时间与谁承担余下工作。",
+    "identification_anchor": "她总能安排每位客户和家人的时间，却很难守住自己一个普通下午。",
+    "free_window": {
+      "status": "proposed_not_platform_locked",
+      "chapters": 3
+    },
+    "paid_bridge": "若采用前三章试读，第4章立即承接旧报价退出后员工担心、资金安排和业主提取减少的实际后果。"
+  },
+  "story_lead_contract": {
+    "required": true,
+    "placement": "before_chapter_1",
+    "language": "English",
+    "reader_heading": "Story Lead",
+    "length": {
+      "unit": "words",
+      "target_range": [
+        120,
+        180
+      ]
+    },
+    "core_conflict": "丈夫以妻子未来半年免费劳动换取高价出售机会，同时把自己的贡献单独计价。",
+    "identification_trigger": "期待多年后的休息与个人安排再次被当成可以替她决定的事。",
+    "emotional_target": "mixed",
+    "satisfaction_promise": "她会通过核算、拒绝、履约与有限尝试，取得真正有边界的退出。",
+    "unanswered_question": "当自由会减少她自己的退休资金，她会如何选择？",
+    "spoiler_limit": "不揭示最终交易方案、婚姻处理结果与最后生活状态；导语不重复第1章开头。",
+    "manuscript_marker": "## STORY_LEAD: Story Lead",
+    "draft_status": "not_written"
+  },
+  "ending_contract": {
+    "finale_window": [
+      21,
+      22,
+      23,
+      24
+    ],
+    "main_conflict_terminal_status": "resolved",
+    "main_conflict_payoff": "真实、有偿且限时的交接完成；约定交易落地；女主退出旧企业并结束婚姻。",
+    "protagonist_final_choice": "接受较低收益，保住自主安排未来的权利，并尊重别人相同的权利。",
+    "antagonist_consequence": "Paul失去妻子的无限服务与婚姻，接受降低的出售收益及明确服务条款，亲自纠正此前承诺。",
+    "emotional_afterglow": "能负担的独立住所、有限而持续的收入、平等的友谊及成人母女关系。",
+    "required_character_outcomes": [
+      {
+        "character_id": "helen",
+        "required_arc_stage": "resolution",
+        "required_outcome": "self_directed_independence",
+        "outcome_match_mode": "exact",
+        "planned_evidence": "有独立住所；连续数月的经营记录支持日常预算；保留约定休息日；婚姻和企业交接均已完成"
+      },
+      {
+        "character_id": "paul",
+        "required_arc_stage": "resolution",
+        "required_outcome": "accountable_separation",
+        "outcome_match_mode": "exact",
+        "planned_evidence": "公开纠正无偿承诺；接受真实交接成本及收益减少；承担各自生活与婚姻终止的后果"
+      },
+      {
+        "character_id": "tess",
+        "required_arc_stage": "resolution",
+        "required_outcome": "reciprocal_adult_bond",
+        "outcome_match_mode": "exact",
+        "planned_evidence": "赴新岗位；与母亲保持有约定的联系，双方都尊重对方日程"
+      },
+      {
+        "character_id": "marisol",
+        "required_arc_stage": "resolution",
+        "required_outcome": "chosen_professional_authority",
+        "outcome_match_mode": "exact",
+        "planned_evidence": "自主接受买方的岗位与职权，独立完成服务；与Helen保持平等友谊"
+      },
+      {
+        "character_id": "dana",
+        "required_arc_stage": "resolution",
+        "required_outcome": "bounded_acquisition",
+        "outcome_match_mode": "exact",
+        "planned_evidence": "取得明确范围的业务资产并安排有薪接替；无权把Helen视作随资产转让的人"
+      },
+      {
+        "character_id": "jo",
+        "required_arc_stage": "resolution",
+        "required_outcome": "sustainable_collaboration",
+        "outcome_match_mode": "exact",
+        "planned_evidence": "Helen成为正常付费且守时的长期租户；两人有工作外的交往"
+      }
+    ],
+    "required_payoffs": [
+      "payoff_1",
+      "payoff_2",
+      "payoff_3",
+      "payoff_4",
+      "payoff_5",
+      "payoff_6",
+      "payoff_7"
+    ],
+    "intentional_open_threads": [],
+    "final_chapter_required_evidence": [
+      "旧企业与婚姻关系已有明确终止结果",
+      "至少连续十二周经营所得可支持生活且不持续消耗出售回款",
+      "女主自主发起并完成一次个人生活安排",
+      "亲友往来尊重双方日程"
+    ]
+  },
+  "payoff_ledger": [
+    {
+      "id": "payoff_1",
+      "setup": [
+        1,
+        2
+      ],
+      "target_chapters": [
+        8,
+        12,
+        22
+      ],
+      "promise": "未经同意的免费劳动承诺被揭明并终止",
+      "planning_status": "planned",
+      "runtime_status": null,
+      "evidence": "待正文实际写出并审查"
+    },
+    {
+      "id": "payoff_2",
+      "setup": [
+        3,
+        9
+      ],
+      "target_chapters": [
+        10,
+        15,
+        24
+      ],
+      "promise": "独立谋生从一次试验、失败、修正走到持续验证",
+      "planning_status": "planned",
+      "runtime_status": null,
+      "evidence": "待正文实际写出并审查"
+    },
+    {
+      "id": "payoff_3",
+      "setup": [
+        5
+      ],
+      "target_chapters": [
+        11,
+        17,
+        23,
+        24
+      ],
+      "promise": "母女从索取和调停变为互相尊重",
+      "planning_status": "planned",
+      "runtime_status": null,
+      "evidence": "待正文实际写出并审查"
+    },
+    {
+      "id": "payoff_4",
+      "setup": [
+        7
+      ],
+      "target_chapters": [
+        13,
+        16,
+        19,
+        22
+      ],
+      "promise": "员工拥有自己的职业选择与实际权限",
+      "planning_status": "planned",
+      "runtime_status": null,
+      "evidence": "待正文实际写出并审查"
+    },
+    {
+      "id": "payoff_5",
+      "setup": [
+        2,
+        6
+      ],
+      "target_chapters": [
+        21,
+        24
+      ],
+      "promise": "共同退休旅行落空后，女主仍能守住并主动安排普通下午与属于自己的出行",
+      "planning_status": "planned",
+      "runtime_status": null,
+      "evidence": "待正文实际写出并审查"
+    },
+    {
+      "id": "payoff_6",
+      "setup": [
+        1,
+        6,
+        8
+      ],
+      "target_chapters": [
+        14,
+        20,
+        24
+      ],
+      "promise": "婚姻终止有铺垫、选择、损失和办妥后的生活状态",
+      "planning_status": "planned",
+      "runtime_status": null,
+      "evidence": "待正文实际写出并审查"
+    },
+    {
+      "id": "payoff_7",
+      "setup": [
+        2,
+        3
+      ],
+      "target_chapters": [
+        18,
+        22,
+        24
+      ],
+      "promise": "个人新事业与原企业之间的资源和经营界限清楚",
+      "planning_status": "planned",
+      "runtime_status": null,
+      "evidence": "待正文实际写出并审查"
+    }
+  ],
+  "section_e": {
+    "design_review": "pass_after_targeted_repairs",
+    "draft_review": "not_run",
+    "parser_validation": "pass_see_prompt.validation.json",
+    "source_isolation_review": "当前完整提案与所提供材料比较：pass；仅限设计范围，正文仍为not_run。",
+    "checks": [
+      "各章具有主线推进及人物变化，静场有情绪与关系收益",
+      "女儿、员工、共享厨房关系分别在相邻不超过三章内被触及",
+      "重大秘密在第8章前后回答，不用晚到的阴谋解释全部故事",
+      "第10章失败由女主自己的过度承诺造成",
+      "最后四章兑现外部、关系及生活成果，不新开核心矛盾",
+      "先完成结构修订，再由编辑、连续性与文风审查实际正文；计划不得写作已通过章节"
+    ],
+    "reread_windows": [
+      [
+        1,
+        6
+      ],
+      [
+        7,
+        12
+      ],
+      [
+        13,
+        18
+      ],
+      [
+        19,
+        24
+      ]
+    ],
+    "review_evidence": [
+      {
+        "area": "时间与经营因果",
+        "locations": [
+          "W5",
+          "W6",
+          "W9",
+          "W11",
+          "ch6",
+          "ch13",
+          "ch16",
+          "ch18",
+          "ch19",
+          "ch21",
+          "ch22"
+        ],
+        "result": "pass",
+        "notes": "限定三次试做；训练签署先于执行；旧企业义务与买方服务分开；披露与询价去向前后统一。"
+      },
+      {
+        "area": "资金与生活成本",
+        "locations": [
+          "budget_planning",
+          "ch4",
+          "ch10",
+          "ch14",
+          "ch24"
+        ],
+        "result": "pass_for_fictional_budget",
+        "notes": "按保守支出上限且不计培训收入，成交前余额仍为1600美元；尾声的经常收入与生活预算单独核对，不以资产回款冒充经营所得。"
+      },
+      {
+        "area": "婚姻与人物变化",
+        "locations": [
+          "shared_future_at_stake",
+          "ch6",
+          "ch8",
+          "ch11",
+          "ch14",
+          "ch19",
+          "ch20"
+        ],
+        "result": "pass",
+        "notes": "共同期待有具体载体；丈夫有一次实际承担成本的改变；分居与最终婚姻选择承担不同功能。"
+      },
+      {
+        "area": "重复与章节容量",
+        "locations": [
+          "ch4",
+          "ch7",
+          "ch13",
+          "ch16",
+          "ch17",
+          "ch19",
+          "ch21",
+          "ch23",
+          "ch24"
+        ],
+        "result": "pass_at_plan_level",
+        "notes": "将说明性概述替换成排班、实权谈判、服务判断、产品体验和独居/出行行动；实际文字仍须另审。"
+      },
+      {
+        "area": "定向复核",
+        "result": "pass",
+        "locations": [
+          "ch6",
+          "ch14",
+          "ch16",
+          "ch19",
+          "ch20",
+          "ch21",
+          "ch24",
+          "budget_planning"
+        ],
+        "notes": "两位子代理对修复后的时间资金及人物情绪设计进行复核；同步第14章总纲，消除首试工时的反向歧义。正文仍未生成。"
+      }
+    ]
+  },
+  "confirmed_design_decisions": [
+    "书名The Hours I Kept；六名主要人物的姓名及配角职业",
+    "虚构小镇与机构；第一人称过去时",
+    "32年婚姻、24年经营历史、八周主线期限",
+    "个人家庭餐计划及手续在开篇前已公开筹备",
+    "最终有偿交接上限四十小时",
+    "一年后的尾声；不将离婚流程写成固定办结天数",
+    "前三章构成完整试读微弧，但实际免费章数未由平台锁定",
+    "精确金额在生产提示词前统一预算；只用少量关键数字进入正文，专业顾问不充当解决者",
+    "虚构规划预算：开篇本人可用现金8400美元，成交前保守支出上限6800美元；独立培训每小时40美元、最多40小时；尾声个人月度经营可用所得约2900美元、生活预算约2550美元。",
+    "原先共同期待的三周湖区自驾旅行；一年后由Helen自主安排新的短途出行。"
+  ],
+  "research_notes": [
+    {
+      "title": "SBA: Manage your business — Sell your business",
+      "url": "https://www.sba.gov/counseling/manage-your-business/",
+      "scope": "销售协议需说明资产、负债、成交前运营及交易调整；支持设计中分别处理各项责任。",
+      "limit": "不证明小说中的具体条款在任一地区的法律效力。"
+    },
+    {
+      "title": "SBA: Launch your business — Apply for licenses and permits",
+      "url": "https://www.sba.gov/counseling/launch-your-business/",
+      "scope": "许可要求随业务与地点变化，故事中不能把租商业厨房等同于全部手续完成。",
+      "limit": "地点与具体经营安排尚未作地方层面的许可核验。"
+    }
+  ],
+  "production_status": {
+    "prompt_created": true,
+    "model_run_started": false,
+    "manuscript_chapters_written": 0
+  }
+}

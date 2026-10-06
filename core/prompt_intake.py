@@ -24,7 +24,7 @@ from state_manager import StoryState, initialize_project
 
 _FIELD_RE = re.compile(
     r"^\s*(?:[-*]\s*)?(?:\*\*)?"
-    r"(title|default working title|genre|primary category|audience|primary audience|"
+    r"(title|default working title|author|genre|primary category|audience|primary audience|"
     r"language|tone|pov|point of view|chapters|words)"
     r"(?:\*\*)?\s*:\s*(.+?)\s*$",
     re.IGNORECASE,
@@ -146,7 +146,7 @@ def build_brief(prompt: str, overrides: Optional[Mapping[str, Any]] = None) -> D
         "title": title,
         "working_title": str(overrides.get("working_title") or fields.get("working_title") or ""),
         "genre": genre,
-        "author": str(overrides.get("author") or ""),
+        "author": str(overrides.get("author") or fields.get("author") or "").strip(),
         "audience": str(overrides.get("audience") or fields.get("audience") or ""),
         "language": str(overrides.get("language") or fields.get("language") or "English"),
         "tone": str(overrides.get("tone") or fields.get("tone") or ""),
@@ -272,6 +272,7 @@ def ingest_prompt(
     *,
     stdin_text: Optional[str] = None,
     stdin: Optional[TextIO] = None,
+    generate_author: bool = True,
 ) -> PromptIntakeResult:
     project = Path(project_path)
     raw_prompt = _read_source(source, stdin_text, stdin)
@@ -283,7 +284,10 @@ def ingest_prompt(
     state = (
         StoryState(str(project))
         if state_file.exists()
-        else initialize_project(str(project), brief["title"], brief["genre"])
+        else initialize_project(
+            str(project), brief["title"], brief["genre"],
+            author=brief["author"], language=brief["language"],
+        )
     )
     for key in ("title", "genre", "author", "audience", "language", "tone", "pov"):
         if brief.get(key):
@@ -315,15 +319,20 @@ def ingest_prompt(
             "commercial_story_contract", brief["commercial_story_contract"]
         )
 
+    state.save_state()
     input_dir = project / "outputs" / "input"
     input_dir.mkdir(parents=True, exist_ok=True)
     prompt_path = input_dir / "prompt.md"
     brief_path = input_dir / "brief.json"
     bible_path = project / "outputs" / "story_bible.md"
     prompt_path.write_text(raw_prompt, encoding="utf-8")
+    if generate_author:
+        from book_author import ensure_project_author
+        brief["author"] = ensure_project_author(project)
+    else:
+        brief["author"] = state.metadata.get("author", "")
     brief_path.write_text(json.dumps(brief, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     bible_path.write_text(_story_bible_markdown(brief), encoding="utf-8")
-    state.save_state()
 
     return PromptIntakeResult(
         project_path=str(project),

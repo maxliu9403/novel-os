@@ -45,18 +45,66 @@ and optional series identity.
 7. **World/rules ledger**: realistic constraints or speculative triggers, limits, costs, exceptions, social consequences, and the fictional setting/place-name policy.
 8. **Secret and timeline ledger**: truth, knowledge distribution, clues, fair misreading, payoff window, dates, locations, duration, and state changes.
 9. **Ending contract and payoff ledger**: finale window, main conflict resolution, protagonist final choice and state, antagonist consequence, emotional afterglow, stable payoff ids, target chapters, evidence requirements, and explicitly declared intentional open threads.
-10. **Structure**: acts or volumes, goals, midpoint shifts, irreversible choices, stage payoffs, and carry-forward consequences. Reserve the final 3-5 chapters for the ending contract.
+10. **Structure**: acts or volumes, goals, midpoint shifts, irreversible choices, stage payoffs, and carry-forward consequences; a chapter map with entry state, choice/cost, changed exit state, and reader value; opening scene plans. Reserve the final 3-5 chapters for the ending contract.
 11. **Reader-facing story lead**: required placement before chapter one, output language, localized heading, language-adjusted length, core conflict, identification trigger, emotional target, earned satisfaction promise, unanswered question, spoiler boundary, and exact chapter-one marker protocol.
 12. **Retention-first opening and first three chapters**: when selected, the opening contract, first-screen signals, conflict braid, atmosphere pressure, identification anchor, chapter value map, and irreversible threshold; otherwise retain the normal opening collision and micro-arc requirements.
 13. **First paid chapter** when relevant: direct consequence of the free-window choice and immediate substantive delivery.
-14. **Chapter contract**: objective -> obstacle -> action -> feedback -> choice -> cost -> payoff -> irreversible change -> next pressure.
-15. **Pacing and rotation**: vary conflict, emotional result, setting, strategy, payoff, and hook type.
-16. **Realism and originality boundaries**: make professional, legal, technical, cultural, and causal assumptions explicit.
+14. **Chapter contract**: identify the chapter's function and evidence of reader value. Active plot chapters use objective -> obstacle -> action -> feedback -> choice -> cost -> payoff -> consequence. Aftermath, quiet, or ensemble chapters may earn their place through changed understanding, relationship meaning, or emotional experience, without a forced new crisis.
+15. **Pacing and rotation**: vary conflict, emotional result, strategy, payoff, and entry/ending form; preserve purposeful recurring settings and motifs. Include recovery, ordinary life, and payoff aftermath. Reread consecutive prose at major arc boundaries for cumulative development, not just isolated chapter scores.
+16. **Realism and originality boundaries**: make professional, legal, technical, cultural, and causal assumptions explicit. State the material-use policy without including reference material or its identity; distinguish original reference-led development from authorized current-project continuation.
 17. **Agent output protocol**: exact state blocks and handoff expectations for each Novel OS agent.
-18. **Quality gates**: continuity, knowledge boundaries, payoff, agency, timeline, resource, style, and ending checks.
+18. **Quality gates**: originality, continuity, knowledge boundaries, payoff, agency, character/emotional development, anti-padding deletion test, timeline, resource, style, and ending checks. Separately review voice/POV, language, dialogue/subtext, scene presence, and emotion; strong plot scores cannot offset failures here. Require draft evidence, repair, and recheck before state promotion.
 19. **Assumptions**: only details the user did not decide.
 20. **Cover handoff**: strict JSON derived from the approved story, audience, conflict, protagonist, decisive node, secondary task, and fictional world signals.
-21. **Final delivery**: story bible, audience profile, machine-readable `workshop_trace` for intake, questions, alternatives, and Section A-E decisions, outline, complete chapters, reports, `book_completion_report.json`, and reader-facing manuscript.
+21. **Final delivery**: story bible, audience profile, sanitized machine-readable `workshop_trace` for selected original decisions and approved Sections A-E, outline, complete chapters, reports, `book_completion_report.json`, and reader-facing manuscript. Private source comparisons and rejected alternatives stay outside runtime inputs.
+
+## Prose-quality handoff
+
+Carry these as writing/review instructions, not new runtime schema fields:
+
+- **Voice guidance:** POV, tense, narrative distance, language/register,
+  character-specific attention, rhythm, imagery, and dialogue strategies. Use
+  approved prose from this project or brief original conflict/quiet samples to
+  calibrate the book; label invented samples as illustrative and not canon.
+  Exclude all reference-book expression. Samples do not pre-approve later prose.
+- **Major emotional transitions:** prior belief or trust, trigger, interpretation
+  or resistance, behavior/choice, and later evidence. Distinguish intended beats
+  from changes supported by written chapters. Let growth include credible
+  hesitation or relapse rather than repeated identical declarations.
+- **Dramatized pivots:** discovery, betrayal, intimacy, separation, and final
+  choices should occur in perceivable scenes when they carry the reader promise.
+  Dialogue, action, silence, and POV response earn the change. Summary remains
+  appropriate for transitions; do not inflate every moment into a full scene.
+- **Review context:** an independent reading pass sees actual prose, necessary
+  adjacent text, and audience/language constraints, without the outline, author
+  explanation, previous score, or desired verdict. It reports passage-specific
+  confusion, disengagement, and emotional engagement. Check continuity separately
+  against canon; missing context is uncertainty, not proof of contradiction.
+  If an independent reader/tool is unavailable, label a second self-review
+  honestly. Model feedback is simulated editorial feedback, not human readership.
+
+Reuse the existing agent responsibilities. These instructions do not authorize
+framework changes, automatic extra model calls, or claims that new review gates
+are already scheduled or enforced by the backend.
+
+## Material isolation and quality evidence
+
+For reference-led new work, include a clear instruction that supplied examples
+provided only abstract dramatic ideas and that the approved original design is
+the writing authority. Do not paste samples, source-specific summaries,
+character identities, paths, distinctive scene sequences, or the private source
+audit into any section or attachment. Cover `source_refs` point only to the new
+approved story contract, never to inspiration files. For explicitly authorized
+continuation, verified current-project canon remains available for continuity;
+unrelated inspiration files retain the same isolation rule.
+
+Carry the completed design review and the chapter review requirements as
+workflow instructions. Do not claim that new labels are parsed or enforced by
+Novel OS without implementation evidence. Separate `design_review`,
+`material_isolation_review`, and `parser_validation` from `draft_review`;
+the last remains `not_run` until actual prose is reviewed. Require chapter
+contract -> draft -> structural edit -> continuity -> style/quality -> approved
+state update, with failed reviews returning to the relevant earlier step.
 
 ## Required cover handoff
 
@@ -309,20 +357,22 @@ that context separate from the fictional world ledger.
 
 ## Workshop decision trace
 
-Persist the reasoning trail alongside the audience profile. Update it after
-each answer and section confirmation so downstream agents and a project detail
-view can distinguish selected decisions from rejected options:
+Keep the full decision history, rejected options, and source comparisons in a
+private workshop record outside runtime inputs. Update it after each answer
+and section confirmation. Export only this source-free projection alongside
+the audience profile; downstream writers receive approved choices, not the
+discarded design branches:
 
 ```yaml
 workshop_trace:
-  intake: <normalized user intent and explicit constraints>
+  intake: <source-free user intent and explicit constraints>
   audience_decision: <user-confirmed primary segment, age/life stage, and reading motivation>
   market_decision: <country/region/language/release scope and date>
   approach_options:
     - id: approach_a
-      summary: <structure and pressure>
-      tradeoffs: <retention and continuity tradeoffs>
-      selected: true|false
+      summary: <selected original structure and pressure>
+      tradeoffs: <approved design tradeoffs without source comparison>
+      selected: true
   section_decisions:
     section_a: <confirmed contract>
     section_b: <confirmed characters and relationships>
@@ -332,8 +382,11 @@ workshop_trace:
   open_assumptions: []
 ```
 
-Keep rejected approaches and their tradeoffs as decision history. The final
-reader-facing Markdown excludes this trace.
+Include only the selected entry in `approach_options`. Omit source identities,
+private record paths, source-specific summaries, and rejected variants from
+every exported field, including assumptions. The final reader-facing Markdown
+excludes this trace. Inspect the complete assembled prompt for leaks, not only
+this block or `COMMERCIAL_STORY_JSON`.
 
 ## Ending contract requirements
 

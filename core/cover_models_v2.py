@@ -783,6 +783,7 @@ class CoverScenePlan:
     consequence_signal: str = ""
     conflict_character_ids: tuple[str, ...] = ()
     protagonist_action_visible: bool = False
+    story_policy_version: str = ""
 
     def __post_init__(self) -> None:
         for name in (
@@ -885,6 +886,7 @@ class CoverScenePlan:
                 data.get("consequence_signal"), f"{prefix}.consequence_signal", required=False
             ),
             conflict_character_ids=values("conflict_character_ids"),
+            story_policy_version=_text(data.get("story_policy_version"), f"{prefix}.story_policy_version", required=False),
             protagonist_action_visible=_boolean(
                 data.get("protagonist_action_visible"),
                 f"{prefix}.protagonist_action_visible",
@@ -928,6 +930,7 @@ class CoverScenePlan:
             "typography_rationale": self.typography_rationale,
             "novelty_rationale": self.novelty_rationale,
             "visual_signature": self.visual_signature,
+            "story_policy_version": self.story_policy_version,
         }
         payload.update({key: value for key, value in optional_treatment.items() if value})
         if self.causal_visibility:

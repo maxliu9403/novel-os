@@ -1,0 +1,195 @@
+{
+  "status": "pass",
+  "prompt": "/Users/max/OpenSource/Novel-OS/prompt/The Last Golden Spire.md",
+  "sha256": "039132aabeb1beca03bdbaa0c36575e54735e755beeafa3815bd500857dfb5ea",
+  "checks": [
+    {
+      "name": "single_NOVEL_CLASSIFICATION_JSON",
+      "status": "pass",
+      "detail": "Exactly one canonical block."
+    },
+    {
+      "name": "single_NARRATIVE_FORMAT_JSON",
+      "status": "pass",
+      "detail": "Exactly one canonical block."
+    },
+    {
+      "name": "single_COMMERCIAL_STORY_JSON",
+      "status": "pass",
+      "detail": "Exactly one canonical block."
+    },
+    {
+      "name": "single_APPROVED_STORY_CONTRACT_JSON",
+      "status": "pass",
+      "detail": "Exactly one canonical block."
+    },
+    {
+      "name": "native_intake",
+      "status": "pass",
+      "detail": "Actual ingest_prompt wrote only the disposable project with author/model generation disabled."
+    },
+    {
+      "name": "audience_and_voice",
+      "status": "pass",
+      "detail": {
+        "audience": "US women aged 50–65; marital betrayal, reclaimed dignity, motherhood and rebuilding",
+        "pov": "Evelyn — first person, past tense, strictly limited",
+        "tone": "Intimate emotional realism, restrained angst, dry humor, earned hope"
+      }
+    },
+    {
+      "name": "premise",
+      "status": "pass",
+      "detail": "After her husband leaves their nine-year-old daughter behind during a mall shooting, Evelyn, a landscape professional returning after two years away, leaves the marriage. To build a lasting home she must turn a job offer into dependable income, correct his unauthorized use of her professional name, own her mistakes at work, and let her daughter have a life beyond the betrayal."
+    },
+    {
+      "name": "classification",
+      "status": "pass",
+      "detail": "Native ids, metadata and derived labels round-trip."
+    },
+    {
+      "name": "format",
+      "status": "pass",
+      "detail": "Canonical author-selected three-volume format; no series_installment substitution."
+    },
+    {
+      "name": "volume_contracts",
+      "status": "pass",
+      "detail": "Distinct native volume promises, shifts, climaxes, payoffs and carryover hooks validate."
+    },
+    {
+      "name": "commercial_contract",
+      "status": "pass",
+      "detail": "Contract id derived by the library; not hand-authored."
+    },
+    {
+      "name": "approved_chapter_actions",
+      "status": "pass",
+      "detail": "All60 titles, times and120 planned scenes equal the author-approved design."
+    },
+    {
+      "name": "chapter_causal_contract",
+      "status": "pass",
+      "detail": "Every chapter retains an entry, concrete scene choice/cost, exit and value; duplicate scene text is not necessary."
+    },
+    {
+      "name": "world_timeline_resources",
+      "status": "pass",
+      "detail": "All approved time, money, education billing and shared contingency records preserved exactly."
+    },
+    {
+      "name": "scope_and_status",
+      "status": "pass",
+      "detail": "Approval authorizes the design; actual scenes remain unreviewed plans."
+    },
+    {
+      "name": "source_repairs",
+      "status": "pass",
+      "detail": "All seven explicit repairs and retained mall actions transferred."
+    },
+    {
+      "name": "characters_and_personality",
+      "status": "pass",
+      "detail": "Six principal characters retain distinct personality, pressure, speech and knowledge contracts."
+    },
+    {
+      "name": "ending_outcomes",
+      "status": "pass",
+      "detail": "Six exact semantic outcomes, separate from narrative lifecycle."
+    },
+    {
+      "name": "ending_payoffs",
+      "status": "pass",
+      "detail": "Native ending shape retains ten payoffs, main thread and antagonist responsibility thread."
+    },
+    {
+      "name": "finale",
+      "status": "pass",
+      "detail": "Final five chapters reserved; no marriage reunion or open central thread."
+    },
+    {
+      "name": "lead",
+      "status": "pass",
+      "detail": "Separate lead with exact marker preceding the chapter heading."
+    },
+    {
+      "name": "opening",
+      "status": "pass",
+      "detail": "Three-chapter micro-arc answers rescue and spends real money; chapter4 enacts departure."
+    },
+    {
+      "name": "trace",
+      "status": "pass",
+      "detail": "Selected approved decisions only, with confirmed audience."
+    },
+    {
+      "name": "setting",
+      "status": "pass",
+      "detail": "Market metadata is distinct from fictional story geography."
+    },
+    {
+      "name": "cover_boundaries",
+      "status": "pass",
+      "detail": "One cover handoff only."
+    },
+    {
+      "name": "cover_native_v2",
+      "status": "pass",
+      "detail": "Actual schema-v2 parser validates required mother and daughter, ages, lived identity, relationships and story nodes."
+    },
+    {
+      "name": "voice_samples",
+      "status": "pass",
+      "detail": "Both concise original samples clearly noncanon, with a warning against treating staging as access permission."
+    },
+    {
+      "name": "material_boundary",
+      "status": "pass",
+      "detail": "Authorized current-project canon is included; private paths, unrelated book identities, raw source file labels and corpus payloads are absent."
+    },
+    {
+      "name": "no_prose_certification",
+      "status": "pass",
+      "detail": "No unwritten chapter or ending review is labeled complete."
+    },
+    {
+      "name": "originals_unchanged",
+      "status": "pass",
+      "detail": "All four Desktop originals match their initial hashes."
+    }
+  ],
+  "native_intake_project": "/private/tmp/golden-spire-intake-0i9bhcq4",
+  "native_brief_summary": {
+    "title": "The Last Golden Spire",
+    "genre": "Women's Fiction",
+    "audience": "US women aged 50–65; marital betrayal, reclaimed dignity, motherhood and rebuilding",
+    "language": "English",
+    "tone": "Intimate emotional realism, restrained angst, dry humor, earned hope",
+    "pov": "Evelyn — first person, past tense, strictly limited",
+    "target_chapters": 60,
+    "target_words": 72000,
+    "premise": "After her husband leaves their nine-year-old daughter behind during a mall shooting, Evelyn, a landscape professional returning after two years away, leaves the marriage. To build a lasting home she must turn a job offer into dependable income, correct his unauthorized use of her professional name, own her mistakes at work, and let her daughter have a life beyond the betrayal.",
+    "commercial_story_contract_id": "commercial-story:59e84078a05c1ac1ca2da169554a5ac4abf9aa79ebe61a48b96f946a611db098"
+  },
+  "design_review": "author_approved_after_repair",
+  "material_isolation_review": "pass_for_authorized_current_project_continuation",
+  "parser_validation": "pass",
+  "voice_calibration": "two_original_noncanon_samples_reviewed_for_POV_subtext_and_age_voice",
+  "draft_review": "not_run",
+  "manuscript_generation": "not_started",
+  "model_calls": 0,
+  "corrections_during_validation": [
+    "Cover visual_assumptions uses an empty valid array; unspecified appearance remains in Assumptions rather than invalid bare strings."
+  ],
+  "limits": [
+    "Custom approved-story contract checked explicitly; native intake does not itself enforce every nested prose instruction.",
+    "This is prompt and design validation, not a passing manuscript or actual ending report."
+  ],
+  "independent_contract_review": {
+    "status": "pass",
+    "scope": "Read-only comparison of final Prompt with approved design, not manuscript review",
+    "finding": "No major deviation:60 chapters/120 scenes,7 opening repairs, complete resource/timeline data, six exact outcomes and native ending/volume mappings retained."
+  },
+  "launcher_help_verified": true,
+  "launch_started": false
+}

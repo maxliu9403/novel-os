@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import stat
+import sys
 import tempfile
 import time
 from contextlib import contextmanager
@@ -273,6 +274,7 @@ class PipelineRunner:
         store = self._store(project, run_id)
         manifest = store.load()
         manifest.spec.project_path = str(project)
+        print(f"Checking saved checkpoints for run {run_id}...", flush=True)
         try:
             reconciled_promotions = self._reconcile_committed_promotions(
                 manifest, project, store
@@ -949,6 +951,7 @@ class PipelineRunner:
                     chapter=number,
                     receipt_id=receipt.receipt_id,
                 )
+                print(f"Reusing completed chapter {number}/{spec.num_chapters}.", flush=True)
                 return
         commercial_story = (
             self._foundation_commercial_story(project)
@@ -1298,6 +1301,19 @@ class PipelineRunner:
         if not history:
             return
         tail = history[-1]
+        from canon_ledger import CanonReconciliationEntry
+
+        if isinstance(tail, CanonReconciliationEntry):
+            # Chapter retries can restore a snapshot from before recovery.
+            # Reassert the audited foundation transaction before promotion.
+            self._commit_story_foundation(manifest, project)
+            if canonical_canon_sha(StoryState(str(project))) != tail.new_canon_sha:
+                raise PipelineError(
+                    "Cannot restore committed canon: foundation reconciliation head diverged",
+                    blocked=True,
+                )
+            self._reload_active_state(project)
+            return
         prefix = f"pipeline-{manifest.run_id}-chapter-"
         if not tail.idempotency_key.startswith(prefix):
             return
@@ -1362,7 +1378,31 @@ class PipelineRunner:
         captured_input_hashes: Optional[Dict[str, str]] = None,
     ) -> StageResult:
         previous = manifest.get(phase, chapter)
+        stage_label = RunManifest.stage_key(phase, chapter)
+        if (
+            manifest.spec.quality_policy == "evidence_v1"
+            and phase in {"intake", "outline"}
+            and (
+                self._rerun_started
+                or previous is None
+                or previous.status != "done"
+                or not self._checkpoint_valid(project, previous, manifest)
+            )
+        ):
+            from canon_ledger import CanonLedger
+
+            if CanonLedger(project).history():
+                manifest.current_phase = phase
+                manifest.current_chapter = chapter
+                raise PipelineError(
+                    f"Committed chapters exist but {phase} checkpoint changed; "
+                    "automatic replanning is disabled. Restore the approved "
+                    "planning artifacts or explicitly reconcile the foundation "
+                    "with committed chapter history before resuming.",
+                    blocked=True,
+                )
         if previous and previous.status == "done" and not self._rerun_started:
+            print(f"Checking saved stage: {stage_label}...", flush=True)
             self._require_quality_gate(manifest.spec.quality_policy, previous)
             self._validate_bound_revision(project, previous)
             self._validate_bound_proposals(project, previous)
@@ -1407,6 +1447,7 @@ class PipelineRunner:
                 # proposal-only runs can continue using the foundation-backed
                 # runtime state before the next stage executes.
                 self._reload_active_state(project)
+                print(f"Reusing completed stage: {stage_label}.", flush=True)
                 return previous
             if self._last_valid_state_snapshot:
                 self._restore_state(project, self._last_valid_state_snapshot)
@@ -1437,6 +1478,7 @@ class PipelineRunner:
                 started_at=self._now(),
             )
             try:
+                print(f"Running stage: {stage_label} (attempt {attempt}/{max_attempts})...", flush=True)
                 result.input_hashes = dict(
                     captured_input_hashes
                     if captured_input_hashes is not None
@@ -1590,10 +1632,27 @@ class PipelineRunner:
         manifest: RunManifest,
         project: Path,
     ) -> Any:
+        source = manifest.spec.prompt_path
+        if source == "-":
+            run_prompt = self._run_dir(project, manifest.run_id) / "input/prompt.md"
+            if run_prompt.is_file():
+                source = str(run_prompt)
+            else:
+                raw_prompt = sys.stdin.read()
+                if not raw_prompt.strip():
+                    raise ValueError(
+                        "Prompt is empty; this stdin-backed run has no saved run prompt. "
+                        "Provide the original prompt on stdin when resuming."
+                    )
+                # The project execution lock covers this write.  Bind stdin to
+                # the run before intake can fail during author generation.
+                self._atomic_text(run_prompt, raw_prompt)
+                source = str(run_prompt)
         result = ingest_prompt(
             project,
-            manifest.spec.prompt_path,
+            source,
             self._brief_overrides(manifest.spec),
+            generate_author=not manifest.spec.dry_run,
         )
         self._persist_story_contract(project)
         return result
@@ -3185,7 +3244,15 @@ class PipelineRunner:
         state = project / "outputs/state/story_state.json"
         if not snapshot.exists():
             raise PipelineError(f"State snapshot is missing: {snapshot_relative}", blocked=True)
-        self._atomic_copy(snapshot, state)
+        from book_author import saved_project_author
+
+        author = saved_project_author(project)
+        payload = json.loads(snapshot.read_text(encoding="utf-8"))
+        if author and payload.get("metadata", {}).get("author") != author:
+            payload.setdefault("metadata", {})["author"] = author
+            self._atomic_json(state, payload)
+        else:
+            self._atomic_copy(snapshot, state)
         self._reload_active_state(project)
 
     def _reload_active_state(self, project: Path) -> None:
@@ -3204,17 +3271,43 @@ class PipelineRunner:
 
     @staticmethod
     def _is_retryable(exc: Exception) -> bool:
+        from book_author import AuthorGenerationError
+
+        if isinstance(exc, AuthorGenerationError) and isinstance(exc.__cause__, Exception):
+            return PipelineRunner._is_retryable(exc.__cause__)
         text = str(exc).lower()
         non_retryable = (
             "no llm provider configured",
             "requires novel_os_",
             "api key is not set",
+            "api key is missing",
+            "invalid api key",
+            "incorrect api key",
+            "invalid_api_key",
             "unknown provider",
             "agent prompt not found",
             "missing [",
             "empty revised chapter",
+            "unauthorized",
+            "403 forbidden",
+            "not authenticated",
+            "authentication failed",
+            "authentication required",
+            "authentication error",
+            "authentication_error",
+            "missing authentication",
+            "missing bearer",
+            "missing credentials",
+            "invalid credentials",
+            "codex login",
         )
         if any(marker in text for marker in non_retryable):
+            return False
+        if re.search(
+            r"\b(?:http(?: status)?|status(?: code)?|unexpected status)"
+            r"\s*[:=]?\s*(?:401|403)\b",
+            text,
+        ):
             return False
         if isinstance(exc, (LLMError, TimeoutError, ConnectionError)):
             return True
@@ -3831,6 +3924,8 @@ class PipelineRunner:
         self._require_files(project, [str(state_path.relative_to(project))])
         from state_manager import StoryState
 
+        from book_author import ensure_project_author
+        ensure_project_author(project)
         state = StoryState(str(project))
         classification = classification_from_metadata(state.metadata)
         classification_payload = classification.to_dict()

@@ -8,6 +8,7 @@ from commercial_fixtures import (
     span,
 )
 from commercial_quality import (
+    commercial_book_input_hashes,
     evaluate_commercial_book,
     evaluate_commercial_free_trial,
     review_commercial_chapter,
@@ -154,6 +155,93 @@ def test_book_review_requires_two_belonging_anchor_payoffs(tmp_path):
     assert "belonging_payoff_incomplete" in {
         item.code for item in report.blockers
     }
+
+
+def test_book_input_hashes_validate_each_matching_receipt_once(
+    tmp_path, monkeypatch
+):
+    from promotion import PromotionService
+
+    project = commercial_project_with_reports(tmp_path)
+    receipts = PromotionService(project).list_receipts()
+    expected_ids = {
+        receipt.chapter: receipt.receipt_id for receipt in receipts
+    }
+    load_calls = []
+    real_load_receipt = PromotionService.load_receipt
+
+    def counted_load_receipt(self, key, *, check_current_tail=True):
+        load_calls.append((key, check_current_tail))
+        return real_load_receipt(
+            self, key, check_current_tail=check_current_tail
+        )
+
+    monkeypatch.setattr(PromotionService, "load_receipt", counted_load_receipt)
+
+    hashes = commercial_book_input_hashes(project, chapter_count=12)
+
+    assert load_calls == [
+        (f"fixture-commercial-chapter-{number}", False)
+        for number in range(1, 13)
+    ]
+    assert {
+        number: hashes[f"chapter_{number:03d}_promotion_receipt_id"]
+        for number in range(1, 13)
+    } == expected_ids
+
+
+def test_book_input_hashes_revalidate_tampered_durable_evidence(tmp_path):
+    from artifacts import ArtifactStore
+
+    project = commercial_project_with_reports(tmp_path)
+    baseline = commercial_book_input_hashes(project, chapter_count=12)
+    receipt_paths = sorted(
+        (project / "outputs/state/promotion_receipts").glob("*.json")
+    )
+
+    receipt_path = receipt_paths[0]
+    receipt_bytes = receipt_path.read_bytes()
+    receipt_path.write_text("{}\n", encoding="utf-8")
+    receipt_tampered = commercial_book_input_hashes(project, chapter_count=12)
+    receipt_path.write_bytes(receipt_bytes)
+
+    assert all(
+        receipt_tampered[f"chapter_{number:03d}_promotion_receipt_id"] == ""
+        for number in range(1, 13)
+    )
+
+    artifacts = ArtifactStore(project)
+    chapter = 6
+    final_head = artifacts.get_head(chapter, "final")
+    assert final_head is not None
+    final_revision = artifacts.get_revision(final_head.revision_id)
+    blob_path = artifacts.blob_root / final_revision.sha256
+    blob_bytes = blob_path.read_bytes()
+    blob_path.write_text("tampered", encoding="utf-8")
+    artifact_tampered = commercial_book_input_hashes(project, chapter_count=12)
+    blob_path.write_bytes(blob_bytes)
+
+    assert artifact_tampered[
+        f"chapter_{chapter:03d}_promotion_receipt_id"
+    ] == ""
+    assert artifact_tampered[f"chapter_{chapter:03d}_final_sha256"] == (
+        final_revision.sha256
+    )
+    assert artifact_tampered["chapter_005_promotion_receipt_id"] == (
+        baseline["chapter_005_promotion_receipt_id"]
+    )
+
+    ledger_path = project / "outputs/state/canon_ledger.jsonl"
+    ledger_bytes = ledger_path.read_bytes()
+    ledger_path.write_bytes(ledger_bytes + b"not-json\n")
+    canon_tampered = commercial_book_input_hashes(project, chapter_count=12)
+    ledger_path.write_bytes(ledger_bytes)
+
+    assert all(
+        canon_tampered[f"chapter_{number:03d}_promotion_receipt_id"] == ""
+        for number in range(1, 13)
+    )
+    assert commercial_book_input_hashes(project, chapter_count=12) == baseline
 
 
 def test_design_gate_blocks_unseeded_resource_and_passive_turn():

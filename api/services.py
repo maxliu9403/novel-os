@@ -338,12 +338,17 @@ class ProjectService:
 
     def update_project(self, project_id: str, *, content_rating: str | None = None,
                        title: str | None = None, genre: str | None = None,
+                       author: str | None = None,
                        genres: list[str] | None = None, premise: str | None = None,
                        target_word_count: int | None = None,
                        session_word_target: int | None = None,
                        classification: dict | None = None,
                        narrative_format: dict | None = None) -> ProjectDetail:
         s = self._load(project_id)
+        if author is not None:
+            if not author.strip():
+                raise BadRequest("Author name must not be empty")
+            s.set_metadata("author", author.strip())
         if content_rating is not None:
             if content_rating not in ("general", "mature"):
                 raise BadRequest("content_rating must be 'general' or 'mature'")
@@ -406,6 +411,9 @@ class ProjectService:
             s.set_metadata("target_word_count", format_contract.target_words)
             s.update_story_bible("narrative_format", format_contract.to_dict())
         s.save_state()
+        if author is not None:
+            from book_author import ensure_project_author
+            ensure_project_author(self._project_dir(project_id))
         return self.project_detail(project_id)
 
     def list_chapters(self, project_id: str) -> list[ChapterSummary]:
@@ -2038,6 +2046,14 @@ Foreshadowing_Planted: …
         method_mode: str = "advisory",
     ) -> ProjectSummary:
         """Create one canonical project while its operation lease is held."""
+        if not author.strip():
+            from book_author import AuthorGenerationError, generate_author_name
+            try:
+                author = generate_author_name({
+                    "title": title, "genre": genre_label, "premise": premise,
+                })
+            except AuthorGenerationError as exc:
+                raise BadRequest(str(exc)) from exc
         folder.mkdir(parents=True, exist_ok=True)
         build_orchestrator(str(folder)).init_project(
             title, genre_label or "Fiction", author
@@ -2283,6 +2299,11 @@ Foreshadowing_Planted: …
         from styles import StyleSheet  # noqa: E402
 
         s = self._load(project_id)
+        from book_author import AuthorGenerationError, ensure_project_author
+        try:
+            s.metadata["author"] = ensure_project_author(self._project_dir(project_id))
+        except AuthorGenerationError as exc:
+            raise BadRequest(str(exc)) from exc
         chapters: list[dict] = []
         for c in sorted(s.chapters.values(), key=lambda c: c.number):
             p = self._stage_paths(project_id, c.number)

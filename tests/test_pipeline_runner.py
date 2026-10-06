@@ -1,4 +1,5 @@
 import hashlib
+import io
 import json
 import os
 import tempfile
@@ -1504,6 +1505,134 @@ def test_intake_persists_story_contract_revision(tmp_path: Path):
     assert state.metadata["story_contract_id"].startswith("contract:")
 
 
+def test_resume_failed_stdin_intake_uses_its_run_prompt_after_another_run_overwrites_project_prompt(
+    tmp_path: Path, monkeypatch,
+):
+    import book_author
+
+    first_prompt = (
+        "# First North Door\n\nGenre: Suspense\nAudience: Adult\n\n"
+        "Mara must choose whether to open it."
+    )
+    second_prompt = (
+        "# Second South Door\n\nGenre: Romance\nAudience: Adult\n\n"
+        "Nora must choose whether to close it."
+    )
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=_factory)
+
+    def fail_author_generation(*_args):
+        raise LLMError("unexpected status 401 Unauthorized: missing bearer token")
+
+    monkeypatch.setattr(book_author, "_default_complete", fail_author_generation)
+    monkeypatch.setattr("prompt_intake.sys.stdin", io.StringIO(first_prompt))
+    first_failed = runner.run(RunSpec(
+        project_path=str(project),
+        prompt_path="-",
+        num_chapters=1,
+        target_words=20,
+        approval_policy="auto",
+        max_retries=0,
+    ))
+
+    assert first_failed.status == "failed"
+    assert first_failed.get("intake").status == "failed"
+    assert (project / "outputs/input/prompt.md").read_text(
+        encoding="utf-8"
+    ) == first_prompt
+    first_run_prompt = (
+        project / "outputs/runs" / first_failed.run_id / "input/prompt.md"
+    )
+    assert first_run_prompt.read_text(encoding="utf-8") == first_prompt
+
+    monkeypatch.setattr("prompt_intake.sys.stdin", io.StringIO(second_prompt))
+    second_failed = runner.run(RunSpec(
+        project_path=str(project),
+        prompt_path="-",
+        num_chapters=1,
+        target_words=20,
+        approval_policy="auto",
+        max_retries=0,
+    ))
+
+    assert second_failed.status == "failed"
+    assert second_failed.run_id != first_failed.run_id
+    assert (project / "outputs/input/prompt.md").read_text(
+        encoding="utf-8"
+    ) == second_prompt
+    assert (
+        project
+        / "outputs/runs"
+        / second_failed.run_id
+        / "input/prompt.md"
+    ).read_text(encoding="utf-8") == second_prompt
+
+    monkeypatch.setattr(
+        book_author, "_default_complete", lambda *_args: '{"author":"Mara Vale"}'
+    )
+    monkeypatch.setattr("prompt_intake.sys.stdin", io.StringIO(""))
+    resumed = runner.resume(first_failed.run_id, project)
+
+    assert resumed.status == "completed", resumed.error
+    assert (project / "outputs/input/prompt.md").read_text(
+        encoding="utf-8"
+    ) == first_prompt
+    assert json.loads(
+        (project / "outputs/input/brief.json").read_text(encoding="utf-8")
+    )["title"] == "First North Door"
+    assert first_run_prompt.read_text(encoding="utf-8") == first_prompt
+
+
+def test_fresh_empty_stdin_does_not_reuse_unrelated_persisted_prompt(
+    tmp_path: Path, monkeypatch, fake_author_model,
+):
+    project = tmp_path / "project"
+    saved_prompt = project / "outputs/input/prompt.md"
+    saved_prompt.parent.mkdir(parents=True)
+    saved_prompt.write_text("# Unrelated Old Prompt\n\nAn old story.", encoding="utf-8")
+    monkeypatch.setattr("prompt_intake.sys.stdin", io.StringIO(""))
+
+    runner = PipelineRunner(orchestrator_factory=_factory)
+    manifest = runner.run(RunSpec(
+        project_path=str(project),
+        prompt_path="-",
+        num_chapters=1,
+        target_words=20,
+        approval_policy="auto",
+        max_retries=0,
+    ))
+
+    assert manifest.status == "failed"
+    assert "Prompt is empty" in manifest.error
+    assert saved_prompt.read_text(encoding="utf-8") == (
+        "# Unrelated Old Prompt\n\nAn old story."
+    )
+    assert fake_author_model == []
+
+    monkeypatch.setattr("prompt_intake.sys.stdin", io.StringIO(""))
+    resumed_without_input = runner.resume(manifest.run_id, project)
+
+    assert resumed_without_input.status == "failed"
+    assert "Prompt is empty" in resumed_without_input.error
+    assert saved_prompt.read_text(encoding="utf-8") == (
+        "# Unrelated Old Prompt\n\nAn old story."
+    )
+    assert not (
+        project / "outputs/runs" / manifest.run_id / "input/prompt.md"
+    ).exists()
+    assert fake_author_model == []
+
+    replacement_prompt = "# Explicit Resume Prompt\n\nA new story."
+    monkeypatch.setattr("prompt_intake.sys.stdin", io.StringIO(replacement_prompt))
+    recovered = runner.resume(manifest.run_id, project)
+
+    assert recovered.status == "completed", recovered.error
+    assert (
+        project / "outputs/runs" / manifest.run_id / "input/prompt.md"
+    ).read_text(encoding="utf-8") == replacement_prompt
+    assert fake_author_model and len(fake_author_model) == 1
+
+
 def test_resume_reuses_valid_revision_without_rewriting(tmp_path: Path):
     FakeOrchestrator.calls = []
     prompt = tmp_path / "prompt.md"
@@ -1818,6 +1947,91 @@ def test_retryable_llm_error_retries_stage_and_records_attempt(tmp_path: Path):
 
     assert manifest.status == "completed", manifest.error
     assert manifest.get("chapter.write", 1).attempt == 2
+
+
+def test_architect_authentication_error_fails_once_and_can_resume(
+    tmp_path: Path,
+):
+    class AuthenticationFailingOrchestrator(FakeOrchestrator):
+        plan_attempts = 0
+        authentication_valid = False
+
+        def plan_chapter(self, number, summary="", pov="", dry_run=False):
+            type(self).plan_attempts += 1
+            if not type(self).authentication_valid:
+                raise LLMError(
+                    "Codex CLI failed (exit 1): unexpected status 401 Unauthorized: "
+                    "Missing bearer or basic authentication in header, url: "
+                    "https://api.openai.com/v1/responses"
+                )
+            return super().plan_chapter(
+                number, summary=summary, pov=pov, dry_run=dry_run
+            )
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("A story.", encoding="utf-8")
+    project = tmp_path / "project"
+    runner = PipelineRunner(orchestrator_factory=AuthenticationFailingOrchestrator)
+    manifest = runner.run(RunSpec(
+        project_path=str(project),
+        prompt_path=str(prompt),
+        num_chapters=1,
+        target_words=20,
+        approval_policy="auto",
+        max_retries=5,
+        retry_backoff_seconds=0,
+    ))
+
+    failed = manifest.get("chapter.plan", 1)
+    assert AuthenticationFailingOrchestrator.plan_attempts == 1
+    assert manifest.status == "failed"
+    assert failed is not None
+    assert failed.status == "failed"
+    assert failed.attempt == 1
+    assert failed.retryable is False
+    assert PipelineRunner._store(project, manifest.run_id).load().status == "failed"
+
+    AuthenticationFailingOrchestrator.authentication_valid = True
+    resumed = runner.resume(manifest.run_id, project)
+
+    assert resumed.status == "completed", resumed.error
+    assert AuthenticationFailingOrchestrator.plan_attempts == 2
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "temporary upstream timeout",
+        "unexpected status 429 Too Many Requests",
+        "unexpected status 500 Internal Server Error",
+        "unexpected status 503 Service Unavailable",
+    ],
+)
+def test_transient_llm_errors_remain_retryable(message: str):
+    assert PipelineRunner._is_retryable(LLMError(message)) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "unexpected status 401 Unauthorized",
+        "HTTP status 403",
+        "status code: 401",
+        "authentication failed for the configured account",
+        "authentication_error: invalid credentials",
+        "Codex is not authenticated; run codex login",
+        "invalid API key",
+        "missing bearer token",
+    ],
+)
+def test_explicit_authentication_errors_are_not_retryable(message: str):
+    assert PipelineRunner._is_retryable(LLMError(message)) is False
+
+
+def test_forbidden_content_message_remains_retryable():
+    error = LLMError("request rejected because the prompt contains a forbidden phrase")
+
+    assert PipelineRunner._is_retryable(error) is True
 
 
 def test_failed_agent_stage_persists_actual_role_provenance(tmp_path: Path):

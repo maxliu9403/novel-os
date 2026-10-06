@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { motion } from "motion/react";
-import { api, type CoverCandidate, type CoverDirection, type CoverSet, type JobStatus, type ProjectDetail, type StudioCoverStatus } from "../api/client";
+import { api, type CoverCandidate, type CoverDirection, type CoverSet, type CoverStoryFacts, type CoverStoryFactsConfirmation, type JobStatus, type ProjectDetail, type StudioCoverStatus } from "../api/client";
 import Scene from "../components/Scene";
 import Icon from "../components/Icon";
+import Modal, { Field, fieldClass, textareaClass } from "../components/Modal";
 import { useToast } from "../components/toastContext";
 import { useConfirm } from "../components/confirmContext";
 
@@ -36,6 +37,7 @@ export default function CoverStudio() {
   const [busy, setBusy] = useState("");
   const [progress, setProgress] = useState<CoverProgress | null>(null);
   const [error, setError] = useState("");
+  const [missingFacts, setMissingFacts] = useState<{ projectId: string; facts: CoverStoryFacts } | null>(null);
 
   const applySets = useCallback((next: CoverSet[], preferredSetId?: string) => {
     setSets(next);
@@ -84,6 +86,17 @@ export default function CoverStudio() {
   );
   const approvedDirection = directions[0]?.status === "approved" ? directions[0] : null;
   const generationAllowed = Boolean(settings?.configured && approvedDirection);
+  const generationDisabledReason = !settings?.configured
+    ? "请先配置封面模型"
+    : !directionsLoaded
+      ? "正在读取美术方向"
+      : !directions[0]
+        ? "请先创建美术方向"
+        : directions[0].status === "stale"
+          ? "当前美术方向已过期，请先创建并批准新方向"
+          : !approvedDirection
+            ? "请先审核并批准美术方向"
+            : "";
 
   const updateProgress = (nextSets: CoverSet[], context: JobProgressContext) => {
     if (context.mode === "retry") {
@@ -191,21 +204,53 @@ export default function CoverStudio() {
     }
   };
 
+  const planDirection = async () => {
+    if (!settings) return;
+    const created = await api.createCoverDirection(id, settings.count);
+    setDirections((items) => [
+      created,
+      ...items.filter((item) => item.direction_id !== created.direction_id),
+    ]);
+    toast("美术方向已生成，等待审核", "success");
+  };
+
   const createDirection = async () => {
     if (!settings) return;
     setBusy("direction:create");
     setError("");
     try {
-      const created = await api.createCoverDirection(id, settings.count);
-      setDirections((items) => [
-        created,
-        ...items.filter((item) => item.direction_id !== created.direction_id),
-      ]);
-      toast("美术方向已生成，等待审核", "success");
+      const facts = await api.coverStoryFacts(id);
+      if (facts.pending_fields.length > 0) {
+        setMissingFacts({ projectId: id, facts });
+        return;
+      }
+      await planDirection();
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
       toast(message, "error");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const confirmStoryFacts = async (body: CoverStoryFactsConfirmation) => {
+    setBusy("direction:facts");
+    try {
+      const facts = await api.confirmCoverStoryFacts(id, body);
+      if (facts.pending_fields.length > 0) {
+        setMissingFacts({ projectId: id, facts });
+        return;
+      }
+      setMissingFacts(null);
+      setBusy("direction:create");
+      try {
+        await planDirection();
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        setError(message);
+        toast(message, "error");
+      }
     } finally {
       setBusy("");
     }
@@ -335,16 +380,25 @@ export default function CoverStudio() {
                 {busy === "direction:create" ? "规划中" : "创建方向"}
               </button>
             )}
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={!generationAllowed || Boolean(busy)}
-              onClick={generate}
-              aria-label={`生成 ${settings?.count || 4} 张封面`}
-            >
-              <Icon name="sparkles" className="h-4 w-4" />
-              {busy === "generate" ? "生成中" : `生成 ${settings?.count || 4} 张封面`}
-            </button>
+            <div className="flex flex-col items-end gap-1">
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={!generationAllowed || Boolean(busy)}
+                onClick={generate}
+                aria-label={`生成 ${settings?.count || 4} 张封面`}
+                aria-describedby={generationDisabledReason ? "cover-generation-requirement" : undefined}
+                title={generationDisabledReason || undefined}
+              >
+                <Icon name="sparkles" className="h-4 w-4" />
+                {busy === "generate" ? "生成中" : `生成 ${settings?.count || 4} 张封面`}
+              </button>
+              {generationDisabledReason && (
+                <span id="cover-generation-requirement" className="max-w-56 text-right text-[10.5px] text-ink-muted">
+                  {generationDisabledReason}
+                </span>
+              )}
+            </div>
           </div>
         </header>
 
@@ -380,10 +434,14 @@ export default function CoverStudio() {
         <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-display text-[18px] font-semibold text-ink-text">
-              {current ? `已生成 ${readyCount(current)}/${current.requested_count} 张` : "尚无封面方案"}
+              {current ? `已生成 ${readyCount(current)}/${current.requested_count} 张` : "尚未生成封面"}
             </h2>
             <p className="mt-1 text-[12px] text-ink-muted">
-              {current ? statusLabel(current.status) : `${settings?.count || 4} 个候选图位置`}
+              {current
+                ? statusLabel(current.status)
+                : progress
+                  ? "封面生成任务已启动"
+                  : "尚无已保存的封面候选图"}
             </p>
           </div>
           {sets.length > 1 && (
@@ -404,29 +462,164 @@ export default function CoverStudio() {
           )}
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {(current?.candidates || emptyCandidates(settings?.count || 4)).map((candidate, index) => (
-            <CandidateCard
-              key={candidate.candidate_id}
-              candidate={candidate}
-              concept={current?.concepts.find((item) => item.concept_id === candidate.concept_id)}
-              index={index}
-              busy={busy === candidate.candidate_id}
-              disabled={Boolean(busy)}
-              generating={Boolean(
-                progress && (
-                  (progress.mode === "generate" && candidate.status === "pending")
-                  || (progress.mode === "retry" && progress.candidateNumber === index + 1)
-                )
+        {current ? (
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {current.candidates.map((candidate, index) => (
+              <CandidateCard
+                key={candidate.candidate_id}
+                candidate={candidate}
+                concept={current.concepts.find((item) => item.concept_id === candidate.concept_id)}
+                index={index}
+                busy={busy === candidate.candidate_id}
+                disabled={Boolean(busy)}
+                generating={Boolean(
+                  progress && (
+                    (progress.mode === "generate" && candidate.status === "pending")
+                    || (progress.mode === "retry" && progress.candidateNumber === index + 1)
+                  )
+                )}
+                onRetry={(repairCodes) => retry(candidate, repairCodes)}
+                onSelect={() => select(candidate)}
+                onReject={() => reject(candidate)}
+              />
+            ))}
+          </div>
+        ) : !progress ? (
+          <EmptyCoverWorkspace
+            direction={directions[0] || null}
+            directionsLoaded={directionsLoaded}
+          />
+        ) : null}
+      </div>
+      {missingFacts?.projectId === id && (
+        <CoverFactsModal
+          key={`${id}:${missingFacts.facts.revision_sha256}`}
+          facts={missingFacts.facts}
+          busy={Boolean(busy)}
+          onClose={() => { if (!busy) setMissingFacts(null); }}
+          onConfirm={confirmStoryFacts}
+        />
+      )}
+    </Scene>
+  );
+}
+
+function CoverFactsModal({ facts, busy, onClose, onConfirm }: {
+  facts: CoverStoryFacts;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: (body: CoverStoryFactsConfirmation) => Promise<void>;
+}) {
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [error, setError] = useState("");
+  const ready = facts.pending_fields.every((item) => values[item.field]?.trim());
+  const confirm = async () => {
+    setError("");
+    const characters = new Map<string, CoverStoryFactsConfirmation["characters"][number]>();
+    let primarySpaces: string[] | undefined;
+    for (const item of facts.pending_fields) {
+      const value = values[item.field]?.trim() || "";
+      if (item.field === "lived_environment.primary_spaces") {
+        primarySpaces = [...new Set(value.split("\n").map((line) => line.trim()).filter(Boolean))];
+      } else if (item.character_id) {
+        const character = characters.get(item.character_id) || { character_id: item.character_id };
+        if (item.field.endsWith(".age")) character.age_band = value;
+        if (item.field.endsWith(".occupation_and_status")) character.occupation_and_status = value;
+        characters.set(item.character_id, character);
+      }
+    }
+    try {
+      await onConfirm({
+        expected_revision_sha256: facts.revision_sha256,
+        characters: [...characters.values()],
+        ...(primarySpaces ? { primary_spaces: primarySpaces } : {}),
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+  return (
+    <Modal open onClose={onClose} title="补全封面人物与场景">
+      <p className="mb-4 text-[13px] leading-6 text-ink-muted">
+        请补充故事尚未设定的视觉信息，保存后继续规划美术方向。
+      </p>
+      {facts.brief.principal_characters?.filter((character) => character.occupation_and_status).map((character) => (
+        <div key={character.character_id} className="mb-4 rounded-xl bg-white/60 px-4 py-3 text-[13px]">
+          <p className="font-semibold text-ink-text">{character.name}</p>
+          <p className="mt-1 text-ink-muted">{character.occupation_and_status}</p>
+        </div>
+      ))}
+      <form onSubmit={(event) => { event.preventDefault(); if (ready && !busy) void confirm(); }}>
+        {facts.pending_fields.map((item) => {
+          const age = item.field.endsWith(".age");
+          const spaces = item.field === "lived_environment.primary_spaces";
+          const label = spaces ? "主要生活场景（每行一个）"
+            : `${item.character_name || "主角"} · ${age ? "封面年龄段" : "职业与身份"}`;
+          return (
+            <Field key={item.field} label={label}>
+              {spaces ? (
+                <textarea className={textareaClass} required disabled={busy} value={values[item.field] || ""}
+                  placeholder="例如：小城公寓、社区设计工作室"
+                  onChange={(event) => setValues({ ...values, [item.field]: event.target.value })} />
+              ) : (
+                <input className={fieldClass} required disabled={busy} value={values[item.field] || ""}
+                  placeholder={age ? "例如：30–35 岁" : "例如：重返职场的设计师"}
+                  onChange={(event) => setValues({ ...values, [item.field]: event.target.value })} />
               )}
-              onRetry={(repairCodes) => retry(candidate, repairCodes)}
-              onSelect={() => select(candidate)}
-              onReject={() => reject(candidate)}
-            />
-          ))}
+            </Field>
+          );
+        })}
+        {error && <p role="alert" className="mb-4 text-[13px] text-[#96354e]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn-secondary" disabled={busy} onClick={onClose}>取消</button>
+          <button type="submit" className="btn-primary" disabled={busy || !ready}>
+            {busy ? "保存中…" : "保存并创建方向"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function EmptyCoverWorkspace({
+  direction, directionsLoaded,
+}: {
+  direction: CoverDirection | null;
+  directionsLoaded: boolean;
+}) {
+  const approved = direction?.status === "approved";
+  const nextStep = !directionsLoaded
+    ? "正在读取现有美术方向。"
+    : !direction
+      ? "下一步：点击“创建方向”。"
+      : direction.status === "stale"
+        ? "现有方向已过期，请先创建并批准新方向。"
+        : approved
+          ? "美术方向已批准，现在可以生成候选封面。"
+          : "下一步：审核上方方案并批准美术方向。";
+  return (
+    <section
+      aria-label="封面生成流程"
+      className="mt-4 rounded-[8px] border border-[rgba(74,91,133,0.16)] bg-white/65 px-5 py-5"
+    >
+      <div className="flex items-start gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#eef1f8] text-ink-muted">
+          <Icon name="image" className="h-4 w-4" />
+        </span>
+        <div>
+          <p className="text-[13px] font-semibold text-ink-text">正文流程不会自动生成封面</p>
+          <p className="mt-1 text-[12px] leading-5 text-ink-muted">
+            请先确定封面的美术方向，审核通过后再生成候选图。
+          </p>
         </div>
       </div>
-    </Scene>
+      <ol className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-paper-line pt-3 text-[11.5px] font-medium text-ink-text">
+        <li><span className="nums mr-1.5 text-ink-muted">1</span>创建美术方向</li>
+        <li><span className="nums mr-1.5 text-ink-muted">2</span>审核并批准</li>
+        <li><span className="nums mr-1.5 text-ink-muted">3</span>生成候选封面</li>
+      </ol>
+      <p className="mt-2 text-[11px] text-ink-muted">{nextStep}</p>
+    </section>
   );
 }
 

@@ -75,11 +75,74 @@ def resolve_cover_brief_v2(
     prompt_text: str | None = None,
 ):
     """Resolve a current or legacy project into the v2 facts contract."""
-    from .cover_normalizer import normalize_cover_brief, normalize_legacy_project
+    from .cover_story_facts import apply_persisted_story_facts
 
     project = Path(project_path)
-    prompt_path = project / "outputs" / "input" / "prompt.md"
-    text = prompt_text if prompt_text is not None else prompt_path.read_text(encoding="utf-8")
+    if prompt_text is not None:
+        brief = _resolve_cover_brief_v2_source(project, prompt_text)
+        from .cover_story_facts import read_cover_source_snapshot
+
+        snapshot = read_cover_source_snapshot(project)
+        if snapshot.prompt_text != prompt_text:
+            return brief
+    else:
+        brief, snapshot = _resolve_cover_brief_v2_snapshot(project)
+    return apply_persisted_story_facts(
+        project,
+        brief,
+        snapshot=snapshot,
+    )
+
+
+def _resolve_cover_brief_v2_snapshot(project: Path):
+    """Resolve from a stable before/after snapshot of every consumed source."""
+    from .cover_story_facts import read_cover_source_snapshot
+    from .cover_store import CoverConflict
+
+    last_error: Exception | None = None
+    for _attempt in range(3):
+        try:
+            before = read_cover_source_snapshot(project)
+        except (FileNotFoundError, UnicodeDecodeError) as exc:
+            last_error = exc
+            continue
+        try:
+            brief = _resolve_cover_brief_v2_source(project, before.prompt_text)
+        except (FileNotFoundError, UnicodeDecodeError, ValueError) as exc:
+            last_error = exc
+            try:
+                after = read_cover_source_snapshot(project)
+            except (FileNotFoundError, UnicodeDecodeError):
+                continue
+            if after == before:
+                raise
+            continue
+        try:
+            after = read_cover_source_snapshot(project)
+        except (FileNotFoundError, UnicodeDecodeError) as exc:
+            last_error = exc
+            continue
+        if after != before:
+            continue
+        if after.foundation_sha256 and brief.foundation_sha256 != after.foundation_sha256:
+            brief = CoverBriefV2.from_dict(
+                brief.to_dict(),
+                source_prompt_sha256=brief.source_prompt_sha256,
+                foundation_sha256=after.foundation_sha256,
+                allow_pending_required_facts=True,
+            )
+        return brief, after
+    detail = f": {last_error}" if last_error else ""
+    if isinstance(last_error, FileNotFoundError):
+        raise last_error
+    raise CoverConflict(f"Cover story sources changed during resolution{detail}")
+
+
+def _resolve_cover_brief_v2_source(project: Path, prompt_text: str) -> CoverBriefV2:
+    """Resolve durable story sources without applying cover-only confirmations."""
+    from .cover_normalizer import normalize_legacy_project
+
+    text = str(prompt_text)
     if BEGIN in text or END in text:
         return parse_cover_handoff_v2(text)
     return normalize_legacy_project(project, text)

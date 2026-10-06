@@ -504,7 +504,7 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
             className={fieldClass}
             value={author}
             onChange={(e) => setAuthor(e.target.value)}
-            placeholder="你的名字"
+            placeholder="留空则自动生成笔名"
             autoComplete="name"
           />
         </Field>

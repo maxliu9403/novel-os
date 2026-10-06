@@ -10,6 +10,8 @@
 
 `verification.json` 记录实际 ZIP SHA-256、共同 EPUB/正文摘要和变化的两个封面组件。
 
+三个样包都在 sidecar 与 manifest 写入 `author: "Novel OS Test Fixture"`，并包含对应的 `versions.author_sha256`。该值来自夹具 EPUB 的 `dc:creator`，用于验证旧项目没有 `story_state.json` 作者字段时的兼容回退。
+
 旁置的 `h5-import.json`、`cover-set.json`、`novel-classification.json`、`novel-serialization.json`、`package-manifest.json` 均来自包 01，可直接阅读。包 02 的完整元数据在 ZIP 内。
 
 `novel-classification-catalog.json` 是完整字典，`classification-dictionary.md` 是全部 ID/维度/中英文对照。

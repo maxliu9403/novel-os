@@ -174,6 +174,7 @@ def build_delivery_package(
     manifest = {
         "schema_version": 4,
         "book_id": import_payload["book_id"],
+        "author": import_payload["author"],
         "h5_import": {"path": H5_IMPORT_PATH, "schema_version": import_payload["schema_version"]},
         "package_revision_sha256": object_digest(entries),
         "cover": {

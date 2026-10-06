@@ -2,6 +2,8 @@ import copy
 import json
 from datetime import datetime, timezone
 
+import pytest
+
 from canon import apply_canon_proposal, build_canon_proposal
 from canon_ledger import CanonLedger, CanonLedgerEntry, canonical_canon_sha
 from canon_reconciliation import CanonReconciliationService
@@ -307,3 +309,47 @@ def test_reused_foundation_checkpoint_restores_reconciled_ledger_head(tmp_path):
     assert json.loads((project / reused.state_snapshot_path).read_text(encoding="utf-8")) == json.loads(
         state_path.read_text(encoding="utf-8")
     )
+
+    # A later blocked chapter may restore its pre-reconciliation snapshot.
+    # Promotion must recover the reconciliation head, not silently keep it.
+    state_path.write_text(json.dumps(stale_payload), encoding="utf-8")
+    runner._restore_committed_tail_state(manifest, project)
+    assert canonical_canon_sha(StoryState(str(project))) == ledger_head.new_canon_sha
+
+
+def test_in_progress_reconciliation_does_not_require_unwritten_ending(tmp_path):
+    project, original_entry = _legacy_project(tmp_path)
+    foundation = _foundation()
+    foundation["chapters"].append({"number": 2, "title": "The Cost", "pov": "Mara Vale"})
+    foundation["ending_contract"]["finale_window"] = {"start_chapter": 2, "end_chapter": 2}
+    before = (project / "outputs/state/canon_ledger.jsonl").read_bytes()
+
+    receipt = CanonReconciliationService(project).reconcile(
+        foundation,
+        target_words=246,
+        idempotency_key="recover-in-progress",
+        outcomes={},
+        reason="Restore planning canon while the ending remains unwritten.",
+    )
+
+    state = StoryState(str(project))
+    history = CanonLedger(project).history()
+    assert history[0] == original_entry
+    assert (project / "outputs/state/canon_ledger.jsonl").read_bytes().startswith(before)
+    assert receipt.new_canon_sha == canonical_canon_sha(state)
+    assert state.characters["char_001"].outcome_state != "accountability"
+    assert state.chapters[1].status == "complete"
+    assert state.chapters[2].status != "complete"
+
+
+def test_finished_reconciliation_still_requires_outcome_evidence(tmp_path):
+    project, _entry = _legacy_project(tmp_path)
+    foundation = _foundation()
+    foundation["ending_contract"]["finale_window"] = {"start_chapter": 1, "end_chapter": 1}
+    before = (project / "outputs/state/canon_ledger.jsonl").read_bytes()
+    with pytest.raises(ValueError, match="semantic outcome evidence is required"):
+        CanonReconciliationService(project).reconcile(
+            foundation, target_words=123, idempotency_key="missing-outcome",
+            outcomes={}, reason="Recovery must not invent a completed ending.",
+        )
+    assert (project / "outputs/state/canon_ledger.jsonl").read_bytes() == before

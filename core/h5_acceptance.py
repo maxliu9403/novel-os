@@ -154,6 +154,14 @@ def inspect_package(path: str | Path) -> dict:
             _require(data['schema_version'] == 'novel-h5-import.v1' and data['status'] == 'ready'
                      and data['body_source'] == 'epub', 'import_contract')
             _require(data['book_id'] == manifest['book_id'] and data['book_id'].startswith('novel-os:'), 'book_identity')
+            author_present = 'author' in data
+            manifest_author_present = 'author' in manifest
+            if author_present:
+                _require(type(data['author']) is str, 'author_contract')
+            if manifest_author_present:
+                _require(type(manifest['author']) is str, 'author_contract')
+            if author_present and manifest_author_present:
+                _require(data['author'] == manifest['author'], 'author_contract')
             classification = referenced(data['classification'], 'novel_classification')
             referenced(manifest['classification'], 'novel_classification')
             _require(NovelClassification.from_dict(classification).to_dict() == classification, 'classification_contract')
@@ -167,6 +175,11 @@ def inspect_package(path: str | Path) -> dict:
             with _archive(epub_raw) as epub:
                 _require(epub.read('mimetype') == b'application/epub+zip', 'epub_mimetype')
             index = epub_index(epub_raw, serialization, classification)
+            author = (
+                data['author'] if author_present
+                else manifest['author'] if manifest_author_present
+                else index['dc_creator']
+            )
             with _archive(epub_raw) as epub:
                 opf = ET.fromstring(epub.read(index['opf_path']))
                 for meta in opf.findall('.//{*}meta'):
@@ -204,6 +217,12 @@ def inspect_package(path: str | Path) -> dict:
             versions = {'epub_sha256': digest(epub_raw), 'content_sha256': index['content_sha256'],
                         'front_matter_sha256': index['front_matter_sha256'],
                         'selected_cover_sha256': selected['sha256'] if selected else None}
+            _require(
+                ('author_sha256' in data['versions']) == author_present,
+                'component_revisions',
+            )
+            if author_present:
+                versions['author_sha256'] = object_digest({'author': author})
             for name, role in (('classification', 'novel_classification'), ('serialization', 'novel_serialization'),
                                ('publication_copy', 'publication_copy'), ('cover_metadata', 'cover_metadata')):
                 entry = singleton(role)
@@ -213,6 +232,8 @@ def inspect_package(path: str | Path) -> dict:
             return {'engine_contract_status': 'passed', 'external_import_status': 'pending',
                     'package_sha256': digest(raw), 'package_revision_sha256': manifest['package_revision_sha256'],
                     'import_revision_sha256': data['import_revision_sha256'], 'book_id': data['book_id'],
+                    'author': author,
+                    'author_present': author_present or manifest_author_present,
                     'versions': versions, 'chapters': data['chapters'], 'chapter_count': data['chapter_count'],
                     'volumes': [{k: v[k] for k in ('volume_id', 'volume_number', 'title', 'chapter_start', 'chapter_end')}
                                 for v in serialization['volumes']],

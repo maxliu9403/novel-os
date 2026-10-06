@@ -2,7 +2,7 @@
 import re
 
 
-PHOTOGRAPHIC_PROFILE = "cover-profiles.v8"
+PHOTOGRAPHIC_PROFILE = "cover-profiles.v9"
 PHOTOGRAPHIC_RENDER_CONTRACT = (
     "Use professional film campaign photography with believable people, age-true skin and hair, "
     "subtle tonal variation and motivated light. Preserve identities; no beautification or exaggerated aging. "

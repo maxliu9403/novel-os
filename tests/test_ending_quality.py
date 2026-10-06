@@ -129,6 +129,35 @@ def test_closed_ending_passes_and_writes_report(tmp_path: Path):
     assert persisted["finale_window"] == {"start_chapter": 3, "end_chapter": 4}
 
 
+def test_source_bound_verified_payoff_evidence_closes_legacy_id_gap(tmp_path: Path):
+    contract = _contract()
+    contract["plot_payoffs"][0]["verified_evidence"] = [
+        {
+            "status": "paid",
+            "chapter": 2,
+            "source": "outputs/manuscript/chapter_002_final.md",
+            "evidence": "The manuscript records the clue's completed consequence.",
+        }
+    ]
+    project = _project(tmp_path, contract=contract)
+    state = StoryState(str(project))
+    state.chapters[4].foreshadowing_resolved_ids = []
+    state.chapters[4].foreshadowing_resolved = []
+    state.save_state()
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "pass"
+    assert not report.critical
+    ledger = json.loads(
+        (project / "outputs/state/payoff_ledger.json").read_text(encoding="utf-8")
+    )
+    assert ledger["items"][0]["status"] == "paid"
+    assert ledger["items"][0]["payoff_evidence"][0]["source"].endswith(
+        "chapter_002_final.md"
+    )
+
+
 def test_agent_state_blocks_feed_payoff_arc_and_ending_ledgers(tmp_path: Path):
     project = _project(tmp_path, contract=_contract())
     state = StoryState(str(project))
@@ -396,12 +425,49 @@ def test_finale_prompts_share_semantic_ending_contract(tmp_path: Path):
     }
 
     assert all('"required_outcome": "independence"' in value for value in prompts.values())
+    assert all("Book Ending Contract (authoritative)" in value for value in prompts.values())
+    assert all("Payoff Tracking Directory" not in value for value in prompts.values())
     assert "outcome=<canonical outcome value from ending_contract>" in prompts[
         "scribe"
     ]
     assert "outcome=<canonical outcome value from ending_contract>" in prompts[
         "guardian"
     ]
+
+
+def test_pre_finale_prompts_share_payoff_directory_without_full_ending_contract(
+    tmp_path: Path,
+):
+    contract = _contract()
+    contract["finale_window"] = {"start_chapter": 56, "end_chapter": 60}
+    project = _project(tmp_path, chapters=60, contract=contract)
+    orchestrator = NovelOrchestrator(str(project))
+    for number in (35, 55):
+        chapter = orchestrator.state.get_chapter(number)
+        assert chapter is not None
+        prompts = {
+            "architect": orchestrator._generate_chapter_outline_prompt(chapter),
+            "scribe": orchestrator._generate_chapter_prompt(chapter),
+            "editor": orchestrator._generate_edit_prompt(chapter, "Draft", "developmental"),
+            "guardian": orchestrator._generate_validation_prompt(number, "Draft"),
+            "style": orchestrator._generate_style_prompt(number, "Draft"),
+        }
+
+        for prompt in prompts.values():
+            assert "Payoff Tracking Directory" in prompt
+            assert '"id": "payoff_001"' in prompt
+            assert '"required_payoff": "minor clue"' in prompt
+            assert '"setup_ids"' in prompt
+            assert '"ch1:fs1"' in prompt
+            assert '"deadline": 4' in prompt
+            assert '"character_arcs"' not in prompt
+            assert '"main_conflict"' not in prompt
+            assert '"emotional_contract"' not in prompt
+            assert "`recalled`" in prompt
+            assert "is not `paid`" in prompt
+
+        assert "semantic outcome is required only in the finale window" in prompts["scribe"]
+        assert "semantic outcome is required only in the finale window" in prompts["guardian"]
 
 
 def test_pipeline_ending_stages_gate_before_compile(tmp_path: Path):

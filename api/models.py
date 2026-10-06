@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProjectSummary(BaseModel):
@@ -68,6 +68,7 @@ class ProjectDeletionResult(BaseModel):
 class UpdateProject(BaseModel):
     content_rating: str | None = None
     title: str | None = None
+    author: str | None = None
     genre: str | None = None
     genres: list[str] | None = None
     premise: str | None = None
@@ -739,6 +740,22 @@ class CoverDirectionCreate(BaseModel):
 class CoverDirectionApproval(BaseModel):
     expected_brief_sha256: str
     approved_direction_sha256: str
+
+
+class CoverStoryFactCharacter(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    character_id: str
+    age_band: str | None = None
+    occupation_and_status: str | None = None
+
+
+class CoverStoryFactsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision_sha256: str
+    characters: list[CoverStoryFactCharacter] = Field(default_factory=list)
+    primary_spaces: list[str] | None = None
 
 
 class CoverCandidateMutation(BaseModel):

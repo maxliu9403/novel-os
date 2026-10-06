@@ -284,6 +284,9 @@ def build_llm_visual_evaluator(client: Any) -> CoverVisualEvaluator:
                 "subtle, asymmetric, partially turned expressions can be believable and readable; do not penalize natural focus falloff merely because all background textures are not equally sharp",
                 "use only repair codes relevant to visible failures",
                 "painting, illustration, CGI, sculpted figures, canvas grain or artificial skin fail the photographic contract even when an older scene contract requested them; report genre_drift and visible evidence",
+                "when scene_contract.story_policy_version is cover-story.v1, first describe the relationship, action and consequence actually visible in the thumbnail without reading its title; record that blind image read in evidence, then compare it with conflict_read",
+                "for cover-story.v1, every planned cast member must be distinguishable as an acting or reacting scene participant; tiny phone portraits, anonymous silhouettes and ornamental background figures do not satisfy required_cast_coverage; report missing_character or causal_relationship_missing as appropriate",
+                "for cover-story.v1, if the planned story can only be reconstructed from the supplied synopsis, title or tiny document text, add core_conflict_missing; score observed image evidence, never the director's intention",
             ],
         }, ensure_ascii=False, sort_keys=True)
         raw = client.complete_with_images(system, user, (image, thumbnail))

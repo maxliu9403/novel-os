@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "material_use": "project_canon",
+  "approval_evidence": "User reply A to preserve original characters and events, repair and continue",
+  "files": [
+    {
+      "source_file": "2.txt",
+      "reading_order": 1,
+      "source_path": "/Users/max/Desktop/After 10 Golden Spires Broke, My Daughter Chose to Erase Her/2.txt",
+      "snapshot_path": "canon-input/2.txt",
+      "sha256": "49f1f6566139a8dd1343fe945a1fd3abd0ac147d46df2769fea36146ef28a0b6",
+      "word_count_approx": 634,
+      "material_use": "project_canon",
+      "text_status": "user_supplied_draft_requires_continuity_repairs",
+      "chapter_number": "not_finalized"
+    },
+    {
+      "source_file": "3.txt",
+      "reading_order": 2,
+      "source_path": "/Users/max/Desktop/After 10 Golden Spires Broke, My Daughter Chose to Erase Her/3.txt",
+      "snapshot_path": "canon-input/3.txt",
+      "sha256": "fd8928ad47803473db227b1cd00b77c90de30e8be8b4d8b5dbe979b78733e05f",
+      "word_count_approx": 616,
+      "material_use": "project_canon",
+      "text_status": "user_supplied_draft_requires_continuity_repairs",
+      "chapter_number": "not_finalized"
+    },
+    {
+      "source_file": "4.txt",
+      "reading_order": 3,
+      "source_path": "/Users/max/Desktop/After 10 Golden Spires Broke, My Daughter Chose to Erase Her/4.txt",
+      "snapshot_path": "canon-input/4.txt",
+      "sha256": "bf0f4fa2ccb111137e86f166dcfba7a6b855948f8cc8827ee49face9c0c57b23",
+      "word_count_approx": 624,
+      "material_use": "project_canon",
+      "text_status": "user_supplied_draft_requires_continuity_repairs",
+      "chapter_number": "not_finalized"
+    },
+    {
+      "source_file": "After 10 Golden Spires Broke, My Daughter Chose to Erase Her.txt",
+      "reading_order": 4,
+      "source_path": "/Users/max/Desktop/After 10 Golden Spires Broke, My Daughter Chose to Erase Her/After 10 Golden Spires Broke, My Daughter Chose to Erase Her.txt",
+      "snapshot_path": "canon-input/After 10 Golden Spires Broke, My Daughter Chose to Erase Her.txt",
+      "sha256": "f8d2b67ebe9646bf5de5e00fc8d3605569b85dd7181ced59a1902c31e228e7b8",
+      "word_count_approx": 604,
+      "material_use": "project_canon",
+      "text_status": "user_supplied_draft_requires_continuity_repairs",
+      "chapter_number": "not_finalized"
+    }
+  ],
+  "source_edited": false,
+  "new_chapter_prose_written": 0,
+  "draft_quality_status": "requires_review",
+  "sequence": "2.txt → 3.txt → 4.txt → title-named fragment",
+  "missing_material": "No independent first chapter; no verified details of the first eight broken spires."
+}

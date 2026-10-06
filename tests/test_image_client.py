@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
+import subprocess
 import threading
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from types import SimpleNamespace
 
 import pytest
 
-from core.image_client import ImageClientError, ImageGenerationClient
+import core.image_client as image_client
+from core.image_client import (
+    CodexImageGenerationClient,
+    ImageClientError,
+    ImageGenerationClient,
+)
 from core.studio_settings import CoverSettings
 
 
@@ -211,3 +219,95 @@ def test_generate_rejects_malformed_or_wrong_ratio_images(body: dict, message: s
     with _Server([(200, body)]) as server:
         with pytest.raises(ImageClientError, match=message):
             ImageGenerationClient(_settings(server.url)).generate("PROMPT")
+
+
+def test_codex_image_discovery_skips_candidate_moved_before_stat() -> None:
+    class Candidate:
+        suffix = ".jpg"
+
+        def __init__(self, *, mtime: int, data: bytes, moved: bool = False) -> None:
+            self.mtime = mtime
+            self.data = data
+            self.moved = moved
+
+        def is_file(self) -> bool:
+            return True
+
+        def stat(self):
+            if self.moved:
+                raise FileNotFoundError("candidate was moved")
+            return SimpleNamespace(st_mtime_ns=self.mtime)
+
+        def read_bytes(self) -> bytes:
+            return self.data
+
+    moved = Candidate(mtime=2, data=_jpeg(), moved=True)
+    stable = Candidate(mtime=1, data=_jpeg())
+
+    class Root:
+        def rglob(self, _pattern: str):
+            return iter((moved, stable))
+
+    assert CodexImageGenerationClient._newest_valid_image((Root(),)) is stable
+
+
+def test_codex_image_generation_rediscovers_candidate_moved_before_read(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(image_client.shutil, "which", lambda _name: "/usr/bin/codex")
+
+    class MovedCandidate:
+        def read_bytes(self) -> bytes:
+            raise FileNotFoundError("candidate was moved")
+
+    class StableCandidate:
+        def read_bytes(self) -> bytes:
+            return _jpeg()
+
+    candidates = iter((MovedCandidate(), StableCandidate()))
+    monkeypatch.setattr(
+        CodexImageGenerationClient,
+        "_newest_valid_image",
+        staticmethod(lambda _roots: next(candidates)),
+    )
+    client = CodexImageGenerationClient(
+        _settings("", api_key=""),
+        runner=lambda command, **_kwargs: subprocess.CompletedProcess(
+            command, 0, "", "",
+        ),
+    )
+
+    generated = client.generate("A portrait cover")
+
+    assert generated.data == _jpeg()
+    assert (generated.width, generated.height) == (2048, 3072)
+
+
+def test_codex_image_wait_cleans_up_process_when_discovery_raises(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(image_client.shutil, "which", lambda _name: "/usr/bin/codex")
+
+    class Process:
+        pid = 17
+        stdin = io.StringIO()
+
+    process = Process()
+    monkeypatch.setattr(image_client.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    client = CodexImageGenerationClient(_settings("", api_key=""))
+    monkeypatch.setattr(
+        client,
+        "_newest_valid_image",
+        lambda _roots: (_ for _ in ()).throw(FileNotFoundError("scan race")),
+    )
+    cleaned: list[object] = []
+    monkeypatch.setattr(
+        client,
+        "_terminate_process_group",
+        lambda active: cleaned.append(active),
+    )
+
+    with pytest.raises(FileNotFoundError, match="scan race"):
+        client._wait_for_generated_image([], "prompt", {}, ())
+
+    assert cleaned == [process]

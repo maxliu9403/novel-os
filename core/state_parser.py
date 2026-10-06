@@ -295,6 +295,18 @@ def _split_pair(item: str, sep_chars: str = ":-—") -> Tuple[str, str]:
 
 _PLACEHOLDER = {"none", "n/a", "0", "[none]", "[n/a]", "[]", "(none)", "-"}
 
+# Stable setup identifiers are part of the ending contract. Keep accepting
+# the original generated ``chN:fsM`` form, while recognizing the explicit
+# contract form used by long-form prompts. Do not treat arbitrary prose that
+# merely contains ``ch`` or ``:fs`` as an identifier.
+_STABLE_FORESHADOWING_ID_RE = re.compile(
+    r"^ch\d+:(?:fs\d+|setup:payoff_[A-Za-z0-9][A-Za-z0-9_-]*)$"
+)
+
+
+def _is_stable_foreshadowing_id(value: str) -> bool:
+    return bool(_STABLE_FORESHADOWING_ID_RE.fullmatch(value.strip()))
+
 def _as_list(value: Any) -> List[str]:
     if value is None:
         return []
@@ -692,7 +704,7 @@ def apply_to_state(
         log.append(f"[{source}] foreshadowing planted: {fs[:60]}")
     for fs in _as_list(parsed.get("foreshadowing_resolved")):
         resolved_id, fields = _parse_pipe_update(fs)
-        if resolved_id.startswith("ch") and ":fs" in resolved_id:
+        if _is_stable_foreshadowing_id(resolved_id):
             if resolved_id not in chapter.foreshadowing_resolved_ids:
                 chapter.foreshadowing_resolved_ids.append(resolved_id)
             note = fields.get("note") or fields.get("description") or resolved_id

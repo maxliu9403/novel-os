@@ -265,6 +265,7 @@ class CodexImageGenerationClient:
                 "CODEX_HOME": str(codex_home),
                 "NO_COLOR": "1",
             }
+            search_roots = (root, generated_root)
             if self._run is not None:
                 try:
                     process = self._run(
@@ -288,17 +289,19 @@ class CodexImageGenerationClient:
                     detail = (process.stderr or "").strip().splitlines()
                     suffix = f": {detail[-1][:240]}" if detail else ""
                     raise ImageClientError(f"Codex image generation failed{suffix}")
-                path = self._newest_valid_image((root, generated_root))
+                path = self._newest_valid_image(search_roots)
             else:
                 path = self._wait_for_generated_image(
                     command,
                     instruction,
                     environment,
-                    (root, generated_root),
+                    search_roots,
                 )
             if path is None:
                 raise ImageClientError("Codex returned no saved image")
-            data = path.read_bytes()
+            data = self._read_generated_image(path, search_roots)
+            if data is None:
+                raise ImageClientError("Codex returned no saved image")
             if not data or len(data) > MAX_IMAGE_BYTES:
                 raise ImageClientError("Codex generated an invalid image size")
             mime = content_type(data)
@@ -335,19 +338,27 @@ class CodexImageGenerationClient:
 
     @staticmethod
     def _newest_valid_image(roots: tuple[Path, ...]) -> Path | None:
-        candidates: list[Path] = []
+        candidates: list[tuple[int, Path]] = []
         for root in roots:
-            candidates.extend(
-                path
-                for path in root.rglob("*")
-                if path.is_file()
-                and path.suffix.lower() in {".png", ".jpg", ".jpeg"}
-            )
+            try:
+                for path in root.rglob("*"):
+                    try:
+                        if (
+                            not path.is_file()
+                            or path.suffix.lower() not in {".png", ".jpg", ".jpeg"}
+                        ):
+                            continue
+                        modified_ns = path.stat().st_mtime_ns
+                    except OSError:
+                        continue
+                    candidates.append((modified_ns, path))
+            except OSError:
+                continue
         if not candidates:
             return None
-        for candidate in sorted(
+        for _modified_ns, candidate in sorted(
             candidates,
-            key=lambda path: path.stat().st_mtime_ns,
+            key=lambda item: item[0],
             reverse=True,
         ):
             try:
@@ -360,6 +371,21 @@ class CodexImageGenerationClient:
                 continue
             if aspect_ratio_matches(*dimensions(data)):
                 return candidate
+        return None
+
+    @classmethod
+    def _read_generated_image(
+        cls,
+        candidate: Path,
+        roots: tuple[Path, ...],
+    ) -> bytes | None:
+        for _attempt in range(3):
+            try:
+                return candidate.read_bytes()
+            except OSError:
+                candidate = cls._newest_valid_image(roots)
+                if candidate is None:
+                    return None
         return None
 
     def _wait_for_generated_image(
@@ -386,53 +412,52 @@ class CodexImageGenerationClient:
                 raise ImageClientError(
                     "Codex image generation failed", retryable=True
                 ) from None
-            assert process.stdin is not None
             try:
-                process.stdin.write(instruction)
-                process.stdin.close()
-            except OSError:
-                self._terminate_process_group(process)
-                raise ImageClientError("Could not send the image prompt to Codex") from None
-
-            deadline = time.monotonic() + self.settings.timeout_seconds
-            last_signature: tuple[Path, int, int] | None = None
-            while time.monotonic() < deadline:
-                candidate = self._newest_valid_image(roots)
-                if candidate is not None:
-                    try:
-                        stat_result = candidate.stat()
-                    except OSError:
-                        stat_result = None
-                    if stat_result is not None:
-                        signature = (
-                            candidate,
-                            stat_result.st_size,
-                            stat_result.st_mtime_ns,
-                        )
-                        if signature == last_signature and stat_result.st_size > 0:
-                            self._terminate_process_group(process)
-                            return candidate
-                        last_signature = signature
-
-                return_code = process.poll()
-                if return_code is not None:
+                try:
+                    assert process.stdin is not None
+                    process.stdin.write(instruction)
+                    process.stdin.close()
+                except OSError:
+                    raise ImageClientError(
+                        "Could not send the image prompt to Codex"
+                    ) from None
+                deadline = time.monotonic() + self.settings.timeout_seconds
+                last_signature: tuple[Path, int, int] | None = None
+                while time.monotonic() < deadline:
                     candidate = self._newest_valid_image(roots)
                     if candidate is not None:
-                        self._terminate_process_group(process)
-                        return candidate
-                    self._terminate_process_group(process)
-                    stderr_file.seek(0)
-                    detail = stderr_file.read().strip().splitlines()
-                    suffix = f": {detail[-1][:240]}" if detail else ""
-                    raise ImageClientError(
-                        f"Codex image generation failed (exit {return_code}){suffix}"
-                    )
-                time.sleep(0.25)
+                        try:
+                            stat_result = candidate.stat()
+                        except OSError:
+                            stat_result = None
+                        if stat_result is not None:
+                            signature = (
+                                candidate,
+                                stat_result.st_size,
+                                stat_result.st_mtime_ns,
+                            )
+                            if signature == last_signature and stat_result.st_size > 0:
+                                return candidate
+                            last_signature = signature
 
-            self._terminate_process_group(process)
-            raise ImageClientError(
-                "Codex image generation timed out", retryable=True
-            )
+                    return_code = process.poll()
+                    if return_code is not None:
+                        candidate = self._newest_valid_image(roots)
+                        if candidate is not None:
+                            return candidate
+                        stderr_file.seek(0)
+                        detail = stderr_file.read().strip().splitlines()
+                        suffix = f": {detail[-1][:240]}" if detail else ""
+                        raise ImageClientError(
+                            f"Codex image generation failed (exit {return_code}){suffix}"
+                        )
+                    time.sleep(0.25)
+
+                raise ImageClientError(
+                    "Codex image generation timed out", retryable=True
+                )
+            finally:
+                self._terminate_process_group(process)
 
     @staticmethod
     def _terminate_process_group(process: subprocess.Popen[str]) -> None:

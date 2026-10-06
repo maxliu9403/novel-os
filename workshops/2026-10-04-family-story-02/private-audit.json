@@ -1,0 +1,22 @@
+{
+  "reviewer": "golden_material_audit",
+  "scope": "Four supplied text fragments only; no sequel design or manuscript drafting",
+  "result": "material requires continuity clarification",
+  "additional_findings": [
+    {
+      "category": "physical_causality",
+      "evidence": "The text describes an upper-arm graze, then states Helena cannot walk, without the intervening cause; the father's carrying and exit choices also need spatial clarity.",
+      "constraint": "Do not assume loss of walking ability from the stated injury alone; show the actual obstacle and decision alternatives."
+    },
+    {
+      "category": "prop_continuity",
+      "evidence": "The final garden-display component is in Christian's bag when he leaves, but mother and child later try assembling it.",
+      "constraint": "Specify whether the component or bag was handed over; distinguish a missing part from a difficult fitting."
+    },
+    {
+      "category": "knowledge_not_proven",
+      "evidence": "No confirmed present affair, biological paternity, awarded contract, accepted job start, divorce, custody order or relocation.",
+      "constraint": "Any such future development must be proposed and earned, never labeled existing canon."
+    }
+  ]
+}

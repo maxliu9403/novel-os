@@ -217,6 +217,25 @@ Foreshadowing_Resolved:
     assert not any(f.category == "unresolved_foreshadowing" for f in findings)
 
 
+def test_foreshadowing_can_be_resolved_by_contract_setup_id_without_accepting_free_text(tmp_path):
+    state = _state(tmp_path)
+    later = state.create_chapter(5)
+    later.status = "drafted"
+    output = """
+[SCRIBE_STATE_UPDATE]
+Foreshadowing_Resolved:
+  - id=ch2:setup:payoff_05 | note=The recommendation and unauthorized future service are separated in the bid record.
+  - id=ch1:fs1 with prose | note=This text must not become a stable source id.
+[/SCRIBE_STATE_UPDATE]
+"""
+
+    ingest_agent_output(state, 5, "scribe", output)
+
+    assert "ch2:setup:payoff_05" in later.foreshadowing_resolved_ids
+    assert "ch1:fs1 with prose" not in later.foreshadowing_resolved_ids
+    assert any("ch1:fs1 with prose" in note for note in later.foreshadowing_resolved)
+
+
 def test_context_pack_exposes_recent_foreshadowing_ids(tmp_path):
     state = _state(tmp_path)
     first = state.create_chapter(1)

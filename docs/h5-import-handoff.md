@@ -10,6 +10,7 @@
 - 同书换卷不刷新免费试读，按全书章号扣币，已解锁章节、阅读进度、收藏绑定原书原章。
 - `series_installment` 是跨书关联；每本分册保持独立 `book_id`。系列总章号不参与本书扣币。
 - 封面、分类、卷标题更新不重建书籍或章节，不重置任何已解锁权益。
+- 作者名是书籍展示元数据。作者名变化只更新同一 `book_id` 的作者字段，不改变书籍、章节、正文或权益身份。
 
 ## 2. 包结构和版本
 
@@ -46,6 +47,63 @@ book-package.zip
 先读取 manifest。新合同路径使用 `manifest.h5_import.path`，或唯一的 `files[].role == "h5_import"`。分类和分卷同样按 manifest 的路径/role 定位。路径指针和 role 查找都存在时应指向同一文件。文件名只是约定；EPUB 路径以 sidecar 的 `epub.path` 为准。
 
 `files[]` 每项提供 `path / media_type / size / sha256 / role / cover_selection_state`。封面候选另有 `candidate_id / display_order`。`package_revision_sha256` 覆盖所有这些文件描述项，包括独立封面和导入清单；不包含 ZIP 自身或 manifest 自身，避免自引用。
+
+### 作者字段（向后兼容的可选字段）
+
+当前打包器在 `meta/h5-import.json.author` 和 `package-manifest.json.author` 同时写入相同字符串，sidecar 仍为 `novel-h5-import.v1`，manifest 仍为版本 4。字段对解析器保持可选，以兼容尚未包含作者字段的旧包；新包若两个字段都存在但值不同，应拒绝更新并报告合同冲突。
+
+作者来源按以下顺序解析，判断时使用“字段是否存在”，不要用非空真假值代替：
+
+1. sidecar 自有字段 `author`；
+2. manifest 自有字段 `author`；
+3. EPUB OPF 的 `dc:creator`；
+4. 都不存在时保留数据库中已有作者，旧包不得把作者清空。
+
+Novel OS 在新书创建/输入阶段没有人工作者名时，调用已配置的 LLM 为该书生成笔名，并把结果一次性持久化到 `outputs/state/story_state.json.metadata.author`；后续重试和导出复用同一个值。人工作者名优先。交付打包器只读取持久化值；它不调用模型、不生成名字，也不在失败时编造替代名。旧项目没有持久化作者时，打包器使用 EPUB `dc:creator`，两处都没有时写空字符串。
+
+H5 数据库映射为 `books.author_name`。作者名不是书籍身份，禁止用于书籍去重、`book_id` 推导、租户/账号绑定或作者账号登录关联。只按已经定位出的 `book_id` 更新展示字段。
+
+TypeScript 导入示例：
+
+```ts
+const owns = (value: object, key: string) =>
+  Object.prototype.hasOwnProperty.call(value, key);
+
+function authorText(value: unknown): string {
+  if (typeof value !== "string") throw new Error("author must be a string");
+  return value; // 摘要按合同原字符串计算；校验器不能 trim、截断或替换后再保存。
+}
+
+const sidecarHasAuthor = owns(sidecar, "author");
+const manifestHasAuthor = owns(manifest, "author");
+if (sidecarHasAuthor && manifestHasAuthor && sidecar.author !== manifest.author) {
+  throw new Error("author contract mismatch");
+}
+
+const resolvedAuthor = sidecarHasAuthor
+  ? authorText(sidecar.author)
+  : manifestHasAuthor
+    ? authorText(manifest.author)
+    : epubDcCreator !== undefined
+      ? authorText(epubDcCreator)
+      : undefined; // 旧包没有任何作者来源：保留 books.author_name。
+
+if (resolvedAuthor !== undefined) {
+  const authorHash = sidecar.versions.author_sha256
+    ?? sha256Canonical({author: resolvedAuthor});
+  if (authorHash !== book.author_sha256) {
+    await tx.updateBookAuthorByBookId(book.id, resolvedAuthor, authorHash);
+  }
+}
+authorElement.textContent = book.author_name; // 作为文本展示，不写入 innerHTML。
+```
+
+Novel OS 集成入口：
+
+- `GET /api/projects/{project_id}` 的响应字段 `.author` 返回当前持久化作者名。
+- `PATCH /api/projects/{project_id}` 传入 `{"author":"Mara Vale"}` 可人工覆盖；空字符串会被拒绝，后续导出复用该值。
+- 新书未提供作者时，Novel OS 使用配置的 Architect 模型生成一次并持久化，不在每次读取或导出时重复生成。
+- 旧项目作者为空时，可从 Novel OS 仓库根目录执行 `python core/book_author.py <project>`；该命令使用同一 Architect 路由补写持久化作者，模型调用或结果校验失败时返回错误，不编造替代名。
 
 ### 固定媒体类型
 
@@ -215,6 +273,7 @@ import_receipts: UNIQUE(book_fk, package_revision_sha256)
 
 | 摘要 | 计算对象 | H5 处理 |
 |---|---|---|
+| `author_sha256` | 规范 JSON `{"author": author}` | 仅更新 `books.author_name` 和作者版本；保持书、章、正文及权益身份 |
 | `epub_sha256` | `book.epub` 完整 ZIP 字节 | 更新 EPUB 存档和解析缓存；变化可能仅来自内嵌元数据 |
 | `content_sha256` | 正文章号 + 每章 XHTML 原字节摘要的有序数组 | 更新正文版本；不含 intro、CSS、封面、分类 |
 | `front_matter_sha256` | 非正文种类 + 对应 XHTML 字节摘要的有序数组 | 更新导读等非正文内容 |
@@ -232,6 +291,16 @@ import_receipts: UNIQUE(book_fk, package_revision_sha256)
 
 ```ts
 await verifyPackageBytesAndContracts(zip);
+const resolvedAuthor = resolveAuthorByFieldPresence(
+  sidecar,
+  manifest,
+  epubDcCreator,
+); // undefined 表示旧包完全没有作者来源，应保留数据库现值。
+const resolvedAuthorHash = resolvedAuthor === undefined
+  ? undefined
+  : incoming.versions.author_sha256
+    ?? sha256Canonical({author: resolvedAuthor});
+
 await db.transaction(async tx => {
   if (incoming.status !== "ready") {
     await handleLegacyOrMetadataOnlyWithoutReplacingChapters(tx, incoming);
@@ -242,6 +311,13 @@ await db.transaction(async tx => {
   await handleHistoricalReplayOrExplicitRestore(tx, book, manifest);
 
   // 对比各组件，更新需要变化的部分。缺失的可选组件不代表删除。
+  if (
+    resolvedAuthor !== undefined
+    && resolvedAuthorHash !== undefined
+    && resolvedAuthorHash !== book.author_sha256
+  ) {
+    await tx.updateBookAuthorByBookId(book.id, resolvedAuthor, resolvedAuthorHash);
+  }
   await applyEpubChapterChanges(tx, book, incoming);
   await applyClassificationAndVolumes(tx, book, incoming);
   if (incoming.cover.selection_action === "replace") {
@@ -276,6 +352,7 @@ content_sha256 = SHA256(canonical([
 front_matter_sha256 = SHA256(canonical([
   {"kind": "introduction", "xhtml_sha256": "..."}
 ]))
+author_sha256 = SHA256(canonical({"author": "Mara Vale"}))
 import_revision_sha256 = SHA256(canonical({"book_id": "...", "versions": {...}}))
 package_revision_sha256 = SHA256(canonical(manifest.files))
 ```
@@ -321,6 +398,8 @@ package_revision_sha256 = SHA256(canonical(manifest.files))
 | Manifest v4 + sidecar ready | 完整校验 EPUB map，执行新流程 |
 | sidecar `metadata_only` | 包中无 EPUB，只允许更新已有书的封面/分类等；新建正文书需要 EPUB |
 | sidecar `legacy_epub` | 旧 EPUB 没有显式 map，保留 EPUB 正文解析路径；不自动关联卷或按 spine 猜章号，重新编译可取得新 map |
+| 新包 sidecar 与 manifest 的 `author` 不同 | 停止作者及整包事务性更新，报告作者合同冲突 |
+| 旧包缺少 `author` / `author_sha256` | 按 sidecar → manifest → EPUB `dc:creator` 顺序读取；均不存在时保留 `books.author_name`，不把缺失解释为空字符串 |
 | Manifest v1/v2/v3，无 sidecar | 走现有 EPUB 解析器；分类可由唯一的分类文件补入；旧包没有稳定 book_id 时由运营明确选择目标书或新建，禁止按书名/结构摘要合并 |
 | 缺少分类文件 | 正文可导入，分类进入待补录；已存在分类时缺失不清空 |
 | 缺少序列化文件 | 允许单组目录兼容，自动多卷关联待补齐；保留已有卷数据 |

@@ -13,6 +13,11 @@ Turn an incomplete novel idea into a deliberate story engine, a reviewed design,
 - Use fictional setting names by default. Story-facing locations, cities, districts, institutions, and landmarks use invented names or abstract regional labels; real geography appears only in the user-confirmed market profile when needed.
 - Give every novel a short reader-facing story lead before chapter one. It previews the core conflict and an earned satisfaction path in the output language, but it does not replace chapter one's own hook or reveal the full ending.
 - Treat the user's rough idea as the source of intent, not as a finished outline. Preserve explicit decisions and label low-impact additions as assumptions.
+- For a new book, supplied stories are `reference_only` by default: extract general dramatic mechanisms, then build new characters, choices, causal turns, and an ending. Never import their prose or distinctive plot sequence as this book's canon. Only an explicit request to continue the user's confirmed project makes its manuscript `project_canon`; ownership or file format alone does not.
+- Aim for original, causally credible fiction with specific characters, earned emotion, and purposeful prose. Retention and word targets serve that quality goal; repeated humiliation, recycled confrontations, withheld answers, and padding do not count as progress.
+- Preserve the ordered design/review process while adapting prose and chapter form to the book. Scene value can come from changed reader understanding, emotional resonance, or relationship meaning; do not require every chapter to manufacture a reversal or force the protagonist to act on-page.
+- Follow [references/creation-path.md](references/creation-path.md) for stage prerequisites, evidence, and repair routes. Reuse already approved work instead of asking again. A planning pass cannot certify unwritten prose, and these workflow rules do not by themselves prove runtime enforcement.
+- Implement writing-quality improvements in Skill and Prompt instructions. They do not authorize editing Novel OS code, deployment configuration, or host application/auth settings. Keep infrastructure repairs a separately requested task.
 - Keep the interaction focused. Ask at most five high-impact questions, one question per message. Ask only when an answer could change the story identity, audience, causal engine, protagonist arc, or ending.
 - Treat the target audience as a required user decision. When the conversation and confirmed project scope do not identify the primary reader segment, ask who the novel is for before creative branching; never fill this field as an assumption. Confirm at least the audience's age or life stage and primary genre expectation, reading motivation, or emotional need. Ask about gender tendency, platform, or purchasing context only when it materially changes the design.
 - Treat narrative length as a required user decision. Ask whether the customer wants a short novel, a standalone long novel, one multi-volume novel, or a multi-book series. The customer may request an AI recommendation, but that recommendation becomes a production contract only after confirmation. An explicit chapter count already supplied by the customer counts as a selection; summarize it for confirmation instead of asking the same question again.
@@ -31,20 +36,21 @@ Select the narrowest branch before doing creative work:
 | Signal in the request | Branch | Deliverable |
 |---|---|---|
 | Rough premise, theme, relationship, ending, or a few scenes | `workshop` | Reviewed design, prompt file, intake result, start command |
-| Existing outline that needs expansion | `expand` | Revised story engine, chapter plan, prompt update |
-| Existing prompt that needs stronger structure | `prompt-revise` | Evidence-based prompt revision and validation |
-| Existing manuscript or project | `canon-aware` | Canon extraction, continuity-aware design or continuation prompt |
-| One chapter only | `chapter-shortcut` | Compact chapter contract or draft; skip full project design unless requested |
+| Supplied story, sample chapters, or outline used for inspiration | `workshop` + `reference_only` | Abstract mechanisms, independently rebuilt design, originality review |
+| Confirmed current-project outline that needs expansion | `expand` | Revised story engine, chapter plan, prompt update |
+| Confirmed current-project prompt that needs stronger structure | `prompt-revise` | Evidence-based prompt revision and validation |
+| Explicit continuation or revision of the user's confirmed manuscript/project | `canon-aware` + `project_canon` | Canon extraction, continuity-aware design or continuation prompt |
+| One chapter only | `chapter-shortcut` | Reuse approved design; still classify materials, establish a chapter contract, and review the draft |
 | Commercial web fiction,爽文, retention, opening hook, first-three-chapter, conflict variety, atmosphere, reader identification, or paid-conversion request | Add `retention_first` and `commercial_story` profiles to the narrowest branch | Approved commercial contract, conflict braid, free micro-arc, and retention review |
 
-If the request is ambiguous, assume `workshop` and state the detected object in one compact `Current:` line.
+Classify materials before choosing the branch. A user instruction such as “素材只提供思路” overrides a loose “expand” or “continue” verb. If a new-book request is ambiguous, assume `reference_only` and state that assumption. Ask only if preserving an existing project versus starting an original book remains a consequential unresolved choice. Never ask again after the user has decided. State the detected object in one compact `Current:` line.
 
 ## Phase 0: inspect context and capture intent
 
 Before asking a question, inspect the current workspace when it is available:
 
 1. Check for `AGENTS.md`, `CONTEXT.md`, existing `prompt/`, `projects/`, `core/orchestrator.py`, and `core/prompt_intake.py`.
-2. Read only the files relevant to the requested branch. For an existing project, inspect its manifest, story bible, chapter files, and run status before proposing changes.
+2. Read only the files relevant to the requested branch. Label each supplied item `reference_only`, `project_canon`, or `user_constraint` before extracting story facts. For reference materials, load [references/originality-isolation.md](references/originality-isolation.md) now, before planning. For an explicitly selected existing project, inspect its manifest, story bible, chapter files, and run status before proposing changes.
 3. Extract a compact intake record:
    - genre and subgenre;
    - target readers, country, region or city culture, release markets, language, and tone;
@@ -56,7 +62,7 @@ Before asking a question, inspect the current workspace when it is available:
    - chapter range, per-chapter length, and free-to-paid constraints;
    - reader promise, primary satisfaction source, opening window, and desired retention profile when relevant;
    - story-lead conflict, identification trigger, emotional target, satisfaction promise, unanswered question, and language-adjusted length;
-   - explicit must-have, must-avoid, and existing canon.
+   - explicit must-have, must-avoid, material-use labels, and verified current-project canon only.
 
 Do not repeat facts already supplied. If a low-impact field is absent, write a conservative assumption and continue.
 
@@ -77,8 +83,10 @@ story approaches.
 4. If samples or a corpus informed the request, also load
    [references/originality-isolation.md](references/originality-isolation.md)
    and enforce mechanism-only isolation.
-5. Record the result as `audience_profile`; do not add a mandatory retrieval,
-   source-ledger, query-list, embedding, vector-search, or RAG step.
+5. Record the result as `audience_profile`; do not add mandatory external
+   retrieval, research source-ledgers, query lists, embeddings, or RAG.
+   A private material-use record for user-supplied files is a separate provenance
+   check, not a market-research requirement.
 
 ```yaml
 audience_profile:
@@ -92,10 +100,13 @@ audience_profile:
   creative_implications: []
 ```
 
-Maintain a parallel `workshop_trace` for the reasoning that led to the design:
+Maintain a private workshop decision record for the reasoning that led to the
+design. Use this private-only shape; never export it verbatim. Only the
+selected-design projection defined in `references/prompt-contract.md` becomes
+the runtime `workshop_trace`:
 
 ```yaml
-workshop_trace:
+private_workshop_record:
   intake: <normalized user intent and explicit constraints>
   audience_decision: <user-confirmed primary segment, age/life stage, and reading motivation>
   market_decision: <country/region/language/release scope and date>
@@ -113,11 +124,12 @@ workshop_trace:
   open_assumptions: []
 ```
 
-Append to this trace after every user answer or section confirmation. Preserve
-rejected approaches and their tradeoffs as decision history; never rewrite
-them as if they were selected. The final prompt carries the confirmed trace
-and the unresolved assumptions, while the reader-facing manuscript excludes
-the trace.
+Append after each answer or section confirmation. Preserve rejected approaches,
+source comparisons, and their tradeoffs only in the private workshop record,
+outside `prompt/` and runtime context inputs. The final prompt's `workshop_trace`
+contains only the selected original approach, approved A-E decisions, and
+source-free unresolved assumptions. Do not attach or reference the private
+record in the runtime prompt. The reader-facing manuscript excludes both.
 
 ## Phase 1: high-impact question loop
 
@@ -163,6 +175,12 @@ Offer two or three approaches that differ in structure or pressure, not merely i
 - continuity or pacing risk;
 - what kind of ending it naturally supports.
 
+For reference-informed work, first reduce the materials to general reader needs,
+conflict mechanisms, and failure modes. Generate approaches from these and the
+user's constraints; do not translate sample chapters into an outline. Review
+each approach for distinctive character/scene/reveal-chain overlap using the
+originality reference, and rebuild a derivative option before presenting it.
+
 Recommend one approach. Keep the user's stated emotional promise intact even when the recommended structure changes the chronology or setting. Wait for the user's choice before entering design review.
 
 ## Phase 3: sectioned design review
@@ -206,6 +224,18 @@ For the protagonist, opposing force, and core supporting cast record:
 - relationship power, mutual leverage, trust evidence, suspicion evidence, and the next behaviour that can change the relationship.
 
 Give supporting characters independent goals. A helper contributes a constrained resource; an opponent adapts after feedback. The protagonist remains the person whose choices change the causal chain.
+
+Plan evidence for major belief and relationship changes: prior belief/trust ->
+trigger -> the character's interpretation or resistance -> behavior/choice ->
+later confirmation, relapse, or consequence. A declaration such as “she finally
+trusted him” is not that evidence. Mark planned moments as planned until actual
+prose supports them; track pivotal changes rather than every passing feeling.
+Opponents need coherent motives and limits, not compulsory moral ambiguity.
+
+Define this book's voice: POV and knowledge limits, narrative distance, tense,
+register, attention shaped by lived experience, sentence rhythm, imagery, and
+dialogue strategies. Characters should differ in what they notice, conceal,
+and try to obtain, not just in catchphrases. Tone can vary with the scene.
 
 ### Section C: world, rules, secrets, and timeline
 
@@ -253,15 +283,58 @@ antagonist consequence, emotional payoff, and afterglow. Do not open a new
 core promise in the final chapter. The last chapter must emit
 `Ending_Evidence` for an irreversible state change and reader-facing closure.
 
+Map each chapter's function and local reader value. For active plot chapters,
+record entry state, goal, action and opposing feedback, choice/cost, exit state,
+and next consequence. For aftermath, ensemble, observational, or quiet chapters,
+identify the new understanding, relationship meaning, or emotional experience
+and what the book loses without it; an artificial crisis is not required. Give
+the opening three chapters scene-level plans; expand later scenes just before
+drafting. Tie major turns and setups to the payoff ledger. Apply the deletion
+test in `quality-gates.md`: chapters and scenes must earn their space through
+causal or emotional work, including meaningful quiet scenes. If the design
+cannot sustain the approved length, revise its substance or present a length
+adjustment for approval; never pad or silently change the agreed contract.
+
+Locate the scenes in which discovery, betrayal, trust, separation, or the final
+choice must actually unfold. Let action, dialogue, perception, and response
+carry those moments; use summary for transitions where appropriate. Plan room
+for recovery, daily life, intimacy, and the aftermath of victories. At major
+arc boundaries, schedule a reread of the actual consecutive chapters for
+repeated awakenings, unsupported intimacy, recycled dilemmas, and abrupt voice
+shifts. Intentional recurring places or motifs may gain meaning through reuse.
+
 ### Section E: quality gates and assumptions
 
 List the chapter contract, continuity ledgers, emotional and payoff rotation, likely cliches, realism risks, and assumptions the Architect may resolve. Confirm that the ending resolves both the external problem and the protagonist's defining belief choice. Treat an unresolved core payoff, active main conflict, unclosed protagonist arc, missing antagonist consequence, or finale without an irreversible change as a blocking quality issue. Treat only explicitly declared intentional open threads as warnings.
+
+Apply [references/quality-gates.md](references/quality-gates.md) to the actual
+design and chapter map. Cite plan locations for originality, causal turns,
+character agency, emotional development, anti-padding, and ending coverage.
+State `design_review: pass|revise`; leave `draft_review: not_run` until prose
+exists. Resolve structural failures before generating the production prompt.
+
+Review prose separately from structure once text exists: voice/POV, natural
+language, dialogue/subtext, scene presence, and emotional credibility each need
+passage evidence. Scores are diagnostic aids, never substitutes for these
+findings. Mark genuinely irrelevant criteria not applicable; missing prose is
+unreviewed, not an automatic pass or an excuse to discard required checks.
 
 The completion criterion for design review is explicit approval of the design direction. Before approval, keep the artifact as a proposal in the conversation rather than a final prompt.
 
 ## Phase 4: build the prompt artifact
 
 After design approval, generate a complete prompt rather than a short summary. Load `references/prompt-contract.md`, `references/novel-classification.md`, `references/narrative-format.md`, and the relevant sections of `references/genre-adapters.md` and `references/quality-gates.md` before writing. When `retention_first` or `commercial_story` is active, also load `references/retention-opening.md`, `references/commercial-story-design.md`, and `references/originality-isolation.md` and include the approved opening and commercial contracts in the Prompt.
+
+For full-book prose production, calibrate the voice before the handoff. Reuse
+suitable approved excerpts from this project, or write a brief conflict sample
+and a quiet sample grounded in the approved original design. Keep them concise
+and label new samples `voice calibration only; not canon`. They establish
+language and scene treatment, not new events or chapter completion. Review the
+samples for POV, character-specific language, subtext, and emotional credibility;
+carry the resulting voice guidance and clearly labeled examples into the Prompt.
+Do not use reference-book prose, require extra approval for routine style
+choices, or expand a single-chapter/design-only request into a sampling project.
+Ask only if calibration requires a material change to an approved story choice.
 
 ### File and naming rules
 
@@ -271,7 +344,7 @@ After design approval, generate a complete prompt rather than a short summary. L
 4. Include a `## Assumptions` section in the prompt for details the user did not decide.
 5. Keep the prompt authoritative: repeat the locked title, language, genre, audience, tone, POV, chapter count, and word target in parseable `Key: Value` fields near the top, followed by exactly one canonical `[NOVEL_CLASSIFICATION_JSON]` block and one author-confirmed `[NARRATIVE_FORMAT_JSON]` block.
 
-The prompt must instruct Novel OS to plan before drafting, preserve the structured `audience_profile`, preserve the confirmed `workshop_trace` and decision history, maintain character/relationship/secret/timeline/resource ledgers, emit and preserve machine-readable `story_lead_contract` and `ending_contract` records, update a payoff ledger after every chapter, use a per-chapter causal contract, preserve POV and knowledge boundaries, rotate conflict and hook types, reserve the final 3-5 chapters for payoff, and produce a final reader-facing manuscript without agent commentary. It must also preserve `setting_policy.mode: fictionalized` and use invented or abstract story-facing place names. Add exactly one schema-v2 JSON cover block using the `COVER_HANDOFF_BEGIN` and `COVER_HANDOFF_END` boundaries from `references/prompt-contract.md`; it records every required protagonist's confirmed age or age band, lived identity, wardrobe or environment, agency, relationships, decisive nodes, and source refs using only confirmed Sections A-E. For an active commercial profile, add exactly one `[COMMERCIAL_STORY_JSON]` block from the approved design and do not add a corpus lookup payload. The Scribe writes the story lead once at the start of chapter one's artifact, the Editor sharpens it without inventing unsupported promises, the Continuity Guardian checks its claims against the planned story, and the Style Curator preserves the output-language register. When `retention_first` is active, the prompt must also preserve the opening contract, first-screen evidence, conflict braid, satisfaction loop, atmosphere and identification decisions, first-three-chapter value map, and paid bridge.
+The prompt must instruct Novel OS to plan before drafting, preserve the structured `audience_profile`, preserve only the sanitized selected-design `workshop_trace`, maintain character/relationship/secret/timeline/resource ledgers, emit and preserve machine-readable `story_lead_contract` and `ending_contract` records, update a payoff ledger after every chapter, use a per-chapter causal contract, preserve POV and knowledge boundaries, rotate conflict and hook types, reserve the final 3-5 chapters for payoff, and produce a final reader-facing manuscript without agent commentary. It must also preserve `setting_policy.mode: fictionalized` and use invented or abstract story-facing place names. Add exactly one schema-v2 JSON cover block using the `COVER_HANDOFF_BEGIN` and `COVER_HANDOFF_END` boundaries from `references/prompt-contract.md`; it records every required protagonist's confirmed age or age band, lived identity, wardrobe or environment, agency, relationships, decisive nodes, and source refs using only confirmed Sections A-E. For an active commercial profile, add exactly one `[COMMERCIAL_STORY_JSON]` block from the approved design and do not add a corpus lookup payload. The Scribe writes the story lead once at the start of chapter one's artifact, the Editor sharpens it without inventing unsupported promises, the Continuity Guardian checks its claims against the planned story, and the Style Curator preserves the output-language register. When `retention_first` is active, the prompt must also preserve the opening contract, first-screen evidence, conflict braid, satisfaction loop, atmosphere and identification decisions, first-three-chapter value map, and paid bridge.
 
 Use this exact machine-readable Markdown boundary in the chapter-one artifact so
 Novel OS can compile the lead without replacing chapter-one navigation:
@@ -320,7 +393,7 @@ allows formatting or appended detail in natural-language outcomes. An explicit
 permits an intentionally richer actual state. Put approved paraphrases in
 `required_outcome_aliases`; avoid fuzzy similarity for the quality gate.
 
-Keep `audience_profile`, `workshop_trace`, `Personality_State_Updates`, and
+Keep `audience_profile`, the sanitized `workshop_trace`, `Personality_State_Updates`, and
 the confirmed Section A-E decisions in working artifacts and reports so a
 project detail view can render the reasoning trail without another design pass.
 
@@ -329,10 +402,27 @@ project detail view can render the reasoning trail without another design pass.
 When `core/prompt_intake.py` exists, validate before handing off:
 
 ```bash
-PYTHONPATH=core ./venv/bin/python -c "from pathlib import Path; from prompt_intake import ingest_prompt; r=ingest_prompt(Path('PROMPT_VALIDATION_PROJECT'), Path('PROMPT_PATH')); print(r.brief)"
+PYTHONPATH=core ./venv/bin/python -c "from pathlib import Path; from prompt_intake import ingest_prompt; r=ingest_prompt(Path('PROMPT_VALIDATION_PROJECT'), Path('PROMPT_PATH'), generate_author=False); print(r.brief)"
 ```
 
-Replace `PROMPT_VALIDATION_PROJECT` and `PROMPT_PATH` with the actual paths. Confirm that the parsed brief contains the locked title, genre, language, chapter count, word target, audience, tone, premise, a canonical `classification` object whose ids match the approved design, and a canonical `narrative_format` whose `confirmation_status` is `confirmed`. Verify that its chapter and volume boundaries match the customer's decision. Also confirm that the prompt contains a user-confirmed `audience_profile`, a `setting_policy` with `mode: fictionalized`, a `workshop_trace` with Section A-E decisions and open assumptions, plus personality fields for every principal character. For an active commercial profile, parse exactly one `COMMERCIAL_STORY_JSON` block and verify that no raw sample, corpus path, embedding, vector-search, or nearest-match payload is present. Parse the cover block with `core.cover_handoff.parse_cover_handoff`; verify the exact title, user-confirmed audience, core conflict, decisive node, secondary task, fictional world signals, and forbidden elements. Use a temporary validation project when no project has been selected; keep a real project untouched until the user runs the command.
+Replace the placeholders using shell-safe arguments. Always use a disposable
+validation project, because intake writes artifacts; never validate into a live
+project. `generate_author=False` prevents an author-generation model call during
+this parser check. Confirm that the parsed brief contains the locked title,
+genre, language, chapter count, word target, audience, tone, premise, canonical
+`classification` ids, and `narrative_format` with confirmed boundaries. Check
+`audience_profile`, `setting_policy`, the sanitized selected-only
+`workshop_trace`, and principal-character personality fields. For commercial
+work, parse exactly one `COMMERCIAL_STORY_JSON` block. For every material-led
+project, inspect the entire prompt and attached runtime inputs for reference
+prose, sample identities, source paths, summaries, or copied event chains;
+checking just the commercial JSON is insufficient. Parse the cover block with
+`core.cover_handoff.parse_cover_handoff` and verify approved story facts.
+
+Report design review, material isolation review, and parser validation
+separately. A parser pass confirms a readable contract, not originality or prose
+quality. Stage records are workflow evidence unless separately implemented and
+tested as runtime gates; do not claim otherwise.
 
 Also run `git diff --check -- <prompt path>` when the file is inside a Git workspace. For every Prompt, verify that `story_lead_contract.required` is true, its language and length unit agree, its conflict/payoff/question fields are concrete, and the chapter-one output protocol uses the `STORY_LEAD:` marker before the real chapter heading. For a `retention_first` Prompt, also verify the opening contract, the first-screen signal list, at least two conflict dimensions, local value for chapters 1-3, and the paid bridge are present and internally consistent. Report parser output and any corrected field; do not claim validation from file existence alone.
 
@@ -422,7 +512,8 @@ When cover creation is in scope, hand the validated Prompt to `novel-cover-studi
 
 ## Existing canon branch
 
-When an existing manuscript or run is present:
+Only when the user explicitly chose continuation or revision of the confirmed
+current project (`project_canon`):
 
 1. Read the current manifest, receipts, final artifacts, story state, and prompt source.
 2. Separate confirmed canon, derived indexes, and unresolved hypotheses.
@@ -430,12 +521,18 @@ When an existing manuscript or run is present:
 4. Preserve promoted chapters and their evidence receipts; never regenerate them merely because an upstream outline changed.
 5. Include the canonical names, timeline, secrets, and unresolved threads in the revised prompt or continuation contract.
 
+Reference files alongside that project remain `reference_only`. Do not convert
+them into canon merely because the project uses the same genre. An existing run
+does not authorize replacing its manuscript with a new original design.
+
 ## Completion report
 
 Finish with a compact report containing:
 
 - active title and project path;
 - locked design decisions and assumptions;
+- material-use mode, originality/design-review evidence, current completed
+  stage, and the next unmet gate (unwritten chapters remain unreviewed);
 - prompt path and parser result;
 - story-lead language, target length, and quality-gate result;
 - cover-handoff validation and whether cover concepts or images were requested;

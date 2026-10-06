@@ -507,7 +507,7 @@ class CoverService:
         blockers = list(report.blockers)
         repair_codes = list(report.repair_codes)
         for finding in report.findings:
-            title_failure = finding.code in {
+            title_failure = finding.severity != "info" and finding.code in {
                 "title_failure", "title_reading_order_ambiguous", "title_reading_order_reversed",
                 "title_text_mismatch",
             }

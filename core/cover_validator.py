@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from .cover_story_policy import STORY_POLICY_VERSION, story_cast_policy, uses_story_policy
+except ImportError:  # pragma: no cover - legacy CLI imports core modules top-level
+    from cover_story_policy import STORY_POLICY_VERSION, story_cast_policy, uses_story_policy
+
 import math
 import re
 from dataclasses import dataclass
@@ -167,7 +172,7 @@ def _validate_adaptive_portfolio(
     recent_fingerprints: Sequence[Mapping[str, Any]] = (),
 ) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
-    if direction.profile_version.casefold().startswith(("cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8")):
+    if direction.profile_version.casefold().startswith(("cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8", "cover-profiles.v9")):
         for plan in direction.plans:
             issue = photographic_medium_issue(plan.art_style)
             if issue:
@@ -191,7 +196,7 @@ def _validate_adaptive_portfolio(
         ))
 
     conflict_contract = direction.core_conflict_visual_contract
-    conflict_profile = direction.profile_version.casefold().startswith(("cover-profiles.v5", "cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8"))
+    conflict_profile = direction.profile_version.casefold().startswith(("cover-profiles.v5", "cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8", "cover-profiles.v9"))
     if conflict_profile:
         if conflict_contract is None:
             findings.append(ValidationFinding(
@@ -209,6 +214,7 @@ def _validate_adaptive_portfolio(
         "visual_signature",
     )
     reader_anchor_id = brief.reader_anchor_character.character_id
+    story_policy = story_cast_policy(brief, len(direction.plans)) if uses_story_policy(direction.profile_version) else None
     for plan in direction.plans:
         missing = [field for field in required_reasoning if not str(getattr(plan, field, "") or "").strip()]
         if missing:
@@ -225,6 +231,11 @@ def _validate_adaptive_portfolio(
                 "Every adaptive cover plan must contain a clear principal human subject",
                 plan.concept_id,
             ))
+        elif story_policy is not None:
+            if plan.story_policy_version != STORY_POLICY_VERSION:
+                findings.append(ValidationFinding("story_policy_missing", "blocker", "Story plan must retain its versioned cast policy", plan.concept_id))
+            if plan.focal_character_id not in story_policy["focal_character_ids"]:
+                findings.append(ValidationFinding("reader_anchor_not_focal", "blocker", "A source-approved protagonist or co-lead must be focal", plan.concept_id))
         elif reader_anchor_id not in plan.cast:
             findings.append(ValidationFinding(
                 "missing_reader_anchor",
@@ -318,6 +329,8 @@ def _validate_adaptive_portfolio(
 
     if conflict_profile and conflict_contract is not None:
         findings.extend(_validate_core_conflict_coverage(direction))
+    if story_policy is not None:
+        findings.extend(_validate_story_cast_coverage(brief, direction))
 
     for collision in portfolio_collisions(direction.plans):
         findings.append(ValidationFinding(
@@ -392,12 +405,17 @@ def _validate_core_conflict_contract(
             rf"(?<!\w){re.escape(item.name.casefold())}(?!\w)", conflict_text
         )
     }
+    if uses_story_policy(direction.profile_version):
+        policy = story_cast_policy(brief, len(direction.plans))
+        explicitly_named = set(policy["pressure_character_ids"])
+        if set(policy["focal_character_ids"]).intersection(contract.pressure_character_ids):
+            findings.append(ValidationFinding("conflict_pressure_self_reference", "blocker", "Co-leads cannot be substituted for the story's opposing pressure"))
     omitted = explicitly_named - set(contract.pressure_character_ids)
     if omitted:
         findings.append(ValidationFinding(
             "conflict_actor_omitted",
             "blocker",
-            "The conflict contract omits characters explicitly named in the approved core conflict",
+            "The conflict contract omits source-approved pressure characters",
             ", ".join(sorted(omitted)),
         ))
     for reference in contract.evidence_refs:
@@ -420,7 +438,7 @@ def _validate_core_conflict_coverage(
     findings: list[ValidationFinding] = []
     plans = direction.plans
     count = len(plans)
-    flexible = direction.profile_version.casefold().startswith(("cover-profiles.v7", "cover-profiles.v8"))
+    flexible = direction.profile_version.casefold().startswith(("cover-profiles.v7", "cover-profiles.v8", "cover-profiles.v9"))
     direct_minimum = 1 if flexible else math.ceil(count * 0.75)
     action_minimum = 1 if flexible else math.ceil(count * 0.75)
     ensemble_minimum = 1 if flexible else math.ceil(count * 0.5)
@@ -461,6 +479,10 @@ def _validate_core_conflict_coverage(
                 "A direct-conflict plan must visibly cast and identify an approved source of pressure",
                 plan.concept_id,
             ))
+    if uses_story_policy(direction.profile_version):
+        # v9 requires a readable protagonist/opponent encounter, not all
+        # antagonists crowded into one invented scene.
+        return findings
     full_ensemble = [
         plan for plan in plans
         if plan.causal_visibility == "direct"
@@ -474,6 +496,36 @@ def _validate_core_conflict_coverage(
             "The portfolio must meet its versioned complete causal relationship coverage",
             f"complete relationship {len(full_ensemble)}/{count}; required {ensemble_minimum}",
         ))
+    return findings
+
+
+def _validate_story_cast_coverage(brief: CoverBriefV2, direction: ArtDirectionSet) -> list[ValidationFinding]:
+    policy = story_cast_policy(brief, len(direction.plans))
+    heroes = set(policy["focal_character_ids"])
+    central = set(policy["central_character_ids"])
+    pressure = set(policy["primary_pressure_character_ids"])
+    relationship_plans = [
+        plan for plan in direction.plans
+        if len(set(plan.cast) & central) >= 2 and heroes.intersection(plan.cast)
+    ]
+    findings: list[ValidationFinding] = []
+    if len(relationship_plans) < policy["minimum_relationship_plans"]:
+        findings.append(ValidationFinding(
+            "relationship_scene_undercoverage", "blocker",
+            "Relationship stories need readable interactions in all but at most one direction",
+            f"{len(relationship_plans)} scenes; required {policy['minimum_relationship_plans']}",
+        ))
+    cast_sets = {frozenset(plan.cast) & central for plan in relationship_plans}
+    if len(cast_sets) < policy["minimum_distinct_cast_sets"]:
+        findings.append(ValidationFinding("relationship_cast_repeated", "blocker", "Explore different central relationships, not the same pair with different props"))
+    if policy["require_colead_scene"] and not any(len(heroes.intersection(plan.cast)) >= 2 for plan in relationship_plans):
+        findings.append(ValidationFinding("colead_relationship_missing", "blocker", "Show the source-approved co-leads acting or reacting together in at least one scene"))
+    if pressure and not any(
+        plan.causal_visibility == "direct" and pressure.intersection(plan.conflict_character_ids)
+        and pressure.intersection(plan.cast) and heroes.intersection(plan.cast)
+        for plan in relationship_plans
+    ):
+        findings.append(ValidationFinding("missing_causal_relationship", "blocker", "At least one direction must visibly stage a lead and the primary opposing person in a source-supported encounter"))
     return findings
 
 
@@ -504,7 +556,7 @@ def validate_direction(
         ))
     required = {item.character_id for item in brief.required_characters}
     known = {item.character_id for item in brief.principal_characters}
-    adaptive = direction.profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5", "cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8"))
+    adaptive = direction.profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5", "cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8", "cover-profiles.v9"))
     optional_conflict_cast = {
         item.character_id for item in brief.principal_characters if not item.must_appear
     }

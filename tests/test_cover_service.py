@@ -527,6 +527,65 @@ def test_stale_set_selection_requires_explicit_confirmation(tmp_path) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("severity", "message", "expected_status", "expected_codes"),
+    [
+        (
+            "info",
+            "No title failure is visible; exact title reads naturally at thumbnail size.",
+            "recommended_for_human_review",
+            (),
+        ),
+        (
+            "warning",
+            "The title reading order is ambiguous at thumbnail size.",
+            "blocked",
+            ("title_failure",),
+        ),
+    ],
+)
+def test_title_finding_only_blocks_when_severity_requires_action(
+    severity, message, expected_status, expected_codes,
+) -> None:
+    from core.cover_models_v2 import CoverQualityReport
+    from tests.test_cover_director import adaptive_director_fixture
+
+    brief = _brief_v2()
+    direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(
+        brief, count=4,
+    )
+    concept = scene_to_cover_concept(brief, direction.plans[0])
+    scores = {name: 90 for name in CoverQualityReport._DIMENSIONS}
+    evaluator = CoverVisualEvaluator(complete=lambda *_args: {
+        "status": "human_review_required",
+        **scores,
+        "findings": [{
+            "code": "title_failure",
+            "severity": severity,
+            "message": message,
+            "evidence": "mobile thumbnail",
+        }],
+    })
+    service = CoverService(
+        visual_evaluator=evaluator,
+        thumbnail_projector=lambda *_args, **_kwargs: b"thumbnail",
+    )
+    image = _jpeg(marker=b"title-severity")
+
+    report = service._quality_report(
+        brief,
+        concept,
+        image,
+        digest(image),
+        "image/jpeg",
+    )
+
+    assert report.status == expected_status
+    assert report.blockers == expected_codes
+    assert report.repair_codes == expected_codes
+    assert report.findings[0].severity == severity
+
+
 @pytest.mark.parametrize('regression', ['title', 'lighting', 'unknown', 'failure', 'improved'])
 def test_automatic_repair_keeps_original_unless_story_and_art_both_pass(tmp_path, regression):
     from core.cover_models_v2 import CoverQualityReport

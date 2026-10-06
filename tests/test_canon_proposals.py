@@ -213,6 +213,24 @@ def test_apply_matching_sha_uses_legacy_state_behavior(tmp_path: Path):
     assert any("Door opens" in change for change in changes)
 
 
+def test_user_source_import_preserves_provenance_and_artifact_binding(tmp_path: Path):
+    state = StoryState(str(tmp_path / "project"))
+    proposal = ProposalStore(tmp_path / "project").save(CanonDeltaProposal(
+        chapter=1,
+        agent_name="user_supplied_import",
+        source_artifact_sha=SOURCE_SHA,
+        delta={"key_events": ["Audrey leaves the hospital"]},
+    ))
+    assert CanonDeltaProposal.from_dict(proposal.to_dict()).agent_name == "user_supplied_import"
+    before = _state_snapshot(state)
+    with pytest.raises(ValueError, match="artifact sha"):
+        apply_canon_proposal(state, proposal, "b" * 64)
+    assert _state_snapshot(state) == before
+    changes = apply_canon_proposal(state, proposal, SOURCE_SHA)
+    assert state.get_chapter(1).plot_advances == ["Audrey leaves the hospital"]
+    assert any("[user_supplied_import]" in change for change in changes)
+
+
 def test_apply_proposal_chain_preserves_ordered_agent_deltas(tmp_path: Path):
     state = StoryState(str(tmp_path / "project"))
     scribe = CanonDeltaProposal(

@@ -683,6 +683,10 @@ outputs/covers/
 现有小说应用 v8 摄影、核心冲突与差异化规则，需要在 Cover Studio 点击 **重新规划方向**，
 审批新的方向后再生成一组图片。
 
+点击 **创建方向** 时，工作室会先读取故事中的人物与场景设定。若缺少年龄段、职业身份
+或主要生活场景，页面会显示补全表单；保存后继续规划。确认内容单独保存在
+`outputs/covers/story-facts.json`，正文和写作设定保持原样。故事来源变更后需重新确认。
+
 #### 封面模型配置
 
 Web 用户可以在 **Studio Settings → Models & providers** 中分别配置图片模型和
@@ -844,6 +848,7 @@ Skill 的发布源是仓库目录：
 
 ```text
 skills/novel-brainstorm-workshop/
+skills/high-retention-web-novel/
 skills/novel-cover-studio/
 ```
 
@@ -859,33 +864,49 @@ rsync -a --delete skills/novel-brainstorm-workshop/ \
 因此，在 `codex-max` 等其他本地分支上执行前，要先确认该分支已经包含准备部署的
 最新提交。
 
+小说创作由两个 Skill 衔接：`novel-brainstorm-workshop` 负责素材用途分流、
+原创设计与全书规划，`high-retention-web-novel` 负责章节写作、修订和质量审查。
+完整阶段、通过条件和返工路径见
+[创作路径](skills/novel-brainstorm-workshop/references/creation-path.md)。
+新书素材默认只供提炼剧情机制；只有明确指定的当前项目原稿才作为续写 canon。
+仓库规则更新不会自动同步本机 Skill，也不会迁移已有 Prompt 或重启小说任务。
+
 Codex 默认从 `~/.codex/skills/` 加载 Skill。从已经检出的仓库安装：
 
 ```bash
 mkdir -p "$HOME/.codex/skills/novel-brainstorm-workshop"
+mkdir -p "$HOME/.codex/skills/high-retention-web-novel"
 mkdir -p "$HOME/.codex/skills/novel-cover-studio"
 rsync -a --delete \
   skills/novel-brainstorm-workshop/ \
   "$HOME/.codex/skills/novel-brainstorm-workshop/"
 rsync -a --delete \
+  skills/high-retention-web-novel/ \
+  "$HOME/.codex/skills/high-retention-web-novel/"
+rsync -a --delete \
   skills/novel-cover-studio/ \
   "$HOME/.codex/skills/novel-cover-studio/"
 test -f "$HOME/.codex/skills/novel-brainstorm-workshop/SKILL.md"
+test -f "$HOME/.codex/skills/high-retention-web-novel/SKILL.md"
 test -f "$HOME/.codex/skills/novel-cover-studio/SKILL.md"
 ```
 
 如果使用自定义 `CODEX_HOME`，将目标目录替换为：
 
 ```bash
-CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
-mkdir -p "$CODEX_HOME/skills/novel-brainstorm-workshop"
-mkdir -p "$CODEX_HOME/skills/novel-cover-studio"
+novel_skill_home="${CODEX_HOME:-$HOME/.codex}"
+mkdir -p "$novel_skill_home/skills/novel-brainstorm-workshop"
+mkdir -p "$novel_skill_home/skills/high-retention-web-novel"
+mkdir -p "$novel_skill_home/skills/novel-cover-studio"
 rsync -a --delete \
   skills/novel-brainstorm-workshop/ \
-  "$CODEX_HOME/skills/novel-brainstorm-workshop/"
+  "$novel_skill_home/skills/novel-brainstorm-workshop/"
+rsync -a --delete \
+  skills/high-retention-web-novel/ \
+  "$novel_skill_home/skills/high-retention-web-novel/"
 rsync -a --delete \
   skills/novel-cover-studio/ \
-  "$CODEX_HOME/skills/novel-cover-studio/"
+  "$novel_skill_home/skills/novel-cover-studio/"
 ```
 
 也可以在未克隆完整仓库时，通过 Codex 自带安装器直接从 GitHub 安装：
@@ -1011,6 +1032,10 @@ NOVEL_OS_PROJECT_NAME='PROJECT_SLUG' NOVEL_OS_COVER_COUNT=4 \
 `RUN_ID` 默认由 UUID 生成，可跨项目检索，因此状态、恢复和重试命令不再需要
 `PROJECT`。脚本会检查匹配数量；如果历史数据出现重复 RUN_ID，会停止并列出匹配项，
 此时可临时使用兼容格式 `./deploy.sh novel-status PROJECT RUN_ID` 明确目标。
+
+续跑会先校验保存的检查点，并显示正在校验的阶段、复用的已完成章节和后续
+模型调用。全书审查与出版文案也有阶段提示；`paused` 表示质量门禁尚未通过，
+可用 `novel-status RUN_ID` 查看具体原因。
 
 生成内容保存在新设备本地：
 
@@ -1195,6 +1220,27 @@ Skill 目录中仓库没有的个人修改。同步完成后重新打开 Codex �
 - 封面只失败一张：使用工作台 Retry 或 `novel-cover retry`，不要重新生成整组；
 - 标题拼写不正确：拒绝或重试该候选。标题由 image model 直接绘制，候选仍需人工检查。
 
+Codex 出现 `401 Unauthorized` / `Missing bearer` 时，先分别检查宿主机和容器：
+
+```bash
+codex login status
+docker compose exec -T backend codex login status
+```
+
+如果宿主机已登录，但容器报告认证文件 JSON 不完整或未登录，可能是
+`~/.codex/auth.json` 单文件挂载仍指向旧文件。后端健康检查只验证 API 服务，
+不会验证 Codex 登录。确认没有生成任务正在运行后，重新创建后端以刷新挂载：
+
+```bash
+docker compose up --detach --no-deps --force-recreate --wait backend
+docker compose exec -T backend codex login status
+./deploy.sh novel-resume RUN_ID
+```
+
+如果宿主机本身未登录，先在宿主机执行 `codex login`，再重新创建后端。
+重建后端保留 `docker-data/` 中的章节和检查点。流水线遇到明确的认证错误会
+停止当前阶段，修复登录后可恢复同一个运行；超时、限流和服务端临时错误仍会重试。
+
 ### What's in the studio
 
 | | |
@@ -1292,6 +1338,7 @@ novel-os/
 ├── 📋 templates/                      ← story bible / character / outline starters
 ├── 🧩 skills/
 │   ├── novel-brainstorm-workshop/     ← Codex story-design and Prompt workshop
+│   ├── high-retention-web-novel/      ← original chapter craft and quality review
 │   └── novel-cover-studio/            ← story-derived commercial cover workflow
 ├── 📚 docs/                           ← WORKFLOWS.md, API.md
 ├── 🎬 examples/                       ← demo project + recent smoke run

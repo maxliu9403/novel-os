@@ -30,3 +30,20 @@ def block_live_method_review_client(monkeypatch, request):
 @pytest.fixture
 def use_frozen_router():
     """Opt-in only for snapshot adapter tests that replace the SDK constructor."""
+
+
+@pytest.fixture(autouse=True)
+def fake_author_model(monkeypatch):
+    """Project creation now generates a byline; tests must never bill a model."""
+    import book_author
+    import core.book_author
+
+    calls = []
+
+    def complete(system, user):
+        calls.append((system, user))
+        return '{"author":"Test Pen Name"}'
+
+    monkeypatch.setattr(book_author, "_default_complete", complete)
+    monkeypatch.setattr(core.book_author, "_default_complete", complete)
+    return calls

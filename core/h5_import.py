@@ -59,6 +59,47 @@ def _member_path(opf_path: str, href: str) -> str:
     return result
 
 
+def epub_creator(data: bytes) -> str:
+    """Return the first EPUB creator without deriving or inventing a name."""
+    try:
+        with zipfile.ZipFile(BytesIO(data)) as archive:
+            container = ET.fromstring(archive.read("META-INF/container.xml"))
+            roots = container.findall("{*}rootfiles/{*}rootfile")
+            if len(roots) != 1:
+                raise ValueError("EPUB must declare exactly one package document")
+            opf_path = roots[0].get("full-path", "")
+            if _member_path("", opf_path) != opf_path:
+                raise ValueError("EPUB package path is not canonical")
+            opf = ET.fromstring(archive.read(opf_path))
+            creator = opf.findtext("opf:metadata/dc:creator", namespaces=NS)
+            return creator if isinstance(creator, str) else ""
+    except (KeyError, TypeError, ET.ParseError, zipfile.BadZipFile, UnicodeError) as exc:
+        raise ValueError(f"Invalid EPUB creator metadata: {exc}") from exc
+
+
+def _author_from_story_state(project: Path) -> str:
+    state_path = project / "outputs/state/story_state.json"
+    if not state_path.exists():
+        return ""
+    if state_path.is_symlink() or not state_path.is_file():
+        raise ValueError("story state must be an ordinary JSON file")
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("story state must contain valid JSON") from exc
+    if not isinstance(state, dict):
+        raise ValueError("story state must contain a JSON object")
+    metadata = state.get("metadata")
+    if not isinstance(metadata, dict):
+        return ""
+    author = metadata.get("author")
+    if author is None or author == "":
+        return ""
+    if not isinstance(author, str):
+        raise ValueError("story state metadata.author must be a string")
+    return author
+
+
 def epub_index(data: bytes, serialization: dict | None, classification: dict | None) -> dict:
     """Read the compiler's explicit OPF map and validate every spine binding."""
     try:
@@ -140,6 +181,7 @@ def epub_index(data: bytes, serialization: dict | None, classification: dict | N
             return {
                 "opf_path": opf_path,
                 "dc_identifier": opf.findtext("opf:metadata/dc:identifier", namespaces=NS),
+                "dc_creator": opf.findtext("opf:metadata/dc:creator", namespaces=NS) or "",
                 "chapter_count": len(records), "chapters": records,
                 "non_chapter_items": non_chapters,
                 "content_sha256": object_digest([
@@ -159,13 +201,17 @@ def build_h5_import(project: Path, *, classification: dict | None,
     book_id = "novel-os:" + ensure_project_instance_id(project)
     epub_file = _entry(deliverables, "book.epub")
     index = None
+    epub_author = ""
     status = "metadata_only"
     if epub_file:
+        epub_data = (deliverables / "book.epub").read_bytes()
+        epub_author = epub_creator(epub_data)
         try:
-            index = epub_index((deliverables / "book.epub").read_bytes(), serialization, classification)
+            index = epub_index(epub_data, serialization, classification)
             status = "ready"
         except LegacyEpubMapError:
             status = "legacy_epub"
+    author = _author_from_story_state(project) or epub_author
     selected_files = [file for file in files if file["role"] == "selected_cover"]
     if len(selected_files) > 1:
         raise ValueError("Multiple selected cover files conflict")
@@ -178,6 +224,7 @@ def build_h5_import(project: Path, *, classification: dict | None,
         "novel_classification", "novel_serialization", "publication_copy", "cover_metadata",
     }}
     versions = {
+        "author_sha256": object_digest({"author": author}),
         "epub_sha256": epub_file["sha256"] if epub_file else None,
         "content_sha256": index["content_sha256"] if index else None,
         "front_matter_sha256": index["front_matter_sha256"] if index else None,
@@ -193,6 +240,7 @@ def build_h5_import(project: Path, *, classification: dict | None,
     ]
     return {
         "schema_version": SCHEMA_VERSION, "book_id": book_id,
+        "author": author,
         "body_source": "epub", "status": status,
         "epub": {**epub_file, "opf_path": (index or {}).get("opf_path"),
                  "dc_identifier": (index or {}).get("dc_identifier")} if epub_file else None,

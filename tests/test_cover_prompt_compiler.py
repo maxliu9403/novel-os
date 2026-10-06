@@ -131,7 +131,7 @@ def test_compile_is_deterministic_and_contains_age_environment_and_hook() -> Non
     second = compile_cover_prompt(brief_fixture(), scene_fixture())
 
     assert first.text == second.text
-    assert first.compiler_version == "cover-compiler.v13"
+    assert first.compiler_version == "cover-compiler.v14"
     assert [name for name in first.modules] == [
         "PHOTOGRAPHIC RENDER CONTRACT", "HUMAN PERFORMANCE CONTRACT",
         "ROLE AND OUTPUT", "STORY TRUTH", "CAST LOCK", "SINGLE CINEMATIC MOMENT",
@@ -749,7 +749,7 @@ def test_old_compiler_repair_restores_visual_fields_even_without_budget_overflow
     assert scene.color_script in repaired.text
     assert scene.motivated_lighting in repaired.text
     assert 'Repair focus: age mismatch.' in repaired.text
-    assert repaired.compiler_version == 'cover-compiler.v13'
+    assert repaired.compiler_version == 'cover-compiler.v14'
 
 
 def test_visual_contract_itself_over_budget_is_not_silently_truncated():

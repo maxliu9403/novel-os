@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from h5_acceptance import inspect_package, ContractError
-from h5_import import object_digest
+from h5_import import digest, object_digest
 
 SAMPLES = Path(__file__).resolve().parents[1] / 'docs/examples/h5-import'
 
@@ -17,6 +17,10 @@ def test_read_only_preflight_checks_real_baseline_but_does_not_claim_h5_executio
     assert result['chapter_count'] == 80
     assert result['volume_count'] == 4
     assert result['introduction_count'] == 1
+    assert result['author'] == 'Novel OS Test Fixture'
+    assert result['versions']['author_sha256'] == object_digest({
+        'author': 'Novel OS Test Fixture',
+    })
     assert result['chapters'][0]['number'] == 1
     assert result['chapters'][20]['volume_id'] == 'volume_02'
 
@@ -40,6 +44,87 @@ def test_mime_regression_is_detected_even_when_package_digest_is_recomputed(tmp_
         files['package-manifest.json'] = json.dumps(m).encode()
     with pytest.raises(ContractError, match='epub_media_type'):
         inspect_package(rewritten(tmp_path, mutate))
+
+
+def test_author_manifest_must_match_sidecar(tmp_path):
+    def mutate(files):
+        sidecar = json.loads(files['meta/h5-import.json'])
+        sidecar['author'] = 'Sidecar Name'
+        sidecar['versions']['author_sha256'] = object_digest({
+            'author': sidecar['author'],
+        })
+        sidecar['import_revision_sha256'] = object_digest({
+            'book_id': sidecar['book_id'],
+            'versions': sidecar['versions'],
+        })
+        sidecar_raw = json.dumps(sidecar).encode()
+        files['meta/h5-import.json'] = sidecar_raw
+        manifest = json.loads(files['package-manifest.json'])
+        manifest['author'] = 'Manifest Name'
+        entry = next(
+            item for item in manifest['files']
+            if item['path'] == 'meta/h5-import.json'
+        )
+        entry.update(size=len(sidecar_raw), sha256=digest(sidecar_raw))
+        manifest['package_revision_sha256'] = object_digest(manifest['files'])
+        files['package-manifest.json'] = json.dumps(manifest).encode()
+
+    with pytest.raises(ContractError, match='author_contract'):
+        inspect_package(rewritten(tmp_path, mutate))
+
+
+def test_old_package_without_author_fields_falls_back_to_epub_creator(tmp_path):
+    def mutate(files):
+        sidecar = json.loads(files['meta/h5-import.json'])
+        sidecar.pop('author', None)
+        sidecar['versions'].pop('author_sha256', None)
+        sidecar['import_revision_sha256'] = object_digest({
+            'book_id': sidecar['book_id'],
+            'versions': sidecar['versions'],
+        })
+        sidecar_raw = json.dumps(sidecar).encode()
+        files['meta/h5-import.json'] = sidecar_raw
+        manifest = json.loads(files['package-manifest.json'])
+        manifest.pop('author', None)
+        entry = next(
+            item for item in manifest['files']
+            if item['path'] == 'meta/h5-import.json'
+        )
+        entry.update(size=len(sidecar_raw), sha256=digest(sidecar_raw))
+        manifest['package_revision_sha256'] = object_digest(manifest['files'])
+        files['package-manifest.json'] = json.dumps(manifest).encode()
+
+    result = inspect_package(rewritten(tmp_path, mutate))
+
+    assert result['author'] == 'Novel OS Test Fixture'
+    assert 'author_sha256' not in result['versions']
+
+
+def test_old_manifest_author_precedes_epub_creator_when_sidecar_field_is_absent(tmp_path):
+    def mutate(files):
+        sidecar = json.loads(files['meta/h5-import.json'])
+        sidecar.pop('author', None)
+        sidecar['versions'].pop('author_sha256', None)
+        sidecar['import_revision_sha256'] = object_digest({
+            'book_id': sidecar['book_id'],
+            'versions': sidecar['versions'],
+        })
+        sidecar_raw = json.dumps(sidecar).encode()
+        files['meta/h5-import.json'] = sidecar_raw
+        manifest = json.loads(files['package-manifest.json'])
+        manifest['author'] = 'Legacy Manifest Name'
+        entry = next(
+            item for item in manifest['files']
+            if item['path'] == 'meta/h5-import.json'
+        )
+        entry.update(size=len(sidecar_raw), sha256=digest(sidecar_raw))
+        manifest['package_revision_sha256'] = object_digest(manifest['files'])
+        files['package-manifest.json'] = json.dumps(manifest).encode()
+
+    result = inspect_package(rewritten(tmp_path, mutate))
+
+    assert result['author'] == 'Legacy Manifest Name'
+    assert result['author_present'] is True
 
 
 def test_unindexed_private_file_and_duplicate_zip_path_are_rejected(tmp_path):

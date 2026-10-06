@@ -329,6 +329,28 @@ export interface VisualEvidenceLedger {
   }>;
 }
 
+export interface CoverStoryFacts {
+  brief: NonNullable<CoverDirection["brief"]>;
+  pending_fields: Array<{
+    field: string;
+    label: string;
+    proposed_value: string;
+    character_id?: string;
+    character_name?: string;
+  }>;
+  revision_sha256: string;
+}
+
+export interface CoverStoryFactsConfirmation {
+  expected_revision_sha256: string;
+  characters: Array<{
+    character_id: string;
+    age_band?: string;
+    occupation_and_status?: string;
+  }>;
+  primary_spaces?: string[];
+}
+
 export interface CoverDirection {
   direction_id: string;
   schema_version: number;
@@ -737,7 +759,7 @@ export const api = {
       `/api/projects/${encodeURIComponent(id)}?confirm_title=${encodeURIComponent(confirmTitle)}`,
     ),
   updateProject: (id: string, body: {
-    content_rating?: string; title?: string; genre?: string;
+    content_rating?: string; title?: string; genre?: string; author?: string;
     genres?: string[]; premise?: string;
     target_word_count?: number; session_word_target?: number;
   }) =>
@@ -794,6 +816,10 @@ export const api = {
       : { count }),
   coverDirections: (id: string) =>
     get<CoverDirection[]>(`/api/projects/${id}/covers/directions`),
+  coverStoryFacts: (id: string) =>
+    get<CoverStoryFacts>(`/api/projects/${encodeURIComponent(id)}/covers/story-facts`),
+  confirmCoverStoryFacts: (id: string, body: CoverStoryFactsConfirmation) =>
+    send<CoverStoryFacts>(`/api/projects/${encodeURIComponent(id)}/covers/story-facts`, "PUT", body),
   createCoverDirection: (id: string, count = 4) =>
     send<CoverDirection>(`/api/projects/${id}/covers/directions`, "POST", { count }),
   approveCoverDirection: (

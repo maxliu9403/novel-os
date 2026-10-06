@@ -29,7 +29,7 @@ from .models import (
     BinderMoveRequest, BinderPatchRequest, SynopsisRefreshResult, UpdateMedia,
     ProjectStatistics, OutlinerMetricsRefreshResult, UpdateCodexEntry,
     ArtifactRevisionOut, ChapterQualityOut, EvaluationReportOut, PromotionReceiptOut,
-    CoverDirectionCreate, CoverDirectionApproval,
+    CoverDirectionCreate, CoverDirectionApproval, CoverStoryFactsUpdate,
     ImageProfileOut, ImageProfileUpdate,
     ProviderConnectionInput, ProviderConnectionOut, ProviderTestResult,
     StudioModelConfigurationOut, TextModelTestRequest, TextRouteOut, TextRoutesUpdate,
@@ -547,6 +547,7 @@ def update_project(project_id: str, body: UpdateProject, svc: ProjectService = D
             project_id,
             content_rating=body.content_rating,
             title=body.title,
+            author=body.author,
             genre=body.genre,
             genres=body.genres,
             premise=body.premise,
@@ -1173,6 +1174,57 @@ def _cover_error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=400, detail=str(exc))
 
 
+@router.get("/projects/{project_id}/covers/story-facts")
+def get_cover_story_facts(
+    project_id: str,
+    svc: ProjectService = Depends(get_service),
+):
+    from core.cover_handoff import resolve_cover_brief_v2
+    from core.cover_story_facts import response_payload
+    from core.cover_store import CoverConflict
+
+    project = _cover_project(svc, project_id)
+    try:
+        return response_payload(resolve_cover_brief_v2(project))
+    except CoverConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail="Project Prompt is missing") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/projects/{project_id}/covers/story-facts")
+def put_cover_story_facts(
+    project_id: str,
+    body: CoverStoryFactsUpdate,
+    svc: ProjectService = Depends(get_service),
+):
+    from core.cover_story_facts import (
+        confirm_missing_story_facts,
+        response_payload,
+    )
+    from core.cover_store import CoverConflict
+
+    project = _cover_project(svc, project_id)
+    try:
+        confirmed = confirm_missing_story_facts(
+            project,
+            expected_revision_sha256=body.expected_revision_sha256,
+            characters=[
+                item.model_dump(exclude_none=True) for item in body.characters
+            ],
+            primary_spaces=body.primary_spaces,
+        )
+        return response_payload(confirmed)
+    except CoverConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail="Project Prompt is missing") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post(
     "/projects/{project_id}/covers/directions",
     status_code=201,
@@ -1231,7 +1283,7 @@ def create_cover_direction(
             brief, direction,
             recent_fingerprints=(
                 recent_fingerprints
-                if direction.profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5", "cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8"))
+                if direction.profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5", "cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8", "cover-profiles.v9"))
                 else ()
             ),
         )

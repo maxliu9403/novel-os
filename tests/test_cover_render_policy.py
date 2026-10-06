@@ -29,7 +29,7 @@ def test_saved_nonphotographic_direction_requires_replanning_before_render(mediu
 
 def test_default_director_contract_keeps_diversity_within_photography():
     director = CoverArtDirector(complete=lambda s, u: "{}")
-    assert director.profile_version == "cover-profiles.v8"
+    assert director.profile_version == "cover-profiles.v9"
     request = json.loads(director._user_prompt(_brief(), 4))
     assert request["render_policy"]["medium"] == "live_action_photography"
     assert "photographic" in request["response_contract"]["plans"]["field_rules"]["art_style"]
@@ -82,7 +82,7 @@ def test_director_repairs_medium_before_persisting_plan_without_changing_cast():
         calls.append((system, user))
         return next(responses)
 
-    result = CoverArtDirector(complete=complete, model="test-director").plan(_brief(), count=4)
+    result = CoverArtDirector(complete=complete, model="test-director", profile_version="cover-profiles.v8").plan(_brief(), count=4)
     assert result.profile_version == "cover-profiles.v8"
     assert len(calls) == 2
     assert "non_photographic_medium" in calls[1][1]

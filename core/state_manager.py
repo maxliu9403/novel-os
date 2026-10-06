@@ -955,7 +955,9 @@ class StoryState:
         }
 
 
-def initialize_project(project_path: str, title: str, genre: str) -> StoryState:
+def initialize_project(
+    project_path: str, title: str, genre: str, *, author: str = "", language: str = "",
+) -> StoryState:
     """Initialize a new novel project with default state."""
     state = StoryState(project_path)
     
@@ -964,6 +966,10 @@ def initialize_project(project_path: str, title: str, genre: str) -> StoryState:
     state.set_metadata('genre', genre)
     state.set_metadata('created', datetime.now().isoformat())
     state.set_metadata('version', '1.0')
+    if language:
+        state.set_metadata('language', language)
+    if author.strip():
+        state.set_metadata('author', author.strip())
     
     # Initialize story bible with defaults
     state.update_story_bible('genre', genre)

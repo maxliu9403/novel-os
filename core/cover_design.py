@@ -504,6 +504,15 @@ def collect_visual_evidence(
             visual_tags=("character", character.narrative_role, character.lived_environment),
             source_sha256=brief_sha,
         )
+    for link in brief.relationship_map:
+        ledger.add(
+            source_type="relationship",
+            source_ref=f"cover_brief:relationship:{link.from_character_id}:{link.to_character_id}",
+            summary=f"{link.from_character_id} / {link.to_character_id}: {link.relationship}; {link.power_balance}; {link.visible_tension}; shared risk: {link.shared_risk}",
+            story_function="source-approved relationship, stakes and visible interaction",
+            visual_tags=("relationship", link.from_character_id, link.to_character_id),
+            source_sha256=brief_sha,
+        )
     for node in brief.decisive_story_nodes:
         ledger.add(
             source_type="story_node",

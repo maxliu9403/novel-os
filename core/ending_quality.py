@@ -149,6 +149,50 @@ def _payoff_events(state: StoryState) -> Dict[str, Dict[str, Any]]:
     return events
 
 
+def _verified_payoff_evidence(
+    project: Path,
+    payoff: Dict[str, Any],
+    final_chapter: int,
+) -> List[Dict[str, Any]]:
+    """Load explicit, source-bound payoff evidence from a contract migration.
+
+    A completed run may predate the stable payoff-ID protocol.  In that case
+    an author can record an adjudicated payoff binding in the ending contract,
+    but only when it names a non-symlink manuscript source and a chapter that
+    is already within the evaluated book.  This keeps the migration auditable
+    without mutating immutable canon promotion records.
+    """
+    evidence: List[Dict[str, Any]] = []
+    for raw in _as_list(payoff.get("verified_evidence")):
+        if not isinstance(raw, dict) or str(raw.get("status") or "").strip().lower() != "paid":
+            continue
+        try:
+            chapter = int(raw.get("chapter"))
+        except (TypeError, ValueError):
+            continue
+        note = str(raw.get("evidence") or "").strip()
+        source_value = str(raw.get("source") or "").strip()
+        if chapter < 1 or chapter > final_chapter or not note or not source_value:
+            continue
+        source = Path(source_value)
+        if source.is_absolute():
+            continue
+        try:
+            resolved = (project / source).resolve()
+            resolved.relative_to(project.resolve())
+        except (OSError, ValueError):
+            continue
+        if resolved.is_symlink() or not resolved.is_file() or resolved.stat().st_size == 0:
+            continue
+        evidence.append({
+            "chapter": chapter,
+            "evidence": note,
+            "source": source.as_posix(),
+            "status": "paid",
+        })
+    return evidence
+
+
 def _thread_status(state: StoryState, thread_id: str) -> Optional[str]:
     thread = state.plot_threads.get(thread_id)
     return thread.status if thread is not None else None
@@ -387,6 +431,9 @@ def evaluate_ending(project: Path | str, as_of_chapter: Optional[int] = None) ->
             event = payoff_events.get(item_id)
             if event and event.get("status") == "paid":
                 matches.append(event)
+            verified = _verified_payoff_evidence(root, item, final_chapter)
+            if verified:
+                matches.extend(verified)
             if matches:
                 item["status"] = "paid"
                 item["payoff_evidence"] = matches

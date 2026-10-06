@@ -653,6 +653,86 @@ def test_invalid_guardian_schema_is_repaired_without_rewriting_candidate(tmp_pat
     )
 
 
+def test_nonexact_guardian_quote_is_repaired_without_rewriting_candidate(tmp_path):
+    invalid_raw = _raw(_guardian_pass(quote="Mara has filed her appeal"))
+    valid_raw = _raw(_guardian_pass())
+    preflight_raw = _raw(_preflight_pass())
+    writer = FakeClient(
+        [_raw(_conflict()), _raw(_writer_candidate())],
+        provider="style-provider", model="style-model",
+    )
+    guardian = FakeClient(
+        [preflight_raw, invalid_raw, valid_raw],
+        provider="guardian-provider", model="guardian-model",
+    )
+
+    publication = _generate(tmp_path, writer, guardian)
+
+    assert publication.validation.status == "pass"
+    assert len(writer.calls) == 2
+    assert len(guardian.calls) == 3
+    assert "source_quote is not an exact substring of chapter 2" in guardian.calls[2][1]
+    assert invalid_raw in guardian.calls[2][1]
+    assert "Adrian freezes the family account as Mara files her appeal." in guardian.calls[2][1]
+    assert publication.generation.validator_response_sha256 == _provenance_hash(
+        preflight_raw, invalid_raw, valid_raw,
+    )
+
+
+def test_nonexact_guardian_quote_exhausts_only_guardian_repair_budget(tmp_path):
+    invalid_raw = _raw(_guardian_pass(quote="Mara has filed her appeal"))
+    writer = FakeClient(
+        [_raw(_conflict()), _raw(_writer_candidate())],
+        provider="style-provider", model="style-model",
+    )
+    guardian = FakeClient(
+        [_raw(_preflight_pass()), invalid_raw, invalid_raw, invalid_raw],
+        provider="guardian-provider", model="guardian-model",
+    )
+
+    with pytest.raises(PublicationCopyBlocked, match=r"schema/evidence repair attempts exhausted \(2\)"):
+        _generate(tmp_path, writer, guardian)
+
+    assert len(writer.calls) == 2
+    assert len(guardian.calls) == 4
+    assert not (tmp_path / "outputs/publication/publication-copy.json").exists()
+
+
+def test_group_guardian_repairs_added_quote_mark_before_coverage_merge(tmp_path):
+    first_claim = {
+        "claim": "Adrian freezes the account.", "chapter": 2,
+        "source_quote": "Adrian freezes the family account",
+    }
+    last_claim = {
+        "claim": "The home remains at risk.", "chapter": 4,
+        "source_quote": "the family home remains at risk",
+    }
+    invalid = _guardian_report(claim_evidence=[
+        {**first_claim, "source_quote": "“" + first_claim["source_quote"]},
+    ])
+    invalid["status"] = "fail"
+    invalid["checks"]["source_supported"] = False
+    invalid["findings"] = [{"code": "SOURCE_UNSUPPORTED"}]
+    valid_first = _guardian_report(claim_evidence=[first_claim])
+    valid_last = _guardian_report(claim_evidence=[last_claim])
+    merged = _guardian_report(claim_evidence=[first_claim, last_claim])
+    responses = list(map(_raw, [_preflight_pass(), invalid, valid_first, valid_last, merged]))
+    guardian = FakeClient(list(responses), provider="guardian-provider", model="guardian-model")
+    writer = FakeClient(
+        [*map(_raw, _long_conflict_fragments()), _raw(_long_conflict()), _raw(_writer_candidate())],
+        provider="style-provider", model="style-model",
+    )
+
+    publication = _generate(tmp_path, writer, guardian, source=_long_source_set())
+
+    assert publication.validation.status == "pass"
+    assert len(writer.calls) == 4
+    assert len(guardian.calls) == 5
+    assert "source_quote is not an exact substring of chapter 2" in guardian.calls[2][1]
+    assert "“Adrian" not in guardian.calls[-1][1]
+    assert publication.generation.validator_response_sha256 == _provenance_hash(*responses)
+
+
 def test_invalid_guardian_schema_exhausts_only_the_bounded_schema_budget(tmp_path):
     invalid_guardian = _guardian_pass()
     invalid_guardian["reader_pull"] = {

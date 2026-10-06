@@ -270,15 +270,15 @@ class NovelOrchestrator:
         print(f"   Genre: {genre}")
         
         # Initialize state
-        state = initialize_project(str(self.project_path), title, genre)
-        
-        if author:
-            state.set_metadata('author', author)
+        state = initialize_project(str(self.project_path), title, genre, author=author)
         
         # Create project structure
         self._create_project_files(title, genre)
         
         state.save_state()
+        from book_author import ensure_project_author
+        ensure_project_author(self.project_path)
+        self.state = StoryState(str(self.project_path))
         
         print(f"✅ Project initialized!")
         print(f"   State file: outputs/state/story_state.json")
@@ -1667,6 +1667,7 @@ or recommendations.
         ending_context = self._ending_contract_context(chapter.number)
         commercial_context = self._scribe_commercial_context(chapter.number)
 
+        arc_state_update_instruction = self._arc_state_update_instruction(chapter.number)
         prompt = f"""# SCRIBE PROMPT: Chapter {chapter.number}
 
 ## Chapter Information
@@ -1699,7 +1700,7 @@ record only evidence-backed metadata changes using these exact fields:
 - Plot_Thread_Updates: `<thread_id> | status=<active|resolved|abandoned|foreshadowed> | milestone=<change> | chapter=<number>`; resolved/abandoned threads are terminal unless `reopen=true` is explicit
 - Character_References: `<character_id or full name> | chapter=<number> | note=<reference or documented absence>`
 - Payoff_Events: `<payoff_id> | status=<recalled|paid|intentional_open> | evidence=<what changed> | chapter=<number>`
-- Arc_State_Updates: `<character_id or full name> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<canonical outcome value from ending_contract> | evidence=<choice or observable state>`; `stage` is lifecycle position, while `outcome` is the contract result such as independence or accountability. Keep narrative explanation in `evidence`.
+- Arc_State_Updates: {arc_state_update_instruction}
 - Ending_Evidence: `irreversible_change=<observable final state>` and `emotional_payoff=<reader-facing closure>` in the finale window
 Do not list a referenced/off-page character in Characters_Present.
 
@@ -1818,7 +1819,7 @@ certifies delivery after the candidate is reviewed.
 """
 
     def _ending_contract_context(self, chapter_number: int) -> str:
-        """Inject the book-level ending contract only near the finale."""
+        """Inject payoff tracking early and the full ending contract in the finale."""
         contract_path = self.outputs_dir / "input" / "ending_contract.json"
         if not contract_path.is_file():
             return ""
@@ -1834,8 +1835,52 @@ certifies delivery after the candidate is reviewed.
             end = int(window.get("end_chapter") or 0)
         except (TypeError, ValueError):
             return ""
-        if not start or not end or not (start <= chapter_number <= end):
-            return ""
+        in_finale = bool(start and end and start <= chapter_number <= end)
+        if not in_finale:
+            directory = []
+            for raw in contract.get("plot_payoffs") or []:
+                if not isinstance(raw, dict):
+                    continue
+                payoff_id = str(raw.get("id") or "").strip()
+                if not payoff_id:
+                    continue
+                raw_setup_ids = raw.get("setup_ids")
+                if isinstance(raw_setup_ids, (list, tuple)):
+                    setup_values = raw_setup_ids
+                elif raw_setup_ids:
+                    setup_values = [raw_setup_ids]
+                else:
+                    setup_values = []
+                directory.append(
+                    {
+                        "id": payoff_id,
+                        "required_payoff": str(raw.get("required_payoff") or "").strip(),
+                        "setup_ids": [
+                            str(value).strip()
+                            for value in setup_values
+                            if str(value).strip()
+                        ],
+                        "deadline": raw.get("deadline"),
+                    }
+                )
+            if not directory:
+                return ""
+            return (
+                "## Payoff Tracking Directory (authoritative IDs)\n"
+                "This pre-finale directory is tracking metadata only. It does not\n"
+                "require paying a payoff in this chapter and does not supply the\n"
+                "full ending contract or character outcomes. Emit a Payoff_Events\n"
+                "entry only when the chapter contains direct evidence; `recalled`\n"
+                "is not `paid`.\n\n"
+                "```json\n"
+                + json.dumps(
+                    {"schema_version": contract.get("schema_version", 1), "plot_payoffs": directory},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    indent=2,
+                )
+                + "\n```\n"
+            )
         return (
             "## Book Ending Contract (authoritative)\n"
             "This chapter is inside the finale window. Advance or pay off the\n"
@@ -1845,6 +1890,40 @@ certifies delivery after the candidate is reviewed.
             "```json\n"
             + json.dumps(contract, ensure_ascii=False, sort_keys=True, indent=2)
             + "\n```\n"
+        )
+
+    def _arc_state_update_instruction(self, chapter_number: int) -> str:
+        """Keep semantic ending outcomes scoped to the finale contract."""
+        contract_path = self.outputs_dir / "input" / "ending_contract.json"
+        in_finale = False
+        if contract_path.is_file():
+            try:
+                contract = json.loads(contract_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                contract = {}
+            if isinstance(contract, dict) and contract.get("enforce"):
+                window = contract.get("finale_window") or {}
+                try:
+                    start = int(window.get("start_chapter") or 0)
+                    end = int(window.get("end_chapter") or 0)
+                except (TypeError, ValueError):
+                    start = end = 0
+                in_finale = bool(start and end and start <= chapter_number <= end)
+        if in_finale:
+            return (
+                "`<character_id or full name> | "
+                "stage=<beginning|middle|climax|resolution> | progress=<0-100> | "
+                "outcome=<canonical outcome value from ending_contract> | "
+                "evidence=<choice or observable state>`; `stage` is lifecycle "
+                "position, while `outcome` is the contract result such as "
+                "independence or accountability. Keep narrative explanation in "
+                "`evidence`."
+            )
+        return (
+            "`<character_id or full name> | "
+            "stage=<beginning|middle|climax|resolution> | progress=<0-100> | "
+            "evidence=<choice or observable state>`; semantic outcome is required "
+            "only in the finale window. Keep narrative explanation in `evidence`."
         )
     
     # ===== Writing Phase =====
@@ -2721,6 +2800,7 @@ Return `[EDITOR_ANALYSIS]`, the complete replacement inside
     def _generate_validation_prompt(self, chapter_number: int, chapter_text: str) -> str:
         """Generate a validation prompt."""
         context = self.state.get_continuity_context(chapter_number)
+        arc_state_update_instruction = self._arc_state_update_instruction(chapter_number)
         body = slice_chapter_for_llm(chapter_text)
         pack_md = format_context_pack(
             build_context_pack(
@@ -2835,7 +2915,7 @@ Foreshadowing_Resolved:
 Payoff_Events:
   - <payoff_id> | status=<recalled|paid|intentional_open> | evidence=<what changed> | chapter=<number>
 Arc_State_Updates:
-  - <character_id> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<canonical outcome value from ending_contract> | evidence=<choice or state>
+  - Arc_State_Updates: {arc_state_update_instruction}
 Ending_Evidence:
   - irreversible_change=<observable final state>
   - emotional_payoff=<reader-facing closure>

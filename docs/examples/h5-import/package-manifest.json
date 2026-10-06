@@ -1,5 +1,6 @@
 {
-  "book_id": "novel-os:4865afad76bf4bac802ac841536e738b",
+  "author": "Novel OS Test Fixture",
+  "book_id": "novel-os:c0d0cd671e644ed7acc86c2e8f5bd4a4",
   "classification": {
     "classification_id": "classification:a510e3c635cd991a0f0bdee934d282dc297e50a21bd5abde5c0f9096dc96992f",
     "path": "meta/novel-classification.json"
@@ -87,8 +88,8 @@
       "media_type": "application/json",
       "path": "meta/h5-import.json",
       "role": "h5_import",
-      "sha256": "542eaa6d811d51379a96b0a6c60d93c6a8cb40e4133d319f91036f9606ec286c",
-      "size": 49585
+      "sha256": "0d453acdba841f46c8369b8798df0578b2d7b21f67e1ffb64721a5db2ef6f189",
+      "size": 49711
     },
     {
       "cover_selection_state": "",
@@ -111,7 +112,7 @@
     "path": "meta/h5-import.json",
     "schema_version": "novel-h5-import.v1"
   },
-  "package_revision_sha256": "6146fb222e5305fdc2b9de0fd502eb6383066982a759d4f9cf81f51ec2cbf889",
+  "package_revision_sha256": "6cf85d718b92fd0bc42a127fc9d2007317bc7c9d75e443011ec37601b32c5eba",
   "schema_version": 4,
   "serialization": {
     "path": "meta/novel-serialization.json",

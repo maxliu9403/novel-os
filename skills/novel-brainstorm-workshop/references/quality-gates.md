@@ -2,20 +2,134 @@
 
 Use these checks during design review and again before handing off the Prompt. They are evidence questions, not a numeric promise about commercial performance.
 
+## Evidence and stage boundaries
+
+For a plan, cite chapter-map entries, character decisions, and payoff setups.
+For a draft, cite actual chapter/scene passages and observed consequences.
+Use `pass`, `revise`, or `not_run` per applicable gate; never mark unwritten
+chapters as passing because their outline promises quality. Keep planning,
+parser validation, and manuscript review as separate results. See
+[creation-path.md](creation-path.md) for prerequisite and repair routes.
+
+When `high-retention-web-novel` performs prose review, use its existing
+rubric as a diagnostic aid after checking hard failures. A total score never
+overrides passage-level problems in voice, language, emotion, originality, or
+continuity. Use only applicable criteria; a normal non-paywall chapter is not
+penalized for lacking a paid bridge. Missing required evidence is unreviewed,
+not not-applicable.
+
+## Originality and material use
+
+- Classify every supplied material before canon extraction. New-book references
+  stay `reference_only`; current-project continuation requires explicit intent.
+- Compare the approved design with the supplied references: independent
+  character agency, relationship dynamics, distinctive event/reveal sequence,
+  and climax mechanism must be supported by the new story's causal design.
+- Generic genre conventions may overlap. Renaming a cast or changing wording
+  while retaining a distinctive plot chain fails.
+- Keep source-specific comparisons private; inspect all runtime attachments for
+  accidental source injection. Review actual prose again before delivery.
+
 ## Story engine
 
 - A reader can state who wants what, why action is urgent, what blocks it, and what failure costs.
-- Each of the five story forces changes at least two other forces.
+- Story forces interact: changing a goal, relationship, belief, secret, or
+  pressure changes meaningful choices elsewhere rather than adding parallel
+  threads merely to fill a template.
 - The protagonist's visible capability creates options and the limitation creates meaningful costs.
 - The opponent or environment adapts after the protagonist acts.
 
 ## Chapter and retention
 
-- Every chapter has an observable goal, obstacle, active choice, consequence, local payoff, and next pressure.
-- The protagonist changes the causal chain in every chapter or in a deliberately marked interlude.
+- Every chapter has a stated function and observable reader value. Active plot
+  chapters show goal, obstacle, choice, and consequence. Aftermath, ensemble,
+  observational, or quiet chapters can deepen understanding, emotional meaning,
+  or relationship experience without an external turn or on-page protagonist
+  decision. Identify what would be lost by deletion.
+- The protagonist's choices drive the main turns. An interlude must change a
+  relevant relationship, knowledge, consequence, or earned emotional meaning
+  that the subsequent story uses; labeling a chapter an interlude is no exemption.
 - The first three chapters form a complete micro-arc with a visible irreversible change.
 - A free-window ending completes a stage payoff before creating the next target; the first paid chapter opens on its direct consequence.
-- Recent chapters vary opening situation, setting, conflict, strategy, emotional result, and hook type.
+- Recent chapters vary in function and emotional experience; repeated settings,
+  rituals, or motifs may remain when their changing meaning earns the return.
+
+## Quality without padding
+
+For active plot chapters record: entry state -> goal/pressure -> action and
+feedback -> choice/cost -> exit state -> reader value -> next consequence.
+For other chapter functions, cite the before/after difference in reader
+understanding, emotional experience, or relationship meaning and the relevant
+passage. Do not invent actions merely to fill a contract template.
+During drafting, verify those claims against the prose rather than copying the
+plan's claims into a passing report.
+
+- **Deletion test:** if removing a scene or repeated passage leaves causality,
+  character understanding, relationship development, and the earned emotional
+  experience unchanged, cut, merge, or replace it. Identify what is lost when a
+  valuable scene is removed. Quiet grief, intimacy, recovery, and reflection
+  can earn space without an external twist or a new fight.
+- **Causal progress:** new pressure follows an action or changing circumstance.
+  Repeated accusations, punishments, misunderstandings, or threats need a new
+  decision or durable consequence; louder repetitions do not count.
+- **Character depth:** choices reveal competing needs, limits, self-deception,
+  and change. Antagonists and helpers have goals beyond provoking or rescuing
+  the protagonist. Convenient stupidity cannot supply the plot engine.
+- **Emotional development:** a feeling develops through perception, behavior,
+  subtext, and consequence. Repeating an emotional label or inner monologue
+  does not deepen it. Let payoff and recovery have enough space to feel earned.
+- **Language:** precise, character-specific attention and purposeful dialogue
+  take precedence over generic slogans, stock bodily reactions, and repetitive
+  atmospheric description. Preserve voice and rhythm rather than flattening
+  every scene into short action sentences.
+- **Length:** word counts are planning constraints, not permission to pad.
+  When substance cannot sustain the agreed length, revise conflict/arc design
+  or obtain approval for a revised length. Do not silently shorten, inflate,
+  or add unrelated subplots to meet a quota.
+
+Repair in this order: originality and causal structure -> agency and character
+arcs -> payoff and emotional development -> continuity -> pacing and prose.
+Return a failed chapter to its contract when the problem is structural; surface
+polish cannot repair a missing decision or payoff. Recheck the revision and
+affected later setups before promoting its facts into canonical state.
+
+## Prose, character, and whole-arc review
+
+- **Voice calibration:** use this project's approved prose or concise original
+  conflict/quiet samples grounded in its design. New samples are not canon.
+  Define narrative distance, attention, register, rhythm, imagery, and dialogue
+  strategy; avoid rigid sentence quotas or imitation of reference novels.
+- **POV and language:** inspect representative passages for what the focal
+  character can perceive or infer, unexplained distance shifts, borrowed
+  knowledge, interchangeable metaphors, and narrator explanation that preempts
+  the reader's experience. Each character's history shapes attention and voice.
+- **Scene presence:** important decisions and emotional turns unfold through
+  observable behavior, dialogue/subtext, perceptions, and reactions. Check that
+  prose has not merely expanded the outline into a list of completed events.
+  Ordinary transitions may be summarized.
+- **Emotional evidence:** major trust/belief changes connect prior state,
+  trigger, interpretation/resistance, choice or behavior, and later evidence.
+  Review neighboring chapters for abrupt forgiveness, intimacy, or repeated
+  identical awakenings. Plans remain plans until the prose supports them.
+- **Arc rhythm:** at a major arc boundary, reread consecutive prose, including
+  recovery and payoff aftermath. Check whether familiar dilemmas gain meaning,
+  earlier consequences persist, and the ending of the arc grows from its scenes.
+  Do not demand a cliffhanger, reversal, or moral ambiguity in every scene.
+- **Separate prose findings:** record evidence and `pass|revise|not_run` for
+  voice/POV, language, dialogue/subtext, scene presence, and emotion. Recheck
+  affected facts after stylistic revision. A high structural score is not a
+  reason to waive a substantial prose problem.
+- **Independent reading:** when available, give a fresh reader actual prose,
+  necessary adjacent passages, and reader/language constraints. Withhold the
+  outline, planned payoff, author explanation, prior scores, and desired verdict.
+  Ask for specific places of confusion, disengagement, and emotional engagement.
+  Verify continuity separately against canon; flag unavailable context instead
+  of inventing it. Without a separate reader, report a second self-review, not
+  an independent test. Model responses are editorial simulations, not real
+  reader feedback or conversion predictions.
+
+These are Skill-level writing and review practices. Do not modify the framework
+or claim automatic backend enforcement to satisfy this checklist.
 
 ### Reader-facing story lead gate
 

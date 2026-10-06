@@ -1,0 +1,298 @@
+{
+  "artifact_type": "design_validation",
+  "scope": "planning_only",
+  "status": "pass",
+  "author_approval": "pending_A_to_E_review",
+  "checks": [
+    {
+      "check": "chapter_sequence",
+      "status": "pass",
+      "detail": "60章连续编号，包含原稿重新编排的1—4章。"
+    },
+    {
+      "check": "three_volumes",
+      "status": "pass",
+      "detail": "3卷，每卷20章。"
+    },
+    {
+      "check": "word_target",
+      "status": "pass",
+      "detail": "章正文72000英文词；开篇导语另计120—180词。"
+    },
+    {
+      "check": "scene_coverage",
+      "status": "pass",
+      "detail": "120个拟议场景均有行动和明确POV。"
+    },
+    {
+      "check": "planning_status",
+      "status": "pass",
+      "detail": "不把规划证据冒充正文验收。"
+    },
+    {
+      "check": "chapter_contracts",
+      "status": "pass",
+      "detail": "每章有情节、人物变化、情绪和结尾方式。"
+    },
+    {
+      "check": "adjacent_variety",
+      "status": "pass",
+      "detail": "相邻章情绪标签与结尾机制无完全相同；语义重复另经人工设计复核。"
+    },
+    {
+      "check": "thread_spacing_daughter",
+      "status": "pass",
+      "detail": {
+        "chapter_refs": [
+          1,
+          3,
+          4,
+          5,
+          7,
+          8,
+          9,
+          10,
+          12,
+          14,
+          16,
+          17,
+          18,
+          19,
+          20,
+          22,
+          24,
+          26,
+          28,
+          30,
+          32,
+          33,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          45,
+          47,
+          49,
+          50,
+          52,
+          54,
+          55,
+          58,
+          59,
+          60
+        ],
+        "note": "在本线首次与末次触及之间，相邻触及不超过3章；不要求每次展开完整场景。"
+      }
+    },
+    {
+      "check": "thread_spacing_father",
+      "status": "pass",
+      "detail": {
+        "chapter_refs": [
+          1,
+          2,
+          3,
+          5,
+          8,
+          11,
+          13,
+          15,
+          16,
+          19,
+          20,
+          21,
+          23,
+          24,
+          27,
+          29,
+          30,
+          31,
+          34,
+          35,
+          36,
+          37,
+          38,
+          40,
+          43,
+          46,
+          47,
+          49,
+          50,
+          53,
+          54,
+          55,
+          58,
+          59,
+          60
+        ],
+        "note": "在本线首次与末次触及之间，相邻触及不超过3章；不要求每次展开完整场景。"
+      }
+    },
+    {
+      "check": "thread_spacing_work",
+      "status": "pass",
+      "detail": {
+        "chapter_refs": [
+          2,
+          3,
+          6,
+          9,
+          11,
+          12,
+          14,
+          15,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          25,
+          27,
+          28,
+          29,
+          31,
+          32,
+          34,
+          35,
+          38,
+          39,
+          40,
+          41,
+          44,
+          45,
+          48,
+          51,
+          53,
+          55,
+          56,
+          57,
+          60
+        ],
+        "note": "在本线首次与末次触及之间，相邻触及不超过3章；不要求每次展开完整场景。"
+      }
+    },
+    {
+      "check": "thread_spacing_support",
+      "status": "pass",
+      "detail": {
+        "chapter_refs": [
+          4,
+          6,
+          7,
+          9,
+          10,
+          12,
+          14,
+          16,
+          18,
+          20,
+          22,
+          24,
+          26,
+          28,
+          30,
+          32,
+          33,
+          36,
+          37,
+          38,
+          41,
+          42,
+          43,
+          45,
+          46,
+          47,
+          50,
+          52,
+          55,
+          57,
+          58,
+          60
+        ],
+        "note": "在本线首次与末次触及之间，相邻触及不超过3章；不要求每次展开完整场景。"
+      }
+    },
+    {
+      "check": "payoff_refs",
+      "status": "pass",
+      "detail": "10项承诺均有有效种下、兑现与截止章节。"
+    },
+    {
+      "check": "principal_outcomes",
+      "status": "pass",
+      "detail": "6名主要人物的语义结局与拟议证据一致。"
+    },
+    {
+      "check": "ending_window",
+      "status": "pass",
+      "detail": "最后5章用于兑现；没有故意悬置核心线。"
+    },
+    {
+      "check": "budget_arithmetic",
+      "status": "pass",
+      "detail": {
+        "pre_first_pay": 7400,
+        "monthly_costs": 5650,
+        "monthly_buffer": 1150
+      }
+    },
+    {
+      "check": "first_quarter_cash_bridge",
+      "status": "pass",
+      "detail": "D31—D60支付首季3000后仍有现金2150；不计父亲补款，储备不重复作为消费扣减。"
+    },
+    {
+      "check": "rent_pay_order",
+      "status": "pass",
+      "detail": "D5—34首租期；D31首薪先于D35次租。"
+    },
+    {
+      "check": "ages",
+      "status": "pass",
+      "detail": "开篇9岁、约第6个月生日、事件一年后10岁。"
+    },
+    {
+      "check": "source_unchanged_1",
+      "status": "pass",
+      "detail": "2.txt"
+    },
+    {
+      "check": "source_unchanged_2",
+      "status": "pass",
+      "detail": "3.txt"
+    },
+    {
+      "check": "source_unchanged_3",
+      "status": "pass",
+      "detail": "4.txt"
+    },
+    {
+      "check": "source_unchanged_4",
+      "status": "pass",
+      "detail": "After 10 Golden Spires Broke, My Daughter Chose to Erase Her.txt"
+    }
+  ],
+  "human_design_review": {
+    "status": "planning_review_complete_ready_for_author_review",
+    "repairs": [
+      "原稿：补明安全承诺、手指/衣扣/手伤和统一商场时间；PR知情范围、12k旧款结算、未经授权未来服务均已具体化。",
+      "承载力：不可追回的第17章损失、两阶段庭院、孩子纸偶剧自身错误、父亲第38章实际代价、先放弃全国岗位再获本地扩责。",
+      "终轮：延期只由第48章批准一次，第55章只做动线座椅预演；8000为两阶段共用；前期500与新季度1500分开，D48续费1000专款+2000现金，父亲和职业支线嵌入现有场景持续触及。"
+    ],
+    "basis": "Three independent focused design reviews; root applied the listed final clarifications."
+  },
+  "not_run": [
+    "manuscript drafting",
+    "Editor prose approval",
+    "Continuity chapter approval",
+    "Style chapter approval",
+    "production Prompt parser validation"
+  ]
+}

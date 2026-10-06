@@ -8,6 +8,7 @@ from dataclasses import replace
 from typing import Sequence
 
 try:
+    from .cover_story_policy import STORY_POLICY_VERSION, story_cast_policy
     from .cover_render_policy import PHOTOGRAPHIC_RENDER_CONTRACT, HUMAN_PERFORMANCE_CONTRACT, photographic_medium_issue
     from .cover_design import BookVisualIdentity, VisualEvidenceLedger
     from .cover_models_v2 import (
@@ -25,6 +26,7 @@ try:
         resolve_title_typography,
     )
 except ImportError:  # pragma: no cover - legacy CLI imports core modules top-level
+    from cover_story_policy import STORY_POLICY_VERSION, story_cast_policy
     from cover_render_policy import PHOTOGRAPHIC_RENDER_CONTRACT, HUMAN_PERFORMANCE_CONTRACT, photographic_medium_issue
     from cover_design import BookVisualIdentity, VisualEvidenceLedger
     from cover_models_v2 import (
@@ -43,7 +45,7 @@ except ImportError:  # pragma: no cover - legacy CLI imports core modules top-le
     )
 
 
-COMPILER_VERSION = "cover-compiler.v13"
+COMPILER_VERSION = "cover-compiler.v14"
 MAX_PROMPT_CODEPOINTS = 12_000
 _MARKETING_SHORTCUTS = ("viral", "high ctr", "high conversion", "click-through", "masterpiece")
 _FORBIDDEN_NEGATIONS = (
@@ -189,9 +191,12 @@ def _validate_scene(
         reader_anchor_id = brief.reader_anchor_character.character_id
         if not cast:
             raise ValueError("adaptive cover scene requires a visible principal human subject")
-        if reader_anchor_id not in cast:
+        if scene.story_policy_version == STORY_POLICY_VERSION:
+            if scene.focal_character_id not in story_cast_policy(brief, 1)["focal_character_ids"]:
+                raise ValueError("story cover scene must keep an approved protagonist or co-lead focal")
+        elif reader_anchor_id not in cast:
             raise ValueError("adaptive cover scene must include the reader-anchor protagonist")
-        if scene.focal_character_id != reader_anchor_id:
+        if scene.story_policy_version != STORY_POLICY_VERSION and scene.focal_character_id != reader_anchor_id:
             raise ValueError("adaptive cover scene must keep the reader-anchor protagonist focal")
         if scene.causal_visibility:
             if scene.causal_visibility not in {"direct", "indirect"}:
@@ -433,7 +438,10 @@ def _adaptive_modules(
     )
     cast_lock = "\n".join(_character_block(item) for item in selected_cast)
     if selected_cast:
-        reader_anchor = brief.reader_anchor_character
+        reader_anchor = (
+            next(item for item in selected_cast if item.character_id == scene.focal_character_id)
+            if scene.story_policy_version == STORY_POLICY_VERSION else brief.reader_anchor_character
+        )
         subject_direction = (
             f"Use exactly this cast; focal: {scene.focal_character_id}. Keep {reader_anchor.name} a clear, emotionally active human anchor. "
             "Face, posture and story gesture must read at mobile size. Props, space or lettering may lead the "
@@ -568,6 +576,21 @@ def _modules(
             brief, scene, visual_identity=visual_identity, evidence_ledger=evidence_ledger,
             conflict_contract=conflict_contract,
         )
+        if scene.story_policy_version == STORY_POLICY_VERSION:
+            relationships = [
+                f"{link.from_character_id} / {link.to_character_id}: {link.relationship}; {link.visible_tension}"
+                for link in brief.relationship_map
+                if {link.from_character_id, link.to_character_id}.issubset(scene.cast)
+            ]
+            modules["THUMBNAIL STORY READ"] = (
+                f"Without reading the title or any small text, the image must communicate: {scene.conflict_read}. "
+                f"Visible cause: {scene.cause_signal}. Visible consequence: {scene.consequence_signal}. "
+                f"Approved relationship context: {'; '.join(relationships) or 'use the source-approved scene interaction'}. "
+                "Show this through distinct people, their action, eyelines, alliance or exclusion in one plausible moment. "
+                "Every cast member must be readable as a participant at mobile size; tiny phone portraits, hidden faces, "
+                "anonymous silhouettes and decorative background figures cannot substitute for the planned people. "
+                "Props support the human event. Do not rely on readable documents, generic grief or a posed portrait to explain it."
+            )
     else:
         modules = _legacy_modules(brief, scene)
     return {
@@ -627,7 +650,7 @@ def _content_locks(
     whole = {
         "PHOTOGRAPHIC RENDER CONTRACT", "HUMAN PERFORMANCE CONTRACT",
         "ROLE AND OUTPUT", "CAST LOCK", "CORE CONFLICT VISUAL CONTRACT",
-        "SINGLE CINEMATIC MOMENT", "RELATIONSHIP BLOCKING",
+        "SINGLE CINEMATIC MOMENT", "RELATIONSHIP BLOCKING", "THUMBNAIL STORY READ",
         "LIVED ENVIRONMENT AND PRIMARY PROP", "TITLE AND SAFE ZONE",
         "COMPACT FAILURE EXCLUSIONS",
     }

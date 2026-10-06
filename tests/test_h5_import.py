@@ -58,6 +58,14 @@ def import_sidecar(result):
         return json.loads(archive.read("meta/h5-import.json"))
 
 
+def package_metadata(result):
+    with zipfile.ZipFile(result.archive_path) as archive:
+        return (
+            json.loads(archive.read("meta/h5-import.json")),
+            json.loads(archive.read("package-manifest.json")),
+        )
+
+
 def test_intro_does_not_shift_chapters_volumes_or_free_trial(tmp_path):
     project = tmp_path / "book"
     make_book(project)
@@ -82,6 +90,55 @@ def test_intro_does_not_shift_chapters_volumes_or_free_trial(tmp_path):
                 body = epub.read(record["epub"]["zip_path"])
                 assert digest(body) == record["epub"]["xhtml_sha256"]
                 assert len(body) == record["epub"]["xhtml_size"]
+
+
+def test_epub_author_fallback_is_identical_in_sidecar_and_manifest(tmp_path):
+    project = tmp_path / "book"
+    make_book(project)
+
+    sidecar, manifest = package_metadata(build_delivery_package(project))
+
+    assert sidecar["author"] == manifest["author"] == "Fixture"
+    assert sidecar["versions"]["author_sha256"] == object_digest({
+        "author": "Fixture",
+    })
+
+
+def test_author_only_change_updates_revision_without_changing_book_or_chapters(tmp_path):
+    project = tmp_path / "book"
+    make_book(project)
+    state = project / "outputs/state/story_state.json"
+    state.parent.mkdir(parents=True)
+    state.write_text(json.dumps({"metadata": {"author": "Mara Vale"}}))
+    first, first_manifest = package_metadata(build_delivery_package(project))
+
+    state.write_text(json.dumps({"metadata": {"author": "Rin Hale"}}))
+    second, second_manifest = package_metadata(build_delivery_package(project))
+
+    assert first["author"] == first_manifest["author"] == "Mara Vale"
+    assert second["author"] == second_manifest["author"] == "Rin Hale"
+    assert first["book_id"] == second["book_id"]
+    assert first["chapters"] == second["chapters"]
+    assert first["epub"] == second["epub"]
+    assert {
+        key
+        for key in first["versions"]
+        if first["versions"][key] != second["versions"][key]
+    } == {"author_sha256"}
+    assert first["import_revision_sha256"] != second["import_revision_sha256"]
+    assert first_manifest["package_revision_sha256"] != second_manifest[
+        "package_revision_sha256"
+    ]
+
+
+def test_metadata_only_package_has_explicit_empty_author_without_generation(tmp_path):
+    project = tmp_path / "book"
+
+    sidecar, manifest = package_metadata(build_delivery_package(project))
+
+    assert sidecar["status"] == "metadata_only"
+    assert sidecar["author"] == manifest["author"] == ""
+    assert sidecar["versions"]["author_sha256"] == object_digest({"author": ""})
 
 
 def test_cover_only_change_keeps_book_body_and_structure_identity(tmp_path):
@@ -211,6 +268,7 @@ def test_legacy_epub_without_map_remains_exportable_without_guessing_binding(tmp
     assert data["epub"]["sha256"] == digest(epub_path.read_bytes())
     assert data["chapters"] == []
     assert data["versions"]["content_sha256"] is None
+    assert data["author"] == "Fixture"
     classification["audience"]["channel"] = "male"
     with pytest.raises(ValueError, match="classification conflicts"):
         epub_index(epub_path.read_bytes(), serialization, classification)
