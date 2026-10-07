@@ -5,8 +5,8 @@ import json
 def enhanced_system(baseline: str, rules: dict[str, str]) -> str:
     # Fail on source drift rather than silently appending contradictory quotas.
     replacements = {
-        "- Emotions manifest in physical reactions":
-            "- Physical reactions earn their place through perception, concealment, choice or relationship change",
+        "- Connect physical reactions with the character's personal interpretation and competing impulses":
+            "- Physical reactions earn their place by sharpening personal interpretation, competing impulses, concealment, choice or relationship change",
         "Every scene needs at least three senses:":
             "Choose sensory details with a present narrative purpose; there is no required number of senses:",
     }

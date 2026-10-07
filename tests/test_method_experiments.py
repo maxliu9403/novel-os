@@ -43,6 +43,21 @@ def test_plan_freezes_exact_baseline_and_counts_chapter_calls_without_model(tmp_
     assert not (tmp_path / 'lab/outputs').exists()
 
 
+@pytest.mark.parametrize('source_line', [
+    "- Connect physical reactions with the character's personal interpretation and competing impulses",
+    "Every scene needs at least three senses:",
+])
+@pytest.mark.parametrize('occurrences', [0, 2])
+def test_variant_rejects_missing_or_duplicate_source_rules(source_line, occurrences):
+    from method_experiments.prompts import enhanced_system
+
+    baseline = (ROOT / 'agents/scribe/prompt.md').read_text()
+    changed = baseline.replace(source_line, '\n'.join([source_line] * occurrences))
+
+    with pytest.raises(ValueError, match='baseline Scribe prompt changed'):
+        enhanced_system(changed, {})
+
+
 class Writer:
     def __init__(self):
         self.calls = []

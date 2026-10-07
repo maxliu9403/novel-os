@@ -12,6 +12,7 @@ import Modal, { Field, fieldClass, textareaClass } from "../components/Modal";
 import Scene from "../components/Scene";
 import Icon from "../components/Icon";
 import GenreChips from "../components/GenreChips";
+import NovelWorkshop, { type WorkshopSeed } from "../components/NovelWorkshop";
 import { mergeGenres } from "../lib/genres";
 import { useToast } from "../components/toastContext";
 
@@ -464,6 +465,8 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
   const [methodReview, setMethodReview] = useState(true);
   const [author, setAuthor] = useState("");
   const [busy, setBusy] = useState(false);
+  const [workshopOpen, setWorkshopOpen] = useState(false);
+  const [workshopSeed, setWorkshopSeed] = useState<WorkshopSeed | null>(null);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -488,7 +491,8 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="新建作品">
+    <>
+    <Modal open={open && !workshopOpen} onClose={onClose} title="新建作品">
       <form onSubmit={create}>
         <Field label="书名">
           <input
@@ -544,16 +548,22 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
             全书任务使用 Judge 路由，按已批准的免费窗口每章增加一次评审，格式修正最多一次；可能增加模型费用。
             不自动修改正文，单阶段写作不触发。可在章节评审面板关闭未来运行的默认值。</span>
         </label>
-        <div className="sticky bottom-0 -mx-1 mt-4 flex justify-end gap-3 border-t border-[rgba(74,91,133,0.08)] bg-gradient-to-t from-white/95 via-white/90 to-transparent px-1 pb-1 pt-4">
+        <div className="sticky bottom-0 -mx-1 mt-4 flex flex-wrap justify-end gap-2 border-t border-[rgba(74,91,133,0.08)] bg-gradient-to-t from-white/95 via-white/90 to-transparent px-1 pb-1 pt-4">
           <button type="button" onClick={onClose} className="btn-ghost">
             取消
           </button>
-          <button type="submit" disabled={!title.trim() || busy} className="btn-primary disabled:opacity-40">
+          <button type="submit" disabled={!title.trim() || busy} className="btn-secondary disabled:opacity-40">
             {busy ? "正在创建…" : "创建作品"}
           </button>
+          <button type="button" disabled={busy} className="btn-primary !bg-violet hover:!bg-[#5d5bd2] !shadow-[0_8px_20px_rgba(104,103,234,0.18)]" onClick={() => {
+            setWorkshopSeed({ title, author, genres: mergeGenres(genres, otherGenre), premise, method_mode: methodReview ? "advisory" : "off" });
+            setWorkshopOpen(true);
+          }}>头脑风暴完善</button>
         </div>
       </form>
     </Modal>
+    {workshopSeed && <NovelWorkshop open={open && workshopOpen} seed={workshopSeed} onClose={onClose} onBack={() => setWorkshopOpen(false)} />}
+    </>
   );
 }
 

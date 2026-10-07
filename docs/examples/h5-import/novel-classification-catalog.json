@@ -64,6 +64,24 @@
         "priority_tier": "growth"
       },
       {
+        "design_requirement": "Make cultivation rules, advancement costs, and rival responses drive earned growth and escalating stakes.",
+        "id": "xuanhuan",
+        "labels": {
+          "en-US": "Xuanhuan",
+          "zh-CN": "玄幻"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "design_requirement": "Establish an escalating source of dread whose rules constrain choices and make survival costly.",
+        "id": "horror",
+        "labels": {
+          "en-US": "Horror",
+          "zh-CN": "恐怖"
+        },
+        "priority_tier": "growth"
+      },
+      {
         "id": "supernatural",
         "labels": {
           "en-US": "Supernatural",
@@ -239,6 +257,132 @@
           "zh-CN": "婚姻危机"
         },
         "priority_tier": "core"
+      },
+      {
+        "design_requirement": "Give competing obligations credible emotional weight; trace injury, interpretation, conflicting feelings, and a consequential moral choice.",
+        "id": "ethical_dilemma",
+        "labels": {
+          "en-US": "Ethical Drama",
+          "zh-CN": "伦理"
+        },
+        "priority_tier": "core"
+      },
+      {
+        "design_requirement": "Ground her changing self-belief in specific wounds, mixed emotions, and increasingly independent choices with lasting consequences.",
+        "id": "female_growth",
+        "labels": {
+          "en-US": "Female Growth",
+          "zh-CN": "女性成长"
+        },
+        "priority_tier": "core"
+      },
+      {
+        "design_requirement": "Ground his changing self-belief in specific wounds, mixed emotions, and increasingly responsible choices with lasting consequences.",
+        "id": "male_growth",
+        "labels": {
+          "en-US": "Male Growth",
+          "zh-CN": "男性成长"
+        },
+        "priority_tier": "core"
+      },
+      {
+        "design_requirement": "Make public image, private needs, and career obligations collide in costly personal decisions.",
+        "id": "celebrity",
+        "labels": {
+          "en-US": "Celebrity",
+          "zh-CN": "名人明星"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "design_requirement": "Show the survivor's lived emotional impact, constraints, and choices toward agency; make recovery earned and never confuse abuse with proof of love.",
+        "id": "abuse_survival",
+        "labels": {
+          "en-US": "Abuse Survival",
+          "zh-CN": "受到虐待"
+        },
+        "priority_tier": "core"
+      },
+      {
+        "design_requirement": "Give the queen or empress concrete authority, obligations, and personal loyalties that shape consequential decisions.",
+        "id": "queen_empress",
+        "labels": {
+          "en-US": "Queen / Empress",
+          "zh-CN": "皇后女王"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "design_requirement": "Turn immediate attraction into tested trust through later choices, incompatible needs, and earned emotional intimacy.",
+        "id": "love_at_first_sight",
+        "labels": {
+          "en-US": "Love at First Sight",
+          "zh-CN": "一见钟情"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "design_requirement": "Make workplace responsibilities, professional boundaries, and attraction create credible relational costs and choices.",
+        "id": "office_romance",
+        "labels": {
+          "en-US": "Office Romance",
+          "zh-CN": "办公室恋情"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "design_requirement": "Build escalating comic consequences from clashing workplace goals while preserving believable motives and emotional stakes.",
+        "id": "workplace_comedy",
+        "labels": {
+          "en-US": "Workplace Comedy",
+          "zh-CN": "职场闹剧"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "design_requirement": "Build a specific same-sex relationship with distinct personalities, reciprocal attraction, emotional choices, and earned intimacy.",
+        "id": "same_sex_romance",
+        "labels": {
+          "en-US": "Same-Sex Romance",
+          "zh-CN": "同性恋"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "design_requirement": "Make caregiving, limited resources, and personal desires produce difficult choices for a parent with an independent emotional life.",
+        "id": "single_parent",
+        "labels": {
+          "en-US": "Single Parent",
+          "zh-CN": "单身父母亲"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "design_requirement": "Make wealth change access, dependency, and family or romantic obligations instead of serving only as luxury scenery.",
+        "id": "billionaire",
+        "labels": {
+          "en-US": "Billionaire",
+          "zh-CN": "富豪"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "design_requirement": "Give pregnancy concrete emotional and practical consequences, preserve the pregnant character's agency, and let choices reshape relationships.",
+        "id": "pregnancy",
+        "labels": {
+          "en-US": "Pregnancy",
+          "zh-CN": "怀孕"
+        },
+        "priority_tier": "growth"
+      },
+      {
+        "design_requirement": "Stage the unfolding collapse through causal losses, survival choices, changing alliances, and escalating consequences.",
+        "id": "apocalypse",
+        "labels": {
+          "en-US": "Apocalypse",
+          "zh-CN": "末日降临"
+        },
+        "priority_tier": "growth"
       }
     ],
     "tones": [
@@ -295,7 +439,7 @@
       }
     ]
   },
-  "catalog_version": "novel-types.2026-09",
+  "catalog_version": "novel-types.2026-10",
   "chapter_bands": [
     "chapters_0_50",
     "chapters_101_150",
@@ -322,5 +466,9 @@
     "short",
     "unknown"
   ],
-  "schema_version": "novel-classification.v1"
+  "schema_version": "novel-classification.v1",
+  "supported_catalog_versions": [
+    "novel-types.2026-09",
+    "novel-types.2026-10"
+  ]
 }

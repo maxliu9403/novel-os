@@ -182,6 +182,7 @@ class TextRouteInput(BaseModel):
     max_tokens: int = 8192
     reasoning_effort: str = ""
     inherits_default: bool = False
+    timeout_seconds: int | None = Field(default=None, ge=60, le=1800)
 
 
 class TextRouteOut(TextRouteInput):
@@ -191,6 +192,7 @@ class TextRouteOut(TextRouteInput):
     effective_reasoning_effort: str
     effective_source: str
     configured: bool
+    effective_timeout_seconds: float | None = None
 
 
 class TextRoutesUpdate(BaseModel):
@@ -287,6 +289,9 @@ class CharacterSummary(BaseModel):
     id: str
     full_name: str
     role: str
+    gender: str = ""
+    pronouns: str = ""
+    aliases: list[str] = []
     portrait_media_id: str = ""
     portrait_url: str | None = None
 
@@ -354,6 +359,9 @@ class UpdateCodexEntry(BaseModel):
     # Characters only; ignored for other entry types.
     role: str | None = None
     age: int | None = None
+    gender: str | None = None
+    pronouns: str | None = None
+    aliases: list[str] | None = None
     physical_description: str | None = None
     internal_desire: str | None = None
     external_goal: str | None = None

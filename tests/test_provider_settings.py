@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import stat
+import subprocess
+import sys
 import threading
 import time
 
@@ -14,6 +17,7 @@ from core import provider_settings, studio_settings
 @pytest.fixture(autouse=True)
 def isolated_settings(tmp_path, monkeypatch):
     monkeypatch.setenv("NOVEL_OS_SETTINGS_PATH", str(tmp_path / "studio_settings.json"))
+    monkeypatch.delenv("NOVEL_OS_WORKSHOP_TIMEOUT_SECONDS", raising=False)
     for key in studio_settings._ENV_KEYS:
         monkeypatch.delenv(key, raising=False)
     yield tmp_path
@@ -569,3 +573,293 @@ def test_image_profile_test_returns_immediately_and_deduplicates(
     assert completed["status"] == "done"
     assert completed["meta"]["data_url"].startswith("data:image/png;base64,")
     assert len(calls) == 1
+
+
+def test_workshop_timeout_defaults_to_fifteen_minutes_and_preserves_legacy_env(monkeypatch):
+    status = {row['id']: row for row in provider_settings.text_routes_status()}
+    assert status['workshop']['timeout_seconds'] is None
+    assert status['workshop']['effective_timeout_seconds'] == 900
+    assert all(row['effective_timeout_seconds'] is None for name, row in status.items() if name != 'workshop')
+    monkeypatch.setenv('NOVEL_OS_WORKSHOP_TIMEOUT_SECONDS', '600')
+    assert provider_settings.workshop_timeout_seconds() == 600
+    monkeypatch.setenv('NOVEL_OS_WORKSHOP_TIMEOUT_SECONDS', '30')
+    assert provider_settings.workshop_timeout_seconds() == 30
+    for invalid in ('nan', 'inf', 'invalid'):
+        monkeypatch.setenv('NOVEL_OS_WORKSHOP_TIMEOUT_SECONDS', invalid)
+        assert provider_settings.workshop_timeout_seconds() == 900
+
+
+def test_saved_workshop_timeout_wins_and_survives_model_inheritance_edits(monkeypatch):
+    connection = _connection()
+    provider_settings.save_text_routes([{'id': 'default', 'connection_id': connection['id'],
+        'model': 'writer-model', 'inherits_default': False},
+        {'id': 'workshop', 'inherits_default': True, 'timeout_seconds': 1200}])
+    monkeypatch.setenv('NOVEL_OS_WORKSHOP_TIMEOUT_SECONDS', '300')
+    assert provider_settings.resolve_text_route('workshop')['timeout_seconds'] == 1200
+    assert 'timeout_seconds' not in provider_settings.resolve_text_route('writer')
+    for payload in ({'id': 'workshop', 'inherits_default': True},
+                    {'id': 'workshop', 'inherits_default': True, 'timeout_seconds': None},
+                    {'id': 'workshop', 'inherits_default': False, 'connection_id': connection['id'], 'model': 'brainstorm-model'}):
+        rows = provider_settings.save_text_routes([payload])
+        workshop_route = next(row for row in rows if row['id'] == 'workshop')
+        assert workshop_route['timeout_seconds'] == 1200
+        assert workshop_route['effective_timeout_seconds'] == 1200
+    saved = json.loads(studio_settings.settings_path().read_text())
+    assert saved['model_configuration']['text_routes']['workshop']['timeout_seconds'] == 1200
+    assert provider_settings.resolve_text_route('workshop')['model'] == 'brainstorm-model'
+
+
+@pytest.mark.parametrize('route,value', [('workshop', 59), ('workshop', 1801), ('workshop', 600.5), ('writer', 900)])
+def test_workshop_timeout_rejects_invalid_or_other_route_values(route, value):
+    with pytest.raises(provider_settings.ProviderSettingsError):
+        provider_settings.save_text_routes([{'id': route, 'inherits_default': True, 'timeout_seconds': value}])
+
+
+def test_workshop_timeout_round_trips_through_existing_model_settings_api(tmp_path):
+    from fastapi.testclient import TestClient
+    from api.main import create_app
+    connection = _connection()
+    provider_settings.save_text_routes([{'id': 'default', 'connection_id': connection['id'],
+        'model': 'writer-model', 'inherits_default': False}])
+    client = TestClient(create_app(projects_root=tmp_path / 'projects', db_url=f'sqlite:///{tmp_path / "api.db"}'))
+    route = next(row for row in client.get('/api/studio/models').json()['text_routes'] if row['id'] == 'workshop')
+    assert route['effective_timeout_seconds'] == 900
+    response = client.put('/api/studio/model-routes', json={'routes': [
+        {'id': 'workshop', 'inherits_default': True, 'timeout_seconds': 1800}]})
+    assert response.status_code == 200, response.text
+    route = next(row for row in response.json() if row['id'] == 'workshop')
+    assert route['timeout_seconds'] == route['effective_timeout_seconds'] == 1800
+    response = client.put('/api/studio/model-routes', json={'routes': [
+        {'id': 'workshop', 'inherits_default': True}]})
+    assert next(row for row in response.json() if row['id'] == 'workshop')['timeout_seconds'] == 1800
+    for value in (0, 59, 1801):
+        assert client.put('/api/studio/model-routes', json={'routes': [
+            {'id': 'workshop', 'inherits_default': True, 'timeout_seconds': value}]}).status_code == 422
+
+
+def _codex_catalog_stub(tmp_path, body: str):
+    command = tmp_path / 'codex-catalog-stub'
+    command.write_text(f'#!{sys.executable}\nimport json, sys, time\n' + body)
+    command.chmod(0o700)
+    return str(command)
+
+
+def test_codex_models_reads_real_rpc_shape_and_pagination(tmp_path):
+    command = _codex_catalog_stub(tmp_path, '''
+assert sys.argv[1:] == ['app-server', '--listen', 'stdio://']
+initialized = False
+for line in sys.stdin:
+    request = json.loads(line)
+    method = request['method']
+    if method == 'initialize':
+        assert request['params']['clientInfo']['name'] == 'novel-os-model-discovery'
+        result = {'userAgent': 'codex/test'}
+    elif method == 'initialized':
+        initialized = True
+        continue
+    else:
+        assert initialized and method == 'model/list'
+        assert request['params']['includeHidden'] is False
+        if 'cursor' not in request['params']:
+            result = {'data': [{'id': 'alias', 'model': 'catalog-model-z'},
+                               {'id': 'hidden', 'model': 'secret-model', 'hidden': True}],
+                      'nextCursor': 'page-two'}
+        else:
+            assert request['params']['cursor'] == 'page-two'
+            result = {'data': [{'id': 'catalog-model-a'}, {'model': 'catalog-model-z'}], 'nextCursor': None}
+    print(json.dumps({'method': 'notification', 'params': {}}), flush=True)
+    print(json.dumps({'id': -1, 'result': {'ignored': True}}), flush=True)
+    print(json.dumps({'id': request['id'], 'result': result}), flush=True)
+''')
+    assert provider_settings._codex_models(command, 10) == ['catalog-model-a', 'catalog-model-z']
+
+
+@pytest.mark.parametrize('response,match', [
+    ("{'error': {'message': 'private-auth-config-value'}}", 'rejected'),
+    ("{'result': {'data': [], 'nextCursor': 'repeated'}}", 'cursor'),
+    ("{'result': {'data': 'wrong'}}", 'invalid model catalog'),
+])
+def test_codex_models_rejects_errors_bad_catalogs_and_cursor_loops(tmp_path, response, match):
+    command = _codex_catalog_stub(tmp_path, f'''
+for line in sys.stdin:
+    request = json.loads(line)
+    if request['method'] == 'initialized':
+        continue
+    payload = {{'result': {{}}}} if request['method'] == 'initialize' else {response}
+    print(json.dumps({{'id': request['id'], **payload}}), flush=True)
+''')
+    with pytest.raises(provider_settings.ProviderModelDiscoveryError, match=match) as error:
+        provider_settings._codex_models(command, 10)
+    assert 'private-auth-config-value' not in str(error.value)
+
+
+def test_codex_model_timeout_reaps_child_process(tmp_path, monkeypatch):
+    command = _codex_catalog_stub(tmp_path, 'time.sleep(30)\n')
+    actual_popen = subprocess.Popen
+    processes = []
+
+    def record_process(*args, **kwargs):
+        process = actual_popen(*args, **kwargs)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(provider_settings.subprocess, 'Popen', record_process)
+    with pytest.raises(provider_settings.ProviderModelDiscoveryTimeout):
+        provider_settings._codex_models(command, 0.1)
+    assert len(processes) == 1
+    assert processes[0].poll() is not None
+    assert processes[0].stdin.closed and processes[0].stdout.closed
+
+
+def test_codex_cleanup_kills_stubborn_helper_after_parent_exits(tmp_path):
+    helper_pid_file = tmp_path / 'helper.pid'
+    helper_source = (
+        'import os, signal, time; from pathlib import Path; '
+        'signal.signal(signal.SIGTERM, signal.SIG_IGN); '
+        f'Path({str(helper_pid_file)!r}).write_text(str(os.getpid())); '
+        'time.sleep(30)'
+    )
+    command = _codex_catalog_stub(tmp_path, f'''
+import subprocess
+from pathlib import Path
+subprocess.Popen([sys.executable, '-c', {helper_source!r}])
+while not Path({str(helper_pid_file)!r}).exists():
+    time.sleep(0.01)
+for line in sys.stdin:
+    request = json.loads(line)
+    if request['method'] == 'initialized':
+        continue
+    result = {{}} if request['method'] == 'initialize' else {{'data': [], 'nextCursor': None}}
+    print(json.dumps({{'id': request['id'], 'result': result}}), flush=True)
+''')
+    helper_pid = None
+    try:
+        assert provider_settings._codex_models(command, 10) == []
+        helper_pid = int(helper_pid_file.read_text())
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            # A just-killed orphan may await init's reap; a zombie no longer runs.
+            status = subprocess.run(['ps', '-o', 'stat=', '-p', str(helper_pid)],
+                capture_output=True, text=True, timeout=1).stdout.strip()
+            if not status or status.startswith('Z'):
+                return
+            time.sleep(0.02)
+        raise AssertionError('The helper survived parent exit and process-group cleanup')
+    finally:
+        if helper_pid is None and helper_pid_file.exists():
+            helper_pid = int(helper_pid_file.read_text())
+        if helper_pid is not None:
+            try:
+                os.kill(helper_pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+def test_text_catalog_ignores_codex_image_feature_gate(monkeypatch):
+    monkeypatch.setattr(provider_settings.shutil, 'which', lambda _: '/fake/codex')
+    monkeypatch.setattr(provider_settings, '_codex_models', lambda command, timeout: ['available-text-model'])
+
+    def no_feature_probe(*args, **kwargs):
+        raise AssertionError('Text model discovery must not test image generation')
+
+    monkeypatch.setattr(provider_settings.subprocess, 'run', no_feature_probe)
+    assert provider_settings._discover_models({'provider': 'codex', 'capabilities': [
+        'text_generation', 'image_generation']}) == ['available-text-model']
+
+
+def test_http_catalog_uses_connection_auth_and_deduplicates(monkeypatch):
+    from contextlib import closing
+    from io import BytesIO
+    seen = {}
+
+    def response(request, timeout):
+        seen.update(url=request.full_url, authorization=request.get_header('Authorization'), timeout=timeout)
+        return closing(BytesIO(json.dumps({'data': [{'id': 'gateway-b'}, {'id': 'gateway-a'},
+            {'id': 'gateway-b'}]}).encode()))
+
+    monkeypatch.setattr(provider_settings.urllib.request, 'urlopen', response)
+    assert provider_settings._discover_models({'provider': 'openai_compatible',
+        'base_url': 'https://models.example/v1'}, api_key='snapshot-key') == ['gateway-a', 'gateway-b']
+    assert seen == {'url': 'https://models.example/v1/models', 'authorization': 'Bearer snapshot-key', 'timeout': 12}
+
+
+def test_refresh_does_not_lock_network_or_overwrite_concurrent_route_saves(monkeypatch):
+    connection = _connection()
+    provider_settings.save_text_routes([{'id': 'default', 'connection_id': connection['id'],
+        'model': 'writer-model', 'inherits_default': False}])
+    started = threading.Event()
+    release = threading.Event()
+    results = []
+
+    def discover(_connection, **kwargs):
+        assert kwargs['api_key'] == 'provider-secret'
+        started.set()
+        assert release.wait(2)
+        return ['new-catalog-model']
+
+    monkeypatch.setattr(provider_settings, '_discover_models', discover)
+    thread = threading.Thread(target=lambda: results.append(provider_settings.refresh_connection_models(connection['id'])))
+    thread.start()
+    try:
+        assert started.wait(1)
+        before_save = time.monotonic()
+        provider_settings.save_text_routes([{'id': 'workshop', 'inherits_default': True, 'timeout_seconds': 1200}])
+        assert time.monotonic() - before_save < 1
+    finally:
+        release.set()
+        thread.join(2)
+    assert results == [['new-catalog-model']]
+    configuration = provider_settings.load_configuration()
+    assert configuration['text_routes']['workshop']['timeout_seconds'] == 1200
+    assert provider_settings._connection(configuration, connection['id'])['discovered_models'] == ['new-catalog-model']
+
+
+def test_refresh_rejects_catalog_if_connection_changed(monkeypatch):
+    connection = _connection()
+
+    def discover(_connection, **kwargs):
+        provider_settings.save_connection({**connection, 'base_url': 'https://new.example/v1',
+            'secret_action': 'keep'}, connection['id'])
+        return ['stale-model']
+
+    monkeypatch.setattr(provider_settings, '_discover_models', discover)
+    with pytest.raises(provider_settings.ProviderModelDiscoveryConflict, match='changed'):
+        provider_settings.refresh_connection_models(connection['id'])
+    current = provider_settings._connection(provider_settings.load_configuration(), connection['id'])
+    assert current['base_url'] == 'https://new.example/v1'
+    assert current['discovered_models'] == []
+
+
+def test_model_catalog_api_refreshes_and_keeps_cache_on_errors(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api.main import create_app
+    connection = _connection()
+    client = TestClient(create_app(projects_root=tmp_path / 'projects', db_url=f'sqlite:///{tmp_path / "models.db"}'))
+    endpoint = f'/api/studio/providers/{connection["id"]}/models'
+    calls = []
+
+    def discover(*args, **kwargs):
+        calls.append(True)
+        return ['from-provider']
+
+    monkeypatch.setattr(provider_settings, '_discover_models', discover)
+    assert client.get(endpoint).json() == []
+    assert calls == []
+    response = client.get(endpoint, params={'refresh': True})
+    assert response.status_code == 200 and response.json() == ['from-provider']
+    assert client.get(endpoint).json() == ['from-provider']
+    assert calls == [True]
+    for error, expected_status in [
+        (provider_settings.ProviderModelDiscoveryTimeout('Catalog timed out'), 504),
+        (provider_settings.ProviderModelDiscoveryError('Catalog failed'), 502),
+        (provider_settings.ProviderModelDiscoveryConflict('Connection changed'), 409),
+        (ValueError('provider-secret must remain private'), 502),
+    ]:
+        def fail(*args, **kwargs):
+            raise error
+        monkeypatch.setattr(provider_settings, '_discover_models', fail)
+        response = client.get(endpoint, params={'refresh': True})
+        assert response.status_code == expected_status
+        assert 'provider-secret' not in response.text
+        assert client.get(endpoint).json() == ['from-provider']
+    assert client.get('/api/studio/providers/missing/models?refresh=true').status_code == 404

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { motion } from "motion/react";
 import {
   api,
@@ -26,6 +26,7 @@ const controlClass =
 
 const ROUTE_LABELS: Record<string, { label: string; detail: string }> = {
   default: { label: "默认写作模型", detail: "所有文本任务的默认选择" },
+  workshop: { label: "头脑风暴", detail: "小说骨架讨论，可与正文模型不同" },
   architect: { label: "架构师", detail: "大纲与叙事结构" },
   writer: { label: "执笔者", detail: "章节初稿写作" },
   editor: { label: "编辑", detail: "发展性编辑与文字润色" },
@@ -72,7 +73,7 @@ function jobResult<T>(job: JobStatus): T {
 export default function Settings() {
   const toast = useToast();
   const confirm = useConfirm();
-  const [tab, setTab] = useState<SettingsTab>("connections");
+  const [tab, setTab] = useState<SettingsTab>(() => new URLSearchParams(window.location.search).get("tab") === "text" ? "text" : "connections");
   const [configuration, setConfiguration] = useState<StudioModelConfiguration | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -207,7 +208,7 @@ export default function Settings() {
             )}
             {tab === "text" && (
               <TextRoutesPanel
-                key={configuration.text_routes.map((route) => `${route.id}:${route.connection_id}:${route.model}:${route.reasoning_effort}:${route.inherits_default}`).join("|")}
+                key={configuration.text_routes.map((route) => `${route.id}:${route.connection_id}:${route.model}:${route.reasoning_effort}:${route.inherits_default}:${route.effective_timeout_seconds}`).join("|")}
                 routes={configuration.text_routes}
                 connections={configuration.connections}
                 onSaved={load}
@@ -456,6 +457,14 @@ function CapabilityToggle({ active, disabled, label, icon, onClick }: {
   );
 }
 
+type ModelCatalog = { models: string[]; status: "cached" | "loading" | "ready" | "error"; error?: string };
+
+function effectiveConnectionId(route: TextModelRoute, defaultRoute?: TextModelRoute) {
+  return route.id !== "default" && route.inherits_default
+    ? defaultRoute?.connection_id ?? route.effective_connection_id
+    : route.connection_id;
+}
+
 function TextRoutesPanel({ routes, connections, onSaved }: {
   routes: TextModelRoute[];
   connections: ProviderConnection[];
@@ -463,22 +472,69 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
 }) {
   const toast = useToast();
   const [draft, setDraft] = useState(routes);
+  const [workshopTimeoutDirty, setWorkshopTimeoutDirty] = useState(false);
+  const [workshopTimeoutMinutes, setWorkshopTimeoutMinutes] = useState(String((routes.find((route) => route.id === "workshop")?.effective_timeout_seconds ?? 900) / 60));
   const [busy, setBusy] = useState(false);
   const [testBusy, setTestBusy] = useState(false);
   const [testRouteId, setTestRouteId] = useState("default");
   const [testPrompt, setTestPrompt] = useState("请用一句简短的话确认你可以正常回复。");
   const [testResult, setTestResult] = useState<TextTestResult | null>(null);
   const textConnections = connections.filter((item) => item.capabilities.includes("text_generation"));
+  const [manualModels, setManualModels] = useState<Record<string, boolean>>({});
+  const [catalogs, setCatalogs] = useState<Record<string, ModelCatalog>>(() => Object.fromEntries(
+    connections.map((connection) => [connection.id, { models: connection.discovered_models, status: "cached" }]),
+  ));
+  const requested = useRef(new Set<string>());
+  const inFlight = useRef(new Set<string>());
+  const live = useRef(true);
+  const defaultRoute = draft.find((route) => route.id === "default");
+  const connectionIds = [...new Set(draft.map((route) => effectiveConnectionId(route, defaultRoute)).filter(Boolean))].sort();
+  const connectionKey = JSON.stringify(connectionIds);
+
+  useEffect(() => {
+    live.current = true;
+    return () => { live.current = false; };
+  }, []);
+
+  const loadModels = useCallback(async (connectionId: string) => {
+    if (inFlight.current.has(connectionId)) return;
+    inFlight.current.add(connectionId);
+    setCatalogs((current) => ({ ...current, [connectionId]: { models: current[connectionId]?.models ?? [], status: "loading" } }));
+    try {
+      const models = await api.providerModels(connectionId, true);
+      if (live.current) setCatalogs((current) => ({ ...current, [connectionId]: { models: [...new Set(models)], status: "ready" } }));
+    } catch (error) {
+      if (live.current) setCatalogs((current) => ({ ...current, [connectionId]: { models: current[connectionId]?.models ?? [], status: "error", error: messageOf(error) } }));
+    } finally {
+      inFlight.current.delete(connectionId);
+    }
+  }, []);
+
+  useEffect(() => {
+    const ids: string[] = JSON.parse(connectionKey);
+    for (const id of ids) {
+      if (requested.current.has(id)) continue;
+      requested.current.add(id);
+      void loadModels(id);
+    }
+  }, [connectionKey, loadModels]);
 
   function update(routeId: string, patch: Partial<TextModelRoute>) {
     setDraft((current) => current.map((route) => route.id === routeId ? { ...route, ...patch } : route));
   }
 
   async function save() {
+    const timeoutSeconds = Number(workshopTimeoutMinutes) * 60;
+    if (workshopTimeoutDirty && (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 60 || timeoutSeconds > 1800)) {
+      toast("头脑风暴超时请填写 1–30 分钟", "error");
+      return;
+    }
     setBusy(true);
     try {
-      const updated = await api.updateTextRoutes(draft.map(({ id, connection_id, model, max_tokens, reasoning_effort, inherits_default }) => ({ id, connection_id, model, max_tokens, reasoning_effort, inherits_default })));
+      const updated = await api.updateTextRoutes(draft.map(({ id, connection_id, model, max_tokens, reasoning_effort, inherits_default }) => ({ id, connection_id, model, max_tokens, reasoning_effort, inherits_default, ...(id === "workshop" && workshopTimeoutDirty ? { timeout_seconds: timeoutSeconds } : {}) })));
       setDraft(updated);
+      setWorkshopTimeoutDirty(false);
+      setWorkshopTimeoutMinutes(String((updated.find((route) => route.id === "workshop")?.effective_timeout_seconds ?? 900) / 60));
       toast("文本路由已保存", "success");
       await onSaved();
     } catch (error) {
@@ -512,12 +568,25 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
         <EmptyState icon="bot" title="请先添加支持文本生成的连接" />
       ) : (
         <>
-          <div className="mt-5 overflow-hidden rounded-lg border border-[rgba(74,91,133,0.14)] bg-white">
+          <div className="mt-4 space-y-2">{connectionIds.map((id) => {
+            const catalog = catalogs[id];
+            const name = connections.find((connection) => connection.id === id)?.name || id;
+            return <div key={id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/60 px-3 py-2 text-[11px] text-ink-muted">
+              <div className="min-w-0 flex-1"><span className="font-medium">{name}</span><span className="ml-2">{catalog?.status === "loading" ? "正在从接口获取模型…" : catalog?.status === "ready" ? catalog.models.length ? `接口返回 ${catalog.models.length} 个模型` : "接口未返回模型，可手动输入" : catalog?.status === "error" ? "模型列表获取失败，仍可手动输入或使用已有选项" : "准备读取模型列表…"}</span>
+                {catalog?.error && <p role="alert" className="mt-1 break-words text-[#9b651e]">{catalog.error}</p>}
+              </div>
+              <button type="button" aria-label={`刷新 ${name} 的模型列表`} className="btn-ghost !px-2 !py-1 !text-[11px] !text-violet" disabled={catalog?.status === "loading"} onClick={() => void loadModels(id)}>刷新模型</button>
+            </div>;
+          })}</div>
+          <div className="mt-4 overflow-hidden rounded-lg border border-[rgba(74,91,133,0.14)] bg-white">
             {draft.map((route, index) => {
             const meta = ROUTE_LABELS[route.id] ?? { label: route.id, detail: "" };
             const inherited = route.id !== "default" && route.inherits_default;
-            const selected = connections.find((item) => item.id === route.connection_id);
-            const models = selected?.discovered_models ?? [];
+            const connectionId = effectiveConnectionId(route, defaultRoute);
+            const selected = connections.find((item) => item.id === connectionId);
+            const models = catalogs[connectionId]?.models ?? [];
+            const currentModel = inherited ? defaultRoute?.model ?? route.effective_model : route.model;
+            const manual = !inherited && manualModels[route.id];
             return (
               <div key={route.id} className={`grid gap-4 px-4 py-4 lg:grid-cols-[190px_minmax(160px,1fr)_minmax(160px,1fr)_145px_120px] lg:items-center lg:px-5 ${index ? "border-t border-[rgba(74,91,133,0.11)]" : ""}`}>
                 <div>
@@ -529,8 +598,17 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
                   {textConnections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}
                 </select>
                 <div>
-                  <input aria-label={`${meta.label}模型`} className={controlClass} value={inherited ? route.effective_model : route.model} disabled={inherited} onChange={(event) => update(route.id, { model: event.target.value })} placeholder={selected?.provider === "codex" ? "Codex 默认模型" : "模型 ID"} list={`models-${route.id}`} />
-                  <datalist id={`models-${route.id}`}>{models.map((model) => <option key={model} value={model} />)}</datalist>
+                  <select aria-label={`${meta.label}模型`} className={controlClass} value={manual ? "manual" : `model:${currentModel}`} disabled={inherited} onChange={(event) => {
+                    const isManual = event.target.value === "manual";
+                    setManualModels((current) => ({ ...current, [route.id]: isManual }));
+                    if (!isManual) update(route.id, { model: event.target.value.slice(6) });
+                  }}>
+                    <option value="model:">{selected?.provider === "codex" ? "Codex 默认模型" : "选择模型"}</option>
+                    {currentModel && !models.includes(currentModel) && <option value={`model:${currentModel}`}>{currentModel}（当前 / 自定义）</option>}
+                    {models.map((model) => <option key={model} value={`model:${model}`}>{model}</option>)}
+                    <option value="manual">手动输入…</option>
+                  </select>
+                  {manual && <input aria-label={`${meta.label}自定义模型`} className={`${controlClass} mt-2`} value={route.model} onChange={(event) => update(route.id, { model: event.target.value })} placeholder="输入完整模型 ID" />}
                 </div>
                 <select
                   aria-label={`${meta.label}推理强度`}
@@ -549,8 +627,16 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
                 {route.id === "default" ? (
                   <span className={`text-[11px] font-medium ${route.configured ? "text-[#267553]" : "text-[#9b651e]"}`}>{route.configured ? "已就绪" : "未完成"}</span>
                 ) : (
-                  <label className="flex items-center gap-2 text-[12px] font-medium text-ink-muted"><input type="checkbox" checked={inherited} onChange={(event) => update(route.id, { inherits_default: event.target.checked })} /> 使用默认模型</label>
+                  <label className="flex items-center gap-2 text-[12px] font-medium text-ink-muted"><input type="checkbox" aria-label={`${meta.label}使用默认模型`} checked={inherited} onChange={(event) => update(route.id, { inherits_default: event.target.checked })} /> 使用默认模型</label>
                 )}
+                {route.id === "workshop" && <div className="border-t border-paper-line pt-3 lg:col-span-4 lg:col-start-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                    <label htmlFor="workshop-timeout" className="text-[12px] font-medium text-ink-muted">头脑风暴请求超时（分钟）</label>
+                    <input id="workshop-timeout" aria-describedby="workshop-timeout-help" type="number" min={1} max={30} step={1}
+                      className={`${controlClass} !w-24`} value={workshopTimeoutMinutes} disabled={busy} onChange={(event) => { setWorkshopTimeoutMinutes(event.target.value); setWorkshopTimeoutDirty(true); }} />
+                  </div>
+                  <p id="workshop-timeout-help" className="mt-2 text-[11px] leading-relaxed text-ink-muted">默认 15 分钟，可设为 1–30 分钟。独立于默认模型，保存后从下一轮讨论生效，不影响正文创作或正在进行的请求。</p>
+                </div>}
               </div>
             );
             })}

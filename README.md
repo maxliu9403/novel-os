@@ -763,7 +763,7 @@ Cover Director 单独配置服务。模型名称必须是该设备和供应商�
 |---|---|
 | Git 仓库源码 | 从远端重新拉取 |
 | `.env` | 在新设备上根据 `.env.example` 重新创建，不提交或传输密钥 |
-| `skills/novel-brainstorm-workshop/`、`skills/novel-cover-studio/` | 安装到新设备的 `$CODEX_HOME/skills/` |
+| `skills/` | 随源码和后端镜像分发；`up` / `restart` 自动同步到 `${CODEX_HOME:-$HOME/.codex}/skills/` |
 | `docker-data/` | 不迁移；新部署会创建空目录 |
 | `projects/`、`outputs/`、`novel_os.db` | 不迁移；它们属于本地运行数据 |
 | `prompt/` | 可选；只复制仍需使用的作者提示词 |
@@ -862,7 +862,7 @@ NOVEL_OS_BASE_URL=http://host.docker.internal:PORT/v1
 NOVEL_OS_WEB_PORT=5175
 ```
 
-#### 4. 迁移 Codex Skill
+#### 4. 安装与更新小说策划 Skill
 
 Skill 的发布源是仓库目录：
 
@@ -872,90 +872,77 @@ skills/high-retention-web-novel/
 skills/novel-cover-studio/
 ```
 
-只执行下面这一条命令：
-
-```bash
-rsync -a --delete skills/novel-brainstorm-workshop/ \
-  "$HOME/.codex/skills/novel-brainstorm-workshop/"
-```
-
-只会复制**当前检出分支**里的小说策划 Skill。它不会执行 `git fetch` 或
-`git pull`，不会同步 `novel-cover-studio`，也不会更新正在运行的 Docker 镜像。
-因此，在 `codex-max` 等其他本地分支上执行前，要先确认该分支已经包含准备部署的
-最新提交。
-
 小说创作由两个 Skill 衔接：`novel-brainstorm-workshop` 负责素材用途分流、
-原创设计与全书规划，`high-retention-web-novel` 负责章节写作、修订和质量审查。
+需求补齐、多轮修订与全书规划，`high-retention-web-novel` 负责章节写作、修订和质量审查。
 完整阶段、通过条件和返工路径见
 [创作路径](skills/novel-brainstorm-workshop/references/creation-path.md)。
-新书素材默认只供提炼剧情机制；只有明确指定的当前项目原稿才作为续写 canon。
-仓库规则更新不会自动同步本机 Skill，也不会迁移已有 Prompt 或重启小说任务。
+作者为当前新书提供的框架作为 `author_brief` 保留和完善；明确供参考的外部作品
+作为 `reference_only`，只提炼创作机制；明确指定的当前项目正文作为续写 canon。
+不把作者自己的框架默认降为参考素材。字数是允许合理浮动的创作目标，严格要求的是
+工作流程、必要内容和已确认设定的一致性。
 
-Codex 默认从 `~/.codex/skills/` 加载 Skill。从已经检出的仓库安装：
-
-```bash
-mkdir -p "$HOME/.codex/skills/novel-brainstorm-workshop"
-mkdir -p "$HOME/.codex/skills/high-retention-web-novel"
-mkdir -p "$HOME/.codex/skills/novel-cover-studio"
-rsync -a --delete \
-  skills/novel-brainstorm-workshop/ \
-  "$HOME/.codex/skills/novel-brainstorm-workshop/"
-rsync -a --delete \
-  skills/high-retention-web-novel/ \
-  "$HOME/.codex/skills/high-retention-web-novel/"
-rsync -a --delete \
-  skills/novel-cover-studio/ \
-  "$HOME/.codex/skills/novel-cover-studio/"
-test -f "$HOME/.codex/skills/novel-brainstorm-workshop/SKILL.md"
-test -f "$HOME/.codex/skills/high-retention-web-novel/SKILL.md"
-test -f "$HOME/.codex/skills/novel-cover-studio/SKILL.md"
-```
-
-如果使用自定义 `CODEX_HOME`，将目标目录替换为：
+后端镜像包含完整的 `/app/skills/`。首次部署和升级项目时，`./deploy.sh up`
+与 `./deploy.sh restart` 会自动把上面三个 Skill 同步到宿主机的
+`${CODEX_HOME:-$HOME/.codex}/skills/`，无需额外安装命令或更新参数：
 
 ```bash
-novel_skill_home="${CODEX_HOME:-$HOME/.codex}"
-mkdir -p "$novel_skill_home/skills/novel-brainstorm-workshop"
-mkdir -p "$novel_skill_home/skills/high-retention-web-novel"
-mkdir -p "$novel_skill_home/skills/novel-cover-studio"
-rsync -a --delete \
-  skills/novel-brainstorm-workshop/ \
-  "$novel_skill_home/skills/novel-brainstorm-workshop/"
-rsync -a --delete \
-  skills/high-retention-web-novel/ \
-  "$novel_skill_home/skills/high-retention-web-novel/"
-rsync -a --delete \
-  skills/novel-cover-studio/ \
-  "$novel_skill_home/skills/novel-cover-studio/"
+# 更新源码后，正常升级项目即可同步 Skill
+./deploy.sh restart
 ```
 
-也可以在未克隆完整仓库时，通过 Codex 自带安装器直接从 GitHub 安装：
+同步以当前检出的仓库为准。内容未变化时跳过；已有副本发生变化时，先完整备份到
+`${CODEX_HOME:-$HOME/.codex}/skill-backups/` 下的独立目录，再替换为仓库版本。
+仓库已删除的旧文件也会从安装副本移除，个人修改保留在备份中，其他 Skill 不受影响。
+同步失败时命令报错并停止，不会继续重启当前服务。需要安装到其他 Codex 目录时，
+使用已有的 `CODEX_HOME` 环境变量即可。
 
-```bash
-CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
-python3 "$CODEX_HOME/skills/.system/skill-installer/scripts/install-skill-from-github.py" \
-  --repo maxliu9403/novel-os \
-  --ref feat/novel-quality-closure \
-  --path skills/novel-brainstorm-workshop
-
-python3 "$CODEX_HOME/skills/.system/skill-installer/scripts/install-skill-from-github.py" \
-  --repo maxliu9403/novel-os \
-  --ref feat/novel-quality-closure \
-  --path skills/novel-cover-studio
-```
-
-如果该 Skill 已存在，安装器会停止而不是覆盖；已有副本直接使用上面的 `rsync`
-命令更新。在仓库根目录执行同步，避免相对路径指向错误目录。
+`build` 只更新镜像，`novel`、`novel-resume` 等小说命令继续复用健康服务，
+不会更新宿主 Skill 或重启服务。Skill 同步不修改小说生成引擎或已有小说内容。
 
 安装或更新后重新打开 Codex，或开始一个新对话。调用方式：
 
 ```text
 $novel-brainstorm-workshop
+$high-retention-web-novel
 $novel-cover-studio
 ```
 
-该 Skill 运行在 Codex 主机侧，不会被安装进 Novel OS Docker 容器；
-`./deploy.sh up` 和 Skill 安装是两个独立步骤。
+策划 Skill 会先读取基础提示，只补问缺失信息，允许反复修订人物、伏笔与章节钩子，
+在作者确认后交付完整 Prompt MD。它使用调用方选择的 LLM，不改动正文生成模型配置。
+Web 的“新建作品 → 头脑风暴完善”会读取镜像内同一份 Skill，可反复讨论、预览和
+下载完整骨架，确认后生成启动命令或一键启动现有全书流水线。原来的普通创建入口保留。
+对话支持逐条或全部折叠、展开全文和查看 Markdown 原文；模型回复按 Markdown 排版。
+多本构想可从“已有头脑风暴”列表按书名或任务 ID 搜索并精确恢复，同名会话也彼此独立。
+进入讨论后可通过“切换讨论”选择其他任务；列表显示更新时间、状态、版本和任务 ID。
+关闭窗口不会取消已提交的模型任务，已发送的设定、回复、每轮问题和骨架版本保存在服务器。
+未发送的输入仅在当前窗口按任务分别保留；刷新页面后不保证恢复。服务器重启会中断
+尚未完成的模型调用，已有内容保留，可回到对应任务重试。
+在“设置 → 模型路由”中单独配置“头脑风暴”路由，可使用与正文写作不同的模型。
+文本模型下拉列表按服务连接从接口获取，可手动刷新；Codex 使用自身的模型目录。
+接口未列出的模型仍可手动输入，刷新列表不会替换已保存的模型选择。
+讨论按后台任务执行，会话与骨架版本保存在数据目录的 `workshop_v2/` 下；失败时保留
+上一版完整骨架，窗口中的讨论日志和 `./deploy.sh logs backend` 可查看进度与失败原因。
+头脑风暴模型调用默认上限为 15 分钟，可在“设置 → 文本模型路由 → 头脑风暴”中
+按分钟调整，新设置从下一轮调用生效。尚未在页面设置时，兼容
+`NOVEL_OS_WORKSHOP_TIMEOUT_SECONDS` 环境变量（秒）。此设置不改变正文创作模型的超时。
+超时后重试会重新发送已保存的原始设定、完整对话、每轮问题和最新完整骨架。
+当前适配器每轮重新调用模型，并未连接提供商的原生会话续跑；超时前尚未返回的生成
+内容不会成为下一轮的已保存上下文。
+
+可从仓库根目录独立校验交付稿并生成启动命令：
+
+```bash
+python3 skills/novel-brainstorm-workshop/scripts/handoff.py validate './prompt/book.md' --repo .
+python3 skills/novel-brainstorm-workshop/scripts/handoff.py command './prompt/book.md' --repo . --project book
+```
+
+若已选择关闭只读写作评审，可为 helper 增加 `--method-mode off`，生成的命令会通过
+`NOVEL_OS_METHOD_MODE` 透传现有引擎选项；`advisory` 则开启评审。Web 会保留创建时的选择。
+
+命令默认选择 `markdown html docx epub pdf` 五种正文格式，ZIP 沿用现有交付流程；
+生成命令不会自动执行小说创作或封面生成。单本分卷配置写在 MD 内，多本系列交付总纲、
+每册 MD 和每册启动命令，不增加整系列自动调度参数。实际启动仍在含有 `deploy.sh`
+的仓库中执行；镜像内附带 Skill 文件不等于具备宿主部署脚本。
 
 #### 5. 部署并验证服务
 
@@ -1173,8 +1160,8 @@ git pull --ff-only
 ./deploy.sh restart
 ```
 
-要让一台已有部署同时获得最新的 Novel OS、小说策划 Skill 和封面 Skill，可以在
-确认小说生成任务不处于运行状态后执行：
+要让一台已有部署同时获得最新的 Novel OS、小说策划 Skill 和封面 Skill，先更新源码，
+确认小说生成任务不处于运行状态后重建；Skill 会在升级过程中自动备份与同步：
 
 ```bash
 cd /path/to/novel-os
@@ -1184,25 +1171,18 @@ git pull --ff-only
 git status -sb
 git log -1 --oneline
 
-CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
-for skill in novel-brainstorm-workshop novel-cover-studio; do
-  mkdir -p "$CODEX_HOME/skills/$skill"
-  rsync -a --delete "skills/$skill/" "$CODEX_HOME/skills/$skill/"
-done
-
 ./deploy.sh restart
 ./deploy.sh status
 curl -fsS http://localhost:${NOVEL_OS_WEB_PORT:-5174}/api/health
 ```
 
-仓库是 Skill 的发布源；`~/.codex/skills/` 是每台电脑各自的安装副本，不会随着
-Git 自动更新。`rsync --delete` 能保证副本与当前仓库完全一致，但也会删除目标
-Skill 目录中仓库没有的个人修改。同步完成后重新打开 Codex 或开始新对话。
+仓库是 Skill 的发布源；容器内 `/app/skills/` 随镜像重建更新，宿主安装副本由
+`up` / `restart` 自动备份与同步。只执行 `git pull` 不会更新安装副本。升级完成后
+重新打开 Codex 或开始新对话。
 
 如果电脑当前位于自有开发分支，不要只看分支名判断是否最新。先用
 `git fetch REMOTE` 获取远端状态，再通过团队采用的 merge、rebase 或发布分支流程
-纳入更新；最后比较 `git rev-parse HEAD` 与目标远端提交。直接执行 `rsync` 只会
-安装当时工作树里的版本。
+纳入更新；最后比较 `git rev-parse HEAD` 与目标远端提交。部署时只会安装当前工作树里的 Skill 版本。
 
 `novel`、`novel-resume` 和 `novel-retry` 会复用健康的 backend 容器，
 不会自动加载刚修改的镜像内容。小说正在生成时不要执行 `restart`；等待运行

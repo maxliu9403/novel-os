@@ -3,6 +3,18 @@ import { api, type CodexEntry } from "../api/client";
 import Modal, { Field, fieldClass } from "./Modal";
 import { useToast } from "./toastContext";
 
+function identityText(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function identityAliases(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((alias): alias is string => typeof alias === "string") : [];
+}
+
+function parseAliases(value: string): string[] {
+  return [...new Set(value.split(/[,，\n]+/).map((alias) => alias.trim()).filter(Boolean))];
+}
+
 /**
  * Edit an existing Codex entry (issue #2).
  *
@@ -33,6 +45,9 @@ export default function EditCodexModal({
   const [summary, setSummary] = useState("");
   const [notes, setNotes] = useState("");
   const [role, setRole] = useState("");
+  const [gender, setGender] = useState("");
+  const [pronouns, setPronouns] = useState("");
+  const [aliases, setAliases] = useState("");
   const [busy, setBusy] = useState(false);
 
   // Reload the form whenever a different entry is opened. Adjusted during
@@ -46,6 +61,9 @@ export default function EditCodexModal({
       setSummary(entry.summary ?? "");
       setNotes(entry.notes ?? "");
       setRole(entry.role ?? "");
+      setGender(identityText(entry.fields?.gender));
+      setPronouns(identityText(entry.fields?.pronouns));
+      setAliases(identityAliases(entry.fields?.aliases).join("，"));
     }
   }
 
@@ -60,11 +78,22 @@ export default function EditCodexModal({
     }
 
     // Only what the writer actually touched.
-    const changes: Record<string, string> = {};
+    const changes: Parameters<typeof api.updateCodexEntry>[2] = {};
     if (name !== entry.name) changes.name = name.trim();
     if (summary !== (entry.summary ?? "")) changes.summary = summary;
     if (notes !== (entry.notes ?? "")) changes.notes = notes;
     if (isPerson && role !== (entry.role ?? "")) changes.role = role;
+    if (isPerson) {
+      if (gender.trim() !== identityText(entry.fields?.gender)) changes.gender = gender.trim();
+      if (pronouns.trim() !== identityText(entry.fields?.pronouns)) changes.pronouns = pronouns.trim();
+      const currentAliases = identityAliases(entry.fields?.aliases);
+      if (aliases !== currentAliases.join("，")) {
+        const parsedAliases = parseAliases(aliases);
+        if (JSON.stringify(parsedAliases) !== JSON.stringify(currentAliases)) {
+          changes.aliases = parsedAliases;
+        }
+      }
+    }
 
     if (Object.keys(changes).length === 0) {
       onClose();
@@ -97,15 +126,47 @@ export default function EditCodexModal({
         </Field>
 
         {isPerson && (
-          <Field label="角色定位">
-            <input
-              className={fieldClass}
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              placeholder="例如：主角、反派、配角…"
-              aria-label="角色定位"
-            />
-          </Field>
+          <>
+            <Field label="角色定位">
+              <input
+                className={fieldClass}
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                placeholder="例如：主角、反派、配角…"
+                aria-label="角色定位"
+              />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="性别">
+                <input
+                  className={fieldClass}
+                  value={gender}
+                  onChange={(e) => setGender(e.target.value)}
+                  placeholder="例如：女性、男性、未知"
+                  aria-label="性别"
+                />
+              </Field>
+              <Field label="代词">
+                <input
+                  className={fieldClass}
+                  value={pronouns}
+                  onChange={(e) => setPronouns(e.target.value)}
+                  placeholder="例如：她 / she、他 / he、未知"
+                  aria-label="代词"
+                />
+              </Field>
+            </div>
+            <Field label="别名">
+              <textarea
+                className={fieldClass}
+                rows={2}
+                value={aliases}
+                onChange={(e) => setAliases(e.target.value)}
+                placeholder="用逗号或换行分隔；没有别名可留空"
+                aria-label="别名"
+              />
+            </Field>
+          </>
         )}
 
         <Field label="摘要">

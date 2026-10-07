@@ -20,6 +20,11 @@ const PERSON: CodexEntry = {
   summary: "",
   notes: "",
   role: "protagonist",
+  fields: {
+    gender: "女性",
+    pronouns: "她 / she",
+    aliases: ["Lena", "黎娜"],
+  },
 };
 
 function renderModal(entry: CodexEntry = PLACE, onSaved = () => {}) {
@@ -47,13 +52,90 @@ test("opens pre-filled with the entry as it stands", () => {
   expect(screen.getByLabelText("备注")).toHaveValue("Lanterns burn blue.");
 });
 
-test("Role is offered for people and hidden for places", () => {
+test("role and identity fields are offered for people and hidden for places", () => {
   const { unmount } = renderModal(PLACE);
   expect(screen.queryByLabelText("角色定位")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("性别")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("代词")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("别名")).not.toBeInTheDocument();
   unmount();
 
   renderModal(PERSON);
   expect(screen.getByLabelText("角色定位")).toHaveValue("protagonist");
+  expect(screen.getByLabelText("性别")).toHaveValue("女性");
+  expect(screen.getByLabelText("代词")).toHaveValue("她 / she");
+  expect(screen.getByLabelText("别名")).toHaveValue("Lena，黎娜");
+});
+
+test("a summary edit leaves established character identity untouched", async () => {
+  const save = vi.spyOn(api, "updateCodexEntry").mockResolvedValue(PERSON);
+  renderModal(PERSON);
+
+  await userEvent.type(screen.getByLabelText("摘要"), "守住自己的边界。");
+  await userEvent.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => expect(save).toHaveBeenCalledWith("book", PERSON.id, { summary: "守住自己的边界。" }));
+});
+
+test("identity edits accept unknown values and parse aliases with mixed separators", async () => {
+  const save = vi.spyOn(api, "updateCodexEntry").mockResolvedValue(PERSON);
+  renderModal(PERSON);
+
+  await userEvent.clear(screen.getByLabelText("性别"));
+  await userEvent.type(screen.getByLabelText("性别"), "未知");
+  await userEvent.clear(screen.getByLabelText("代词"));
+  await userEvent.type(screen.getByLabelText("代词"), "未知");
+  await userEvent.clear(screen.getByLabelText("别名"));
+  await userEvent.type(screen.getByLabelText("别名"), " 小黎, Lena，队长\n小黎\n ");
+  await userEvent.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => expect(save).toHaveBeenCalledWith("book", PERSON.id, {
+    gender: "未知",
+    pronouns: "未知",
+    aliases: ["小黎", "Lena", "队长"],
+  }));
+});
+
+test("identity fields can be deliberately cleared without changing other fields", async () => {
+  const save = vi.spyOn(api, "updateCodexEntry").mockResolvedValue(PERSON);
+  renderModal(PERSON);
+
+  for (const label of ["性别", "代词", "别名"]) {
+    await userEvent.clear(screen.getByLabelText(label));
+  }
+  await userEvent.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => expect(save).toHaveBeenCalledWith("book", PERSON.id, {
+    gender: "",
+    pronouns: "",
+    aliases: [],
+  }));
+});
+
+test("unknown legacy identity stays blank and is not inferred on save", async () => {
+  const save = vi.spyOn(api, "updateCodexEntry").mockResolvedValue(PERSON);
+  renderModal({ ...PERSON, fields: {} });
+
+  for (const label of ["性别", "代词", "别名"]) {
+    expect(screen.getByLabelText(label)).toHaveValue("");
+  }
+  await userEvent.type(screen.getByLabelText("备注"), "Needs an identity record.");
+  await userEvent.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => expect(save).toHaveBeenCalledWith("book", PERSON.id, {
+    notes: "Needs an identity record.",
+  }));
+});
+
+test("changing alias separators without changing aliases does not save", async () => {
+  const save = vi.spyOn(api, "updateCodexEntry");
+  renderModal(PERSON);
+
+  await userEvent.clear(screen.getByLabelText("别名"));
+  await userEvent.type(screen.getByLabelText("别名"), "Lena, 黎娜\n");
+  await userEvent.click(screen.getByRole("button", { name: "保存" }));
+
+  expect(save).not.toHaveBeenCalled();
 });
 
 test("sends only the field that changed", async () => {

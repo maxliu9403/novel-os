@@ -121,6 +121,8 @@ export interface TextModelRoute {
   max_tokens: number;
   reasoning_effort: "" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
   inherits_default: boolean;
+  timeout_seconds?: number | null;
+  effective_timeout_seconds?: number | null;
   effective_connection_id: string;
   effective_connection_name: string;
   effective_model: string;
@@ -551,6 +553,7 @@ export interface FinalResult {
   final: string; word_count: number;
 }
 export interface JobStatus {
+  started_at?: string | null;
   job_id: string; kind: string;
   status: "running" | "done" | "error"; error: string | null;
   meta?: Record<string, unknown>;
@@ -566,6 +569,7 @@ export interface CommentItem {
 }
 export interface CharacterSummary {
   id: string; full_name: string; role: string;
+  gender?: string; pronouns?: string; aliases?: string[];
   portrait_media_id?: string; portrait_url?: string | null;
 }
 export interface BinderNode {
@@ -788,7 +792,9 @@ export const api = {
     del(`/api/studio/providers/${encodeURIComponent(id)}`),
   testProvider: (id: string) =>
     send<ProviderTestResult>(`/api/studio/providers/${encodeURIComponent(id)}/test`, "POST"),
-  updateTextRoutes: (routes: Array<Pick<TextModelRoute, "id" | "connection_id" | "model" | "max_tokens" | "reasoning_effort" | "inherits_default">>) =>
+  providerModels: (id: string, refresh = false) =>
+    get<string[]>(`/api/studio/providers/${encodeURIComponent(id)}/models${refresh ? "?refresh=true" : ""}`),
+  updateTextRoutes: (routes: Array<Pick<TextModelRoute, "id" | "connection_id" | "model" | "max_tokens" | "reasoning_effort" | "inherits_default" | "timeout_seconds">>) =>
     send<TextModelRoute[]>("/api/studio/model-routes", "PUT", { routes }),
   testTextRoute: (routeId: string, prompt: string) =>
     send<JobStatus>(`/api/studio/model-routes/${encodeURIComponent(routeId)}/test`, "POST", { prompt }),
@@ -861,7 +867,11 @@ export const api = {
   /** Edit an entry. Send only what changed - absent fields are left alone. */
   updateCodexEntry: (
     id: string, entryId: string,
-    changes: Partial<Pick<CodexEntry, "name" | "summary" | "notes" | "role">>,
+    changes: Partial<Pick<CodexEntry, "name" | "summary" | "notes" | "role"> & {
+      gender: string;
+      pronouns: string;
+      aliases: string[];
+    }>,
   ) => send<CodexEntry>(`/api/projects/${id}/codex/${entryId}`, "PATCH", changes),
   bookShape: (id: string) => get<BookShapeReport>(`/api/projects/${id}/shape`),
   styles: (id: string) => get<StyleSheet>(`/api/projects/${id}/styles`),

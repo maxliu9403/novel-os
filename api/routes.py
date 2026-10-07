@@ -379,12 +379,19 @@ def test_studio_provider(connection_id: str):
 
 
 @router.get("/studio/providers/{connection_id}/models", response_model=list[str])
-def get_studio_provider_models(connection_id: str):
+def get_studio_provider_models(connection_id: str, refresh: bool = False):
     from core import provider_settings
 
     configuration = provider_settings.configuration_status()
     for connection in configuration["connections"]:
         if connection["id"] == connection_id:
+            if refresh:
+                try:
+                    return provider_settings.refresh_connection_models(connection_id)
+                except provider_settings.ProviderModelDiscoveryError as exc:
+                    raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+                except provider_settings.ProviderSettingsError as exc:
+                    raise HTTPException(status_code=404, detail="Provider connection not found") from exc
             return connection["discovered_models"]
     raise HTTPException(status_code=404, detail="Provider connection not found")
 

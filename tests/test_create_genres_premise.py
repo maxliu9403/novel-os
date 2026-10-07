@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from api.main import create_app
 from core.narrative_format import infer_narrative_format
-from core.novel_classification import NovelClassification
+from core.novel_classification import CATALOG_VERSION, NovelClassification
 
 
 def _client(tmp_path):
@@ -62,7 +62,7 @@ def test_classification_catalog_and_explicit_project_contract(tmp_path):
     client = _client(tmp_path)
     catalog = client.get("/api/novel-classification/catalog")
     assert catalog.status_code == 200
-    assert catalog.json()["catalog_version"] == "novel-types.2026-09"
+    assert catalog.json()["catalog_version"] == CATALOG_VERSION
     format_catalog = client.get("/api/narrative-format/catalog")
     assert format_catalog.status_code == 200
     assert format_catalog.json()["decision_policy"]["engine_suitability_is_advisory"] is True
@@ -108,3 +108,14 @@ def test_classification_catalog_and_explicit_project_contract(tmp_path):
         }},
     )
     assert invalid.status_code == 400
+
+
+def test_expanded_types_survive_project_create_and_reload(tmp_path):
+    client = _client(tmp_path)
+    genres = ["Horror", "Apocalypse", "Single Parent", "Female Growth"]
+    response = client.post("/api/projects", json={"title": "Tomorrow", "genres": genres})
+    assert response.status_code == 201, response.text
+    detail = client.get(f"/api/projects/{response.json()['id']}").json()
+    assert detail["genres"] == genres
+    assert detail["classification"]["primary_genre_id"] == "horror"
+    assert detail["classification"]["story_type_ids"] == ["apocalypse", "single_parent", "female_growth"]

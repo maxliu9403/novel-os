@@ -20,8 +20,10 @@ not not-applicable.
 
 ## Originality and material use
 
-- Classify every supplied material before canon extraction. New-book references
-  stay `reference_only`; current-project continuation requires explicit intent.
+- Classify every supplied material before canon extraction. The user's own
+  framework is `author_brief`; preserve approved facts. External inspiration
+  stays `reference_only`; current-project continuation uses `project_canon`.
+  A format example does not supply the new book's cast or plot.
 - Compare the approved design with the supplied references: independent
   character agency, relationship dynamics, distinctive event/reveal sequence,
   and climax mechanism must be supported by the new story's causal design.
@@ -170,7 +172,9 @@ threshold.
 ## Continuity and fairness
 
 - Names, ages, relationships, locations, resources, dates, and knowledge boundaries are tracked.
-- Story-facing cities, districts, institutions, landmarks, and other place names are invented or abstract; real geography appears only in separated audience-research metadata.
+- Story-facing places follow the approved real, fictionalized or mixed setting.
+  Keep release geography separate; do not silently replace real cities supplied
+  by the author. Record material professional or jurisdictional research needs.
 - Every major reversal has earlier evidence, a plausible motive, a fair prior interpretation, and a changed next action.
 - Secrets have a payoff window, an answer, and an observable aftermath.
 - Legal, medical, technical, cultural, and professional processes match the chosen setting.
@@ -185,7 +189,8 @@ threshold.
 ## Book ending gate
 
 - The story foundation contains an enforced `ending_contract` with a finale
-  window covering the last 3-5 chapters.
+  window appropriate to the approved structure; the last 3-5 chapters are a
+  recommendation, never a demand for chapters beyond the actual book length.
 - The main conflict thread reaches its required terminal status.
 - Every required payoff is `paid` with chapter evidence, or is explicitly
   declared `intentional_open` in the contract.
@@ -207,10 +212,14 @@ threshold.
 ## Prompt handoff
 
 - The target audience is explicitly confirmed by the user and records the primary reader segment, age or life stage, and main reading motivation; it is not an inferred assumption.
-- The Prompt carries `setting_policy.mode: fictionalized` and keeps real market context inside `audience_profile` rather than the story-facing world ledger.
+- The Prompt carries the approved `setting_policy` and records release-market
+  context in `audience_profile`, separately from story geography.
 - A commercial Prompt carries exactly one valid `COMMERCIAL_STORY_JSON` block and no raw corpus, embedding, vector-search, or nearest-match payload.
 - The Prompt carries a complete `story_lead_contract` and assigns drafting, editing, continuity validation, and style preservation responsibilities for the lead.
 - Top-level fields contain one fixed title, chapter count, and total word target.
+- Per-chapter word/character targets and lead lengths allow reasonable variation.
+  Diagnose weak or padded prose from its content, not a minor length deviation.
+  The Skill does not add strict manuscript-length gates or alter engine checks.
 - All approved decisions appear in the Prompt; assumptions are labeled in one section.
 - Architect, Scribe, Editor, Continuity Guardian, and Style Curator have distinct responsibilities and shared state fields.
 - The Scribe receives only the approved story contract, current chapter contract,

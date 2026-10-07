@@ -78,20 +78,46 @@ def apply_story_foundation(
         )
 
     hydrated_characters: dict[str, Character] = {}
+    foundation_character_names: dict[str, set[str]] = {}
     for index, raw in enumerate(characters, start=1):
         if not isinstance(raw, Mapping) or not str(raw.get("name") or "").strip():
             raise ValueError(f"story foundation character {index} must have a name")
         char_id = str(raw.get("id") or f"char_{index:03d}").strip()
         if not char_id or char_id in hydrated_characters:
             raise ValueError(f"story foundation character id is invalid or duplicated: {char_id!r}")
+        foundation_character_names.setdefault(str(raw["name"]).strip().casefold(), set()).add(char_id)
         age = raw.get("age")
         try:
             age = int(age) if age is not None else None
         except (TypeError, ValueError):
             age = None
+        identity = {
+            "full_name": str(raw["name"]).strip(),
+            "gender": raw.get("gender") if raw.get("gender") is not None else "",
+            "pronouns": raw.get("pronouns") if raw.get("pronouns") is not None else "",
+            "aliases": raw.get("aliases") if raw.get("aliases") is not None else [],
+        }
+        existing = state.characters.get(char_id)
+        if existing is not None:
+            # Replaying or extending an outline must not undo an established
+            # identity (including a later author correction). Explicit canon
+            # reconciliation hydrates a blank candidate for deliberate changes.
+            preserved = []
+            for key in identity:
+                value = getattr(existing, key)
+                if identity[key] != value:
+                    preserved.append(key)
+                # Empty is authoritative too: an author may have removed a
+                # mistaken alias or deliberately left pronouns unspecified.
+                identity[key] = value
+            if preserved:
+                state._log_action("foundation_identity_preserved", {
+                    "character_id": char_id,
+                    "fields": preserved,
+                })
         hydrated_characters[char_id] = Character(
             id=char_id,
-            full_name=str(raw["name"]).strip(),
+            **identity,
             role=str(raw.get("role") or "supporting"),
             age=age,
             physical_description=str(raw.get("physical_description") or ""),
@@ -163,7 +189,16 @@ def apply_story_foundation(
         ):
             if field in raw:
                 setattr(chapter, field, raw[field])
-        chapter.pov_character = str(raw.get("pov") or "")
+        pov_reference = str(raw.get("pov") or "").strip()
+        pov = state.characters.get(pov_reference) or state.get_character_by_name(pov_reference)
+        if pov is None:
+            # A foundation's original name has a stable character-ID binding.
+            # Replay after an author rename uses that binding, without adding
+            # the obsolete name as an alias or guessing from partial names.
+            source_ids = foundation_character_names.get(pov_reference.casefold(), set())
+            if len(source_ids) == 1:
+                pov = state.characters[next(iter(source_ids))]
+        chapter.pov_character = pov.full_name if pov is not None else pov_reference
         summary = str(raw.get("summary") or "").strip()
         if summary and summary not in chapter.plot_advances:
             chapter.plot_advances.append(summary)

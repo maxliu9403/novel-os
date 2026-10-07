@@ -86,6 +86,7 @@ def _run_deploy(tmp_path: Path, *args: str, input_text: str = "") -> tuple[subpr
     env["FAKE_DOCKER_LOG"] = str(log)
     env["FAKE_PROMPT_CAPTURE"] = str(capture)
     env["NOVEL_OS_DATA_DIR"] = str(tmp_path / "data")
+    env["CODEX_HOME"] = str(tmp_path / "codex")
     env["NOVEL_OS_NONINTERACTIVE"] = "1"
     env["NOVEL_OS_APPROVAL"] = "auto"
     env["NOVEL_OS_OUTPUT"] = "markdown epub"
@@ -114,6 +115,22 @@ def test_novel_forwards_prompt_to_backend_with_container_project_path(tmp_path: 
     assert "--approval auto" in calls
     assert "--output markdown epub" in calls
     assert capture.read_text(encoding="utf-8") == "# A prompt from the author\n"
+
+
+@pytest.mark.parametrize("mode", ["off", "advisory"])
+def test_novel_forwards_explicit_review_mode(tmp_path: Path, monkeypatch, mode: str):
+    monkeypatch.setenv("NOVEL_OS_METHOD_MODE", mode)
+    result, log, _ = _run_deploy(tmp_path, "novel")
+    assert result.returncode == 0, result.stderr
+    assert f"--method-mode {mode}" in log.read_text()
+
+
+def test_novel_rejects_invalid_review_mode_before_running(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("NOVEL_OS_METHOD_MODE", "write")
+    result, log, _ = _run_deploy(tmp_path, "novel")
+    assert result.returncode != 0
+    assert "Method mode must be off or advisory" in result.stderr
+    assert "compose exec" not in log.read_text()
 
 
 def test_novel_status_uses_latest_persisted_run_without_manual_run_id(tmp_path: Path):
@@ -466,6 +483,59 @@ def test_invalid_compose_configuration_stops_before_starting_or_creating_data(tm
     assert "Invalid Compose configuration" in result.stderr
     assert "compose up" not in log.read_text()
     assert not data_dir.exists()
+
+
+@pytest.mark.parametrize("command", ["up", "restart"])
+def test_deployment_automatically_updates_bundled_skills(tmp_path: Path, command: str):
+    bin_dir, log, capture = _fake_docker(tmp_path)
+    codex_home = tmp_path / "codex home"
+    old = codex_home / "skills" / "novel-brainstorm-workshop"
+    old.mkdir(parents=True)
+    (old / "SKILL.md").write_text("old installed skill\n")
+    (old / "obsolete.md").write_text("personal note\n")
+    unrelated = codex_home / "skills" / "personal-skill"
+    unrelated.mkdir()
+    (unrelated / "SKILL.md").write_text("keep me\n")
+    env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}",
+               FAKE_DOCKER_LOG=str(log), FAKE_PROMPT_CAPTURE=str(capture),
+               NOVEL_OS_DATA_DIR=str(tmp_path / "data"), CODEX_HOME=str(codex_home))
+
+    result = subprocess.run([str(SCRIPT), command], cwd=ROOT, env=env,
+                            text=True, capture_output=True)
+
+    assert result.returncode == 0, result.stderr
+    for name in ("novel-brainstorm-workshop", "high-retention-web-novel", "novel-cover-studio"):
+        assert (codex_home / "skills" / name / "SKILL.md").read_bytes() == (ROOT / "skills" / name / "SKILL.md").read_bytes()
+    assert not (old / "obsolete.md").exists()
+    backups = list((codex_home / "skill-backups").glob("*/novel-brainstorm-workshop"))
+    assert len(backups) == 1
+    assert (backups[0] / "obsolete.md").read_text() == "personal note\n"
+    assert (unrelated / "SKILL.md").read_text() == "keep me\n"
+    assert "compose up --detach --build" in log.read_text()
+
+
+def test_skill_sync_failure_does_not_stop_current_services(tmp_path: Path):
+    bin_dir, log, capture = _fake_docker(tmp_path)
+    codex_home = tmp_path / "codex"
+    codex_home.mkdir()
+    (codex_home / "skills").write_text("not a directory")
+    env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}",
+               FAKE_DOCKER_LOG=str(log), FAKE_PROMPT_CAPTURE=str(capture),
+               NOVEL_OS_DATA_DIR=str(tmp_path / "data"), CODEX_HOME=str(codex_home))
+
+    result = subprocess.run([str(SCRIPT), "restart"], cwd=ROOT, env=env,
+                            text=True, capture_output=True)
+
+    assert result.returncode != 0
+    assert "compose down" not in log.read_text()
+    assert "compose up" not in log.read_text()
+
+
+@pytest.mark.parametrize("command", ["build", "status", "down", "config"])
+def test_non_upgrade_commands_do_not_install_skills(tmp_path: Path, command: str):
+    result, _, _ = _run_deploy(tmp_path, command)
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "codex").exists()
 
 
 @pytest.mark.parametrize("override", [False, True])

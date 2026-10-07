@@ -74,7 +74,7 @@ def build_context_pack(
     ch = state.get_chapter(chapter) if hasattr(state, "get_chapter") else None
     hint_text = _chapter_hint_text(state, chapter, ch)
     if chapter_text:
-        hint_text = f"{hint_text}\n{chapter_text[:8000]}"
+        hint_text = f"{hint_text}\n{chapter_text}"
 
     cast_map: Dict[str, Dict[str, Any]] = {}
 
@@ -88,6 +88,9 @@ def build_context_pack(
                 "why": why,
                 "rank": rank,
             }
+            character = state.characters.get(cid)
+            if character is not None:
+                cast_map[cid].update(character.identity_dict())
 
     # 1) POV
     pov_name = (getattr(ch, "pov_character", None) or "").strip() if ch else ""
@@ -100,7 +103,7 @@ def build_context_pack(
 
     # 2) Named in outline/synopsis/hint
     for char in state.get_all_characters():
-        if _name_in_text(char.full_name, hint_text):
+        if any(_name_in_text(name, hint_text) for name in [char.full_name, *char.aliases]):
             add_cast(char.id, char.full_name, char.role, "mentioned", 85)
 
     # characters_present on chapter
@@ -249,11 +252,13 @@ def format_context_pack(pack: ContextPack, *, max_chars: int | None = None) -> s
 
     if pack.cast:
         lines.append("### Cast")
+        lines.append(_IDENTITY_GUIDANCE)
         for c in pack.cast:
             bits = [f"**{c['name']}**"]
             if c.get("role"):
                 bits.append(f"({c['role']})")
             bits.append(f"[{c.get('why', '')}]")
+            bits.append(_identity_text(c))
             lines.append("- " + " ".join(bits))
         lines.append("")
 
@@ -349,8 +354,11 @@ def format_context_pack_raw(pack: ContextPack) -> str:
         lines.append("")
     if pack.cast:
         lines.append("### Cast")
+        lines.append(_IDENTITY_GUIDANCE)
         for c in pack.cast:
-            lines.append(f"- **{c['name']}** ({c.get('role') or ''}) [{c.get('why')}]")
+            lines.append(
+                f"- **{c['name']}** ({c.get('role') or ''}) [{c.get('why')}] {_identity_text(c)}"
+            )
         lines.append("")
     if pack.bonds:
         lines.append("### Relationships")
@@ -456,18 +464,28 @@ def _recent_foreshadowing(state: Any, chapter: int, max_gap: int = 6) -> List[Di
     return out
 
 
+_IDENTITY_GUIDANCE = (
+    "Identity lock: use canonical names and only declared aliases; keep the recorded "
+    "gender and pronouns (他/她) for each referent. Never infer from a name or role. "
+    "If pronouns or the referent are unclear, use the canonical name; flag uncertainty."
+)
+
+
+def _identity_text(character: Dict[str, Any]) -> str:
+    aliases = ", ".join(character.get("aliases") or []) or "none"
+    return (
+        f"id={character['id']}; gender={character.get('gender') or 'unspecified'}; "
+        f"pronouns={character.get('pronouns') or 'unspecified (use name)'}; aliases={aliases}"
+    )
+
+
 def _find_character_by_name(state: Any, name: str) -> Any:
-    needle = (name or "").strip().lower()
-    if not needle:
-        return None
-    for char in state.get_all_characters():
-        if char.full_name.lower() == needle:
-            return char
-    return None
+    return state.characters.get(name) or state.get_character_by_name(name)
 
 
 def _name_in_text(name: str, text: str) -> bool:
     n = (name or "").strip()
-    if len(n) < 3:
+    # Two-character Chinese names are common and must not disappear from cast.
+    if len(n) < 2:
         return False
     return n.lower() in (text or "").lower()

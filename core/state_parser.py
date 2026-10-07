@@ -276,13 +276,17 @@ def _resolve_character_id(state: "StoryState", name: str) -> Optional[str]:
     direct = state.get_character_by_name(name)
     if direct:
         return direct.id
-    # Loose match: first/last name token
-    lower = name.lower()
-    for char in state.characters.values():
-        full = char.full_name.lower()
-        if lower == full or lower in full.split():
-            return char.id
-    return None
+    # Legacy first/last-name references are safe only when unique. Never
+    # attribute an update to the first relative with a shared surname.
+    lower = name.casefold()
+    matches = [
+        char.id for char in state.characters.values()
+        if any(
+            lower == value.casefold() or lower in value.casefold().split()
+            for value in [char.full_name, *char.aliases]
+        )
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _split_pair(item: str, sep_chars: str = ":-—") -> Tuple[str, str]:

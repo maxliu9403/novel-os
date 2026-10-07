@@ -7,6 +7,29 @@ import * as client from "../api/client";
 
 afterEach(() => vi.restoreAllMocks());
 
+test("creates a manuscript with expanded hybrid themes and preserves every selection", async () => {
+  vi.spyOn(client.api, "projects").mockResolvedValue([]);
+  vi.spyOn(client.api, "studioLlm").mockRejectedValue(new Error("not configured"));
+  const create = vi.spyOn(client.api, "createProject").mockResolvedValue({
+    id: "new-door", title: "新的门", genre: "", chapter_count: 0, status: "draft",
+  });
+  const user = userEvent.setup();
+  render(<MemoryRouter><ProjectsList /></MemoryRouter>);
+  await user.click((await screen.findAllByRole("button", { name: /新建作品/ }))[0]);
+  for (const label of ["复仇", "伦理", "女性成长", "男性成长", "CEO", "黑手党", "狼人", "玄幻", "恐怖", "家庭背叛", "霸总", "名人明星", "受到虐待", "皇后女王", "一见钟情", "办公室恋情", "职场闹剧", "同性恋", "单身父母亲", "富豪", "怀孕", "末日降临"]) {
+    expect(screen.getByRole("button", { name: label, exact: true })).toBeInTheDocument();
+  }
+  await user.type(screen.getByPlaceholderText("例如：最后的信号"), "新的门");
+  for (const label of ["家庭背叛", "女性成长", "怀孕", "单身父母亲"]) {
+    await user.click(screen.getByRole("button", { name: label, exact: true }));
+  }
+  await user.click(screen.getByRole("button", { name: "创建作品" }));
+  await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({
+    title: "新的门",
+    genres: ["Domestic Betrayal", "Female Growth", "Pregnancy", "Single Parent"],
+  })));
+});
+
 test("renders project cards from the API", async () => {
   vi.spyOn(client.api, "projects").mockResolvedValue([
     { id: "the-last-signal", title: "The Last Signal", genre: "Sci-Fi", chapter_count: 3, status: "in_progress" },

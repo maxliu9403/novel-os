@@ -469,6 +469,9 @@ class ProjectService:
                 id=c.id,
                 full_name=c.full_name,
                 role=c.role,
+                gender=c.gender,
+                pronouns=c.pronouns,
+                aliases=list(c.aliases),
                 portrait_media_id=getattr(c, "portrait_media_id", "") or "",
                 portrait_url=(
                     f"/api/projects/{project_id}/media/{c.portrait_media_id}/raw"
@@ -496,6 +499,7 @@ class ProjectService:
                     portrait_url=c.portrait_url,
                     summary="",
                     notes="",
+                    fields={"gender": c.gender, "pronouns": c.pronouns, "aliases": list(c.aliases)},
                 ))
         if entry_type != "character":
             s = self._load(project_id)
@@ -673,6 +677,7 @@ class ProjectService:
         "full_name", "role", "age", "physical_description", "internal_desire",
         "external_goal", "fear", "weakness", "strength", "secret",
         "arc_stage", "current_location", "emotional_state", "notes",
+        "gender", "pronouns", "aliases",
     )
     EDITABLE_CODEX_FIELDS = ("name", "summary", "notes", "tags")
 
@@ -703,7 +708,10 @@ class ProjectService:
                 raise BadRequest("Name cannot be empty.")
             if not updates:
                 raise BadRequest("Nothing to update.")
-            s.update_character(entry_id, updates)
+            try:
+                s.update_character(entry_id, updates, allow_identity_change=True)
+            except ValueError as exc:
+                raise BadRequest(str(exc)) from exc
             s.save_state()
             return self._codex_entry(project_id, entry_id)
 

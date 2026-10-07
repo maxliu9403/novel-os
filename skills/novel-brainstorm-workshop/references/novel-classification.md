@@ -1,7 +1,8 @@
 # Novel Classification Contract
 
-Use Novel OS catalog version `novel-types.2026-09`. Classification is a story
-design contract, not a free-form list of promotional words.
+Use Novel OS catalog version `novel-types.2026-10`. Classification is a story
+design contract, not a free-form list of promotional words. Existing September
+contracts remain readable with their original identity; new ids require October.
 
 ## Axes
 
@@ -13,6 +14,8 @@ Select exactly one primary genre:
 - `mystery` — Mystery / 悬疑
 - `thriller` — Thriller / 惊悚
 - `fantasy` — Fantasy / 奇幻
+- `xuanhuan` — Xuanhuan / 玄幻
+- `horror` — Horror / 恐怖
 - `supernatural` — Supernatural / 超自然
 - `contemporary_realism` — Contemporary Realism / 情感现实主义
 - `young_adult` — Young Adult / 青春
@@ -24,6 +27,10 @@ story types:
 - `revenge`, `second_chance`
 - `mafia`, `werewolf`, `royal_intrigue`
 - `domestic_betrayal`, `marriage_crisis`
+- `ethical_dilemma`, `female_growth`, `male_growth`
+- `celebrity`, `abuse_survival`, `queen_empress`
+- `love_at_first_sight`, `office_romance`, `workplace_comedy`, `same_sex_romance`
+- `single_parent`, `billionaire`, `pregnancy`, `apocalypse`
 
 Select up to three tones:
 
@@ -52,7 +59,7 @@ Place exactly one block after the parseable top fields. Use canonical ids only:
 ```json
 {
   "schema_version": "novel-classification.v1",
-  "catalog_version": "novel-types.2026-09",
+  "catalog_version": "novel-types.2026-10",
   "primary_genre_id": "<one primary id>",
   "secondary_genre_ids": ["<zero to two ids>"],
   "story_type_ids": ["<zero to three ids>"],

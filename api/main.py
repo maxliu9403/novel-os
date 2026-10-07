@@ -16,6 +16,7 @@ from .services import (
     PromotionUnavailable,
 )
 from .version import __version__
+from .workshop import router as workshop_router
 
 
 #: Vite's default, and the next port it falls back to when that one is taken -
@@ -85,6 +86,7 @@ def create_app(projects_root: Optional[Path] = None, db_url: Optional[str] = Non
         allow_headers=["*"],
     )
     app.include_router(router)
+    app.include_router(workshop_router)
     if projects_root is not None:
         app.dependency_overrides[get_service] = lambda: ProjectService(projects_root)
     if media_root is not None:

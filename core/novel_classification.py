@@ -17,7 +17,9 @@ from typing import Any, Iterable, Mapping, Sequence
 
 
 SCHEMA_VERSION = "novel-classification.v1"
-CATALOG_VERSION = "novel-types.2026-09"
+CATALOG_VERSION = "novel-types.2026-10"
+LEGACY_CATALOG_VERSION = "novel-types.2026-09"
+SUPPORTED_CATALOG_VERSIONS = frozenset({LEGACY_CATALOG_VERSION, CATALOG_VERSION})
 
 SOURCES = frozenset({"engine_inferred", "author_confirmed", "legacy_migration"})
 AUDIENCE_CHANNELS = frozenset({"female", "male", "general"})
@@ -88,6 +90,15 @@ PRIMARY_GENRES = (
     ),
     _entry("fantasy", "primary_genre", "奇幻", "Fantasy", "growth", "幻想"),
     _entry(
+        "xuanhuan", "primary_genre", "玄幻", "Xuanhuan", "growth", "玄幻小说",
+        "cultivation fantasy", "eastern fantasy",
+        design="Make cultivation rules, advancement costs, and rival responses drive earned growth and escalating stakes.",
+    ),
+    _entry(
+        "horror", "primary_genre", "恐怖", "Horror", "growth", "恐怖小说",
+        design="Establish an escalating source of dread whose rules constrain choices and make survival costly.",
+    ),
+    _entry(
         "supernatural", "primary_genre", "超自然", "Supernatural", "growth",
         "paranormal", "超自然小说",
     ),
@@ -114,7 +125,7 @@ STORY_TYPES = (
     ),
     _entry(
         "ceo_romance", "story_type", "CEO浪漫", "CEO Romance", "growth",
-        "billionaire romance", "boss romance", "霸总", "总裁",
+        "billionaire romance", "boss romance", "霸总", "总裁", "CEO", "霸道总裁",
         design="Make the power imbalance produce consequential choices rather than decorative wealth.",
     ),
     _entry(
@@ -153,6 +164,76 @@ STORY_TYPES = (
         "marriage_crisis", "story_type", "婚姻危机", "Marriage Crisis", "core",
         "marital crisis", "divorce", "离婚", "婚变",
         design="Center incompatible marital choices and force a durable change in the relationship structure.",
+    ),
+    _entry(
+        "ethical_dilemma", "story_type", "伦理", "Ethical Drama", "core",
+        "ethics", "ethical dilemma", "family ethics", "伦理小说",
+        design="Give competing obligations credible emotional weight; trace injury, interpretation, conflicting feelings, and a consequential moral choice.",
+    ),
+    _entry(
+        "female_growth", "story_type", "女性成长", "Female Growth", "core",
+        "women's growth", "woman's growth", "female coming of age", "女性/男性成长",
+        design="Ground her changing self-belief in specific wounds, mixed emotions, and increasingly independent choices with lasting consequences.",
+    ),
+    _entry(
+        "male_growth", "story_type", "男性成长", "Male Growth", "core",
+        "men's growth", "man's growth", "male coming of age", "女性/男性成长",
+        design="Ground his changing self-belief in specific wounds, mixed emotions, and increasingly responsible choices with lasting consequences.",
+    ),
+    _entry(
+        "celebrity", "story_type", "名人明星", "Celebrity", "growth",
+        "celebrities", "celebrity romance", "famous star", "娱乐圈", "明星",
+        design="Make public image, private needs, and career obligations collide in costly personal decisions.",
+    ),
+    _entry(
+        "abuse_survival", "story_type", "受到虐待", "Abuse Survival", "core",
+        "abuse survivor", "abused", "domestic abuse", "受虐", "遭受虐待", "家暴",
+        design="Show the survivor's lived emotional impact, constraints, and choices toward agency; make recovery earned and never confuse abuse with proof of love.",
+    ),
+    _entry(
+        "queen_empress", "story_type", "皇后女王", "Queen / Empress", "growth",
+        "queen", "empress", "皇后", "女王",
+        design="Give the queen or empress concrete authority, obligations, and personal loyalties that shape consequential decisions.",
+    ),
+    _entry(
+        "love_at_first_sight", "story_type", "一见钟情", "Love at First Sight", "growth",
+        "instant attraction",
+        design="Turn immediate attraction into tested trust through later choices, incompatible needs, and earned emotional intimacy.",
+    ),
+    _entry(
+        "office_romance", "story_type", "办公室恋情", "Office Romance", "growth",
+        "workplace romance", "办公室恋爱",
+        design="Make workplace responsibilities, professional boundaries, and attraction create credible relational costs and choices.",
+    ),
+    _entry(
+        "workplace_comedy", "story_type", "职场闹剧", "Workplace Comedy", "growth",
+        "office comedy", "workplace farce", "职场喜剧",
+        design="Build escalating comic consequences from clashing workplace goals while preserving believable motives and emotional stakes.",
+    ),
+    _entry(
+        "same_sex_romance", "story_type", "同性恋", "Same-Sex Romance", "growth",
+        "gay romance", "lesbian romance", "queer romance", "同性恋情", "同性之爱",
+        design="Build a specific same-sex relationship with distinct personalities, reciprocal attraction, emotional choices, and earned intimacy.",
+    ),
+    _entry(
+        "single_parent", "story_type", "单身父母亲", "Single Parent", "growth",
+        "single mother", "single father", "single parents", "单亲", "单身母亲", "单身父亲",
+        design="Make caregiving, limited resources, and personal desires produce difficult choices for a parent with an independent emotional life.",
+    ),
+    _entry(
+        "billionaire", "story_type", "富豪", "Billionaire", "growth",
+        "millionaire", "wealthy heir", "富翁", "豪门",
+        design="Make wealth change access, dependency, and family or romantic obligations instead of serving only as luxury scenery.",
+    ),
+    _entry(
+        "pregnancy", "story_type", "怀孕", "Pregnancy", "growth",
+        "pregnant", "expecting a baby", "孕期",
+        design="Give pregnancy concrete emotional and practical consequences, preserve the pregnant character's agency, and let choices reshape relationships.",
+    ),
+    _entry(
+        "apocalypse", "story_type", "末日降临", "Apocalypse", "growth",
+        "apocalyptic", "doomsday", "end of the world", "末日", "末世",
+        design="Stage the unfolding collapse through causal losses, survival choices, changing alliances, and escalating consequences.",
     ),
 )
 
@@ -199,6 +280,12 @@ _BY_AXIS = {
     "setting": {item.id: item for item in SETTINGS},
 }
 _ALL = {item.id: item for values in _AXES.values() for item in values}
+_OCTOBER_IDS = frozenset({
+    "xuanhuan", "horror", "ethical_dilemma", "female_growth", "male_growth",
+    "celebrity", "abuse_survival", "queen_empress", "love_at_first_sight",
+    "office_romance", "workplace_comedy", "same_sex_romance", "single_parent",
+    "billionaire", "pregnancy", "apocalypse",
+})
 _TIER_ORDER = {"core": 0, "growth": 1, "experimental": 2, "compatibility": 3}
 
 
@@ -293,8 +380,11 @@ class NovelClassification:
     chapter_band: str = "unknown"
     source: str = "engine_inferred"
     confidence: float = 0.5
+    catalog_version: str = CATALOG_VERSION
 
     def __post_init__(self) -> None:
+        if self.catalog_version not in SUPPORTED_CATALOG_VERSIONS:
+            raise ValueError("classification catalog_version is unsupported")
         if self.primary_genre_id not in _BY_AXIS["primary_genre"]:
             raise ValueError("primary_genre_id is unknown")
         for field_name, axis, maximum in (
@@ -310,6 +400,8 @@ class NovelClassification:
                 maximum=maximum,
             )
             object.__setattr__(self, field_name, normalized)
+        if self.catalog_version == LEGACY_CATALOG_VERSION and _OCTOBER_IDS.intersection(self.filter_type_ids):
+            raise ValueError("classification ids are not available in this catalog_version")
         if self.primary_genre_id in self.secondary_genre_ids:
             raise ValueError("primary_genre_id cannot also be secondary")
         if {"sweet_romance", "dark_romance"} <= set(self.story_type_ids):
@@ -354,7 +446,7 @@ class NovelClassification:
 
     def _identity_payload(self) -> dict[str, Any]:
         return {
-            "catalog_version": CATALOG_VERSION,
+            "catalog_version": self.catalog_version,
             "primary_genre_id": self.primary_genre_id,
             "secondary_genre_ids": list(self.secondary_genre_ids),
             "story_type_ids": list(self.story_type_ids),
@@ -394,7 +486,7 @@ class NovelClassification:
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": SCHEMA_VERSION,
-            "catalog_version": CATALOG_VERSION,
+            "catalog_version": self.catalog_version,
             "classification_id": self.classification_id,
             **self._identity_payload(),
             "commercial_tier": self.commercial_tier,
@@ -413,13 +505,14 @@ class NovelClassification:
             raise ValueError("classification must be an object")
         if data.get("schema_version", SCHEMA_VERSION) != SCHEMA_VERSION:
             raise ValueError("classification schema_version is unsupported")
-        if data.get("catalog_version", CATALOG_VERSION) != CATALOG_VERSION:
+        if data.get("catalog_version", CATALOG_VERSION) not in SUPPORTED_CATALOG_VERSIONS:
             raise ValueError("classification catalog_version is unsupported")
         audience = data.get("audience") or {}
         length = data.get("length") or {}
         if not isinstance(audience, Mapping) or not isinstance(length, Mapping):
             raise ValueError("classification audience and length must be objects")
         value = cls(
+            catalog_version=str(data.get("catalog_version", CATALOG_VERSION)),
             primary_genre_id=str(data.get("primary_genre_id") or "").strip(),
             secondary_genre_ids=_validated_ids(
                 data.get("secondary_genre_ids"), axis="primary_genre",
@@ -604,11 +697,21 @@ def classification_from_metadata(
     )
 
 
-def design_requirements(classification: NovelClassification) -> tuple[str, ...]:
+def design_requirements(
+    classification: NovelClassification, *, genre: str = "",
+) -> tuple[str, ...]:
+    # Canonical publication tags stay bounded, but every author-selected genre
+    # must reach planning even when a hybrid includes more than three tropes.
+    ids = dict.fromkeys((
+        classification.primary_genre_id,
+        *classification.secondary_genre_ids,
+        *classification.story_type_ids,
+        *_matches(_normalized_text(genre), (*PRIMARY_GENRES, *STORY_TYPES)),
+    ))
     return tuple(
-        _BY_AXIS["story_type"][item_id].design_requirement
-        for item_id in classification.story_type_ids
-        if _BY_AXIS["story_type"][item_id].design_requirement
+        _ALL[item_id].design_requirement
+        for item_id in ids
+        if _ALL[item_id].design_requirement
     )
 
 
@@ -628,6 +731,7 @@ def catalog_payload() -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
         "catalog_version": CATALOG_VERSION,
+        "supported_catalog_versions": sorted(SUPPORTED_CATALOG_VERSIONS),
         "axes": {
             axis: [public(item) for item in entries]
             for axis, entries in _AXES.items()

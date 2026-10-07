@@ -7,9 +7,13 @@ Novel OS owns the canonical classification. Human-readable `genre` and
 ## Schema
 
 Every new Prompt Intake produces `novel-classification.v1` against catalog
-`novel-types.2026-09`. A prompt may lock the classification in one
+`novel-types.2026-10`. A prompt may lock the classification in one
 `[NOVEL_CLASSIFICATION_JSON]` block. Legacy projects are deterministically
 projected from genre, premise, audience, tone, and chapter target.
+
+The engine also accepts existing `novel-types.2026-09` objects without changing
+their version, labels, or identity hash. New October-only ids require the October
+catalog. The checked-in H5 book fixtures retain their original September contract.
 
 The classification separates:
 
@@ -29,6 +33,21 @@ live in `narrative-format.v1`; see `docs/narrative-format.md`.
 filter. `classification_id` hashes the semantic fields so importers can detect
 changes. `display_labels` is a localized snapshot; database keys remain the
 canonical ids.
+
+## Expanded work types
+
+The creation form supports revenge, ethics, female/male growth, CEO / dominant
+boss romance, mafia, werewolf, xuanhuan, horror, domestic betrayal, celebrity,
+abuse survival, queen/empress, love at first sight, office romance, workplace
+comedy, same-sex romance, single parent, billionaire, pregnancy, and apocalypse.
+Chinese and English selections map to stable ids. CEO and 霸总 share
+`ceo_romance`; female and male growth are separate story types. Xuanhuan and
+horror are primary genres. The remaining new themes are story types with
+concrete planning requirements.
+
+All selected genres remain in the creative brief. Canonical publication tags
+retain their three-story-type limit; planning requirements include every
+selected recognized theme, including those beyond that limit.
 
 ## Publication locations
 
@@ -71,7 +90,7 @@ Each book's `meta/novel-classification.json` has this complete shape:
 ```json
 {
   "schema_version": "novel-classification.v1",
-  "catalog_version": "novel-types.2026-09",
+  "catalog_version": "novel-types.2026-10",
   "classification_id": "classification:<sha256>",
   "primary_genre_id": "womens_fiction",
   "secondary_genre_ids": ["family_drama"],

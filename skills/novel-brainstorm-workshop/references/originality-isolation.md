@@ -1,98 +1,50 @@
-# Originality Isolation
+# 材料用途与原创隔离
 
-Use this reference whenever examples, samples, prior books, or a corpus inform
-story selection. Learn mechanisms, not expression.
+先识别材料用途再提取事实。原创隔离只适用于用户提供的参考作品，不能成为擅自改掉
+本书人物、剧情或地域的理由。用户“基于我给的框架完善”通常就是保留本书设计。
 
-## Classify before extracting facts
+## 四类材料
 
-- `reference_only`: supplied books, excerpts, sample openings, and outlines used
-  to inspire a new project. This is the default for a new book, even when the
-  user owns the files or says “expand this story.” Preserve the desired reading
-  experience, not its named cast, distinctive scenes, or ordered revelations.
-- `project_canon`: the user's identified current manuscript that they explicitly
-  want continued or revised. Its verified facts and authorized prose belong to
-  that project and may enter its continuity context. Do not impose reference
-  isolation on the very manuscript the user asked to edit.
-- `user_constraint`: independently stated preferences and approved new design
-  choices. Approving an abstract mechanism does not promote its source book to
-  canon. A request to retain a source's distinctive plot conflicts with
-  `reference_only`; surface the conflict before proceeding, rather than silently
-  relabeling the source.
+- `author_brief`：用户为本书提供的构想、人物背景、原创框架和已确定分章细纲。
+  保留这些选择，补全心理与因果、指出冲突，再按反馈修订。新书尚无正文也可以有确定设定。
+- `reference_only`：明确用于灵感、格式、风格分析或市场比较的别的小说、样例或片段。
+  仅按指定用途提取抽象机制，不把原作的独特表达、角色对应和反转链搬成本书。
+- `project_canon`：用户明确要继续或修改的现有项目／正文。核实其事实用于连续性，
+  不把要续写的正文强制当作需要从零重建的外部参考。
+- `user_constraint`：独立偏好、限制和经用户接受的新设计。注明是必要约束还是建议。
 
-An explicit “only inspiration; recreate it” instruction takes precedence over
-automatic continuation routing. Reuse established material-use decisions;
-do not ask for confirmation on each new file when the policy is already clear.
+“只提供思路，另创一本”明确采用 `reference_only`；“这是我的本书框架，帮我完善”
+采用 `author_brief`。已有材料用途决定继续有效，无须每个文件再次确认。
+所有权或文件格式单独不能决定用途；如果保留还是重构会实质改变任务且确有歧义，再问一次。
 
-Keep a private record of supplied file path, material-use label, user intent,
-allowed abstract mechanisms, and comparison findings. Store it outside `prompt/`
-and other runtime context inputs. This is a provenance record, not another
-required external-research phase. Source-specific evidence belongs here only.
+记录材料路径、用途、保留范围和比较结果，放在内部工作记录中。参考来源路径、比较稿和
+未选方案不放入运行 prompt。用户本书的确定设定可以进入 prompt，这并非来源泄漏。
 
-## Isolation boundary
+## 对 reference_only 的隔离边界
 
-- Never put raw corpus prose, sample dialogue, titles, names, paths, summaries,
-  distinctive objects, signature metaphors, or scene sequences into a runtime
-  prompt.
-- Never retrieve the nearest matching story for imitation, rewriting, or
-  title/name substitution.
-- Do not create embeddings, a vector index, semantic search, or RAG over raw
-  sample chapters for generation.
-- Do not preserve a distinctive reversal chain while changing surface nouns.
-- Do not imitate sentence rhythm, repeated phrases, or character catchphrases.
-- Do not treat multiple high-similarity samples as independent proof that one
-  formula is superior.
+- Never retrieve the nearest matching story for imitation, rewriting, or name substitution.
+- Keep raw corpus prose, reference dialogue, source paths, distinctive object/reveal sequences,
+  and source-specific summaries outside runtime prompts and their attachments.
+- 不建立用于模仿样例章节的向量库、语义检索或 RAG；不把多个近似样例当作优越性证据。
+- 不保留独特反转链而只更换名字、地点或词句；不模仿招牌台词、独特比喻或句式串。
 
-## Allowed learning
+可学习阅读动机、冲突类型、资源类别、付费窗口功能、钩子类别、回报节奏和失败模式。
+格式样例可以提供字段结构，不自动提供本书角色或情节。
 
-Use only aggregate facts and controlled abstractions:
+## 参考驱动的新故事检查
 
-- reader jobs;
-- premise dimensions;
-- conflict levels and resource types;
-- free-window roles;
-- satisfaction and hook categories;
-- failure modes and quality budgets;
-- abstract structural fingerprints without source expression.
+从新主角的经历、能力、欲望、关系和限制向前推演剧情，不沿参考目录逐章替换。
+检查开篇与全书转折：角色映射、关键物件、揭示顺序、因果机制和高潮解法是否仍一一对应。
+若仍依赖参考的独特事件链，重建因果；换掉若干名字或低相似度分数并不证明原创。
+常见题材惯例可以保留，目标是独立的叙事因果，不是为了不同而随机改动。
 
-## Design review
+保留具体比较发现及限制，不承诺仅审查给定材料就能证明全球唯一或法律许可。
+该比较不适用于检查“作者自己的框架是否与作者自己的最终骨架相似”；那里应检查设定保留。
 
-Create the new protagonist's lived history, goal, resources, relationship power,
-rule limits/costs, initiating choice, evidence/reveal progression, and ending
-from the approved reader promise. Design major events forward from those new
-choices. Do not keep the source outline open as a scene-by-scene writing plan.
+## 运行交付
 
-Before approval, ask:
-
-1. Does the premise still work after removing every sample-specific object?
-2. Does the protagonist's agency arise from this character's lived history?
-3. Are proof, deadline, action cost, and belonging combined differently from
-   high-risk structural clusters?
-4. Does the free-window action sequence reflect this premise rather than a
-   remembered sample?
-5. Can every key scene be justified from the approved contract alone?
-
-Compare both the opening and the whole-book turning-point chain privately
-against the references. Check character-role mappings, distinctive objects,
-the order and mechanism of revelations, and how the climax is resolved. If
-the sequence still maps one-to-one, fail the review even when names, setting,
-or wording differ. Return to premise design, rebuild the causal chain, then
-review again. A count of changed dimensions or a similarity score alone is not
-proof of originality. Ordinary genre conventions may remain; the goal is
-independent dramatic causality, not random decoration.
-
-Record concrete comparison findings and their limits. Do not promise universal
-uniqueness or a legal clearance from a review of the supplied material alone.
-
-## Runtime handoff
-
-For every genre, the runtime receives only the approved original story and
-chapter contracts, recent verified outcomes, and the current project's canon;
-commercial work also carries `COMMERCIAL_STORY_JSON`. Its `workshop_trace` is
-selected-design-only and source-free. It does not receive the private material
-record, rejected approaches, corpus snapshot, source lookup, or sample identity.
-
-Check the whole assembled prompt and every attachment, including cover metadata,
-decision history, summaries, and instruction appendices. Isolation of one JSON
-block is insufficient if the raw chapters are pasted elsewhere. Inspect the
-written opening and major payoffs again before delivery for accidental reuse;
-passing the design review does not pre-approve future prose.
+运行 prompt 只包含已选本书设计、用户限制、必要的既有 canon 和明确假设。
+`workshop_trace` 为 selected-design-only；商业作品加 `[COMMERCIAL_STORY_JSON]`，
+但不带来源检索载荷、参考正文、私有比较过程和未选方案。
+检查完整文件及附件、封面交接、摘要和附录，不能仅检查某个 JSON 块。
+将来正文出现后另行审读；设计检查不能预先认证未生成的文字。

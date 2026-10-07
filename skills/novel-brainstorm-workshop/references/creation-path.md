@@ -1,63 +1,39 @@
-# Ordered Creation Path
+# 执行顺序与检查边界
 
-The workshop designs the book; `high-retention-web-novel` supplies the chapter
-craft and review method. Novel OS is the execution system. A Skill instruction
-is not evidence that a runtime gate has been implemented or deployed.
+Workshop 负责设计与交付，Novel OS 负责执行。若另已安装 `high-retention-web-novel`，
+可供章节技法与审读参考；本包核心流程不以另一套个人 Skill 为前置条件。
+Skill 规则不是“引擎已实施运行门禁”的证据，不以本任务为由改动引擎。
 
-Use this dependency order for a full-book project. Stages define evidence and
-decisions, not a mandatory plot formula. Reuse prior approvals and artifacts
-when they remain valid; do not repeat interviews or confirmations. An accepted
-change invalidates only the affected downstream decisions and evidence.
+复用会话内已确定的事实与授权。阶段表示依赖关系，不表示每阶段都要暂停一次。
+Sections A-E 可以一次整体确认。用户无限次修订；仅失效受改动影响的下游决定。
 
-| Stage | Required work and artifact | Gate to proceed | Repair route |
+| 阶段 | 工作与产物 | 完成条件 | 修复路径 |
 |---|---|---|---|
-| 0. Material boundary | Label inputs `reference_only`, `project_canon`, or `user_constraint`; keep private provenance and extract only allowed mechanisms | The purpose of every input is known; source identity/plot is not assumed to be new canon | Resolve consequential ambiguity before dependent planning |
-| 1. Reader and scope | Confirm audience, relevant market/language, narrative length, emotional promise, and boundaries | Required choices are already explicit or newly confirmed | Ask only the missing high-impact question |
-| 2. Original approaches | Build 2-3 substantially different engines from abstract mechanisms and new character choices; privately compare with references | Each option is independently causal; user selects a route | Rebuild derivative or weak options; do not rename the same plot |
-| 3. Story design A-C | Story/ending contracts, characters, relationships, rules, secrets, timeline, payoff ledger; voice guidance and major emotional-change evidence plans | Approved goals, costs, agency, and ending can explain the major turns | Repair the earliest broken motivation, rule, or causal link |
-| 4. Structure D | Chapter functions and map; opening scene plans; pivotal scenes and emotional aftermath; paid bridge if relevant; final payoff window | Chapters earn their space and the story can support the approved length | Rework structure or propose a scope adjustment; never pad |
-| 5. Design review E | Originality, anti-padding, character/emotion, continuity, payoff coverage; cite design locations | Structural failures resolved; A-E approved (existing approval counts) | Return to stages 2-4 according to the failure, then recheck affected design |
-| 6. Production prompt | Selected original design; voice calibration from this book's approved prose or brief original samples; chapter/prose review requirements; sanitized trace; cover handoff; safe parse check | Material isolation, design review, and parser check each pass; samples establish voice only | Fix the relevant artifact, not just its status label |
-| 7. Run handoff | Real prompt path and exact approved launch parameters | User has a concrete command; start only if already authorized to run | Resolve a launch problem separately from creative redesign |
-| 8. Chapter production | Functional contract -> draft -> structural edit -> continuity -> separate prose review -> approved state; reread consecutive prose at major arc boundaries | Actual prose delivers its function with supported character/emotional changes and no unresolved quality failure | Revise contract or prose; recheck dependent evidence before promoting |
-| 9. Book delivery | Whole-book arcs, setup/payoff audit, ending evidence, voice/pacing review, clean reader artifact | Required promises resolve with evidence; intentional open threads were agreed | Reopen affected chapters; do not call a generated file a quality pass |
+| 0 材料用途 | 标记 `author_brief`、`reference_only`、`project_canon`、`user_constraint` | 知道哪些是本书设定、哪些只是参考 | 只补问有实质影响的歧义 |
+| 1 需求 | 提取章数、每章篇幅、组织形式、硬性限制、受众地域、阅读体验 | 已有明确选择，或形成可继续讨论的待定清单 | 询问缺失信息，不重问已给内容 |
+| 2 提案 | 对未确定部分提供不同方向；完整框架以针对性改进为主 | 用户已有方向或接受新方向 | 改动原因和取舍清楚，避免推翻作者框架 |
+| 3 设计 A-C | 故事、结局、人物心理、关系、规则、信息与证据 | 动机、规则和因果解释主要转折 | 修复最早断裂的因果或心理环节 |
+| 4 结构 D | 连续章节／分卷／系列、完整章表、伏笔和回报、开篇与结局 | 每章有价值、模式配置与范围一致 | 调整故事或提出篇幅建议，不凑字数 |
+| 5 检查 E | 检查用户约束、身份、因果、情感、伏笔、结局、已选方案 | 整体设计认可，结构冲突已解决 | 返回相关设计，不重复无关审批 |
+| 6 骨架交付 | 完整 MD、类型和模式 JSON、selected-only trace、序文／结局／封面合同 | 模板已填完；设计、材料检查与格式检查分别报告 | 修复实际内容，不能仅改 pass 标签 |
+| 7 命令交接 | 真实路径、当前支持的完整参数、全格式输出 | 命令与当前版本一致 | 参数问题不扩大成重新设计小说 |
 
-Stages 0-1 map to workshop Phases 0-1, stage 2 to Phase 2, stages 3-5 to
-Sections A-E, stage 6 to Phases 4-5, and stage 7 to Phase 6. Stages 8-9 are the
-subsequent writing/review cycle. Prompt handoff completes the workshop, not
-the unwritten novel.
+用户要求启动时再通过已有 launcher 运行；此前已授权则直接继续，不重复询问。
+后续章节写作的 draft → edit → continuity → style 与成书审核遵循既有引擎。
+本 Skill 完成交付只代表骨架和命令就绪，不代表未写的正文已满足其全部目标。
 
-Voice calibration uses the already approved original design and introduces no
-extra approval round for routine style choices. Reuse this project's suitable
-prose where possible; single-chapter or design-only work need not generate an
-extra sample package. These are assistant/Skill practices and Prompt guidance,
-not a request to add fields, model-call scheduling, or new gates to Novel OS.
+## 版本与反馈
 
-## Record actual progress
+每轮保留版本、当前骨架、已选决定、待定项、变更摘要及受影响章节，参见 interaction.md。
+这是工作记录，可保存在会话或普通文件中，不声称应用已新增持久化数据库。
+自动格式修复最多两次，失败保留上一完整版本并明确报告。用户讨论次数不限。
+新版本改变人数、章节数、揭示时点或模式后，重查引用、伏笔与命令，不全盘重做已通过内容。
 
-Keep a compact private record with stage, artifact/evidence location, decision,
-status (`pending`, `in_progress`, `pass`, `revise`, or `not_applicable`), and
-next step. State why a stage is not applicable; do not label it passed. This is
-workflow metadata, not a claimed Novel OS parser feature. Carry only approved,
-source-free decisions and current quality requirements into the runtime prompt.
+## 证据与范围
 
-Never turn an agent's self-report into proof. Design evidence supports planning;
-chapter evidence supports manuscript claims. A later edit requires rechecking
-the changed passage and affected continuity/payoffs, not rerunning unrelated
-completed stages. If style polishing changes facts or decisions, return it to
-continuity review before state promotion.
-
-## Scope-specific use
-
-- **New book from reference chapters:** start at stage 0. Reference chapter 1-3
-  are not preserved free chapters; create this book's own opening and ending.
-- **Authorized current-project continuation:** preserve verified existing canon
-  and reuse its approved contracts. Begin at the earliest missing gate; do not
-  re-plan or regenerate completed chapters without a scope change.
-- **Single chapter/revision/diagnosis:** do not invent a full-book workshop.
-  Classify inputs, reuse available contracts, establish the local objective,
-  then use the applicable chapter review. Diagnosis may report findings without
-  drafting; an unresolved finding is not a pass.
-- **Already running novel:** changing these Skills does not migrate an old
-  prompt, rewrite generated chapters, or restart a run. Assess that separately
-  when requested; keep the current task's scope explicit.
+- 设计检查引用计划中的位置；正文检查引用实际段落。`draft_review: not_run` 不能写成 pass。
+- `reference_only` 才应用来源隔离；用户自有框架保留角色、因果与已确定结局。
+- 实际字数与建议范围的合理差异只是诊断，不自动失败，也不承诺现有引擎逐章硬性卡字数。
+- 单章修改只建立局部目标与依赖，不强制补完一次全书问卷。
+- 正在运行的作品不因 Skill 更新而迁移、改稿或重启；只有用户要求才处理这些动作。
+- 语气或润色变更如果改变事实、人物选择或结局，需要重新检查其连续性影响。

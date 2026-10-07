@@ -1,0 +1,4 @@
+interface:
+  display_name: "小说骨架头脑风暴"
+  short_description: "通过多轮头脑风暴完善人物、因果与伏笔，输出标准小说骨架和可执行启动命令"
+  default_prompt: "请使用 $novel-brainstorm-workshop，根据我的基础提示补齐需求，通过多轮讨论完善小说骨架，并在确认后生成完整的 Novel OS 启动命令。"

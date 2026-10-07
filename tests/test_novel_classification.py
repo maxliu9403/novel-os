@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -9,6 +10,7 @@ from core.novel_classification import (
     SCHEMA_VERSION,
     NovelClassification,
     catalog_payload,
+    design_requirements,
     infer_classification,
     markdown_front_matter,
     parse_classification_block,
@@ -133,3 +135,66 @@ def test_rejected_prompt_options_do_not_become_published_types() -> None:
     )
 
     assert value.story_type_ids == ("domestic_betrayal",)
+
+
+@pytest.mark.parametrize(("chinese", "english", "canonical_id"), [
+    ("复仇", "Revenge", "revenge"),
+    ("伦理", "Ethical Drama", "ethical_dilemma"),
+    ("女性成长", "Female Growth", "female_growth"),
+    ("男性成长", "Male Growth", "male_growth"),
+    ("CEO", "CEO", "ceo_romance"),
+    ("黑手党", "Mafia", "mafia"),
+    ("狼人", "Werewolf", "werewolf"),
+    ("玄幻", "Xuanhuan", "xuanhuan"),
+    ("恐怖", "Horror", "horror"),
+    ("家庭背叛", "Domestic Betrayal", "domestic_betrayal"),
+    ("霸总", "Boss Romance", "ceo_romance"),
+    ("名人明星", "Celebrity", "celebrity"),
+    ("受到虐待", "Abuse Survival", "abuse_survival"),
+    ("皇后女王", "Queen / Empress", "queen_empress"),
+    ("一见钟情", "Love at First Sight", "love_at_first_sight"),
+    ("办公室恋情", "Office Romance", "office_romance"),
+    ("职场闹剧", "Workplace Comedy", "workplace_comedy"),
+    ("同性恋", "Same-Sex Romance", "same_sex_romance"),
+    ("单身父母亲", "Single Parent", "single_parent"),
+    ("富豪", "Billionaire", "billionaire"),
+    ("怀孕", "Pregnancy", "pregnancy"),
+    ("末日降临", "Apocalypse", "apocalypse"),
+])
+def test_expanded_work_types_resolve_in_both_languages_and_guide_planning(
+    chinese: str, english: str, canonical_id: str,
+) -> None:
+    for label in (chinese, english):
+        classification = infer_classification(genre=label)
+        assert canonical_id in classification.filter_type_ids
+        assert design_requirements(classification)
+        assert NovelClassification.from_dict(classification.to_dict()) == classification
+
+
+def test_published_september_contract_retains_its_hash_and_labels() -> None:
+    path = Path(__file__).resolve().parents[1] / "docs/examples/h5-import/novel-classification.json"
+    original = json.loads(path.read_text(encoding="utf-8"))
+    assert original["catalog_version"] == "novel-types.2026-09"
+    assert NovelClassification.from_dict(original).to_dict() == original
+
+    original["classification_id"] = "classification:tampered"
+    with pytest.raises(ValueError, match="classification_id"):
+        NovelClassification.from_dict(original)
+
+
+def test_september_contract_cannot_claim_new_catalog_ids() -> None:
+    with pytest.raises(ValueError, match="not available"):
+        NovelClassification.from_dict({
+            "catalog_version": "novel-types.2026-09",
+            "primary_genre_id": "horror",
+        })
+
+
+def test_hybrid_genres_keep_all_design_requirements_beyond_publication_tag_limit() -> None:
+    from core.prompt_intake import build_brief
+
+    brief = build_brief("Title: A New Door\nGenre: 家庭背叛 · 女性成长 · 怀孕 · 单身父母亲\nChapters: 20")
+    classification = NovelClassification.from_dict(brief["classification"])
+    assert len(classification.story_type_ids) == 3
+    single_parent_requirement = design_requirements(infer_classification(genre="单身父母亲"))[0]
+    assert single_parent_requirement in brief["classification_design_requirements"]

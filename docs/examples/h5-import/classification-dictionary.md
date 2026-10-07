@@ -1,6 +1,6 @@
 # 分类标准字典
 
-目录版本：`novel-types.2026-09`。以下为完整标准 ID，推广指数不接入。
+目录版本：`novel-types.2026-10`。兼容读取 `novel-types.2026-09`；已有作品保留原版本与分类哈希。以下为完整标准 ID，推广指数不接入。
 
 | ID | 维度 | 中文 | English |
 |---|---|---|---|
@@ -10,6 +10,8 @@
 | `mystery` | `primary_genres` | 悬疑 | Mystery |
 | `thriller` | `primary_genres` | 惊悚 | Thriller |
 | `fantasy` | `primary_genres` | 奇幻 | Fantasy |
+| `xuanhuan` | `primary_genres` | 玄幻 | Xuanhuan |
+| `horror` | `primary_genres` | 恐怖 | Horror |
 | `supernatural` | `primary_genres` | 超自然 | Supernatural |
 | `contemporary_realism` | `primary_genres` | 情感现实主义 | Contemporary Realism |
 | `young_adult` | `primary_genres` | 青春 | Young Adult |
@@ -24,6 +26,20 @@
 | `royal_intrigue` | `story_types` | 宫廷阴谋 | Royal Intrigue |
 | `domestic_betrayal` | `story_types` | 家庭背叛 | Domestic Betrayal |
 | `marriage_crisis` | `story_types` | 婚姻危机 | Marriage Crisis |
+| `ethical_dilemma` | `story_types` | 伦理 | Ethical Drama |
+| `female_growth` | `story_types` | 女性成长 | Female Growth |
+| `male_growth` | `story_types` | 男性成长 | Male Growth |
+| `celebrity` | `story_types` | 名人明星 | Celebrity |
+| `abuse_survival` | `story_types` | 受到虐待 | Abuse Survival |
+| `queen_empress` | `story_types` | 皇后女王 | Queen / Empress |
+| `love_at_first_sight` | `story_types` | 一见钟情 | Love at First Sight |
+| `office_romance` | `story_types` | 办公室恋情 | Office Romance |
+| `workplace_comedy` | `story_types` | 职场闹剧 | Workplace Comedy |
+| `same_sex_romance` | `story_types` | 同性恋 | Same-Sex Romance |
+| `single_parent` | `story_types` | 单身父母亲 | Single Parent |
+| `billionaire` | `story_types` | 富豪 | Billionaire |
+| `pregnancy` | `story_types` | 怀孕 | Pregnancy |
+| `apocalypse` | `story_types` | 末日降临 | Apocalypse |
 | `angst` | `tones` | 虐心 | Angst |
 | `sweet` | `tones` | 甜蜜 | Sweet |
 | `dark` | `tones` | 黑暗 | Dark |

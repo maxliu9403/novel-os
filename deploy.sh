@@ -12,9 +12,9 @@ usage() {
 Usage: ./deploy.sh <command>
 
 Commands:
-  up       Build and start the frontend and backend
+  up       Sync bundled Skills, then build and start both services
   down     Stop and remove the containers (persistent data is retained)
-  restart  Rebuild and restart both services
+  restart  Sync bundled Skills, then rebuild and restart both services
   build    Build both images without starting containers
   logs     Follow service logs
   status   Show container and health status
@@ -69,14 +69,14 @@ Manage persisted runs:
 
 Deployment and diagnostics:
   ./deploy.sh up
-      Build and start the frontend and backend; wait for both health checks.
+      Update bundled Codex Skills, build and start both services, and wait for health checks.
 
   ./deploy.sh down
       Stop containers. Manuscripts, media, settings, and the database remain
       under the configured persistent data directory (docker-data/ by default).
 
   ./deploy.sh restart
-      Rebuild and restart both services. Run this explicitly after changing
+      Update bundled Codex Skills, rebuild and restart both services. Run this after changing
       application code or Compose configuration.
 
   ./deploy.sh build
@@ -109,6 +109,7 @@ Optional environment overrides:
   NOVEL_OS_EDIT_MODE          line, developmental, pacing, dialogue, or tension
   NOVEL_OS_APPROVAL           auto or review_required
   NOVEL_OS_QUALITY_POLICY     legacy or evidence_v1
+  NOVEL_OS_METHOD_MODE        off or advisory; omitted inherits project review policy
   NOVEL_OS_OUTPUT             Space-separated formats: markdown html docx epub pdf
   NOVEL_OS_MAX_RETRIES        Transient failure retry count
   NOVEL_OS_MAX_QUALITY_REPAIRS
@@ -118,6 +119,7 @@ Optional environment overrides:
   NOVEL_OS_DATA_DIR           Host data directory; default ./docker-data
   NOVEL_OS_CODEX_AUTH_FILE    Host Codex auth file (default ~/.codex/auth.json)
   NOVEL_OS_CODEX_CONFIG_FILE  Host Codex config (default ~/.codex/config.toml)
+  CODEX_HOME                 Host Skill destination (default ~/.codex); up/restart only
 
 Examples:
   ./deploy.sh novel
@@ -222,6 +224,19 @@ show_url() {
   else
     echo "Novel OS: http://localhost:${WEB_PORT}"
   fi
+}
+
+sync_project_skills() {
+  local python_bin="python3"
+  [[ ! -x "$ROOT_DIR/venv/bin/python" ]] || python_bin="$ROOT_DIR/venv/bin/python"
+  if ! command -v "$python_bin" >/dev/null 2>&1; then
+    echo "Python 3 is required to sync bundled Skills before deployment." >&2
+    return 1
+  fi
+  # Do this before service recreation: an unwritable host Skill directory must
+  # not leave the current application stopped. The helper backs up changed copies.
+  "$python_bin" "$ROOT_DIR/scripts/sync_skills.py" \
+    --source "$ROOT_DIR/skills" --codex-home "${CODEX_HOME:-$HOME/.codex}"
 }
 
 ensure_backend() {
@@ -358,6 +373,10 @@ run_novel() {
     echo "Edit mode must be line, developmental, pacing, dialogue, or tension." >&2
     return 1
   fi
+  if [[ -n "${NOVEL_OS_METHOD_MODE:-}" && "$NOVEL_OS_METHOD_MODE" != "off" && "$NOVEL_OS_METHOD_MODE" != "advisory" ]]; then
+    echo "Method mode must be off or advisory." >&2
+    return 1
+  fi
   read -r -a output_formats <<< "$output"
   if [[ ${#output_formats[@]} -eq 0 ]]; then
     echo "Choose at least one output format." >&2
@@ -400,6 +419,7 @@ run_novel() {
   [[ -n "$genre" ]] && command_args+=(--genre "$genre")
   [[ -n "$chapters" ]] && command_args+=(--chapters "$chapters")
   [[ -n "$words" ]] && command_args+=(--words "$words")
+  [[ -n "${NOVEL_OS_METHOD_MODE:-}" ]] && command_args+=(--method-mode "$NOVEL_OS_METHOD_MODE")
   [[ "$dry_run" == "1" ]] && command_args+=(--dry-run)
   command_args+=(--output "${output_formats[@]}")
 
@@ -630,6 +650,7 @@ fi
 
 case "$command" in
   up)
+    sync_project_skills
     docker compose up --detach --build --wait --wait-timeout 180
     docker compose ps
     show_url
@@ -638,6 +659,7 @@ case "$command" in
     docker compose down
     ;;
   restart)
+    sync_project_skills
     docker compose down
     docker compose up --detach --build --wait --wait-timeout 180
     docker compose ps

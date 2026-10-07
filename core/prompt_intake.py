@@ -208,7 +208,7 @@ def build_brief(prompt: str, overrides: Optional[Mapping[str, Any]] = None) -> D
         )
     brief["classification"] = classification.to_dict()
     brief["classification_design_requirements"] = list(
-        design_requirements(classification)
+        design_requirements(classification, genre=genre)
     )
     brief["narrative_format"] = narrative_format.to_dict()
     commercial_story = parse_commercial_story_block(prompt)

@@ -62,6 +62,13 @@ function renderStudio() {
   if (!vi.isMockFunction(api.coverDirections)) {
     vi.spyOn(api, "coverDirections").mockResolvedValue([]);
   }
+  // Creating a direction first reads cover facts; these scenarios have no
+  // missing facts. Preserve explicit mocks for tests of the confirmation flow.
+  if (!vi.isMockFunction(api.coverStoryFacts)) {
+    vi.spyOn(api, "coverStoryFacts").mockResolvedValue({
+      brief: coverDirection().brief!, pending_fields: [], revision_sha256: "fixture",
+    });
+  }
   return render(
     <MemoryRouter initialEntries={[`/projects/${project.id}/covers`]}>
       <ToastProvider><ConfirmProvider>

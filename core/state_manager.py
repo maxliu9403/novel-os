@@ -53,9 +53,43 @@ class Character:
     absence_note: str = ""
     notes: str = ""
     portrait_media_id: str = ""
+    # Canonical identity is author/Architect input, never inferred from names,
+    # appearance, relationships, or sexual orientation. Empty values keep old
+    # projects readable and require the writer to use names until specified.
+    gender: str = ""
+    pronouns: str = ""
+    aliases: List[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        for name in ("gender", "pronouns"):
+            value = getattr(self, name)
+            if not isinstance(value, str):
+                raise ValueError(f"character {name} must be a string")
+            setattr(self, name, value.strip())
+        if not isinstance(self.aliases, list) or any(
+            not isinstance(value, str) or not value.strip() for value in self.aliases
+        ):
+            raise ValueError("character aliases must be a list of nonblank strings")
+        self.aliases = list(dict.fromkeys(value.strip() for value in self.aliases))
+
+    def identity_dict(self) -> Dict[str, Any]:
+        """The stable identity contract supplied to drafting and review agents."""
+        return {
+            "id": self.id,
+            "full_name": self.full_name,
+            "gender": self.gender,
+            "pronouns": self.pronouns,
+            "aliases": list(self.aliases),
+        }
     
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        # Do not change the semantic hash of pre-identity canon just by loading
+        # and saving it with this version of Novel OS.
+        for name in ("gender", "pronouns", "aliases"):
+            if not data[name]:
+                data.pop(name)
+        return data
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Character':
@@ -441,17 +475,42 @@ class StoryState:
     
     def add_character(self, character: Character) -> str:
         """Add a new character to the database."""
+        if character.id in self.characters:
+            raise ValueError(f"character id already exists: {character.id}")
         self.characters[character.id] = character
         self._log_action('character_added', {'character_id': character.id})
         return character.id
     
-    def update_character(self, character_id: str, updates: Dict[str, Any]):
-        """Update character fields."""
+    def update_character(self, character_id: str, updates: Dict[str, Any], *,
+                         allow_identity_change: bool = False):
+        """Update state without silently rewriting an established identity.
+
+        Explicit author edits may opt in; normal scene/state updates cannot.
+        Validate before assigning any field so a rejected update is atomic.
+        """
         if character_id in self.characters:
             char = self.characters[character_id]
-            for key, value in updates.items():
-                if hasattr(char, key):
-                    setattr(char, key, value)
+            if "id" in updates and updates["id"] != character_id:
+                raise ValueError("character id is immutable")
+            candidate = Character.from_dict({**char.to_dict(), **updates})
+            identity_changes = {
+                key: {"before": getattr(char, key), "after": getattr(candidate, key)}
+                for key in ("full_name", "gender", "pronouns", "aliases")
+                if getattr(char, key) != getattr(candidate, key)
+            }
+            if identity_changes and not allow_identity_change:
+                raise ValueError(
+                    "character identity is locked; an explicit author edit is required: "
+                    + ", ".join(identity_changes)
+                )
+            for key in updates:
+                if key in Character.__dataclass_fields__:
+                    setattr(char, key, getattr(candidate, key))
+            if identity_changes:
+                self._log_action('character_identity_changed', {
+                    'character_id': character_id,
+                    'changes': identity_changes,
+                })
             self._log_action('character_updated', {
                 'character_id': character_id,
                 'updates': list(updates.keys())
@@ -462,11 +521,15 @@ class StoryState:
         return self.characters.get(character_id)
     
     def get_character_by_name(self, name: str) -> Optional[Character]:
-        """Find a character by full name."""
-        for char in self.characters.values():
-            if char.full_name.lower() == name.lower():
-                return char
-        return None
+        """Resolve a canonical name or declared alias only when unambiguous."""
+        needle = name.strip().casefold()
+        matches = [
+            char for char in self.characters.values()
+            if needle and needle in {
+                value.strip().casefold() for value in [char.full_name, *char.aliases]
+            }
+        ]
+        return matches[0] if len(matches) == 1 else None
     
     def get_all_characters(self) -> List[Character]:
         """Get all characters as a list."""
@@ -509,6 +572,11 @@ class StoryState:
             lines.append("### Characters")
             for c in sorted(chars, key=lambda x: x.full_name.lower()):
                 bits = [f"**{c.full_name}** ({c.role or 'unspecified'})"]
+                bits.append(f"id: {c.id}")
+                bits.append(f"gender: {c.gender or 'unspecified'}")
+                bits.append(f"pronouns: {c.pronouns or 'unspecified; use canonical name'}")
+                if c.aliases:
+                    bits.append(f"aliases: {', '.join(c.aliases)}")
                 if c.current_location:
                     bits.append(f"location: {c.current_location}")
                 if c.emotional_state:
@@ -932,6 +1000,10 @@ class StoryState:
             ]
         return {
             'chapter': chapter,
+            'character_identities': {
+                cid: char.identity_dict()
+                for cid, char in self.characters.items()
+            },
             'character_locations': {
                 cid: char.current_location
                 for cid, char in self.characters.items()

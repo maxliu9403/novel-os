@@ -6,6 +6,26 @@ versions carry features and may change interfaces.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- Expanded manuscript type choices, including revenge, growth, family betrayal,
+  workplace and supernatural stories, with corresponding planning requirements.
+- Character gender, pronouns, and approved aliases in the Codex editor and
+  generation context. Routine state updates preserve character identity;
+  explicit author corrections remain available.
+
+### Changed
+
+- Planning, drafting, editing, and review now share requirements for causal
+  chapter transitions, distributed payoffs, stronger opening chapters, and
+  emotional motives behind consequential choices.
+- Chapter prompts include the previous approved manuscript's ending when
+  available. Continuity review reads the complete chapter, including its middle.
+- Editorial instructions preserve meaningful interiority and emotional aftermath
+  while removing repetition; final chapters retain their closure requirements.
+
 ## [0.3.0] — 2026-08-08
 
 **Novel OS became a studio.** v0.2.0 was a multi-agent CLI with a dashboard. This

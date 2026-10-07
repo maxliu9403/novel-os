@@ -9,11 +9,15 @@ not need a manual migration step.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
+import selectors
 import shutil
+import signal
 import subprocess
 import threading
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -34,6 +38,7 @@ TEXT_CAPABILITY = "text_generation"
 IMAGE_CAPABILITY = "image_generation"
 TEXT_ROUTE_IDS = (
     "default",
+    "workshop",
     "architect",
     "writer",
     "editor",
@@ -43,6 +48,7 @@ TEXT_ROUTE_IDS = (
     "cover_director",
 )
 REASONING_EFFORTS = ("", "low", "medium", "high", "xhigh", "max", "ultra")
+WORKSHOP_DEFAULT_TIMEOUT_SECONDS = 900
 
 PROVIDER_TEMPLATES: tuple[dict[str, Any], ...] = (
     {
@@ -107,6 +113,20 @@ _LOCK = threading.RLock()
 
 class ProviderSettingsError(ValueError):
     """Raised when a connection or route is invalid."""
+
+
+class ProviderModelDiscoveryError(ProviderSettingsError):
+    """A model catalog request failed without changing the cached catalog."""
+
+    status_code = 502
+
+
+class ProviderModelDiscoveryTimeout(ProviderModelDiscoveryError):
+    status_code = 504
+
+
+class ProviderModelDiscoveryConflict(ProviderModelDiscoveryError):
+    status_code = 409
 
 
 def _utc_now() -> str:
@@ -598,6 +618,27 @@ def _route_effective(
     return route_id, route
 
 
+def _workshop_saved_timeout(configuration: Mapping[str, Any]) -> int | None:
+    routes = configuration.get("text_routes", {})
+    raw = routes.get("workshop") if isinstance(routes.get("workshop"), dict) else {}
+    value = raw.get("timeout_seconds")
+    return value if type(value) is int and 60 <= value <= 1800 else None
+
+
+def workshop_timeout_seconds(configuration: Mapping[str, Any] | None = None) -> float:
+    """Workshop-local timeout, independent from model inheritance and writing routes."""
+    config = load_configuration() if configuration is None else configuration
+    saved = _workshop_saved_timeout(config)
+    if saved is not None:
+        return float(saved)
+    try:
+        value = float(os.environ.get("NOVEL_OS_WORKSHOP_TIMEOUT_SECONDS", WORKSHOP_DEFAULT_TIMEOUT_SECONDS))
+    except (TypeError, ValueError):
+        value = WORKSHOP_DEFAULT_TIMEOUT_SECONDS
+    # Retain the previous environment fallback range, including legacy 30-second values.
+    return max(30.0, min(value, 1800.0)) if math.isfinite(value) else float(WORKSHOP_DEFAULT_TIMEOUT_SECONDS)
+
+
 def text_routes_status(configuration: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
     config = configuration or load_configuration()
     routes = config.get("text_routes", {})
@@ -636,6 +677,8 @@ def text_routes_status(configuration: Mapping[str, Any] | None = None) -> list[d
             "model": str(raw.get("model") or ""),
             "max_tokens": int(raw.get("max_tokens") or 8192),
             "reasoning_effort": local_reasoning,
+            "timeout_seconds": _workshop_saved_timeout(config) if route_id == "workshop" else None,
+            "effective_timeout_seconds": workshop_timeout_seconds(config) if route_id == "workshop" else None,
             "inherits_default": bool(raw.get("inherits_default", route_id != "default")),
             "effective_connection_id": connection_id,
             "effective_connection_name": connection_name,
@@ -657,12 +700,24 @@ def save_text_routes(routes: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]
                 raise ProviderSettingsError(f"Unknown text route '{route_id}'")
             inherits = bool(item.get("inherits_default", route_id != "default"))
             reasoning_effort = _reasoning_effort(item.get("reasoning_effort"))
+            timeout = item.get("timeout_seconds")
+            if timeout is not None and route_id != "workshop":
+                raise ProviderSettingsError("Timeout is configurable only for the workshop route")
+            if timeout is not None and (type(timeout) is not int or not 60 <= timeout <= 1800):
+                raise ProviderSettingsError("Workshop timeout must be an integer from 60 to 1800 seconds")
+            if route_id == "workshop" and timeout is None:
+                # Older clients omit this optional field (or serialize its default null).
+                # Saving their model choices must not erase an explicit timeout.
+                existing = current.get(route_id) or {}
+                timeout = existing.get("timeout_seconds")
+            timeout_fields = {"timeout_seconds": timeout} if route_id == "workshop" and timeout is not None else {}
             if route_id == "default" and inherits:
                 raise ProviderSettingsError("The default route cannot inherit")
             if inherits:
                 current[route_id] = {
                     "inherits_default": True,
                     "reasoning_effort": reasoning_effort,
+                    **timeout_fields,
                 }
                 continue
             connection_id = str(item.get("connection_id") or "").strip()
@@ -683,6 +738,7 @@ def save_text_routes(routes: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]
                 "max_tokens": max_tokens,
                 "reasoning_effort": reasoning_effort,
                 "inherits_default": False,
+                **timeout_fields,
             }
         if not current.get("default", {}).get("connection_id"):
             raise ProviderSettingsError("Configure the default text route")
@@ -740,6 +796,7 @@ def resolve_text_route(route_id: str) -> dict[str, Any]:
         "api_key": _connection_secret(connection),
         "max_tokens": int(route.get("max_tokens") or 8192),
         "reasoning_effort": reasoning_effort,
+        **({"timeout_seconds": workshop_timeout_seconds(configuration)} if normalized == "workshop" else {}),
     }
 
 
@@ -879,41 +936,140 @@ def _safe_error(error: Exception, secret: str) -> str:
     return message[:500]
 
 
-def _discover_models(connection: Mapping[str, Any], timeout_seconds: float = 12.0) -> list[str]:
+def _codex_models(command: str, timeout_seconds: float) -> list[str]:
+    """Read the authenticated CLI catalog over a short-lived stdio app server.
+
+    Only initialize/model-list RPCs are sent: no thread, turn, or generation is
+    created. One deadline covers initialization and every catalog page.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        process = subprocess.Popen(
+            [command, "app-server", "--listen", "stdio://"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            bufsize=0,
+            start_new_session=True,
+        )
+    except OSError:
+        raise ProviderModelDiscoveryError("Unable to start Codex model discovery") from None
+    reader = selectors.DefaultSelector()
+    buffer = bytearray()
+    received_bytes = 0
+    try:
+        assert process.stdin is not None and process.stdout is not None
+        reader.register(process.stdout, selectors.EVENT_READ)
+
+        def send(payload: dict[str, Any]) -> None:
+            try:
+                process.stdin.write((json.dumps(payload) + "\n").encode("utf-8"))
+                process.stdin.flush()
+            except OSError:
+                raise ProviderModelDiscoveryError("Codex model discovery disconnected") from None
+
+        def receive(request_id: int) -> dict[str, Any]:
+            nonlocal received_bytes
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ProviderModelDiscoveryTimeout("Codex model discovery timed out; retry the refresh")
+                if b"\n" not in buffer:
+                    if not reader.select(remaining):
+                        raise ProviderModelDiscoveryTimeout("Codex model discovery timed out; retry the refresh")
+                    chunk = os.read(process.stdout.fileno(), 65536)
+                    if not chunk:
+                        raise ProviderModelDiscoveryError("Codex model discovery closed before returning a catalog")
+                    received_bytes += len(chunk)
+                    if received_bytes > 8 * 1024 * 1024:
+                        raise ProviderModelDiscoveryError("Codex model catalog exceeded the response limit")
+                    buffer.extend(chunk)
+                    continue
+                line, _, rest = buffer.partition(b"\n")
+                buffer[:] = rest
+                if not line.strip():
+                    continue
+                try:
+                    message = json.loads(line)
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    raise ProviderModelDiscoveryError("Codex returned malformed model protocol data") from None
+                if not isinstance(message, dict) or message.get("id") != request_id:
+                    continue  # Unrelated notifications are not responses to this request.
+                if "error" in message:
+                    # Never forward upstream diagnostics: they may contain local auth/config data.
+                    raise ProviderModelDiscoveryError("Codex rejected model discovery; check the CLI login and retry")
+                result = message.get("result")
+                if not isinstance(result, dict):
+                    raise ProviderModelDiscoveryError("Codex returned an invalid model response")
+                return result
+
+        send({"id": 0, "method": "initialize", "params": {
+            "clientInfo": {"name": "novel-os-model-discovery", "version": "1.0.0"},
+        }})
+        receive(0)
+        send({"method": "initialized", "params": {}})
+        models: set[str] = set()
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        for page in range(1, 101):
+            params: dict[str, Any] = {"limit": 100, "includeHidden": False}
+            if cursor:
+                params["cursor"] = cursor
+            send({"id": page, "method": "model/list", "params": params})
+            result = receive(page)
+            if not isinstance(result.get("data"), list):
+                raise ProviderModelDiscoveryError("Codex returned an invalid model catalog")
+            for item in result["data"]:
+                if isinstance(item, dict) and not item.get("hidden"):
+                    model = item.get("model") or item.get("id")
+                    if isinstance(model, str) and model.strip():
+                        models.add(model.strip())
+            cursor = result.get("nextCursor")
+            if not cursor:
+                return sorted(models)
+            if not isinstance(cursor, str) or cursor in seen_cursors:
+                raise ProviderModelDiscoveryError("Codex returned an invalid model catalog cursor")
+            seen_cursors.add(cursor)
+        raise ProviderModelDiscoveryError("Codex model catalog exceeded the page limit")
+    finally:
+        reader.close()
+        # The app server can have helper processes; reap the entire isolated group.
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=0.5)
+        except subprocess.TimeoutExpired:
+            pass
+        # The leader can exit on TERM while a helper ignores it. Kill the
+        # remaining group even when waiting for the leader already succeeded.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        if process.poll() is None:
+            process.wait(timeout=0.5)
+        if process.stdin:
+            process.stdin.close()
+        if process.stdout:
+            process.stdout.close()
+
+
+def _discover_models(
+    connection: Mapping[str, Any], timeout_seconds: float = 12.0, *, api_key: str | None = None,
+) -> list[str]:
     provider = str(connection.get("provider") or "")
     if provider == "codex":
         command = shutil.which("codex")
         if not command:
             raise ProviderSettingsError("Codex CLI is not available in the API runtime")
-        proc = subprocess.run(
-            [command, "login", "status"],
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-        )
-        if proc.returncode != 0:
-            raise ProviderSettingsError((proc.stderr or proc.stdout or "Codex is not logged in").strip())
-        if IMAGE_CAPABILITY in set(connection.get("capabilities") or []):
-            features = subprocess.run(
-                [command, "features", "list"],
-                capture_output=True,
-                text=True,
-                timeout=timeout_seconds,
-            )
-            enabled = any(
-                line.split()[:1] == ["image_generation"] and line.split()[-1:] == ["true"]
-                for line in (features.stdout or "").splitlines()
-            )
-            if features.returncode != 0 or not enabled:
-                raise ProviderSettingsError(
-                    "This Codex runtime does not expose image generation"
-                )
-        return []
+        return _codex_models(command, timeout_seconds)
 
     base_url = str(connection.get("base_url") or "").rstrip("/")
     if not base_url:
         raise ProviderSettingsError("Base URL is required")
-    secret = _connection_secret(connection)
+    secret = _connection_secret(connection) if api_key is None else api_key
     headers = {"Accept": "application/json"}
     if provider == "anthropic":
         headers.update({"x-api-key": secret, "anthropic-version": "2023-06-01"})
@@ -922,19 +1078,56 @@ def _discover_models(connection: Mapping[str, Any], timeout_seconds: float = 12.
     request = urllib.request.Request(f"{base_url}/models", headers=headers, method="GET")
     try:
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            raw = response.read(4 * 1024 * 1024)
+            raw = response.read(4 * 1024 * 1024 + 1)
     except urllib.error.HTTPError as exc:
-        raise ProviderSettingsError(f"Provider returned HTTP {exc.code}") from None
-    except (urllib.error.URLError, TimeoutError, OSError):
-        raise ProviderSettingsError("Provider connection failed or timed out") from None
+        raise ProviderModelDiscoveryError(f"Provider model endpoint returned HTTP {exc.code}") from None
+    except TimeoutError:
+        raise ProviderModelDiscoveryTimeout("Provider model discovery timed out; retry the refresh") from None
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, TimeoutError):
+            raise ProviderModelDiscoveryTimeout("Provider model discovery timed out; retry the refresh") from None
+        raise ProviderModelDiscoveryError("Unable to reach the provider model endpoint") from None
+    except OSError:
+        raise ProviderModelDiscoveryError("Unable to reach the provider model endpoint") from None
+    if len(raw) > 4 * 1024 * 1024:
+        raise ProviderModelDiscoveryError("Provider model catalog exceeded the response limit")
     try:
         payload = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        raise ProviderSettingsError("Provider returned malformed model data") from None
+        raise ProviderModelDiscoveryError("Provider returned malformed model data") from None
     items = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(items, list):
-        return []
+        raise ProviderModelDiscoveryError("Provider returned an invalid model catalog")
     return sorted({str(item.get("id")) for item in items if isinstance(item, dict) and item.get("id")})
+
+
+def refresh_connection_models(connection_id: str) -> list[str]:
+    # Snapshot just this connection and its credential, never hold the settings
+    # lock over a network/subprocess request or persist a stale configuration.
+    with _LOCK:
+        connection = deepcopy(_connection(load_configuration(), connection_id))
+        status, error = _connection_status(connection)
+        if status != "ready":
+            raise ProviderModelDiscoveryError(error)
+        secret = _connection_secret(connection)
+    try:
+        models = _discover_models(connection, api_key=secret)
+    except ProviderModelDiscoveryError:
+        raise
+    except Exception as exc:
+        raise ProviderModelDiscoveryError(_safe_error(exc, secret)) from None
+    with _LOCK:
+        configuration = load_configuration()
+        try:
+            current = _connection(configuration, connection_id)
+        except ProviderSettingsError:
+            raise ProviderModelDiscoveryConflict("Provider connection was removed during refresh") from None
+        identity_keys = ("provider", "auth_type", "base_url", "image_base_url", "secret_ref", "capabilities", "updated_at")
+        if any(current.get(key) != connection.get(key) for key in identity_keys) or _connection_secret(current) != secret:
+            raise ProviderModelDiscoveryConflict("Provider connection changed during refresh; retry with the saved connection")
+        current["discovered_models"] = models
+        _persist_configuration(configuration)
+    return models
 
 
 def test_connection(connection_id: str) -> dict[str, Any]:
@@ -947,6 +1140,26 @@ def test_connection(connection_id: str) -> dict[str, Any]:
         models: list[str] = []
         if ok:
             try:
+                if connection.get("provider") == "codex":
+                    login = subprocess.run(
+                        [shutil.which("codex"), "login", "status"],
+                        capture_output=True, text=True, timeout=12,
+                    )
+                    if login.returncode != 0:
+                        raise ProviderSettingsError("Codex is not logged in")
+                if connection.get("provider") == "codex" and IMAGE_CAPABILITY in set(connection.get("capabilities") or []):
+                    # Connection health still checks the requested image capability;
+                    # text catalog refresh is deliberately independent of it.
+                    features = subprocess.run(
+                        [shutil.which("codex"), "features", "list"],
+                        capture_output=True, text=True, timeout=12,
+                    )
+                    enabled = any(
+                        line.split()[:1] == ["image_generation"] and line.split()[-1:] == ["true"]
+                        for line in (features.stdout or "").splitlines()
+                    )
+                    if features.returncode != 0 or not enabled:
+                        raise ProviderSettingsError("This Codex runtime does not expose image generation")
                 models = _discover_models(connection)
             except Exception as exc:  # return a diagnostic result, not a 500
                 ok = False
@@ -971,6 +1184,9 @@ __all__ = [
     "IMAGE_CAPABILITY",
     "PROVIDER_TEMPLATES",
     "ProviderSettingsError",
+    "ProviderModelDiscoveryError",
+    "ProviderModelDiscoveryTimeout",
+    "ProviderModelDiscoveryConflict",
     "SCHEMA_VERSION",
     "TEXT_CAPABILITY",
     "TEXT_ROUTE_IDS",
@@ -979,6 +1195,7 @@ __all__ = [
     "delete_connection",
     "image_profile_status",
     "load_configuration",
+    "refresh_connection_models",
     "resolve_image_profile",
     "resolve_text_route",
     "save_connection",
@@ -986,4 +1203,5 @@ __all__ = [
     "save_text_routes",
     "test_connection",
     "text_routes_status",
+    "workshop_timeout_seconds",
 ]

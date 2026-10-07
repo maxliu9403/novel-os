@@ -27,6 +27,8 @@ COPY core ./core
 COPY resources ./resources
 COPY agents ./agents
 COPY templates ./templates
+COPY skills ./skills
+COPY deploy.sh ./deploy.sh
 COPY docker-entrypoint.sh /usr/local/bin/novel-os-entrypoint
 RUN chmod +x /usr/local/bin/novel-os-entrypoint
 
