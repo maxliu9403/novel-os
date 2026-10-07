@@ -444,7 +444,9 @@ just want to look around.
 
 Docker Compose builds the React app, serves it through Nginx, and proxies
 `/api` to the FastAPI container. The Studio is exposed on port `5174` and all
-runtime data is persisted under the gitignored `docker-data/` directory.
+runtime data is persisted under the gitignored `docker-data/` directory. Set
+`NOVEL_OS_DATA_DIR` when the data directory should live elsewhere; the launcher
+passes the same absolute path to Compose and its run/status commands.
 
 ```bash
 ./deploy.sh up       # build, start, and wait for both health checks
@@ -452,6 +454,22 @@ runtime data is persisted under the gitignored `docker-data/` directory.
 ./deploy.sh status   # show container health and the local URL
 ./deploy.sh down     # stop containers without deleting manuscripts
 ```
+
+To keep data outside the repository, configure it in `.env` so every launcher
+command uses the same directory. Relative paths are based on the repository root.
+
+```dotenv
+NOVEL_OS_DATA_DIR=/srv/novel-os-data
+NOVEL_OS_WEB_PORT=5174
+```
+
+The current Compose configuration mounts both `~/.codex/auth.json` and
+`~/.codex/config.toml`, even when an API-key provider is selected. Both must
+exist as files before starting; missing paths fail instead of becoming empty
+directories. Use the host's Codex login for `auth.json`; if no custom Codex
+configuration is needed, `config.toml` can be an empty file. Set
+`NOVEL_OS_CODEX_AUTH_FILE` and `NOVEL_OS_CODEX_CONFIG_FILE` in `.env` when these
+files live elsewhere. Auth remains writable for token refresh; config is read-only.
 
 Start a complete novel through the interactive launcher. It lists the Markdown
 files under `prompt/`, infers chapter and word targets by default, and hides all
@@ -759,7 +777,9 @@ Cover Director 单独配置服务。模型名称必须是该设备和供应商�
 
 - Git；
 - Docker Desktop，或 Docker Engine 与 Docker Compose v2；
-- Codex App/CLI（仅在需要使用 `novel-brainstorm-workshop` Skill 时需要）。
+- Codex App/CLI（当前 Compose 默认挂载其登录文件；部署前确认
+  `~/.codex/auth.json` 和 `~/.codex/config.toml` 都是文件。没有自定义配置时，
+  `config.toml` 可为空文件）。
 
 确认 Docker 可用：
 

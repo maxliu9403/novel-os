@@ -16,6 +16,11 @@ cp .env.example .env
 
 The first key found is auto-detected. Override with `NOVEL_OS_LLM_PROVIDER` if you have several keys set.
 
+For Docker, follow the [deployment setup](../README.md#docker-deployment) and
+run `./deploy.sh up` before using the workflows below that need a Docker backend.
+The Docker launcher defaults to `NOVEL_OS_APPROVAL=auto`; the native CLI defaults
+to `review_required` unless explicitly overridden.
+
 ---
 
 ## Full-book CLI from one prompt
