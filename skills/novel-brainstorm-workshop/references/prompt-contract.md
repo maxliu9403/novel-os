@@ -228,6 +228,58 @@ COVER_HANDOFF_BEGIN
 COVER_HANDOFF_END
 ````
 
+`visual_assumptions` must always be an array. Use `[]` when no unresolved visual
+assumptions are needed. Every nonempty item must be an object, never a bare
+string or an object replacing the entire array. For example:
+
+```json
+"visual_assumptions": [{
+  "field": "wardrobe_color",
+  "proposed_value": "muted blue",
+  "reason": "A visual proposal only; the author has not confirmed clothing colors.",
+  "status": "pending_confirmation"
+}]
+```
+
+Do not turn unconfirmed visual proposals into established story facts. The
+example illustrates the schema only; do not copy its wardrobe choice into a story.
+
+`cover_constraints` is an optional, story-facing boundary contract. It records
+confirmed facts, user-selected nodes or characters, forbidden reveals, spoiler
+limits, and explicit visual preferences. It does not define a cover scene,
+character blocking, camera, lighting, palette, visual hook, image prompt, or
+candidate portfolio. The cover studio owns those decisions through its existing
+source-bound analysis and campaign planner. Do not add `candidate_moments`,
+`cast_priority`, `visual_motifs`, or `inference_policy` here; those would duplicate
+the studio's `CoverScenePlan`, story-cast policy, secondary signals, and visual
+assumption handling.
+
+When no user-specific cover constraints exist, omit `cover_constraints` rather
+than inventing preferences. Existing schema-v2 handoffs without the field remain
+valid. If the author supplied constraints, append this optional object to the
+JSON above and set `constraint_version` to `cover-constraints.v1`:
+
+```json
+"cover_constraints": {
+  "constraint_version": "cover-constraints.v1",
+  "must_preserve_story_facts": ["<confirmed relationship>"],
+  "must_show_if_supported": ["<user-selected story node or character>"],
+  "must_not_show": ["<ending result>"],
+  "spoiler_ceiling": "<the latest story information the cover may reveal>",
+  "user_visual_preferences": [],
+  "preferred_story_node_ids": [],
+  "preferred_character_ids": [],
+  "source_refs": ["section:6.relationship_map", "section:9.node:<approved_node_id>"]
+}
+```
+
+Typed node, character, signal, and evidence references must resolve to confirmed
+handoff entries. `section:<number>`, `section:<number>.<heading_slug>`, and
+`section:<number>.node:<node_id>` references are resolved against the immutable
+full skeleton outside the handoff JSON; the referenced section must actually
+exist and a node reference must have an explicit node anchor. Free-text facts
+remain author-declared constraints and are not proof of canon by themselves.
+
 The contents must be valid JSON after replacing every placeholder. Title,
 target audience, conflict, principal-character ages and lived identities,
 relationships, decisive nodes, and environment signals come from confirmed

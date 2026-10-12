@@ -253,6 +253,7 @@ class CoverSet:
     status: str = "generating"
     requested_count: int = 4
     selected_candidate_id: str = ""
+    repair_lineage: dict[str, Any] | None = None
     revision: int = 0
     created_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)
@@ -312,6 +313,7 @@ class CoverSet:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            **({"repair_lineage": dict(self.repair_lineage)} if self.repair_lineage else {}),
             "cover_set_id": self.cover_set_id,
             "project_id": self.project_id,
             "brief": self.brief.to_dict(),
@@ -368,6 +370,7 @@ class CoverSet:
             status=str(data.get("status") or "generating"),
             requested_count=int(data.get("requested_count") or 0),
             selected_candidate_id=str(data.get("selected_candidate_id") or ""),
+            repair_lineage=dict(data["repair_lineage"]) if data.get("repair_lineage") else None,
             revision=int(data.get("revision") or 0),
             created_at=str(data.get("created_at") or ""),
             updated_at=str(data.get("updated_at") or ""),

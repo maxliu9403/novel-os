@@ -1,11 +1,66 @@
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+const coverBase = (id: string) => id.startsWith("workshop:")
+  ? `/api/workshop/sessions/${encodeURIComponent(id.slice(9))}/covers`
+  : `/api/projects/${encodeURIComponent(id)}/covers`;
+
+export interface CoverSourceSelector {
+  source_type: "project_input" | "workshop_current" | "workshop_prepared" | "workshop_archived";
+  project_id?: string; session_id?: string; archive_revision?: number | null;
+  expected_content_sha256?: string;
+}
+export interface CoverAnalysisRuntime {
+  cancel_requested?: boolean;
+  job_id?: string | null;
+  job_status?: "running" | "done" | "error" | null;
+  job_error?: string | null;
+  execution_status?: "running" | "complete" | "failed" | "paused" | "interrupted";
+  source_selector?: CoverSourceSelector;
+  source_bundle_sha256?: string;
+  updated_at?: string;
+}
+export interface CoverSourcePreview {
+  selector: CoverSourceSelector;
+  source_content_sha256: string; source_bundle_sha256: string;
+  primary_text?: string;
+  origin: { relative_path?: string; observed_session_revision?: number; approval_state?: string };
+  documents: Array<{document_id: string; byte_length: number; sha256: string}>;
+  analyses: Array<CoverAnalysisRuntime & {analysis_id: string; snapshot_id: string; coverage_status: string}>;
+}
+export interface CoverStoryAnalysis extends CoverAnalysisRuntime {
+  analysis_id: string; snapshot_id: string; coverage_status: string;
+  phase?: string;
+  last_error?: {code?: string; message?: string} | null;
+  story?: Record<string, unknown>; characters?: Array<Record<string, unknown>>;
+  relationships?: Array<Record<string, unknown>>; events?: Array<Record<string, unknown>>;
+  suspense?: Array<Record<string, unknown>>; unresolved?: unknown[];
+  evidence?: Array<Record<string, unknown>>;
+  coverage?: {expected_segment_ids?: string[]; processed_segment_ids?: string[]; failed_segment_ids?: string[]};
+  aggregation_progress?: Record<string, {covered_input_ids?: string[]; facts?: unknown[]}>;
+  verification_progress?: {synthesis_sha256?: string; segments?: Record<string, {status?: string}>};
+  verification?: {status?: string; verified_segment_ids?: string[]};
+  attempts?: Array<{phase: string; mode?: string; segment_id?: string | null; status: string}>;
+  [key: string]: unknown;
+}
+
+export interface ProjectCoverSummary {
+  status: "not_started" | "processing" | "awaiting_review" | "needs_attention" | "selected";
+  detail: string;
+  image_url: string | null;
+  image_kind: "selected" | "candidate" | null;
+  cover_set_id: string | null;
+  candidate_id: string | null;
+  candidate_count: number;
+}
 
 export interface ProjectSummary {
   id: string; title: string; genre: string; chapter_count: number; status: string;
   author?: string; word_count?: number; drafted_count?: number;
   content_rating?: "general" | "mature"; updated_at?: string | null;
+  task_id?: string | null; task_started_at?: string | null;
+  task_can_resume?: boolean; task_error?: string | null; task_phase?: string | null;
   genres?: string[]; premise?: string;
   target_word_count?: number; session_word_target?: number;
+  cover?: ProjectCoverSummary;
 }
 
 export interface ChapterSummary {
@@ -21,6 +76,40 @@ export interface ProjectDetail {
   content_rating?: "general" | "mature"; word_count?: number;
   genres?: string[]; premise?: string;
   target_word_count?: number; session_word_target?: number;
+  task_id?: string | null; task_started_at?: string | null;
+  task_can_resume?: boolean; task_error?: string | null; task_phase?: string | null;
+  cover?: ProjectCoverSummary;
+}
+
+export interface ProjectTaskStageFailure {
+  phase: string;
+  chapter: number | null;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  attempt?: number;
+  status?: string;
+}
+
+export interface ProjectTaskDetail {
+  run_id: string;
+  status: string;
+  started_at: string | null;
+  updated_at: string | null;
+  current_phase: string | null;
+  current_chapter: number | null;
+  error: string | null;
+  failed_stages: ProjectTaskStageFailure[];
+  can_resume: boolean;
+  resume_job_id?: string | null;
+  resume_job_status?: string | null;
+  resume_job_error?: string | null;
+}
+
+export interface ProjectTaskResumeResult {
+  job_id: string;
+  status: "running";
+  run_id: string;
 }
 
 export interface ProjectDeletionInventory {
@@ -63,6 +152,13 @@ export interface StudioLlmStatus {
   onboarding_completed: boolean;
 }
 
+export interface ImageModelCapabilities {
+  exact_model_selection: boolean;
+  default_model: string;
+  model_verification: "unavailable" | "when_reported_by_provider";
+  note: string;
+}
+
 export interface StudioCoverStatus {
   configured: boolean;
   has_api_key: boolean;
@@ -83,6 +179,7 @@ export interface StudioCoverStatus {
   director_reasoning_effort?: string;
   director_inherits_writing?: boolean;
   error: string | null;
+  model_capabilities?: ImageModelCapabilities | null;
 }
 
 export type ModelCapability = "text_generation" | "image_generation";
@@ -143,6 +240,7 @@ export interface ImageModelProfile {
   timeout_seconds: number;
   configured: boolean;
   error: string;
+  model_capabilities?: ImageModelCapabilities | null;
 }
 
 export interface StudioModelConfiguration {
@@ -173,12 +271,24 @@ export interface ProviderTestResult {
   tested_at: string;
 }
 
+export interface ImageModelCatalog {
+  models: string[];
+  discovery_supported: boolean;
+  exact_model_selection: boolean;
+  source: "provider" | "cache" | "unsupported";
+  message: string;
+  fetched_at: string;
+}
+
 export interface ImageTestResult {
   ok: boolean;
   data_url: string;
   width: number;
   height: number;
   model: string;
+  requested_model?: string;
+  observed_model?: string;
+  model_verified?: boolean;
   request_id: string;
 }
 
@@ -199,6 +309,7 @@ export interface CoverConcept {
   secondary_signal: string;
   title_treatment: string;
   generation_prompt?: string;
+  scene_plan?: Record<string, unknown>;
 }
 
 export interface CoverCandidate {
@@ -253,6 +364,14 @@ export interface CoverSet {
 export interface CoverDirectionPlan {
   concept_id: string;
   visual_strategy: string;
+  campaign?: {
+    composition_mode: "scene" | "campaign_composite";
+    cover_epoch: string; title_render_mode?: string;
+    hook: {visible_fact: string; unexpected_contradiction: string; visual_trigger: string;
+      open_question: string; withheld_answer: string; reader_promise: string; spoiler_ceiling: string};
+    interaction_edges: Array<{actor_id: string; action: string; target_id: string; visible_reaction: string}>;
+    layers: Array<{layer_id: string; type: string; function: string; epoch: string; location: string}>;
+  };
   portfolio_slot?: string;
   composition_family?: string;
   scene_family?: string;
@@ -340,6 +459,23 @@ export interface CoverStoryFacts {
     character_id?: string;
     character_name?: string;
   }>;
+  /** Source-owned confirmations only; model-inferred appearance is optional. */
+  blocking_pending_fields?: Array<{
+    field: string;
+    label: string;
+    proposed_value: string;
+    character_id?: string;
+    character_name?: string;
+  }>;
+  source_supplement_recommendations?: Array<{
+    field: string;
+    label: string;
+    proposed_value: string;
+    reason: string;
+    provenance: string;
+    character_id?: string;
+    character_name?: string;
+  }>;
   revision_sha256: string;
 }
 
@@ -353,6 +489,107 @@ export interface CoverStoryFactsConfirmation {
   primary_spaces?: string[];
 }
 
+export interface CoverGenerationTask {
+  task_id: string;
+  job_id: string;
+  status: "queued" | "running" | "completed" | "failed" | "interrupted";
+  direction_id: string;
+  cover_set_id: string | null;
+  count: number;
+  result_status: string | null;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  updated_at: string;
+  finished_at: string | null;
+  progress: {
+    phase: "preparing" | "generating" | "composing" | "reviewing" | "comparing" | "saving";
+    current_candidate_id: string | null;
+    current_candidate_index: number | null;
+    total: number;
+    completed: number;
+    failed: number;
+    ready: number;
+    phase_started_at: string;
+    last_event_at: string;
+  } | null;
+}
+
+export interface CoverCommercialReview {
+  policy_version: string;
+  advisories: Array<{
+    category: string;
+    concept_id: string;
+    message: string;
+    evidence_refs: string[];
+  }>;
+}
+
+export interface CoverRepairTask {
+  task_id: string;
+  status: "planning" | "awaiting_approval" | "generating" | "completed" | "failed" | "interrupted";
+  kind: "design" | "render" | "typography" | "evaluation" | "refinement";
+  refinement_prompt?: string;
+  reference_image?: {sha256: string; relative_path: string; content_type: string; kind: "artwork" | "cover"};
+  phase: string;
+  parent_cover_set_id: string;
+  parent_candidate_id: string;
+  candidate_number: number;
+  concept_id: string;
+  direction_id: string | null;
+  cover_set_id: string | null;
+  result_candidate_id: string | null;
+  image_calls: 0 | 1;
+  proposal: {
+    direction_id: string;
+    direction_sha256: string;
+    brief_sha256: string;
+    plan: CoverDirectionPlan;
+    image_calls: 0 | 1;
+    commercial_review?: CoverCommercialReview;
+  } | null;
+  proposal_sha256: string | null;
+  quality_report: CoverCandidate["quality_report"];
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  finished_at: string | null;
+  approved_at?: string;
+  result_quality_status?: string;
+  retry_of_task_id?: string;
+  proposal_reused?: boolean;
+  /** GET resolver attests a retained candidate in a later, verified batch. */
+  lookup_cover_set_id?: string;
+  lookup_candidate_id?: string;
+}
+
+export interface CoverRefinementReplanContext {
+  parent_cover_set_id: string;
+  parent_candidate_id: string;
+  expected_revision: number;
+  refinement_prompt: string;
+}
+
+export interface CoverDirectionTask {
+  task_id: string;
+  status: "queued" | "running" | "completed" | "failed" | "interrupted";
+  analysis_id: string;
+  count: number;
+  freshness_policy: string;
+  direction_id: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  finished_at: string | null;
+  progress?: {
+    phase: "draft_started" | "draft_response" | "draft_validation" | "semantic_started" | "semantic_response" | "semantic_validation" | "completed" | "failure";
+    attempt: number;
+    phase_started_at: string;
+    last_event_at: string;
+    completed_model_calls: number;
+  };
+}
+
 export interface CoverDirection {
   direction_id: string;
   schema_version: number;
@@ -361,6 +598,10 @@ export interface CoverDirection {
   brief_sha256: string;
   direction_sha256: string;
   created_at?: string;
+  source_binding?: {snapshot_id: string; analysis_id: string; source_content_sha256: string; freshness_policy: string;
+    campaign_evidence_review?: CoverCommercialReview;
+    single_candidate_repair?: Record<string, unknown>};
+  compiled_recipes?: Record<string, unknown>;
   status: "awaiting_approval" | "approved" | "stale" | "rejected";
   plans: CoverDirectionPlan[];
   visual_identity?: BookVisualIdentity;
@@ -369,7 +610,9 @@ export interface CoverDirection {
   novelty_report?: Array<Record<string, unknown>>;
   visual_assumptions: Array<{
     field: string; proposed_value: string; reason: string;
-    status: "pending_confirmation" | "approved"; critical: boolean;
+    status: "pending_confirmation" | "approved" | "model_inferred";
+    provenance?: "source" | "model_inferred" | "user_confirmed";
+    critical: boolean;
   }>;
   brief?: Record<string, unknown> & {
     title?: string;
@@ -553,6 +796,8 @@ export interface FinalResult {
   final: string; word_count: number;
 }
 export interface JobStatus {
+  task_id?: string;
+  cancel_requested?: boolean;
   started_at?: string | null;
   job_id: string; kind: string;
   status: "running" | "done" | "error"; error: string | null;
@@ -664,22 +909,31 @@ export interface MediaItem {
   kind: MediaKind; alt: string; url: string; created_at: string;
 }
 
-async function responseError(resp: Response): Promise<string> {
+export class ApiError extends Error {
+  readonly status: number;
+  readonly detail: unknown;
+  constructor(message: string, status: number, detail?: unknown) {
+    super(message); this.name = "ApiError"; this.status = status; this.detail = detail;
+  }
+}
+
+async function responseError(resp: Response): Promise<ApiError> {
   const fallback = `请求失败（HTTP ${resp.status}）`;
   try {
     const body = await resp.json() as { detail?: unknown };
-    if (typeof body.detail === "string") return body.detail;
+    if (typeof body.detail === "string") return new ApiError(body.detail, resp.status, body.detail);
     if (body.detail && typeof body.detail === "object") {
       const message = (body.detail as { message?: unknown }).message;
-      if (typeof message === "string") return message;
+      if (typeof message === "string") return new ApiError(message, resp.status, body.detail);
     }
+    return new ApiError(fallback, resp.status, body.detail);
   } catch { /* ignore malformed error responses */ }
-  return fallback;
+  return new ApiError(fallback, resp.status);
 }
 
 async function get<T>(path: string): Promise<T> {
   const resp = await fetch(`${BASE}${path}`);
-  if (!resp.ok) throw new Error(await responseError(resp));
+  if (!resp.ok) throw await responseError(resp);
   return resp.json() as Promise<T>;
 }
 
@@ -690,20 +944,20 @@ async function send<T>(path: string, method: "POST" | "PUT" | "PATCH", body?: un
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!resp.ok) {
-    throw new Error(await responseError(resp));
+    throw await responseError(resp);
   }
   return resp.json() as Promise<T>;
 }
 
 async function del(path: string): Promise<void> {
   const resp = await fetch(`${BASE}${path}`, { method: "DELETE" });
-  if (!resp.ok && resp.status !== 204) throw new Error(await responseError(resp));
+  if (!resp.ok && resp.status !== 204) throw await responseError(resp);
 }
 
 async function destroy<T>(path: string): Promise<T> {
   const resp = await fetch(`${BASE}${path}`, { method: "DELETE" });
   if (!resp.ok) {
-    throw new Error(await responseError(resp));
+    throw await responseError(resp);
   }
   return resp.json() as Promise<T>;
 }
@@ -713,7 +967,7 @@ async function destroy<T>(path: string): Promise<T> {
 async function upload<T>(path: string, form: FormData): Promise<T> {
   const resp = await fetch(`${BASE}${path}`, { method: "POST", body: form });
   if (!resp.ok) {
-    throw new Error(await responseError(resp));
+    throw await responseError(resp);
   }
   return resp.json() as Promise<T>;
 }
@@ -741,7 +995,39 @@ export interface MethodReviewData {
   decisions: { report_id: string; finding_index: number; decision: string }[];
 }
 
+export interface CostTotals {
+  input_tokens: number; output_tokens: number; cached_input_tokens: number;
+  reasoning_tokens: number; total_tokens: number; images: number; request_count: number;
+  usage_coverage?: Partial<Record<"input_tokens" | "output_tokens" | "cached_input_tokens" | "reasoning_tokens" | "total_tokens", number>>;
+  known_usage_requests: number; unknown_usage_requests: number;
+  estimated_cost_usd: number | null; estimated_cost_cny: number | null; cost_complete: boolean;
+}
+export type CostStage = "brainstorming" | "manuscript" | "cover";
+export interface GenerationCosts {
+  schema_version: number; project_id?: string; session_id?: string; currency: "CNY"; estimate: true;
+  pricing: {usd_to_cny: number | null; exchange_rate_status: "unset" | "configured" | "assumed"};
+  totals: CostTotals;
+  stages: Array<CostTotals & {stage: CostStage}>;
+  models: Array<CostTotals & {provider: string; model: string; stage: CostStage}>;
+  notes: string[];
+}
+export interface ModelPricing {
+  provider: string; model: string;
+  input_usd_per_million: number | null; cached_input_usd_per_million: number | null;
+  output_usd_per_million: number | null; image_usd_per_image: number | null;
+}
+export interface StudioPricing {
+  schema_version: number; usd_to_cny: number | null;
+  exchange_rate_status: "unset" | "configured" | "assumed";
+  models: ModelPricing[];
+}
+
 export const api = {
+  generationCosts: (owner: string) => get<GenerationCosts>(owner.startsWith("workshop:")
+    ? `/api/workshop/sessions/${encodeURIComponent(owner.slice(9))}/costs`
+    : `/api/projects/${encodeURIComponent(owner)}/costs`),
+  studioPricing: () => get<StudioPricing>("/api/studio/pricing"),
+  updateStudioPricing: (pricing: StudioPricing) => send<StudioPricing>("/api/studio/pricing", "PUT", pricing),
   methodReviewSource: (id: string, reportId: string) =>
     get<{ revision_id: string; sha256: string; text: string }>(`/api/projects/${id}/method-reviews/${reportId}/source`),
   methodPolicy: (id: string) => get<MethodPolicyRecord>(`/api/projects/${id}/method-policy`),
@@ -756,6 +1042,10 @@ export const api = {
 
   projects: () => get<ProjectSummary[]>("/api/projects"),
   project: (id: string) => get<ProjectDetail>(`/api/projects/${id}`),
+  projectTask: (id: string, runId: string) =>
+    get<ProjectTaskDetail>(`/api/projects/${encodeURIComponent(id)}/tasks/${encodeURIComponent(runId)}`),
+  resumeProjectTask: (id: string, runId: string) =>
+    send<ProjectTaskResumeResult>(`/api/projects/${encodeURIComponent(id)}/tasks/${encodeURIComponent(runId)}/resume`, "POST"),
   projectDeletionPreview: (id: string) =>
     get<ProjectDeletionPreview>(`/api/projects/${encodeURIComponent(id)}/deletion-preview`),
   deleteProject: (id: string, confirmTitle: string) =>
@@ -794,6 +1084,8 @@ export const api = {
     send<ProviderTestResult>(`/api/studio/providers/${encodeURIComponent(id)}/test`, "POST"),
   providerModels: (id: string, refresh = false) =>
     get<string[]>(`/api/studio/providers/${encodeURIComponent(id)}/models${refresh ? "?refresh=true" : ""}`),
+  providerImageModels: (id: string, refresh = false) =>
+    get<ImageModelCatalog>(`/api/studio/providers/${encodeURIComponent(id)}/image-models${refresh ? "?refresh=true" : ""}`),
   updateTextRoutes: (routes: Array<Pick<TextModelRoute, "id" | "connection_id" | "model" | "max_tokens" | "reasoning_effort" | "inherits_default" | "timeout_seconds">>) =>
     send<TextModelRoute[]>("/api/studio/model-routes", "PUT", { routes }),
   testTextRoute: (routeId: string, prompt: string) =>
@@ -806,51 +1098,88 @@ export const api = {
   }) => send<ImageModelProfile>("/api/studio/image-profiles/cover", "PUT", body),
   testCoverProfile: () =>
     send<JobStatus>("/api/studio/image-profiles/cover/test", "POST"),
-  covers: (id: string) => get<CoverSet[]>(`/api/projects/${id}/covers`),
+  covers: (id: string) => get<CoverSet[]>(`${coverBase(id)}`),
+  coverGenerationTask: (id: string, taskId?: string) =>
+    get<CoverGenerationTask | null>(`${coverBase(id)}/generation-tasks/${taskId ? encodeURIComponent(taskId) : "latest"}`),
+  coverRepairTask: (id: string, taskId?: string) =>
+    get<CoverRepairTask | null>(`${coverBase(id)}/repair-tasks/${taskId ? encodeURIComponent(taskId) : "latest"}`),
+  coverRepairTaskForCandidate: (id: string, coverSetId: string, candidateId: string) =>
+    get<CoverRepairTask | null>(`${coverBase(id)}/repair-tasks/for-candidate?${new URLSearchParams({cover_set_id: coverSetId, candidate_id: candidateId})}`),
+  retryCoverRefinement: (id: string, taskId: string) =>
+    send<CoverRepairTask>(`${coverBase(id)}/repair-tasks/${encodeURIComponent(taskId)}/retry`, "POST"),
+  startCoverRepair: (id: string, coverSetId: string, candidateId: string, expectedRevision: number, refinementPrompt?: string) =>
+    send<CoverRepairTask>(`${coverBase(id)}/${encodeURIComponent(coverSetId)}/candidates/${encodeURIComponent(candidateId)}/repair-tasks`,
+      "POST", {expected_revision: expectedRevision, ...(refinementPrompt === undefined ? {} : {refinement_prompt: refinementPrompt})}),
+  approveCoverRepair: (id: string, taskId: string, proposalSha256: string, imageCalls: 0 | 1) =>
+    send<CoverRepairTask>(`${coverBase(id)}/repair-tasks/${encodeURIComponent(taskId)}/approve`,
+      "POST", {expected_proposal_sha256: proposalSha256, confirm_image_calls: imageCalls}),
   cover: (id: string, coverSetId: string) =>
-    get<CoverSet>(`/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}`),
+    get<CoverSet>(`${coverBase(id)}/${encodeURIComponent(coverSetId)}`),
   coverQuality: (id: string, coverSetId: string) =>
     get<Record<string, unknown>>(
-      `/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}/quality`,
+      `${coverBase(id)}/${encodeURIComponent(coverSetId)}/quality`,
     ),
   generateCovers: (id: string, count?: number, direction?: {
     direction_id: string;
     approved_direction_sha256: string;
   }) =>
-    send<JobStatus>(`/api/projects/${id}/covers/generate`, "POST", direction
+    send<JobStatus>(`${coverBase(id)}/generate`, "POST", direction
       ? { count, ...direction }
       : { count }),
   coverDirections: (id: string) =>
-    get<CoverDirection[]>(`/api/projects/${id}/covers/directions`),
+    get<CoverDirection[]>(`${coverBase(id)}/directions`),
   coverStoryFacts: (id: string) =>
-    get<CoverStoryFacts>(`/api/projects/${encodeURIComponent(id)}/covers/story-facts`),
+    get<CoverStoryFacts>(`${coverBase(id)}/story-facts`),
   confirmCoverStoryFacts: (id: string, body: CoverStoryFactsConfirmation) =>
-    send<CoverStoryFacts>(`/api/projects/${encodeURIComponent(id)}/covers/story-facts`, "PUT", body),
-  createCoverDirection: (id: string, count = 4) =>
-    send<CoverDirection>(`/api/projects/${id}/covers/directions`, "POST", { count }),
+    send<CoverStoryFacts>(`${coverBase(id)}/story-facts`, "PUT", body),
+  coverSource: (id: string, selector?: CoverSourceSelector) => {
+    const query = new URLSearchParams();
+    if (selector) for (const [key, value] of Object.entries(selector)) {
+      if (value !== undefined && value !== null && ["source_type", "session_id", "archive_revision"].includes(key)) query.set(key, String(value));
+    }
+    return get<CoverSourcePreview>(`${coverBase(id)}/source?${query}`);
+  },
+  analyzeCover: (id: string, source_selector: CoverSourceSelector, force = false) =>
+    send<JobStatus>(`${coverBase(id)}/analyses`, "POST", {source_selector, force}),
+  resumeCoverAnalysis: (id: string, analysisId: string) =>
+    send<JobStatus>(`${coverBase(id)}/analyses`, "POST", {analysis_id: analysisId}),
+  cancelCoverAnalysis: (id: string, analysisId: string) =>
+    send<Record<string, unknown>>(`${coverBase(id)}/analyses/${encodeURIComponent(analysisId)}/cancel`, "POST"),
+  coverAnalysis: (id: string, analysisId: string) =>
+    get<CoverStoryAnalysis>(`${coverBase(id)}/analyses/${encodeURIComponent(analysisId)}`),
+  createCoverDirection: (id: string, count = 4, analysis_id = "", freshness_policy = "require_current_head") =>
+    send<CoverDirection>(`${coverBase(id)}/directions`, "POST", { count, analysis_id, freshness_policy }),
+  coverDirectionTask: (id: string) =>
+    get<CoverDirectionTask | null>(`${coverBase(id)}/direction-tasks/latest`),
+  startCoverDirectionTask: (id: string, count = 4, analysis_id = "", freshness_policy = "require_current_head") =>
+    send<CoverDirectionTask>(`${coverBase(id)}/direction-tasks`, "POST", { count, analysis_id, freshness_policy }),
   approveCoverDirection: (
     id: string, directionId: string, briefSha256: string, directionSha256: string,
+    confirmSource = false, extraImageAttempts = 0,
   ) => send<CoverDirection>(
-    `/api/projects/${id}/covers/directions/${encodeURIComponent(directionId)}/approve`,
+    `${coverBase(id)}/directions/${encodeURIComponent(directionId)}/approve`,
     "POST",
-    { expected_brief_sha256: briefSha256, approved_direction_sha256: directionSha256 },
+    { expected_brief_sha256: briefSha256, approved_direction_sha256: directionSha256,
+      confirm_source: confirmSource, extra_image_attempts: extraImageAttempts },
   ),
   selectCover: (
     id: string, coverSetId: string, candidateId: string,
     expectedRevision: number, expectedActiveRevision: number, confirmStale = false,
+    qualityAcceptanceReason?: string,
   ) => send<CoverSet>(
-    `/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}/candidates/${encodeURIComponent(candidateId)}/select`,
+    `${coverBase(id)}/${encodeURIComponent(coverSetId)}/candidates/${encodeURIComponent(candidateId)}/select`,
     "POST",
     {
       expected_revision: expectedRevision,
       expected_active_revision: expectedActiveRevision,
       confirm_stale: confirmStale,
+      quality_acceptance_reason: qualityAcceptanceReason,
     },
   ),
   rejectCover: (
     id: string, coverSetId: string, candidateId: string, expectedRevision: number,
   ) => send<CoverSet>(
-    `/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}/candidates/${encodeURIComponent(candidateId)}/reject`,
+    `${coverBase(id)}/${encodeURIComponent(coverSetId)}/candidates/${encodeURIComponent(candidateId)}/reject`,
     "POST",
     { expected_revision: expectedRevision },
   ),
@@ -858,10 +1187,14 @@ export const api = {
     id: string, coverSetId: string, candidateId: string, expectedRevision: number,
     repairCodes: string[] = [],
   ) => send<JobStatus>(
-    `/api/projects/${id}/covers/${encodeURIComponent(coverSetId)}/candidates/${encodeURIComponent(candidateId)}/retry`,
+    `${coverBase(id)}/${encodeURIComponent(coverSetId)}/candidates/${encodeURIComponent(candidateId)}/retry`,
     "POST",
     { expected_revision: expectedRevision, repair_codes: repairCodes },
   ),
+  reevaluateCover: (id: string, coverSetId: string, candidateId: string, expectedRevision: number) =>
+    send<JobStatus>(`${coverBase(id)}/${encodeURIComponent(coverSetId)}/candidates/${encodeURIComponent(candidateId)}/reevaluate`, "POST", {expected_revision: expectedRevision}),
+  importWorkshopCovers: (id: string, sessionId: string) =>
+    send<Record<string, unknown>>(`${coverBase(id)}/import-workshop`, "POST", {session_id: sessionId}),
   deliveryPackageUrl: (id: string) => `${BASE}/api/projects/${id}/deliverables/package`,
   continuity: (id: string) => get<ContinuityReport>(`/api/projects/${id}/continuity`),
   /** Edit an entry. Send only what changed - absent fields are left alone. */

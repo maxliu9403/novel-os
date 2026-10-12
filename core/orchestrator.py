@@ -25,6 +25,12 @@ from datetime import datetime
 # Import state manager
 from state_manager import StoryState, Character, PlotThread, ChapterState, TimelineEvent, StyleProfile, initialize_project
 from llm_client import LLMClient, LLMError
+try:
+    from core.usage_tracking import scoped_usage
+except ModuleNotFoundError as exc:
+    if exc.name != "core":
+        raise
+    from usage_tracking import scoped_usage
 from model_router import ModelRouter
 from state_parser import (
     extract_manuscript_block,
@@ -158,6 +164,7 @@ class NovelOrchestrator:
         llm = self._get_llm(agent_name)
         return str(llm.provider), str(llm.model)
 
+    @scoped_usage("manuscript", lambda a: a["self"].project_path)
     def _run_agent_or_save_prompt(
         self,
         agent_name: str,
@@ -1586,6 +1593,7 @@ Do not substitute a repeated confrontation for an irreversible state change.
 
     # ===== Style Curation =====
 
+    @scoped_usage("manuscript", lambda a: a["self"].project_path)
     def curate_chapter(self, chapter_number: int, dry_run: bool = False):
         """Run the Style Curator and write a clean candidate-final manuscript."""
         self.last_canon_proposal_ids = []
@@ -2604,6 +2612,7 @@ delivery from the contract label alone. Keep all reader-value labels out of the
 manuscript itself.
 """
 
+    @scoped_usage("manuscript", lambda a: a["self"].project_path)
     def review_commercial_chapter(self, chapter_number: int, dry_run: bool = False):
         """Have the Guardian certify reader-value delivery for candidate_final."""
         self.last_canon_proposal_ids = []
@@ -2754,6 +2763,7 @@ manuscript itself.
         tolerance = max(1, round(target * 0.10))
         return max(1, target - tolerance), target + tolerance
 
+    @scoped_usage("manuscript", lambda a: a["self"].project_path)
     def repair_commercial_chapter(
         self,
         chapter_number: int,

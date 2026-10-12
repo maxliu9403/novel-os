@@ -1,6 +1,9 @@
 """Persistent brainstorming sessions; model work is queued, never run in HTTP handlers."""
 from __future__ import annotations
 
+from core.usage_tracking import scoped_usage, cover_owner
+
+
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
@@ -14,9 +17,11 @@ import re
 import shlex
 import shutil
 import tempfile
+import threading
 import time
 from typing import Literal
 import uuid
+import weakref
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -27,6 +32,8 @@ from . import db, tenancy
 from .project_operations import project_operations, ProjectMutationBlocked
 from .routes import get_service
 from .services import ProjectService
+from .workshop_contract_repair import normalize_workshop_contracts
+from .workshop_diagnostics import diagnostic_error_category, make_diagnostic_callback, runtime_progress
 
 LOG = logging.getLogger("uvicorn.error.workshop")
 REPO = Path(__file__).resolve().parents[1]
@@ -34,6 +41,23 @@ SKILL = REPO / "skills" / "novel-brainstorm-workshop"
 FORMATS = ("markdown", "html", "docx", "epub", "pdf")
 SCHEMA = "workshop.v2"
 router = APIRouter(prefix="/api/workshop", tags=["workshop"])
+
+# Some Docker Desktop bind mounts allow blocking flock calls from separate
+# threads to overlap when the lock file is first created. Coordinate threads
+# explicitly; retain flock below for cooperating processes. Key by resolved path so all
+# service instances share a gate, while workspaces/sessions remain independent.
+_SESSION_LOCKS = weakref.WeakValueDictionary()
+_SESSION_LOCKS_GUARD = threading.Lock()
+
+
+def _session_thread_lock(path: Path):
+    key = str(path.resolve())
+    with _SESSION_LOCKS_GUARD:
+        lock = _SESSION_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _SESSION_LOCKS[key] = lock
+        return lock
 
 
 class ModelResponseError(ValueError):
@@ -61,6 +85,23 @@ class RevisionInput(BaseModel):
 
 class TurnInput(RevisionInput):
     message: str = Field(min_length=1)
+
+
+class PauseInput(RevisionInput):
+    job_id: str = Field(min_length=1)
+
+
+class TitleInput(RevisionInput):
+    instructions: str = ""
+    current_title: str = ""
+
+
+class PrepareInput(RevisionInput):
+    title: str | None = None
+
+
+class UpdateInput(RevisionInput):
+    input: SessionInput
 
 
 def _now() -> str:
@@ -91,16 +132,33 @@ def _timeout() -> float:
 
 
 def _skill_bundle(phase: str = "design") -> tuple[str, str]:
-    files = ["SKILL.md", "references/interaction.md", "references/character-and-emotion.md",
+    files = ["SKILL.md", "references/interaction.md", "references/creation-path.md",
+             "references/story-exploration.md", "references/character-and-emotion.md",
              "references/hooks-and-payoffs.md", "references/prompt-contract.md",
              "references/narrative-format.md", "references/novel-classification.md",
-             "references/launch-command.md", "assets/novel-skeleton-template.md"]
+             "references/launch-command.md", "references/title-naming.md", "assets/novel-skeleton-template.md"]
+    files.insert(-1, "references/commercial-story-design.md")
     parts = {name: f"\n--- {name} ---\n{(SKILL / name).read_text(encoding='utf-8')}" for name in files}
     version = hashlib.sha256("\n".join(parts.values()).encode()).hexdigest()[:16]
-    # Any turn may receive a complete brief in free-form prose. Keep all output
-    # contracts available even when the optional form fields are empty; the
-    # phase only selects supplementary craft/launcher material, not capability.
-    if phase == "intake":
+    # Legacy bundle names retain their full export capability. Runtime profiles
+    # use an internal, same-turn handoff so a prose brief needs no extra approval.
+    if phase == "exploration":
+        selected = ["SKILL.md", "references/interaction.md", "references/creation-path.md",
+                    "references/story-exploration.md", "references/character-and-emotion.md",
+                    "references/hooks-and-payoffs.md"]
+    elif phase == "delivery":
+        # Naming is a separate operation, and the server owns launch commands.
+        # The complete skeleton/engine contracts remain available for delivery.
+        selected = [name for name in files if name not in {
+            "references/launch-command.md", "references/title-naming.md",
+        }]
+        # Tool-free requests use the serialized example generated below for the
+        # selected mode. Retain the reference's rules, not its Python demos or
+        # a competing 80-chapter standalone example.
+        narrative = parts["references/narrative-format.md"]
+        narrative = re.sub(r"```(?:python|text)\n.*?```", "", narrative, flags=re.DOTALL)
+        parts["references/narrative-format.md"] = narrative
+    elif phase == "intake":
         selected = [name for name in files if name not in {
             "references/character-and-emotion.md", "references/hooks-and-payoffs.md",
             "references/launch-command.md",
@@ -109,35 +167,169 @@ def _skill_bundle(phase: str = "design") -> tuple[str, str]:
         selected = [name for name in files if name != "references/launch-command.md"]
     else:
         selected = files
-    return "\n".join(parts[name] for name in selected), version
+    # Creative guidance comes first. Keep export contracts available for a full
+    # brief on any turn, but do not turn them into an exploration questionnaire.
+    export_files = {"references/prompt-contract.md", "references/narrative-format.md",
+                    "references/novel-classification.md", "references/launch-command.md",
+                    "references/title-naming.md", "assets/novel-skeleton-template.md"}
+    creative = [parts[name] for name in selected if name not in export_files]
+    export = [parts[name] for name in selected if name in export_files]
+    return ("\n".join(creative) + "\n\nFINAL EXPORT REFERENCES — consult when producing the complete "
+            "prompt_md; their fields are not questions to ask during story exploration.\n"
+            + "\n".join(export)), version
+
+
+_NARRATIVE_MODES = ("short_novel", "standalone_long", "multi_volume", "series_installment")
+
+
+def _narrative_contract_reference(mode: str | None = None) -> str:
+    """Supply serialized engine fields to the tool-free model, not helper arguments."""
+    from core.narrative_format import infer_narrative_format
+    from core.novel_classification import infer_classification
+
+    classification = infer_classification(genre="Fantasy")
+    examples = {}
+    for mode in ((mode,) if mode in _NARRATIVE_MODES else _NARRATIVE_MODES):
+        contract = infer_narrative_format(
+            classification, chapters=20, target_words=12000, mode=mode,
+            volume_count=2 if mode == "multi_volume" else 1,
+            explicit_length=False, source="engine_recommended",
+            **({"series_id": "example-series", "series_title": "Example Series",
+                "series_book_number": 2, "planned_books": 3} if mode == "series_installment" else {}),
+        ).to_dict()
+        for key in ("format_id", "is_long_form", "volume_count", "chapter_target_words", "audit_policy"):
+            contract.pop(key, None)
+        examples[mode] = contract
+    return """
+
+ENGINE NARRATIVE FORMAT REFERENCE (serialized by the current engine):
+These are schema examples ONLY, not author decisions or recommended story lengths.
+Return ONE NARRATIVE_FORMAT_JSON object for the author's chosen mode. Adapt every
+chapter/word target, volume boundary, series identity and suitability assessment
+to the current story and latest decisions. Preserve approved unequal volume spans.
+Use total_chapters (not chapters), selection_source (not source), and volume_number,
+chapter_start, chapter_end, structural_role in every volume. Include the complete
+long_form_suitability object and all six dimensions. The Python helper's argument
+names and explicit_length flag are NOT the serialized output schema.
+Omit optional engine-derived hashes and fields when composing a new contract;
+never fabricate format_id. Keep confirmation_status pending_confirmation until
+the author confirms the structure. Do not copy the examples' confirmation decisions.
+""" + json.dumps(examples, ensure_ascii=False, indent=2)
+
+
+def _skeleton_mode(prompt: str) -> str | None:
+    """Read a serialized mode only; never guess story structure from keywords."""
+    match = re.search(r"\[NARRATIVE_FORMAT_JSON\]\s*(.*?)\s*\[/NARRATIVE_FORMAT_JSON\]", prompt, re.DOTALL)
+    if not match:
+        return None
+    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", match.group(1), flags=re.IGNORECASE)
+    try:
+        contract = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    mode = contract.get("mode") if isinstance(contract, dict) else None
+    return mode if mode in _NARRATIVE_MODES else None
+
+
+def _commercial_contract_reference() -> str:
+    from core import commercial_story as contract
+    fields = {
+        "protagonist_life_stage": contract.LIFE_STAGES,
+        "invisible_labor": contract.INVISIBLE_LABOR,
+        "sacred_asset": contract.SACRED_ASSETS,
+        "boundary_transfer": contract.RESOURCE_DIMENSIONS,
+        "beneficiary_role": contract.BENEFICIARY_ROLES,
+        "proof_type": contract.PROOF_TYPES,
+        "deadline_type": contract.DEADLINE_TYPES,
+        "agency_source": contract.AGENCY_SOURCES,
+        "action_cost": contract.ACTION_COSTS,
+        "belonging_anchors": contract.BELONGING_ANCHORS,
+        "relationship_shape": contract.RELATIONSHIP_SHAPES,
+        "resource_dimension": contract.RESOURCE_DIMENSIONS,
+        "action_sequence": contract.FREE_ARC_ACTIONS,
+    }
+    return """
+
+COMMERCIAL STORY SERIALIZATION:
+If the story uses COMMERCIAL_STORY_JSON, follow commercial-story-design.md and
+these current engine enums. Put raw JSON directly between the block markers,
+without an inner Markdown code fence. Use schema_version: 1, free_trial_arc
+(not free_arc), and quality_budgets (not fixed_quality_budgets); do not add status.
+Include exactly the fields in that reference. Each emotional_jobs value is an
+integer 0–5 with at least three positive values; life_contexts contains 1–5
+unique strings. The enums below apply to the corresponding nested fields;
+belonging_anchors and action_sequence are arrays, other enum fields are strings.
+""" + json.dumps({key: sorted(value) for key, value in fields.items()}, ensure_ascii=False)
 
 
 def _complete(session: dict, skill: str) -> tuple[dict, dict]:
+    from .workshop_delivery import serialized_inference
+    # Native CLI cancellation drains the child before this gate is released.
+    # A resumed turn cannot overlap the previous process for the same discussion.
+    if session.get("_inference_lock_path") is not None:
+        session["_turn_deadline"] = time.monotonic() + float(session.get("turn_timeout_seconds") or _timeout())
+    with serialized_inference(session, now=time.monotonic):
+        return _complete_impl(session, skill)
+
+
+def _complete_impl(session: dict, skill: str) -> tuple[dict, dict]:
     from core import provider_settings
-    from core.llm_client import LLMClient
+    from core.llm_client import LLMClient, LLMCancelledError
+    from .workshop_delivery import DeliveryError, DeliveryPlan, author_context, parse_stage
 
     route = provider_settings.resolve_text_route("workshop")
     # Accepting a turn freezes its timeout. Settings changed during inference apply next turn.
     timeout = float(session.get("turn_timeout_seconds") or route.get("timeout_seconds") or _timeout())
     session["_model_log"] = {"provider": route["provider"], "model": route["model"], "timeout_seconds": timeout}
-    client = LLMClient(provider=route["provider"], model=route["model"] or None,
-                       base_url=route["base_url"] or None, api_key=route["api_key"] or None,
-                       max_tokens=route["max_tokens"], timeout_seconds=timeout,
-                       reasoning_effort=route.get("reasoning_effort") or None)
-    system = skill + """
+    client_options = dict(provider=route["provider"], model=route["model"] or None,
+                          base_url=route["base_url"] or None, api_key=route["api_key"] or None,
+                          max_tokens=route["max_tokens"], reasoning_effort=route.get("reasoning_effort") or None,
+                          **({"cancellation_event": session["_cancellation_event"]} if session.get("_cancellation_event") is not None else {}))
+    transport = """
 
 WEB WORKSHOP TRANSPORT (follow the Skill's creative rules within this interface):
 You are brainstorming, not executing files, scripts, commands or tools. Treat the author's
-initial premise as author_brief, preserve their actual names and decisions. Questions may be
+initial premise as author_brief, preserve explicit identity facts, hard constraints and
+confirmed decisions. A rough plot is open to proposed improvements; it is not automatically
+a list of locked events. Distinguish proposals from changes the author has accepted.
+Questions may be
 answered in unlimited subsequent messages; do not pretend missing answers are confirmed.
 Read the full conversation and current skeleton below. Do not repeat answered questions.
+Lead substantive story discussions with concrete new story possibilities, not a checklist
+or a request that the author invent the next plot event. For an open premise, normally offer
+three genuinely different causal directions and recommend one with a reason. On subsequent
+turns develop the chosen story through new protagonist choices, adaptive opposition,
+relationship conflicts, earned reveals or the consequences of earlier wins. Each proposal
+connects an event to a motivated choice, its cost, and a change in the later storyline.
+"Continue" or "not exciting enough" calls for actual new plot development; it does not
+confirm all pending alternatives. A delegated choice ("use your recommendation") does
+authorize advancing the recommended direction. Do not regenerate three whole-book options
+every turn. For a scoped edit, respect its scope and necessary causal dependencies. When
+the author asks to settle the design or deliver, converge instead of introducing new forks.
+Design the whole-book goal, major turns, escalation, climax and ending before detailed
+chapter mapping. Keep character desire, fear, distinctive behavior and emotional choices
+central. Resolve a detail now only if it changes a choice, causal link or outcome; otherwise
+propose an optional assumption or leave it for drafting. Do not ask about costumes, precise
+dialogue, prop specifications or prose polish to complete a skeleton. Ask only high-impact
+unresolved questions that are needed now; zero questions is valid, even during exploration.
+During exploration, put proposed story directions and the current causal storyline in
+reply. Return prompt_md null and ready_for_confirmation false to retain any prior complete
+skeleton without publishing tentative alternatives. This discussion is saved in conversation;
+it need not regenerate all 17 export sections after each idea. If the author supplied a
+complete brief and requests a finished skeleton, deliver it directly without forcing an
+extra exploration stage. Export schemas are delivery references, not the conversation agenda.
+The initial_brief contains the latest saved basic settings. Explicit later changes to these
+settings supersede older discussion decisions; update affected chapters and contracts.
+The title is provisional during story design. Do not require final naming before the
+skeleton is ready: the author will confirm the skeleton, request naming suggestions, and
+choose the final title in a separate naming stage before launching.
 previous_pending_questions preserves the most recent unanswered questions, including older
 sessions whose assistant messages did not store question arrays. Resolve them using the latest
 user answers; do not repeat answered questions or invent missing older question wording.
 The questions field is a required JSON artifact, not a request for interactive tool input.
 Even if a generic text-generation preamble says not to ask questions, record missing essential
 author decisions here instead of inventing confirmation. This is the task's output contract.
-Return ONLY one JSON object with these exact keys:
+Return ONLY one JSON object with these public response keys:
 {"reply":"### 本轮建议\\n\\nChinese Markdown describing actual changes or questions",
  "questions":["only essential unresolved questions; empty when ready"],
  "prompt_md":"complete current Markdown skeleton if changed, or null to retain the previous version",
@@ -151,8 +343,9 @@ Do not wrap reply in a ```markdown fence, emit raw HTML, or expose the transport
 the reader. Keep the complete reasoning summary and all requested details; do not shorten
 the stored reply to a UI preview. Include decisions and rationale, not private chain of thought.
 Never return a patch, ellipsis, partial outline, command-only response, or generic template
-as prompt_md. On the first turn, ask missing essentials and keep prompt_md null if a complete
-skeleton cannot yet be designed. When ready, fill every template section with actual story
+as prompt_md. If a complete skeleton cannot yet be designed, develop the story in reply and
+keep prompt_md null; missing publication parameters do not prevent proposing story directions.
+When the chosen design is ready, fill every template section with actual story
 content, preserve the template's numbered ## 1. through ## 17. sections and use
 ### Chapter N headings for every chapter inside section 12. Use valid existing
 classification and narrative-format JSON, and set
@@ -164,21 +357,257 @@ Do not output a launch command yourself: the server generates it from this exact
 Do not claim parser/design/prose validation was executed or creation started. The transport
 JSON and current draft are not an additional mandatory user confirmation round.
 """
-    user = json.dumps({"initial_brief": session["input"], "conversation": session["messages"],
-                       "previous_pending_questions": session.get("questions", []),
-                       "current_complete_skeleton": session["prompt_md"]}, ensure_ascii=False)
+    profile = "delivery" if session.get("prompt_md") or session.get("_previous_candidate") else "exploration"
+    narrative_mode = session["input"].get("mode")
+    if "mode" not in session.get("pending_input_fields", []):
+        # A later discussion may have revised the form's original mode. Only a
+        # newly saved basic-setting change takes precedence over that design.
+        narrative_mode = (_skeleton_mode(session.get("_previous_candidate", ""))
+                          or _skeleton_mode(session.get("prompt_md", "")) or narrative_mode)
+
+    def build_system() -> str:
+        # Keep custom prompt callers compatible. Standard bundles are disclosed
+        # by runtime phase without trimming the author's conversation.
+        rules = _skill_bundle(profile)[0] if "--- SKILL.md ---" in skill else skill
+        if profile == "delivery":
+            return (rules + transport + _narrative_contract_reference(narrative_mode or "short_novel")
+                    + _commercial_contract_reference())
+        return rules + transport + """
+
+CURRENT REQUEST PROFILE: EXPLORATION WITH AUTOMATIC DELIVERY HANDOFF.
+This request carries creative guidance and the FULL author context, but intentionally
+omits detailed export schemas. Do not attempt all 17 sections or invent their fields here.
+For story exploration, return the four public response fields above, prompt_md null and
+ready_for_confirmation false. Develop useful concrete ideas now; missing export metadata
+does not block brainstorming. Do not read files or invoke tools to obtain omitted references.
+When the author already supplied a complete brief, asks for delivery, accepts the chosen
+design, or delegates settling remaining choices and a complete skeleton is now appropriate,
+request the full delivery references internally: add requests_delivery: true and
+delivery_mode: one of short_novel, standalone_long, multi_volume, series_installment.
+Choose that mode from the full brief and conversation, not just the optional form fields.
+Keep reply concise, questions empty, prompt_md null, ready_for_confirmation false for this
+internal handoff. The server immediately continues this SAME turn with all delivery schemas;
+the handoff reply is not published and does not require another author message or approval.
+Request that handoff as soon as delivery intent and mode are established; do not first
+compose the chapter map, complete skeleton, or serialized contracts in this lightweight call.
+Do not ask the author to confirm this technical handoff, provide the references, or say a
+complete skeleton cannot be delivered because they are omitted. A complete brief may be in
+free-form prose or an earlier message. If essential author decisions genuinely remain open,
+instead advance the story and ask only those questions in the usual public response.
+"""
+
+    system = build_system()
+    context = author_context(session)
+    if session.get("_previous_candidate"):
+        context["previous_unvalidated_skeleton"] = session["_previous_candidate"]
+        context["candidate_instruction"] = (
+            "This earlier candidate failed validation and is NOT an approved skeleton. "
+            "Reuse its story content where consistent with the latest author decisions; "
+            "repair its contracts using the engine reference. Return the complete revised skeleton.")
+    user = json.dumps(context, ensure_ascii=False)
     LOG.info("workshop.model.start session=%s route=workshop provider=%s model=%s timeout=%s revision=%s",
              session["id"], route["provider"], route["model"], timeout, session["revision"])
-    for attempt in range(3):
-        text = client.complete(system, user).strip()
+    deadline = session.get("_turn_deadline") or time.monotonic() + timeout
+    attempt = 0
+    repair_count = 0
+    session.setdefault("skill_version", _skill_bundle()[1])
+    plan = None
+    if session.get("_delivery_record"):
+        narrative_mode = session["_delivery_record"]["narrative_mode"]
+        profile = "delivery"
+        plan = DeliveryPlan(session, narrative_mode)
+
+    def stage_request():
+        assert plan is not None
+        if plan.stage == "assembly":
+            return build_system() + plan.rules(), json.dumps(plan.context(context), ensure_ascii=False)
+        # Early stages have creative guidance but no 17-section schema burden.
+        rules = _skill_bundle("exploration")[0] if "--- SKILL.md ---" in skill else skill
+        return rules + plan.rules(), json.dumps(plan.context(context), ensure_ascii=False)
+
+    if plan is not None:
+        system, user = stage_request()
+    while True:
+        attempt += 1
+        cancellation = session.get("_cancellation_event")
+        if cancellation is not None and cancellation.is_set():
+            raise LLMCancelledError("Workshop inference was paused")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Workshop format repair exhausted the turn timeout")
+        # SDKs freeze timeout when constructed; a fresh client also gives HTTP
+        # repairs the remaining budget instead of another full turn timeout.
+        diagnostic = make_diagnostic_callback(session, attempt=attempt, operation="brainstorm",
+                                              route={**route, "timeout_seconds": remaining})
+        stage = plan.stage if plan is not None else None
+        if plan is not None:
+            if diagnostic is not None and attempt == 1:
+                for saved_stage in plan.record["completed"]:
+                    diagnostic(plan.event("reused", saved_stage))
+            plan.begin()
+            if diagnostic is not None:
+                diagnostic(plan.event("started"))
+        if diagnostic is not None:
+            diagnostic({"event": "attempt.start", "timeout_seconds": remaining,
+                        "prompt_profile": profile, "narrative_mode": narrative_mode,
+                        "system_bytes": len(system.encode("utf-8"))})
         try:
+            if plan is not None and "assembly" in plan.record["completed"]:
+                # Crash after stage save and before session publication: revalidate
+                # locally rather than paying for the same completed result again.
+                text = json.dumps(plan.record["completed"]["assembly"]["content"], ensure_ascii=False)
+            else:
+                # Saving a checkpoint and diagnostic fsyncs also spend this turn's
+                # budget. Never give the child an earlier, stale time allowance.
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("Workshop delivery exhausted the turn timeout")
+                client = LLMClient(**client_options, timeout_seconds=remaining,
+                                   **({"diagnostic_callback": diagnostic} if diagnostic is not None else {}))
+                text = client.complete(system, user).strip()
+        except Exception as exc:
+            if diagnostic is not None:
+                category = diagnostic_error_category(exc)
+                diagnostic({"event": f"attempt.{category}" if category in {"timeout", "cancelled"} else "attempt.failed",
+                            "error_category": category})
+            raise
+        if cancellation is not None and cancellation.is_set():
+            if diagnostic is not None:
+                diagnostic({"event": "attempt.cancelled", "error_category": "cancelled"})
+            raise LLMCancelledError("Workshop inference was paused")
+        data = None
+        validation_phase = "response_parse"
+        try:
+            if diagnostic is not None:
+                diagnostic({"event": "validation.start", "phase": validation_phase})
+            if plan is not None and stage != "assembly":
+                data = parse_stage(text, stage, narrative_mode,
+                                   plan.chapter_count if stage == "chapter_plan" else None)
+                plan.finish(stage, data)
+                if diagnostic is not None:
+                    diagnostic({"event": "attempt.completed"})
+                    diagnostic(plan.event("completed", stage))
+                # A repair artifact belongs to its own stage, not the next one.
+                for key in ("previous_model_response", "validation_error", "repair_instruction", "repair_requires_skeleton"):
+                    context.pop(key, None)
+                system, user = stage_request()
+                continue
             data = _parse_response(text, session["prompt_md"])
+            requests_delivery = data.pop("requests_delivery", False)
+            delivery_mode = data.pop("delivery_mode", None)
+            if type(requests_delivery) is not bool:
+                raise ModelResponseError("模型的内部交付标记需要为布尔值。")
+            if requests_delivery:
+                if profile != "exploration" or delivery_mode not in _NARRATIVE_MODES:
+                    raise ModelResponseError("模型的内部交付请求缺少有效的故事组织形式，或重复请求交付参考。")
+                if data.get("prompt_md") is not None or data["ready_for_confirmation"]:
+                    raise ModelResponseError("内部交付请求不能替代完整小说骨架。")
+                profile, narrative_mode = "delivery", delivery_mode
+                for key in ("previous_model_response", "validation_error", "repair_instruction", "repair_requires_skeleton"):
+                    context.pop(key, None)
+                context["delivery_instruction"] = (
+                    "The author context has been reviewed and delivery is appropriate. Complete only "
+                    "delivery_stage using its required JSON schema and saved_story_stages. Story design "
+                    "and chapter planning precede assembly; only assembly returns the complete skeleton "
+                    "and four public response fields. Do not ask for a new confirmation.")
+                context["delivery_mode"] = delivery_mode
+                plan = DeliveryPlan(session, narrative_mode)
+                plan.begin()
+                system, user = stage_request()
+                if diagnostic is not None:
+                    diagnostic({"event": "attempt.completed"})
+                    diagnostic({"event": "profile.switch", "prompt_profile": profile,
+                                "narrative_mode": narrative_mode, "system_bytes": len(system.encode("utf-8"))})
+                continue
+            if data.get("prompt_md") is not None:
+                validation_phase = "skeleton_validation"
+                if diagnostic is not None:
+                    diagnostic({"event": "validation.start", "phase": validation_phase})
+                # Validate inside the bounded repair loop, before publishing any version.
+                # Persist failed candidates as well, so a later retry can reuse the work.
+                raw_prompt = data["prompt_md"]
+                data["prompt_md"], normalized_fields = normalize_workshop_contracts(raw_prompt)
+                if normalized_fields and diagnostic is not None:
+                    diagnostic({"event": "contract.normalized", "normalized_fields": len(normalized_fields)})
+                candidate_path = session.get("_candidate_path")
+                if candidate_path is not None:
+                    candidate = Path(candidate_path)
+                    # Retain the exact model artifact for audit; only the canonical
+                    # candidate receives the narrow compatibility normalization.
+                    _atomic(candidate.with_name(f"{candidate.stem}-attempt-{attempt}.md"), raw_prompt)
+                    _atomic(candidate, data["prompt_md"])
+                    validated = _validate_candidate(candidate)
+                else:
+                    with tempfile.TemporaryDirectory(prefix="workshop-candidate-") as directory:
+                        candidate = Path(directory) / "prompt.md"
+                        candidate.write_text(data["prompt_md"], encoding="utf-8")
+                        validated = _validate_candidate(candidate)
+                validation_phase = "input_revision_validation"
+                if diagnostic is not None:
+                    diagnostic({"event": "validation.start", "phase": validation_phase})
+                _validate_input_revision(session, data["prompt_md"], validated)
+            elif context.get("repair_requires_skeleton") or (
+                session.get("input_needs_revision") and data["ready_for_confirmation"]
+            ):
+                raise ModelResponseError("本轮需要返回修复后的完整骨架，不能以空骨架或旧版本代替。")
+            if plan is not None:
+                plan.validate_assembly(data, _skeleton_mode(data.get("prompt_md") or ""))
+                plan.finish("assembly", data)
+            if diagnostic is not None:
+                diagnostic({"event": "attempt.completed"})
+                if plan is not None:
+                    diagnostic(plan.event("completed", "assembly"))
             break
-        except (json.JSONDecodeError, ModelResponseError):
-            if attempt == 2:
+        except (json.JSONDecodeError, ModelResponseError, DeliveryError) as exc:
+            if diagnostic is not None:
+                category = "json_decode" if isinstance(exc, json.JSONDecodeError) else {
+                    "response_parse": "response_schema", "skeleton_validation": "skeleton_contract",
+                    "input_revision_validation": "input_revision",
+                }[validation_phase]
+                diagnostic({"event": "validation.failure", "phase": validation_phase, "error_category": category})
+                diagnostic({"event": "attempt.failed", "phase": validation_phase, "error_category": category})
+            if repair_count == 2:
                 raise
-            LOG.warning("workshop.model.format_retry session=%s attempt=%s", session["id"], attempt+1)
-            user += "\nThe last response did not satisfy the JSON contract. Return a valid complete object from the full brief and conversation above; preserve the previous complete skeleton unless supplying a complete revision."
+            repair_count += 1
+            LOG.warning("workshop.model.format_retry session=%s attempt=%s", session["id"], attempt)
+            if diagnostic is not None:
+                diagnostic({"event": "format_retry", "retry_count": repair_count, "error_category": category})
+            if plan is not None and stage != "assembly":
+                context.update(previous_model_response=text, validation_error=str(exc),
+                               repair_instruction="Repair this stage's complete JSON and content. Preserve the full author context and saved story stages; do not change the saved mode or chapter count.")
+                system, user = stage_request()
+                continue
+            if plan is not None and "assembly" in plan.record["completed"]:
+                # Immutable saved output failing a changed validator must not be
+                # silently regenerated during an explicit local publication retry.
+                raise ModelResponseError("已保存整合结果未通过当前骨架校验，请重新发起修改；阶段成果仍保留。") from exc
+            if data is not None and data.get("prompt_md") is not None:
+                # Keep the last complete candidate even if the next attempt
+                # fails to produce parseable transport JSON at all.
+                context["previous_unvalidated_skeleton"] = data["prompt_md"]
+                profile = "delivery"
+                narrative_mode = plan.mode if plan is not None else _skeleton_mode(data["prompt_md"]) or narrative_mode
+                system = build_system()
+            context.update(
+                previous_model_response=text,
+                validation_error=("Response is not valid JSON." if isinstance(exc, json.JSONDecodeError) else str(exc)),
+                repair_instruction=(
+                    "Repair the reported format/contract error using the engine reference. "
+                    "Return the complete transport object and complete corrected prompt_md, "
+                    "preserving the story, author decisions, chapter count, chosen mode and volume spans. "
+                    "Check all required serialized fields together, not just the first reported field. "
+                    "Do not replace the story with the schema example or an earlier approved version."
+                    if profile == "delivery" else
+                    "Repair the reported response format. Retain the full author context and return the "
+                    "discussion with prompt_md null, or request the automatic delivery handoff when a "
+                    "complete skeleton is appropriate. Do not invent missing export schemas."),
+                repair_requires_skeleton=context.get("repair_requires_skeleton", False) or (
+                    data is not None and data.get("prompt_md") is not None),
+            )
+            if plan is not None:
+                system, user = stage_request()
+            else:
+                user = json.dumps(context, ensure_ascii=False)
     return data, {"provider": route["provider"], "model": route["model"], "timeout_seconds": timeout}
 
 
@@ -221,14 +650,18 @@ def _preserved_context(has_prompt: bool) -> str:
 
 
 def _failure(exc: Exception, *, timeout_seconds: float, has_prompt: bool) -> str:
+    from .workshop_delivery import DeliveryError
+    from .workshop_checkpoints import CheckpointError
     retained = _preserved_context(has_prompt)
     if isinstance(exc, (TimeoutError,)) or any(word in str(exc).lower() for word in ("timeout", "timed out")):
         return f"模型响应超时（本轮上限 {timeout_seconds:g} 秒）。{retained}可以携带完整上下文重试。"
     if isinstance(exc, json.JSONDecodeError):
         return f"模型响应不完整或不是有效 JSON。{retained}可以重试。"
-    if isinstance(exc, ModelResponseError):
+    if isinstance(exc, (ModelResponseError, DeliveryError)):
         detail = str(exc).replace("上一版完整骨架已保留", "").replace("上一版骨架已保留", "").strip("；，。 ")
         return f"{detail[:400]}。{retained}"
+    if isinstance(exc, CheckpointError):
+        return f"阶段成果未能安全保存或恢复，请检查存储与当前设定；已保存文件保持不变。{retained}"
     # Provider exceptions can contain authentication headers or request bodies.
     return f"模型调用失败（{type(exc).__name__}），请检查头脑风暴模型配置。{retained}"
 
@@ -251,7 +684,12 @@ def _confirm_format(text: str) -> str:
     if fenced:
         body = fenced.group(1)
     from core.narrative_format import NarrativeFormat
-    contract = NarrativeFormat.from_dict(json.loads(body))
+    try:
+        contract = NarrativeFormat.from_dict(json.loads(body))
+    except KeyError as exc:
+        field = str(exc.args[0])
+        label = "（总章节数）" if field == "total_chapters" else ""
+        raise ValueError(f"NARRATIVE_FORMAT_JSON 缺少必填字段 {field}{label}，请按引擎结构参考补齐。") from None
     source = contract.selection_source
     if source not in {"author_selected", "recommended_then_confirmed"}:
         source = "recommended_then_confirmed"
@@ -259,7 +697,7 @@ def _confirm_format(text: str) -> str:
     return text[:match.start()] + "[NARRATIVE_FORMAT_JSON]\n" + json.dumps(data, ensure_ascii=False, indent=2) + "\n[/NARRATIVE_FORMAT_JSON]" + text[match.end():]
 
 
-def _validate_candidate(path: Path) -> None:
+def _validate_candidate(path: Path) -> dict:
     """Reject incomplete transport artifacts, without evaluating prose or rigid word counts."""
     text = path.read_text(encoding="utf-8")
     headings = list(re.finditer(r"^##\s+(\d+)\.\s+[^\n]+", text, flags=re.MULTILINE))
@@ -284,11 +722,24 @@ def _validate_candidate(path: Path) -> None:
         with tempfile.TemporaryDirectory(prefix="workshop-check-") as folder:
             check_path = Path(folder) / "prompt.md"
             check_path.write_text(confirmed, encoding="utf-8")
-            _handoff().validate(check_path, REPO)
+            validated = _handoff().validate(check_path, REPO)
         from core.cover_handoff import parse_cover_handoff
         parse_cover_handoff(text)
     except (ValueError, KeyError, TypeError) as exc:
         raise ModelResponseError(f"模型骨架的结构合同尚不完整：{str(exc)[:240]}；上一版骨架已保留。") from None
+    return validated
+
+
+def _validate_input_revision(snapshot: dict, prompt: str, validated: dict) -> None:
+    if not snapshot.get("input_needs_revision"):
+        return
+    if prompt.strip() == snapshot["prompt_md"].strip():
+        raise ModelResponseError("模型返回了未更新的旧骨架，请继续落实已修改的基础设定。")
+    pending = snapshot.get("pending_input_fields", [])
+    for field, label in (("chapters", "章节数"), ("mode", "故事组织形式")):
+        expected = snapshot["input"].get(field)
+        if field in pending and expected and validated[field] != expected:
+            raise ModelResponseError(f"模型骨架尚未落实新的{label}，请继续推导或修改基础设定。")
 
 
 class WorkshopService:
@@ -311,7 +762,7 @@ class WorkshopService:
         path = self._path(session_id)
         if not (path / "session.json").is_file():
             raise HTTPException(404, "找不到头脑风暴会话。")
-        with (path / ".lock").open("a") as lock:
+        with _session_thread_lock(path), (path / ".lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             try:
                 data = json.loads((path / "session.json").read_text(encoding="utf-8"))
@@ -327,10 +778,88 @@ class WorkshopService:
         data["updated_at"] = _now()
         _atomic(self._path(data["id"]) / "session.json", json.dumps(data, ensure_ascii=False, indent=2))
 
+    def _history_path(self, session_id: str, filename: str) -> Path:
+        root = self._path(session_id)
+        directory = root / "history"
+        path = directory / filename
+        if directory.is_symlink() or path.is_symlink() or path.resolve().parent != root.resolve() / "history":
+            raise HTTPException(409, "历史目录无法安全读取，尚未修改当前讨论。")
+        return path
+
     def _log(self, data: dict, event: str, message: str, **fields):
         entry = {"time": _now(), "event": event, "message": message, **fields}
         data["logs"].append(entry)
         LOG.info("workshop.%s session=%s revision=%s %s", event, data["id"], data["revision"], json.dumps(entry, ensure_ascii=False))
+
+    @staticmethod
+    def _delivery_identity(data: dict, record: dict, *, skill_version: str | None = None,
+                           allow_published: bool = False) -> None:
+        from .workshop_checkpoints import CheckpointError
+        from .workshop_delivery import checkpoint_fingerprint
+
+        source_revision = data.get("delivery_source_revision")
+        if (not isinstance(record, dict) or type(source_revision) is not int
+                or source_revision < 0 or source_revision > data["revision"]
+                or record.get("run_id") != data.get("delivery_run_id")
+                or record.get("session_id") != data["id"]
+                or record.get("source_revision") != source_revision):
+            raise CheckpointError("Delivery checkpoint does not match the current discussion.")
+        mode = record.get("narrative_mode")
+        if not isinstance(mode, str) or mode not in _NARRATIVE_MODES:
+            raise CheckpointError("Delivery checkpoint narrative mode is invalid.")
+        published = (allow_published and data.get("delivery_published_run_id") == record["run_id"]
+                     and "assembly" in record.get("completed", {})
+                     and (data.get("status") in {"ready", "launched"}
+                          or data.get("active_operation") == "titles"))
+        # Published artifacts remain readable after a later naming operation or
+        # Skill update; only active recovery requires the current exact version.
+        expected_skill = record["skill_version"] if published else skill_version or data["skill_version"]
+        if record.get("skill_version") != expected_skill:
+            raise CheckpointError("Delivery checkpoint uses a different skill version.")
+        if not published and record.get("input_sha256") != checkpoint_fingerprint(data, expected_skill):
+            raise CheckpointError("Delivery checkpoint author context has changed.")
+
+    def _load_delivery_checkpoint(self, data: dict, *, skill_version: str | None = None,
+                                  allow_published: bool = False) -> dict | None:
+        from .workshop_checkpoints import CheckpointError, load_checkpoint
+
+        run_id = data.get("delivery_run_id")
+        if run_id is None and data.get("delivery_source_revision") is None:
+            return None
+        source_revision = data.get("delivery_source_revision")
+        if type(source_revision) is not int or not 0 <= source_revision <= data["revision"]:
+            raise CheckpointError("Delivery checkpoint source revision is invalid.")
+        if data.get("restart_required"):
+            raise CheckpointError("Delivery checkpoint cannot resume after basic settings changed.")
+        record = load_checkpoint(self._path(data["id"]) / "delivery", run_id)
+        if record is not None:
+            self._delivery_identity(data, record, skill_version=skill_version, allow_published=allow_published)
+        return record
+
+    def delivery_progress(self, data: dict) -> dict | None:
+        """Pure checkpoint read: no model invocation or checkpoint repair on GET."""
+        from .workshop_checkpoints import CheckpointError, project_checkpoint
+
+        if data.get("delivery_run_id") is None and data.get("delivery_source_revision") is None:
+            return None
+        try:
+            _, current_skill_version = _skill_bundle("delivery")
+            record = self._load_delivery_checkpoint(data, skill_version=current_skill_version, allow_published=True)
+            return project_checkpoint(record, data["status"], data["delivery_source_revision"]) if record else None
+        except (CheckpointError, OSError, ValueError, TypeError):
+            return {"status": "error", "resumable": False, "completed_stages": [],
+                    "active_stage": None, "stages": [],
+                    "invalid_reason": "已保存的阶段与当前设定或 Skill 不匹配，或记录未通过完整性检查；请重新推导。旧文件已保留。"}
+
+    def _save_delivery_checkpoint(self, snapshot: dict, record: dict, cancel_event: threading.Event) -> None:
+        from core.llm_client import LLMCancelledError
+        from .workshop_checkpoints import save_checkpoint
+
+        with self._locked(snapshot["id"]) as data:
+            if cancel_event.is_set() or not self._current_operation(data, snapshot):
+                raise LLMCancelledError("Workshop delivery checkpoint belongs to an inactive request")
+            self._delivery_identity(data, record)
+            save_checkpoint(self._path(data["id"]) / "delivery", data["delivery_run_id"], record)
 
     def create(self, body: SessionInput) -> dict:
         _, version = _skill_bundle()
@@ -346,14 +875,21 @@ class WorkshopService:
 
     def get(self, session_id: str) -> dict:
         with self._locked(session_id) as data:
-            if data["status"] == "running" and not runner.get(data.get("job_id") or ""):
-                data["status"] = "error"
-                data["last_error"] = "服务重启中断了本轮讨论。" + _preserved_context(bool(data.get("prompt_md"))) + "请重试。"
-                self._log(data, "interrupted", data["last_error"])
-                self._save(data)
+            if data["status"] == "running":
+                job = runner.get(data.get("job_id") or "")
+                if job is None or job["status"] in {"done", "error"}:
+                    data["status"] = "error"
+                    reason = ("服务重启中断了本轮讨论。" if job is None else
+                              "后台任务已结束，但本轮未保存有效结果。")
+                    data["last_error"] = reason + _preserved_context(bool(data.get("prompt_md"))) + "请重试。"
+                    # Do not expose raw job errors: provider failures may include
+                    # request content or credentials. Retain only safe metadata.
+                    self._log(data, "interrupted", data["last_error"],
+                              job_id=data.get("job_id"), job_status=job["status"] if job else "missing")
+                    self._save(data)
             return data
 
-    def list_sessions(self, *, q: str = "", limit: int = 50, offset: int = 0) -> dict:
+    def list_sessions(self, *, q: str = "", limit: int = 50, offset: int = 0, status: str = "") -> dict:
         """List only this workspace's recoverable sessions; UUID remains the identity."""
         if not self.root.is_dir():
             return {"sessions": [], "total": 0}
@@ -373,7 +909,7 @@ class WorkshopService:
                         or not isinstance(data.get("updated_at"), str)
                         or type(data.get("revision")) is not int
                         or data["revision"] < 0
-                        or data.get("status") not in {"draft", "running", "ready", "error", "launched"}
+                        or data.get("status") not in {"draft", "running", "paused", "ready", "error", "launched"}
                         or (data.get("project_id") is not None and not isinstance(data["project_id"], str))):
                     continue
                 header = re.split(r"^##\s", data["prompt_md"], maxsplit=1, flags=re.MULTILINE)[0]
@@ -386,6 +922,8 @@ class WorkshopService:
                 if not isinstance(input_title, str) or not isinstance(premise, str):
                     continue
                 title = (title_match.group(1).strip() if title_match else input_title.strip()) or "未命名作品"
+                if status and data["status"] != status:
+                    continue
                 if query and query not in title.casefold() and not data["id"].startswith(query):
                     continue
                 updated = datetime.fromisoformat(data["updated_at"].replace("Z", "+00:00"))
@@ -397,6 +935,7 @@ class WorkshopService:
                     "revision": data["revision"], "updated_at": data["updated_at"],
                     "project_id": data.get("project_id"), "has_prompt": bool(data["prompt_md"].strip()),
                     "message_count": len(data["messages"]),
+                    "restart_required": bool(data.get("restart_required")),
                     "premise_preview": preview[:160] + ("…" if len(preview) > 160 else ""),
                 }))
             except (HTTPException, OSError, ValueError, TypeError, KeyError, AttributeError):
@@ -420,6 +959,8 @@ class WorkshopService:
             raise HTTPException(422, "请输入想法或修改要求。")
         with self._locked(session_id) as data:
             self._available(data, body.revision)
+            if data.get("restart_required"):
+                raise HTTPException(409, "基础设定已保存，请确认从头推导后继续；旧讨论不会自动用于新设定。")
             complete_input = all(data["input"].get(key) for key in
                                  ("chapters", "words_per_chapter", "language", "mode", "audience", "market"))
             phase = "revision" if data["prompt_md"] else "design" if data["messages"] or complete_input else "intake"
@@ -428,29 +969,198 @@ class WorkshopService:
             data["revision"] += 1
             data["messages"].append({"role": "user", "content": body.message.strip()})
             data.update(status="running", last_error=None, prepared=None, skill_version=version,
-                        turn_timeout_seconds=timeout)
+                        turn_timeout_seconds=timeout, active_operation="brainstorm", ready_for_confirmation=False,
+                        paused_at=None, resumed_from_revision=None, delivery_run_id=uuid.uuid4().hex,
+                        delivery_source_revision=data["revision"], delivery_published_run_id=None)
+            if data.get("naming"):
+                data["naming"].update(source_sha256="", confirmed_title=None, candidates=[])
             self._log(data, "turn_started", "模型正在按小说骨架 Skill 处理本轮意见。", timeout_seconds=timeout)
-            # Worker takes the same file lock, so it cannot race the job id save.
-            job_id = runner.submit("workshop.turn", lambda: self._run_turn(session_id, skill),
-                                   {"session_id": session_id}, unique_key=f"workshop:{self._path(session_id)}")
-            data["job_id"] = job_id
-            self._save(data)
-            return runner.get(job_id)
+            return self._submit_inference(data, skill=skill)
 
-    def _run_turn(self, session_id: str, skill: str):
+    def restart(self, session_id: str, body: RevisionInput) -> dict:
+        """Start a new reasoning round only after the author confirms saved basics."""
+        with self._locked(session_id) as data:
+            if data.get("restarted_from_revision") == body.revision:
+                job = runner.get(data.get("restart_job_id") or "")
+                if job is not None:
+                    return job
+                raise HTTPException(409, "这次从头推导已提交，请刷新查看保存的讨论状态。")
+            self._available(data, body.revision)
+            if not data.get("restart_required"):
+                raise HTTPException(409, "请先保存修改后的基础设定，再确认从头推导。")
+            skill, version = _skill_bundle("design")
+            # Archive before clearing context. A failed durable write cannot start a model call.
+            archived = json.loads(json.dumps(data))
+            pending_revision = data.get("pending_restart_revision")
+            if pending_revision is not None:
+                if type(pending_revision) is not int or pending_revision < 0:
+                    raise HTTPException(409, "旧讨论归档标识无效，尚未开始新的推导。")
+                source_path = self._history_path(session_id, f"before-edit-{pending_revision}.json")
+                try:
+                    archived = json.loads(source_path.read_text(encoding="utf-8"))
+                    if archived.get("id") != session_id or archived.get("revision") != pending_revision:
+                        raise ValueError("Archive identity mismatch")
+                except (OSError, ValueError, AttributeError):
+                    raise HTTPException(409, "旧讨论归档无法读取，尚未开始新的推导。") from None
+                archived["original_revision"] = pending_revision
+                archived["revision"] = body.revision
+                archived["replacement_input"] = data["input"]
+            archived.pop("history", None)
+            archived_at = _now()
+            _atomic(self._history_path(session_id, f"{body.revision}.json"),
+                    json.dumps(archived, ensure_ascii=False, indent=2))
+            history = list(data.get("history", []))
+            history.append({"revision": body.revision, "archived_at": archived_at,
+                            "message_count": len(archived["messages"]), "has_prompt": bool(archived["prompt_md"]),
+                            "title": archived["input"].get("title") or "未命名讨论"})
+            data["revision"] += 1
+            data.update(messages=[{"role": "user", "content": "请只依据当前基础设定，从头开始头脑风暴；提出有因果差异的故事方向并完善人物、冲突与结局。"}],
+                        prompt_md="", questions=[], naming=None, prepared=None, logs=[], history=history,
+                        initial_input=json.loads(json.dumps(data["input"])), status="running", last_error=None,
+                        skill_version=version, turn_timeout_seconds=_timeout(), active_operation="brainstorm",
+                        ready_for_confirmation=False, paused_at=None, resumed_from_revision=None,
+                        restart_required=False, pending_restart_revision=None, input_needs_revision=True,
+                        restarted_from_revision=body.revision, context_start_revision=data["revision"],
+                        delivery_run_id=uuid.uuid4().hex, delivery_source_revision=data["revision"],
+                        delivery_published_run_id=None)
+            self._log(data, "turn_started", "已按确认后的基础设定从头推导；旧讨论仅保留在历史中。",
+                      timeout_seconds=data["turn_timeout_seconds"], restarted=True)
+            return self._submit_inference(data, skill=skill)
+
+    def history(self, session_id: str, revision: int) -> dict:
+        with self._locked(session_id) as data:
+            if not any(item.get("revision") == revision for item in data.get("history", [])):
+                raise HTTPException(404, "找不到这版历史讨论。")
+            path = self._history_path(session_id, f"{revision}.json")
+            try:
+                archived = json.loads(path.read_text(encoding="utf-8"))
+                if archived.get("id") != session_id or archived.get("revision") != revision:
+                    raise ValueError("Archive identity mismatch")
+                return archived
+            except (OSError, ValueError, AttributeError):
+                raise HTTPException(409, "这版历史讨论暂时无法读取；当前讨论未受影响。") from None
+
+    def _submit_inference(self, data: dict, *, skill: str | None = None) -> dict:
+        """Called under the session lock; freeze identity before the thread starts."""
+        session_id, revision = data["id"], data["revision"]
+        cancel_event = threading.Event()
+        titles = data.get("active_operation") == "titles"
+        fn = (lambda: self._run_titles(session_id, revision, cancel_event)) if titles else (
+            lambda: self._run_turn(session_id, skill or "", revision, cancel_event))
+        job_id = runner.submit("workshop.titles" if titles else "workshop.turn", fn,
+                               {"session_id": session_id}, unique_key=f"workshop:{self._path(session_id)}:{revision}",
+                               cancel_event=cancel_event)
+        data["job_id"] = job_id
+        if data.get("context_start_revision") == revision and data.get("restarted_from_revision") == revision - 1:
+            data["restart_job_id"] = job_id
+        self._save(data)
+        return runner.get(job_id)
+
+    @staticmethod
+    def _current_operation(data: dict, snapshot: dict) -> bool:
+        return (data["status"] == "running" and data["revision"] == snapshot["revision"]
+                and data["job_id"] == snapshot["job_id"])
+
+    def pause(self, session_id: str, body: PauseInput) -> dict:
+        with self._locked(session_id) as data:
+            # The job identity makes an immediate pause safe even before the first
+            # poll has replaced the client's optimistic pre-submit revision.
+            if body.job_id != data.get("job_id") or data["status"] == "launched":
+                raise HTTPException(409, "当前推导任务已变化，请刷新会话后重试。")
+            if body.revision > data["revision"]:
+                raise HTTPException(409, "会话版本不匹配，请刷新后重试。")
+            if data["status"] != "running":
+                return data
+            data["revision"] += 1
+            data.update(status="paused", last_error=None, paused_at=_now())
+            self._log(data, "turn_paused", "已暂停本轮推导。已保存的上下文保留，继续时重新请求未完成的内容。",
+                      operation=data.get("active_operation", "brainstorm"))
+            self._save(data)
+            # Signals only; process cleanup happens outside the file lock.
+            runner.cancel(body.job_id)
+            return data
+
+    def resume(self, session_id: str, body: RevisionInput) -> dict:
+        from .workshop_checkpoints import CheckpointError
+
+        with self._locked(session_id) as data:
+            if data["status"] == "running" and data.get("resumed_from_revision") == body.revision:
+                return runner.get(data["job_id"])
+            self._available(data, body.revision)
+            if data.get("restart_required"):
+                raise HTTPException(409, "基础设定已修改，请确认从头推导；旧阶段不会用于新设定。")
+            if data["status"] not in {"paused", "error"}:
+                raise HTTPException(409, "仅暂停或已有保存阶段的失败推导可以继续，请刷新当前会话。")
+            skill, version = _skill_bundle("revision" if data["prompt_md"] else "design")
+            try:
+                checkpoint = (None if data.get("active_operation") == "titles" else
+                              self._load_delivery_checkpoint(data, skill_version=version))
+            except CheckpointError:
+                raise HTTPException(409, "已保存阶段与当前设定或 Skill 不匹配，或完整性检查失败；请重新推导，旧记录已保留。") from None
+            if data["status"] == "error" and (not checkpoint or not checkpoint["completed"]):
+                raise HTTPException(409, "本轮尚未保存可恢复的阶段，请重新提交讨论要求。")
+            data["revision"] += 1
+            data.update(status="running", last_error=None, paused_at=None, prepared=None,
+                        turn_timeout_seconds=_timeout(), skill_version=version, resumed_from_revision=body.revision)
+            if data.get("active_operation") != "titles" and not data.get("delivery_run_id"):
+                data.update(delivery_run_id=uuid.uuid4().hex, delivery_source_revision=data["revision"],
+                            delivery_published_run_id=None)
+            self._log(data, "turn_started", "正在恢复已保存的阶段，仅继续尚未完成的内容。" if checkpoint else
+                      "正在使用已保存的完整上下文，重新处理暂停前尚未完成的要求。",
+                      operation=data.get("active_operation", "brainstorm"), timeout_seconds=data["turn_timeout_seconds"], resumed=True)
+            return self._submit_inference(data, skill=skill)
+
+    @scoped_usage("brainstorming", lambda a: a["self"]._path(a["session_id"]))
+    def _run_turn(self, session_id: str, skill: str, revision: int, cancel_event: threading.Event):
         started = time.monotonic()
         with self._locked(session_id) as data:
+            if data["status"] != "running" or data["revision"] != revision or cancel_event.is_set():
+                LOG.info("workshop.worker.skipped session=%s expected_revision=%s revision=%s status=%s cancelled=%s",
+                         session_id, revision, data["revision"], data["status"], cancel_event.is_set())
+                return
             snapshot = dict(data)
+        snapshot["_cancellation_event"] = cancel_event
+        snapshot["_diagnostic_dir"] = self._path(session_id) / "diagnostics"
+        snapshot["_candidate_path"] = self._path(session_id) / "candidates" / f"{revision}.md"
+        snapshot["_inference_lock_path"] = self._path(session_id) / ".inference.lock"
+        snapshot["_save_delivery_checkpoint"] = lambda record: self._save_delivery_checkpoint(snapshot, record, cancel_event)
         try:
+            snapshot["_delivery_record"] = self._load_delivery_checkpoint(snapshot)
+            try:
+                earlier = sorted(
+                    (path for path in snapshot["_candidate_path"].parent.glob("*.md")
+                     if path.stem.isdigit() and int(snapshot.get("context_start_revision", 0)) <= int(path.stem) < revision),
+                    key=lambda path: int(path.stem), reverse=True,
+                )
+                if earlier and not snapshot["_delivery_record"]:
+                    previous_candidate = earlier[0].read_text(encoding="utf-8")
+                    if previous_candidate != snapshot["prompt_md"]:
+                        snapshot["_previous_candidate"] = previous_candidate
+            except (OSError, UnicodeError):
+                # Diagnostic candidates are optional. A corrupt one must not
+                # strand the session or prevent use of the saved conversation.
+                LOG.warning("workshop.candidate.unreadable session=%s", session_id)
             result, route = _complete(snapshot, skill)
+            if cancel_event.is_set():
+                return
+            if snapshot.get("input_needs_revision") and result["ready_for_confirmation"] and result.get("prompt_md") is None:
+                raise ModelResponseError("基础设定已修改，模型尚未返回更新后的完整骨架。请继续推导。")
             if result.get("prompt_md") is not None:
                 candidate = self._path(session_id) / "candidates" / f'{snapshot["revision"]}.md'
                 _atomic(candidate, result["prompt_md"])
-                _validate_candidate(candidate)
+                validated = _validate_candidate(candidate)
+                _validate_input_revision(snapshot, result["prompt_md"], validated)
             with self._locked(session_id) as data:
+                if not self._current_operation(data, snapshot):
+                    return
+                checkpoint = self._load_delivery_checkpoint(data)
+                if checkpoint and "assembly" in checkpoint["completed"] and result.get("prompt_md") is not None:
+                    data["delivery_published_run_id"] = checkpoint["run_id"]
                 data["revision"] += 1
                 if result.get("prompt_md") is not None:
                     data["prompt_md"] = result["prompt_md"]
+                    data["input_needs_revision"] = False
+                    data["pending_input_fields"] = []
                     _atomic(self._path(session_id) / "versions" / f'{data["revision"]}.md', data["prompt_md"])
                 data["messages"].append({"role": "assistant", "content": result["reply"],
                                          "questions": list(result["questions"])})
@@ -462,32 +1172,139 @@ class WorkshopService:
             message = _failure(exc, timeout_seconds=float(snapshot.get("turn_timeout_seconds") or 900),
                                has_prompt=bool(snapshot.get("prompt_md")))
             with self._locked(session_id) as data:
+                if not self._current_operation(data, snapshot):
+                    return
                 data.update(status="error", last_error=message)
                 self._log(data, "turn_failed", message, error_type=type(exc).__name__,
                           elapsed_seconds=round(time.monotonic()-started, 2), **snapshot.get("_model_log", {}))
                 self._save(data)
             raise RuntimeError(message) from None
 
-    def prepare(self, session_id: str, body: RevisionInput) -> dict:
+    def update_input(self, session_id: str, body: UpdateInput) -> dict:
+        with self._locked(session_id) as data:
+            self._available(data, body.revision)
+            new_input = body.input.model_dump()
+            changes = {key: {"before": data["input"].get(key), "after": value}
+                       for key, value in new_input.items() if data["input"].get(key) != value}
+            if not changes:
+                return data
+            if data.get("pending_restart_revision") is None:
+                _atomic(self._history_path(session_id, f'before-edit-{data["revision"]}.json'),
+                        json.dumps(data, ensure_ascii=False, indent=2))
+                data["pending_restart_revision"] = data["revision"]
+            data.setdefault("initial_input", json.loads(json.dumps(data["input"])))
+            data["pending_input_fields"] = sorted(set(data.get("pending_input_fields", [])) | set(changes))
+            data["input"] = new_input
+            data["revision"] += 1
+            data.update(status="draft", last_error=None, prepared=None, ready_for_confirmation=False,
+                        active_operation="brainstorm", input_needs_revision=True, restart_required=True,
+                        paused_at=None, resumed_from_revision=None, delivery_run_id=None,
+                        delivery_source_revision=None, delivery_published_run_id=None)
+            if data.get("naming"):
+                data["naming"].update(source_sha256="", confirmed_title=None, candidates=[])
+            data["messages"].append({"role": "user", "content": "已修改基础设定，等待作者确认是否从头推导：\n\n```json\n"
+                                     + json.dumps(changes, ensure_ascii=False, indent=2) + "\n```"})
+            self._log(data, "input_updated", "基础设定已保存，尚未调用模型；等待确认从头推导，历史和用量保留。", fields=list(changes))
+            self._save(data)
+            return data
+
+    def titles(self, session_id: str, body: TitleInput) -> dict:
+        from .workshop_titles import clean_title
+        current_title = clean_title(body.current_title) if body.current_title.strip() else ""
+        with self._locked(session_id) as data:
+            self._available(data, body.revision)
+            if not data["prompt_md"] or not data["ready_for_confirmation"] or data["questions"]:
+                raise HTTPException(422, "请先完成并确认小说骨架，再推荐书名。")
+            confirmed = _confirm_format(data["prompt_md"])
+            with tempfile.TemporaryDirectory(prefix="workshop-title-check-") as directory:
+                candidate = Path(directory) / "prompt.md"
+                candidate.write_text(confirmed, encoding="utf-8")
+                _validate_candidate(candidate)
+            digest = hashlib.sha256(confirmed.encode()).hexdigest()
+            naming = data.get("naming") or {"requests": [], "candidates": [], "confirmed_title": None}
+            if naming.get("source_sha256") != digest:
+                naming.update(candidates=[], confirmed_title=None)
+            naming["source_sha256"] = digest
+            naming["requests"].append({"instructions": body.instructions.strip(), "created_at": _now(),
+                                       "current_title": current_title, "source_sha256": digest})
+            data["revision"] += 1
+            data.update(prompt_md=confirmed, naming=naming, active_operation="titles", status="running",
+                        last_error=None, prepared=None, turn_timeout_seconds=_timeout(), paused_at=None, resumed_from_revision=None)
+            self._log(data, "turn_started", "已确认当前骨架，正在根据命名要求推荐书名。", operation="titles",
+                      timeout_seconds=data["turn_timeout_seconds"])
+            return self._submit_inference(data)
+
+    @scoped_usage("brainstorming", lambda a: a["self"]._path(a["session_id"]))
+    def _run_titles(self, session_id: str, revision: int, cancel_event: threading.Event):
+        from .workshop_titles import complete_titles
+        started = time.monotonic()
+        with self._locked(session_id) as data:
+            if data["status"] != "running" or data["revision"] != revision or cancel_event.is_set():
+                LOG.info("workshop.worker.skipped session=%s expected_revision=%s revision=%s status=%s cancelled=%s",
+                         session_id, revision, data["revision"], data["status"], cancel_event.is_set())
+                return
+            snapshot = json.loads(json.dumps(data))
+        snapshot["_cancellation_event"] = cancel_event
+        snapshot["_diagnostic_dir"] = self._path(session_id) / "diagnostics"
+        try:
+            rules = (SKILL / "references" / "title-naming.md").read_text(encoding="utf-8")
+            candidates, route = complete_titles(snapshot, rules)
+            with self._locked(session_id) as data:
+                if not self._current_operation(data, snapshot):
+                    return
+                data["naming"]["candidates"] = candidates
+                data["naming"]["requests"][-1]["candidates"] = candidates
+                data["revision"] += 1
+                data.update(status="ready", last_error=None)
+                self._log(data, "turn_completed", "书名建议已生成，请选择或修改后确认最终书名。", operation="titles",
+                          elapsed_seconds=round(time.monotonic()-started, 2), **route)
+                self._save(data)
+        except Exception as exc:
+            message = "书名推荐未完成。" + _failure(exc, timeout_seconds=float(snapshot["turn_timeout_seconds"]), has_prompt=True)
+            with self._locked(session_id) as data:
+                if self._current_operation(data, snapshot):
+                    data.update(status="error", last_error=message)
+                    data["naming"]["requests"][-1]["error"] = message
+                    self._log(data, "turn_failed", message, operation="titles", elapsed_seconds=round(time.monotonic()-started, 2))
+                    self._save(data)
+            raise RuntimeError(message) from None
+
+    def prepare(self, session_id: str, body: PrepareInput) -> dict:
         with self._locked(session_id) as data:
             self._available(data, body.revision)
             if not data["prompt_md"] or not data["ready_for_confirmation"] or data["questions"]:
                 raise HTTPException(422, "请先完成必要信息和小说骨架，再确认并生成启动命令。")
             confirmed = _confirm_format(data["prompt_md"])
-            path = self._path(session_id) / "prepared.md"
-            _atomic(path, confirmed)
+            if data.get("naming") and body.title is None:
+                raise HTTPException(422, "请选择或输入最终书名。")
+            if body.title is not None:
+                from .workshop_titles import rename_prompt
+                confirmed = rename_prompt(confirmed, body.title)
             helper = _handoff()
             try:
-                validated = helper.validate(path, REPO)
-                name = _slug(validated["title"]) + "-" + session_id[:8]
-                command, _ = helper.command(path, REPO, name, method_mode=data["input"].get("method_mode", "advisory"))
+                with tempfile.TemporaryDirectory(prefix="workshop-prepare-") as directory:
+                    candidate = Path(directory) / "prompt.md"
+                    candidate.write_text(confirmed, encoding="utf-8")
+                    validated = helper.validate(candidate, REPO)
+                    name = _slug(validated["title"]) + "-" + session_id[:8]
+                    command, _ = helper.command(candidate, REPO, name, method_mode=data["input"].get("method_mode", "advisory"))
             except (ValueError, KeyError, TypeError) as exc:
                 raise HTTPException(422, f"骨架格式尚需修正：{exc}") from exc
+            _atomic(self._path(session_id) / "prepared.md", confirmed)
             # Keep shell quoting from the verified helper, replacing only final launcher line.
             filename = name + ".md"
             command = command.rsplit("\n", 1)[0] + "\n./deploy.sh novel " + shlex.quote("./prompt/" + filename)
             validated.pop("prompt", None)
+            if confirmed != data["prompt_md"] and body.title is not None:
+                data["revision"] += 1
             data["prompt_md"] = confirmed
+            if body.title is not None:
+                naming = data.get("naming") or {"requests": [], "candidates": []}
+                naming.update(confirmed_title=validated["title"], source_sha256=hashlib.sha256(confirmed.encode()).hexdigest())
+                data["naming"] = naming
+                self._log(data, "title_confirmed", "用户已确认最终书名。", title=validated["title"])
+            data.update(status="ready", last_error=None, input_needs_revision=False)
+            _atomic(self._path(session_id) / "versions" / f'{data["revision"]}.md', confirmed)
             data["prepared"] = {"revision": data["revision"], "command": command, "project_name": name,
                                 "prompt_filename": filename, "validation": validated, "output_formats": list(FORMATS),
                                 "method_mode": data["input"].get("method_mode", "advisory"),
@@ -571,13 +1388,18 @@ def create_session(body: SessionInput, service: WorkshopService = Depends(get_wo
 def list_sessions(q: str = Query(default="", max_length=250),
                   limit: int = Query(default=50, ge=1, le=100),
                   offset: int = Query(default=0, ge=0),
+                  status: Literal["", "draft", "running", "paused", "ready", "error", "launched"] = "",
                   service: WorkshopService = Depends(get_workshop_service)):
-    return service.list_sessions(q=q, limit=limit, offset=offset)
+    return service.list_sessions(q=q, limit=limit, offset=offset, status=status)
 
 
 @router.get("/sessions/{session_id}")
 def get_session(session_id: str, service: WorkshopService = Depends(get_workshop_service)):
-    return service.get(session_id)
+    data = service.get(session_id)
+    progress = runtime_progress(data, service._path(session_id) / "diagnostics")
+    delivery = service.delivery_progress(data)
+    result = {**data, "runtime_progress": progress} if progress is not None else data
+    return {**result, "delivery_progress": delivery} if delivery is not None else result
 
 
 @router.post("/sessions/{session_id}/turns", status_code=202)
@@ -585,10 +1407,43 @@ def add_turn(session_id: str, body: TurnInput, service: WorkshopService = Depend
     return service.turn(session_id, body)
 
 
+@router.post("/sessions/{session_id}/pause")
+def pause_session(session_id: str, body: PauseInput, service: WorkshopService = Depends(get_workshop_service)):
+    return service.pause(session_id, body)
+
+
+@router.post("/sessions/{session_id}/resume", status_code=202)
+def resume_session(session_id: str, body: RevisionInput, service: WorkshopService = Depends(get_workshop_service)):
+    return service.resume(session_id, body)
+
+
+@router.post("/sessions/{session_id}/restart", status_code=202)
+def restart_session(session_id: str, body: RevisionInput, service: WorkshopService = Depends(get_workshop_service)):
+    return service.restart(session_id, body)
+
+
+@router.get("/sessions/{session_id}/history/{revision}")
+def get_session_history(session_id: str, revision: int, service: WorkshopService = Depends(get_workshop_service)):
+    return service.history(session_id, revision)
+
+
 @router.post("/sessions/{session_id}/prepare")
-def prepare_session(session_id: str, body: RevisionInput, service: WorkshopService = Depends(get_workshop_service)):
+def prepare_session(session_id: str, body: PrepareInput, service: WorkshopService = Depends(get_workshop_service)):
     try:
         return service.prepare(session_id, body)
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(422, f"骨架格式尚需修正：{exc}") from exc
+
+
+@router.post("/sessions/{session_id}/input")
+def update_session_input(session_id: str, body: UpdateInput, service: WorkshopService = Depends(get_workshop_service)):
+    return service.update_input(session_id, body)
+
+
+@router.post("/sessions/{session_id}/titles", status_code=202)
+def suggest_titles(session_id: str, body: TitleInput, service: WorkshopService = Depends(get_workshop_service)):
+    try:
+        return service.titles(session_id, body)
     except (ValueError, KeyError, TypeError) as exc:
         raise HTTPException(422, f"骨架格式尚需修正：{exc}") from exc
 

@@ -3,22 +3,28 @@
 from __future__ import annotations
 
 import hashlib
+import fcntl
 import json
 import mimetypes
 import os
 import tempfile
+import threading
+import weakref
 import zipfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
 try:  # Package import in API/tests; top-level import in the legacy CLI path.
-    from .cover_models import CoverSet
+    from .cover_models import CoverCandidate, CoverSet
+    from .cover_store import CoverStore
     from .novel_classification import NovelClassification
     from .narrative_format import validate_serialization
     from .h5_import import build_h5_import, RELATIVE_PATH as H5_IMPORT_PATH, object_digest
 except ImportError:  # pragma: no cover - exercised through pipeline integration
-    from cover_models import CoverSet
+    from cover_models import CoverCandidate, CoverSet
+    from cover_store import CoverStore
     from novel_classification import NovelClassification
     from narrative_format import validate_serialization
     from h5_import import build_h5_import, RELATIVE_PATH as H5_IMPORT_PATH, object_digest
@@ -42,6 +48,43 @@ _DELIVERY_MEDIA_TYPES = {
 }
 _ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 _AUTO = object()
+_DELIVERY_LOCKS = weakref.WeakValueDictionary()
+_DELIVERY_LOCKS_GUARD = threading.Lock()
+_DELIVERY_LOCK_STATE = threading.local()
+
+
+@contextmanager
+def delivery_lock(project_path: str | Path):
+    """Serialize short publication transactions across threads and processes.
+
+    Selection calls the service projection and then the package builder under
+    this same lock. Reentry must reuse the outer file lock, never acquire a
+    second flock descriptor that could wait on itself.
+    """
+    project = Path(project_path).resolve()
+    key = str(project)
+    with _DELIVERY_LOCKS_GUARD:
+        lock = _DELIVERY_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _DELIVERY_LOCKS[key] = lock
+    with lock:
+        held = getattr(_DELIVERY_LOCK_STATE, "held", None)
+        if held is None:
+            held = _DELIVERY_LOCK_STATE.held = set()
+        if key in held:
+            yield
+            return
+        folder = project / "outputs"
+        folder.mkdir(parents=True, exist_ok=True)
+        with (folder / ".delivery.lock").open("a+b") as stream:
+            fcntl.flock(stream, fcntl.LOCK_EX)
+            held.add(key)
+            try:
+                yield
+            finally:
+                held.remove(key)
+                fcntl.flock(stream, fcntl.LOCK_UN)
 
 
 @dataclass(frozen=True)
@@ -53,6 +96,24 @@ class PackageResult:
 
 
 def build_delivery_package(
+    project_path: str | Path,
+    *,
+    cover_set: CoverSet | None = None,
+    publication_copy_path: Path | None | object = _AUTO,
+    classification_path: Path | None | object = _AUTO,
+    serialization_path: Path | None | object = _AUTO,
+    h5_root: Path | None | object = _AUTO,
+) -> PackageResult:
+    with delivery_lock(project_path):
+        return _build_delivery_package(
+            project_path, cover_set=cover_set,
+            publication_copy_path=publication_copy_path,
+            classification_path=classification_path,
+            serialization_path=serialization_path, h5_root=h5_root,
+        )
+
+
+def _build_delivery_package(
     project_path: str | Path,
     *,
     cover_set: CoverSet | None = None,
@@ -86,12 +147,24 @@ def build_delivery_package(
     if h5_root is _AUTO:
         h5_root = _discover_current_h5_root(deliverables)
 
-    if cover_set is None and (deliverables / "covers/cover-set.json").is_file():
+    # A new unselected batch must not replace the active human selection's
+    # metadata while selected-cover still contains that earlier batch's image.
+    store = CoverStore(project)
+    active = store.active()
+    if active.cover_set_id:
+        cover_set = store.load(active.cover_set_id)
+    elif cover_set is None and (deliverables / "covers/cover-set.json").is_file():
         cover_set = CoverSet.from_dict(json.loads(
             (deliverables / "covers/cover-set.json").read_text(encoding="utf-8")
         ))
 
     if cover_set is not None:
+        if cover_set.repair_lineage:
+            try:
+                from .cover_repair_lineage import validate_lineage
+            except ImportError:  # Legacy top-level CLI import.
+                from cover_repair_lineage import validate_lineage
+            validate_lineage(store, cover_set)
         _atomic_write_json(
             deliverables / "covers" / "cover-set.json",
             cover_set.to_dict(),
@@ -160,6 +233,7 @@ def build_delivery_package(
         include_classification=include_classification,
         include_serialization=include_serialization,
         h5_root=current_h5_root,
+        cover_set=cover_set,
     ))
     entries = [_manifest_entry(deliverables, path, cover_set) for path in files]
     import_payload = build_h5_import(
@@ -279,12 +353,20 @@ def _payload_files(
     include_classification: bool,
     include_serialization: bool,
     h5_root: Path | None,
+    cover_set: CoverSet | None,
 ) -> Iterable[Path]:
     values: list[Path] = []
     for path in deliverables.rglob("*"):
         if path.is_symlink() or not path.is_file():
             continue
         relative = path.relative_to(deliverables)
+        if cover_set is not None:
+            if relative.is_relative_to("covers/pending"):
+                candidate = _pending_candidate(cover_set, relative.as_posix())
+                if candidate is None or hashlib.sha256(path.read_bytes()).hexdigest() != candidate.sha256:
+                    continue
+            elif relative.as_posix().startswith("covers/selected-cover.") and not cover_set.selected_candidate_id:
+                continue
         if any(part.startswith(".") for part in relative.parts):
             continue
         if path.name in {_ARCHIVE_NAME, _MANIFEST_NAME} or path.name.endswith(".tmp"):
@@ -311,6 +393,11 @@ def _payload_files(
                 continue
         values.append(path)
     return iter(sorted(values, key=lambda item: item.relative_to(deliverables).as_posix()))
+
+
+def _pending_candidate(cover_set: CoverSet, relative: str) -> CoverCandidate | None:
+    expected = Path("outputs/deliverables") / relative
+    return next((item for item in cover_set.candidates if Path(item.relative_path) == expected), None)
 
 
 def _manifest_entry(
@@ -340,10 +427,7 @@ def _manifest_entry(
         role = "cover_candidate"
         selection_state = "pending"
         if cover_set:
-            candidate = next(
-                (item for item in cover_set.candidates if item.relative_path.endswith(relative)),
-                None,
-            )
+            candidate = _pending_candidate(cover_set, relative)
             if candidate:
                 selection_state = candidate.status
                 candidate_id = candidate.candidate_id

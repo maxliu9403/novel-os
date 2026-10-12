@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from core.cover_director import CoverArtDirector
 from core.cover_handoff import parse_cover_handoff_v2
@@ -120,3 +124,103 @@ def test_cover_select_requires_revision_arguments(tmp_path: Path) -> None:
         assert exc.code == 2
     else:
         raise AssertionError("argparse should require both revisions")
+
+
+def _review_cli_args(project, review_path):
+    return ["cover", "--workspace-id", "editorial", "review-analysis",
+        "--project", str(project), "--analysis-id", "analysis-" + "1" * 32,
+        "--expected-analysis-sha256", SHA, "--review-json", str(review_path)]
+
+
+def _review_cli_stubs(monkeypatch, review_result):
+    from core import cover_cli, cover_analysis
+    from api import routes
+
+    context, analyzer = object(), object()
+    calls = {}
+    director = SimpleNamespace(_complete=object(), model="configured-review-model",
+        analysis_configuration={"max_segment_bytes": 16000, "segmenter_version": "cover-segments.v2"})
+
+    def workflow(project, workspace_id):
+        calls["workflow"] = (project, workspace_id)
+        return SimpleNamespace(context=context)
+
+    def make_analyzer(**kwargs):
+        calls["configuration"] = kwargs
+        return analyzer
+
+    def review(context_arg, **kwargs):
+        calls["review"] = (context_arg, kwargs)
+        if isinstance(review_result, Exception):
+            raise review_result
+        return SimpleNamespace(to_dict=lambda: review_result)
+
+    monkeypatch.setattr(cover_cli, "_workflow", workflow)
+    monkeypatch.setattr(routes, "get_cover_art_director", lambda: director)
+    monkeypatch.setattr(cover_analysis, "CoverStoryAnalyzer", make_analyzer)
+    monkeypatch.setitem(sys.modules, "core.cover_analysis_reviews", SimpleNamespace(start_review_revision=review))
+    return calls, context, analyzer, director
+
+
+def test_review_analysis_uses_current_context_and_configured_analyzer(tmp_path, monkeypatch, capsys):
+    project, path = tmp_path / "novel", tmp_path / "independent-review.json"
+    review = {"review_kind": "agent", "reviewer_id": "独立审查", "issues": [{"quote": "Julianne is his mistress."}]}
+    path.write_text(json.dumps(review, ensure_ascii=False), encoding="utf-8")
+    expected = {"analysis_id": "analysis-" + "2" * 32, "status": "complete"}
+    calls, context, analyzer, director = _review_cli_stubs(monkeypatch, expected)
+
+    assert main(_review_cli_args(project, path)) == 0
+
+    assert json.loads(capsys.readouterr().out) == expected
+    assert calls["workflow"] == (project.resolve(), "editorial")
+    assert calls["configuration"] == {"complete": director._complete,
+        "model": director.model, **director.analysis_configuration}
+    assert calls["review"] == (context, {"parent_analysis_id": "analysis-" + "1" * 32,
+        "expected_analysis_sha256": SHA, "external_review": review, "analyzer": analyzer})
+
+
+@pytest.mark.parametrize("contents", ["{invalid", "[]", "null"])
+def test_review_analysis_rejects_invalid_review_before_constructing_analyzer(tmp_path, monkeypatch, capsys, contents):
+    path = tmp_path / "invalid.json"
+    path.write_text(contents, encoding="utf-8")
+    calls, *_ = _review_cli_stubs(monkeypatch, {})
+
+    assert main(_review_cli_args(tmp_path / "project", path)) == 2
+
+    assert "Cover command failed:" in capsys.readouterr().err
+    assert "configuration" not in calls
+    assert "review" not in calls
+
+
+def test_review_analysis_reports_missing_review_file(tmp_path, monkeypatch, capsys):
+    calls, *_ = _review_cli_stubs(monkeypatch, {})
+
+    assert main(_review_cli_args(tmp_path / "project", tmp_path / "missing.json")) == 2
+
+    assert "missing.json" in capsys.readouterr().err
+    assert "configuration" not in calls
+    assert "review" not in calls
+
+
+def test_review_analysis_reports_helper_validation_failure(tmp_path, monkeypatch, capsys):
+    from core.cover_analysis import CoverAnalysisError
+
+    path = tmp_path / "review.json"
+    path.write_text("{}", encoding="utf-8")
+    _review_cli_stubs(monkeypatch, CoverAnalysisError("analysis_changed", "Parent analysis hash mismatch"))
+
+    assert main(_review_cli_args(tmp_path / "project", path)) == 2
+
+    output = capsys.readouterr()
+    assert not output.out
+    assert "Parent analysis hash mismatch" in output.err
+
+
+@pytest.mark.parametrize("missing", ["--project", "--analysis-id", "--expected-analysis-sha256", "--review-json"])
+def test_review_analysis_requires_explicit_parent_hash_and_review_file(tmp_path, missing):
+    args = _review_cli_args(tmp_path, tmp_path / "review.json")
+    offset = args.index(missing)
+    del args[offset:offset + 2]
+    with pytest.raises(SystemExit) as error:
+        main(args)
+    assert error.value.code == 2

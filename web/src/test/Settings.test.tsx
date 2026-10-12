@@ -74,11 +74,17 @@ function response(body: unknown, status = 200) {
   }));
 }
 
+function imageCatalog(models = ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]) {
+  return {models, discovery_supported: true, exact_model_selection: true, source: "provider",
+    message: "服务商返回的候选型号，请确认图片生成支持。", fetched_at: "2026-10-11T15:00:00Z"};
+}
+
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     if (path.endsWith("/api/studio/models")) return response(configuration());
+    if (path.endsWith("/api/studio/providers/primary/image-models?refresh=true")) return response(imageCatalog());
     if (path.endsWith("/api/studio/providers/primary/models?refresh=true")) return response(["story-model", "planning-model"]);
     if (path.endsWith("/api/studio/providers") && init?.method === "POST") {
       return response({ ...configuration().connections[0], id: "new-provider" }, 201);
@@ -191,6 +197,161 @@ describe("model provider settings", () => {
         size: "1024x1536",
       });
     });
+  });
+
+  it("does not offer text-only cached models as image model choices", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", {name: "图像生成"}));
+    const choices = Array.from(document.querySelectorAll<HTMLSelectElement>("#image-models option"))
+      .map(option => option.value);
+    expect(choices).not.toContain("story-model");
+    expect(screen.getByLabelText("图像模型")).toHaveValue("gpt-image-2");
+  });
+
+  it("does not test the saved image profile while a different model is shown in the draft", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", {name: "图像生成"}));
+    await user.clear(screen.getByLabelText("图像模型"));
+    await user.type(screen.getByLabelText("图像模型"), "publisher/image-v3");
+    expect(screen.getByRole("button", {name: "测试图片"})).toBeDisabled();
+  });
+
+  it("refreshes the separate image directory without replacing the unsaved model", async () => {
+    let calls = 0;
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/providers/primary/image-models?refresh=true")) {
+        return response(imageCatalog(++calls === 1 ? ["publisher/first-image"] : ["publisher/refreshed-image"]));
+      }
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", {name: "图像生成"}));
+    await waitFor(() => expect(document.querySelector('#image-models option[value="publisher/first-image"]')).toBeInTheDocument());
+    await user.clear(screen.getByLabelText("图像模型"));
+    await user.type(screen.getByLabelText("图像模型"), "publisher/private-image");
+    await user.click(screen.getByRole("button", {name: "拉取图片模型列表"}));
+    await waitFor(() => expect(document.querySelector('#image-models option[value="publisher/refreshed-image"]')).toBeInTheDocument());
+    expect(screen.getByLabelText("图像模型")).toHaveValue("publisher/private-image");
+    expect(document.querySelector('#image-models option[value="gpt-image-2"]')).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(call => String(call[0]).includes("/primary/models"))).toHaveLength(0);
+    expect(fetchMock.mock.calls.some(call => call[1]?.method === "PUT")).toBe(false);
+  });
+
+  it("keeps manual image configuration after a directory failure or an empty response", async () => {
+    let calls = 0;
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/providers/primary/image-models?refresh=true")) return ++calls === 1
+        ? response({detail: "Image directory is unavailable"}, 502) : response(imageCatalog([]));
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", {name: "图像生成"}));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Image directory is unavailable");
+    expect(screen.getByLabelText("图像模型")).toHaveValue("gpt-image-2");
+    await user.click(screen.getByRole("button", {name: "拉取图片模型列表"}));
+    await screen.findByText("服务商目录返回 0 个候选型号");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(document.querySelectorAll("#image-models option")).toHaveLength(0);
+    expect(screen.getByLabelText("图像模型")).toHaveValue("gpt-image-2");
+  });
+
+  it.each([
+    ["使用 Sunburst · 推荐", "gpt-image-2.5-sunburst"],
+    ["使用 Flare", "gpt-image-2.5-flare"],
+  ])("saves the exact image model selected with %s", async (label, expected) => {
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "图像生成" }));
+    await user.click(screen.getByRole("button", { name: label }));
+    expect(screen.getByLabelText("图像模型")).toHaveValue(expected);
+    await user.click(screen.getByRole("button", { name: "保存设置" }));
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith("/api/studio/image-profiles/cover") && item[1]?.method === "PUT");
+      expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ connection_id: "primary", model: expected });
+    });
+  });
+
+  it("explains Codex image model limits without changing the existing profile", async () => {
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/studio/models")) {
+        const config = configuration();
+        config.connections[0].provider = "codex";
+        return response(config);
+      }
+      if (String(input).endsWith("/providers/primary/image-models?refresh=true")) return response({
+        ...imageCatalog([]), discovery_supported: false, exact_model_selection: false, source: "unsupported",
+        message: "Codex 未提供图片型号目录。",
+      });
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "图像生成" }));
+    expect(screen.getByText(/当前 Codex 连接/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "使用 Sunburst · 推荐" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("图像模型")).toHaveValue("Codex 内置图片工具（自动选择）");
+    expect(screen.getByLabelText("图像模型")).toHaveAttribute("readonly");
+    await screen.findByText("当前连接不提供图片型号列表");
+    expect(document.querySelectorAll("#image-models option")).toHaveLength(0);
+    expect(fetchMock.mock.calls.some((item) => item[1]?.method === "PUT")).toBe(false);
+    await user.click(screen.getByRole("button", {name: "保存设置"}));
+    await waitFor(() => {
+      const saved = fetchMock.mock.calls.find(call => String(call[0]).endsWith("/image-profiles/cover") && call[1]?.method === "PUT");
+      expect(JSON.parse(String(saved?.[1]?.body))).toMatchObject({model: "codex-image-auto"});
+    });
+  });
+
+  it("keeps API model drafts separate when switching between Codex and API connections", async () => {
+    const config = configuration();
+    config.connections.push({...config.connections[0], id: "codex", name: "Codex account", provider: "codex", discovered_models: ["text-codex-model"]});
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/studio/models")) return response(config);
+      if (String(input).endsWith("/providers/codex/image-models?refresh=true")) return response({
+        ...imageCatalog([]), discovery_supported: false, exact_model_selection: false, source: "unsupported",
+      });
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", {name: "图像生成"}));
+    await user.clear(screen.getByLabelText("图像模型"));
+    await user.type(screen.getByLabelText("图像模型"), "publisher/custom-image");
+    await user.selectOptions(screen.getByLabelText("服务商连接"), "codex");
+    expect(screen.getByLabelText("图像模型")).toHaveValue("Codex 内置图片工具（自动选择）");
+    await user.selectOptions(screen.getByLabelText("服务商连接"), "primary");
+    expect(screen.getByLabelText("图像模型")).toHaveValue("publisher/custom-image");
+    expect(screen.getByLabelText("图像模型")).not.toHaveAttribute("readonly");
+  });
+
+  it("does not mix a late image directory response into another connection", async () => {
+    const config = configuration();
+    config.connections.push({...config.connections[0], id: "secondary", name: "Second image connection", discovered_models: []});
+    let resolvePrimary!: (value: Response) => void;
+    const pending = new Promise<Response>(resolve => { resolvePrimary = resolve; });
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/studio/models")) return response(config);
+      if (String(input).endsWith("/providers/primary/image-models?refresh=true")) return pending;
+      if (String(input).endsWith("/providers/secondary/image-models?refresh=true")) return response(imageCatalog(["secondary-image"]));
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", {name: "图像生成"}));
+    await user.selectOptions(screen.getByLabelText("服务商连接"), "secondary");
+    await waitFor(() => expect(document.querySelector('#image-models option[value="secondary-image"]')).toBeInTheDocument());
+    expect(screen.getByLabelText("图像模型")).toHaveValue("gpt-image-2.5-sunburst");
+    await act(async () => { resolvePrimary(new Response(JSON.stringify(imageCatalog(["late-primary-image"])), {status: 200})); });
+    expect(document.querySelector('#image-models option[value="late-primary-image"]')).not.toBeInTheDocument();
+    expect(document.querySelector('#image-models option[value="secondary-image"]')).toBeInTheDocument();
   });
 
   it("keeps specialist text routes inherited from the default", async () => {
@@ -427,5 +588,7 @@ describe("model provider settings", () => {
       "src",
       "data:image/png;base64,aW1hZ2U=",
     );
+    expect(screen.getByText("请求配置：gpt-image-2")).toBeInTheDocument();
+    expect(screen.getByText("服务商未返回实际图片型号")).toBeInTheDocument();
   });
 });

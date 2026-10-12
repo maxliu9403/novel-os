@@ -1,0 +1,26 @@
+- generic [ref=f4e2]:
+  - link "跳到正文" [ref=f4e3] [cursor=pointer]:
+    - /url: "#main"
+  - generic [ref=f4e4]:
+    - complementary [ref=f4e5]:
+      - generic [ref=f4e6]:
+        - button "收起侧边栏" [expanded] [ref=f4e8]
+        - img "Novel OS" [ref=f4e12]
+      - navigation [ref=f4e14]:
+        - button "搜索" [ref=f4e15]:
+          - generic [ref=f4e21]: ⌘K
+        - link "作品库" [ref=f4e22] [cursor=pointer]:
+          - /url: /
+          - generic [ref=f4e28]: 全部作品
+        - link "设置" [ref=f4e29] [cursor=pointer]:
+          - /url: /settings
+          - generic [ref=f4e35]: 模型配置
+        - link "作品概览" [ref=f4e37] [cursor=pointer]:
+          - /url: /projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events
+          - generic [ref=f4e46]: 工作台
+        - link "封面" [ref=f4e47] [cursor=pointer]:
+          - /url: /projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events/covers
+          - generic [ref=f4e55]: 2K 工作室
+      - paragraph [ref=f4e58]: 结构先行，文字随后，连续性贯穿始终。
+    - main [ref=f4e59]:
+      - generic [ref=f4e60]: 正在加载…

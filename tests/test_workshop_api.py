@@ -260,7 +260,7 @@ def test_workshop_route_timeout_and_bounded_format_repair(monkeypatch):
                                       "messages": [{"role": "user", "content": "one"}], "prompt_md": "old complete draft"}, "SKILL RULES")
     assert routes == ["workshop"]
     assert len(prompts) == 3
-    assert configs[0]["timeout_seconds"] == 900
+    assert 899 < configs[0]["timeout_seconds"] <= 900
     assert configs[0]["max_tokens"] == 16384
     assert "old complete draft" in prompts[-1][1]
     assert "questions field is a required JSON artifact" in prompts[0][0]
@@ -385,7 +385,7 @@ def test_session_list_keeps_same_title_sessions_distinct_and_recovers_by_id(clie
     assert body["sessions"][1]["message_count"] == 1
     assert body["sessions"][1]["premise_preview"] == "第一条故事线 女儿保存证据。"
     assert set(body["sessions"][0]) == {"id", "title", "status", "revision", "updated_at",
-                                       "project_id", "has_prompt", "message_count", "premise_preview"}
+                                       "project_id", "has_prompt", "message_count", "premise_preview", "restart_required"}
     restored_first = client.get(f'/api/workshop/sessions/{first["id"]}').json()
     restored_second = client.get(f'/api/workshop/sessions/{second["id"]}').json()
     assert restored_first["messages"][0]["content"] == "只属于第一个会话"
@@ -533,7 +533,8 @@ def test_timeout_freezes_actual_limit_and_retry_keeps_complete_context(client, m
     assert client.post(url, json={'revision': failed['revision'], 'message': '使用完整上下文重试'}).status_code == 202
     result = finish(client, data['id'])
     assert result['status'] == 'draft'
-    assert [item['timeout_seconds'] for item in configs] == [600, 1200]
+    assert all(expected - 1 < item['timeout_seconds'] <= expected
+               for item, expected in zip(configs, [600, 1200], strict=True))
     assert requests[1]['initial_brief'] == data['input']
     assert requests[1]['conversation'][:16] == messages
     assert requests[1]['conversation'][1]['questions'] == ['历史问题0']

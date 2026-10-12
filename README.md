@@ -487,21 +487,21 @@ The novel commands reuse the healthy backend container, never recreate an
 existing service, and do not manage the frontend. Use `./deploy.sh restart`
 explicitly after changing application code or deployment configuration.
 
-Generate and manage cover candidates without restarting healthy services:
+Inspect the cover commands without restarting healthy services:
 
 ```bash
 ./deploy.sh novel-cover --help
-NOVEL_OS_PROJECT_NAME='my-novel' NOVEL_OS_COVER_COUNT=4 \
-  ./deploy.sh novel-cover './prompt/my-novel.md'
 ./deploy.sh novel-cover list 'my-novel'
 ```
 
-The Prompt must contain the approved `COVER_HANDOFF_BEGIN` / `COVER_HANDOFF_END`
-JSON emitted by `novel-brainstorm-workshop`. Generation creates 3-5 independent
-portrait `2:3` candidates at the provider's native resolution. Review and select them at
-`http://localhost:5174/projects/PROJECT/covers`; only failed candidates consume
-an image call when retried. `novel-cover` reuses a healthy backend and never
-runs `up`, `restart`, or `down` on its behalf.
+For new cover work, use the complete-skeleton workflow in
+[Cover Studio](#cover-studio故事驱动的封面设计系统): inspect the source, analyze it,
+plan 3–5 directions, approve exact recipes and image-call allowances, then generate.
+An existing skeleton does not need a `COVER_HANDOFF` block to enter this workflow.
+The legacy `deploy.sh novel-cover` shortcut does not route the new
+`inspect-source`, `analyze`, `plan` or `approve` subcommands; use the Studio or
+native CLI shown below. Its existing commands reuse a healthy backend and never
+run `up`, `restart` or `down` on their behalf.
 
 To skip prompt selection, pass the file directly:
 
@@ -516,194 +516,180 @@ Set `NOVEL_OS_WEB_PORT` before running the script to override port `5174`.
 
 ### Cover Studio：故事驱动的封面设计系统
 
-Cover Studio 不是把书名套进固定海报模板，也不是直接把整本小说交给图片模型
-自由发挥。它把**故事事实提取、艺术指导、提示词编译、图片渲染、视觉复核和人工
-选图**拆成有证据、可审批、可重试的独立步骤。
+Cover Studio 从完整小说骨架设计电影海报式封面，把来源分析、艺术指导、配方批准、
+图片生成、实际图像审核和明确选中分别记录。当前流程使用 `cover-profiles.v10` 与
+`cover-compiler.v17`，支持 **3–5 个候选**；默认配置为4个，也可按本次任务选择3或5个。
+候选数量、人物人数、题材、市场与年龄定位是每本书的输入，不是通用模板。
 
 ```mermaid
 flowchart LR
-    S["Prompt · 序言 · 出版文案<br/>StoryState · Final manuscript"] --> E["Visual Evidence Ledger<br/>视觉证据账本"]
-    E --> D["Cover Director<br/>文本规划模型"]
-    D --> V["Book Visual Identity<br/>本书视觉语言"]
-    D --> C["Core Conflict Contract<br/>核心冲突视觉契约"]
-    V & C --> P["3–5 个差异化摄影方向<br/>cover-profiles.v8"]
-    P --> A["人工审批方向与内容哈希"]
-    A --> X["cover-compiler.v13<br/>编译图片提示词"]
-    X --> I["gpt-image-2<br/>渲染封面"]
-    I --> Q["原图 + 手机缩略图<br/>二进制与多模态复核"]
-    Q -->|语义缺失| R["定向修复并自动重试一次"]
-    R --> Q
-    Q --> H["人工选择 · 交付包"]
+    S["完整骨架 · 明确的来源附件"] --> F["不可变快照<br/>owner · 修订 · SHA"]
+    F --> E["全源分析 · 原文证据<br/>复用有效缓存"]
+    E --> D["Cover Director v10<br/>3–5 个差异化方向"]
+    D --> V["来源与语义验证<br/>实际尺寸排版预检"]
+    V --> X["cover-compiler.v17<br/>冻结配方与标题布局"]
+    X --> A["批准精确摘要<br/>初始图片数 + 额外额度"]
+    A --> I["gpt-image-2<br/>原画或 native 成品"]
+    I --> T["composed 本地合成标题<br/>native 保留模型成品"]
+    T --> Q["Stage A 盲读先落盘<br/>Stage B 事实与视觉审核"]
+    Q --> H["明确选中<br/>核对交付包"]
 ```
 
-#### 封面事实从哪里来
+#### 完整来源、分析与缓存
 
-系统会把以下已有产物组织为带来源的视觉证据，而不是只读取一句简介：
+项目默认读取 `outputs/input/prompt.md`；讨论封面使用所选 Workshop 的当前、已准备或
+归档骨架。快照保存完整原文、明确声明的来源附件、所有者、修订和内容摘要，证据引用
+绑定原文字节范围。完整正文、foundation、序言或出版文案不会无声替代默认骨架来源。
 
-- 已批准 Prompt 中的 `COVER_HANDOFF_BEGIN` / `COVER_HANDOFF_END`；
-- 主角、关系图、核心任务、核心冲突、情绪承诺和决定性故事节点；
-- 序言、出版文案、`StoryState` 与最终正文中的可视化动作、空间、物件和仪式；
-- 目标市场、标题语言、生活环境、禁用元素和剧透边界；
-- 本项目及近期项目的封面指纹，用于降低跨小说的构图和风格重复。
+`COVER_HANDOFF` schema-v2 是可选的事实投影；存在时保留其中薄的 `cover_constraints`，
+包括已确认事实、禁止内容、剧透上限与有来源支持的展示要求。头脑风暴负责故事事实与
+作者边界，封面工作台负责场景、动作、构图、光线、视觉钩子与标题。旧骨架不需要为了
+出封面重写成另一套封面设计合同。
 
-方向会绑定输入事实和视觉证据的哈希。Prompt、序言、出版文案、StoryState 或最终
-正文发生变化后，旧方向会被标记为 `stale`，需要重新规划，避免用过期故事事实
-生成新图片。
+`cover-segments.v2` 在字节预算内合并同文档连续小段；旧 v1 分析按原版本读取与恢复，
+不重写其证据或批准。只有完成全源提取、综合与来源核验的分析可进入新导演。相同
+owner、来源 bundle、政策与配置可复用完整缓存，切换方向或复评图片不重分析整本骨架。
+部分、失败或受到来源质疑的分析不能退回压缩 handoff 绕过审核。
 
-#### Cover Director、Image2 与 Skill 的职责
+方向声明 `require_current_head` 或 `pinned_snapshot`：前者在使用批准前复核当前来源，
+后者明确固定所选历史快照。来源或分析身份变化不能沿用不匹配的批准。若独立复核发现
+已完成分析仍误读原文，使用 [独立来源复核入口](docs/cover-analysis-review.md)，提交
+原文引用、父分析摘要与被质疑字段；父分析保留，修订分析重新接受来源审核。
 
-| 组件 | 职责 | 不负责什么 |
-|---|---|---|
-| `novel-brainstorm-workshop` | 完成故事设计并输出严格的封面交接事实 | 不直接调用图片模型 |
-| `novel-cover-studio` | 在 Codex 主机侧组织封面规划、审批、生成和选图流程 | 不替代 Web 后端代码 |
-| Cover Director | 读取证据并动态决定构图、场景、摄影处理、情绪和字体系统 | 不渲染图片 |
-| `cover-compiler.v13` | 保护人物、冲突、书名、具体镜头/布光/配色及视觉语言，在统一 12,000 Unicode code points 总预算内编译提示词 | 不重新发明故事事实 |
-| `gpt-image-2` | 按方向生成原生分辨率的竖版 `2:3` 图片 | 不决定整组封面的策划逻辑 |
-| 多模态视觉复核 | 对照原图、手机缩略图和方向契约检查实际可见结果 | 不代替运营最终选图 |
+#### 来源事实与封面设计的边界
 
-默认采用**真人实拍质感的电影宣传照**，保留清晰人物、自然年龄与皮肤、真实服装、
-合理光线和可读的故事动作。艺术性来自构图、镜头、人物调度、场景、光色和字体，
-而非把不同方案分别转成油画、水粉、版画、纸浮雕或 3D。
+| 组件 | 职责 |
+| --- | --- |
+| `novel-brainstorm-workshop` | 完成故事骨架，记录作者限制和已确认事实；不重复设计封面场景 |
+| `novel-cover-studio` | 在 Codex 中组织来源检查、方向、审批、出图、审核和选择；不替代后端实现 |
+| Cover Director v10 | 基于完整分析、证据和冻结原文设计本书视觉语言、冲突契约及方向组合 |
+| `cover-compiler.v17` | 将已验证方向编译为不可变图片配方，保护故事边界、人物、表演与视觉执行要求 |
+| `gpt-image-2` | 按已批准配方生成图片；实际结果仍须审核 |
+| 两阶段多模态审核 | 先独立观察实际画面，再对照事实与设计检查；记录未知、缺陷和修复类别 |
 
-旧版 Cover Director 曾自动写入 `gouache-and-ink editorial illustration` 等
-`art_style`。v8 规划会检查并修复这类媒介偏差；编译器也会在生图前拦截旧的绘画方向，
-提示重新规划。摄影要求计入总字符预算并保持完整，图片质检同样检查实际渲染的摄影感。
-`high` 和高分辨率并不会自行纠正油画提示词；默认请求保持 `2048x3072 / high`。
+默认采用自然、生动的真人电影摄影：保留故事年龄、身份、真实皮肤和物理关系。
+发型、服装、普通布景、视线与持物姿态等未规定细节，可以明确作为封面视觉推演，
+不能写回小说正典。人物亲缘、关键同场、知识、事件时间地点和实质因果必须有来源；
+不能从英文、发行市场或读者群体推断族裔，也不能因骨架没有描述每根手指而拒绝普通表演。
 
-#### 本书视觉语言与核心冲突视觉契约
+设计、修复及语义审核都接收经过快照校验的完整来源上下文。当前超过请求预算会明确
+失败，尚无自动截取相关段落的长文选择器；不能截断尾部事实后声称已经全源核查。
 
-`cover-profiles.v8` 保留核心冲突规则，先生成两份书级设计约束，再规划单张封面：
+#### 3–5 个方向如何形成有故事的组合
 
-1. **Book Visual Identity**：设计命题、情绪矛盾、故事签名、材料语言、调色和
-   光线逻辑、空间逻辑、字体声音、人物策略、陈词滥调黑名单、独特性锚点和剧透
-   边界。
-2. **Core Conflict Visual Contract**：读者代入的主角、压力来源、参与冲突的
-   已批准人物、关系或身份利害关系、可见原因、决定性后果、至少两个可绘制信号、
-   证据引用和剧透边界。
+每组都有本书视觉语言和核心冲突契约。每个方向明确可见原因、主角回应、阅读路径和
+悬念，组合至少有一张直接呈现完整因果关系、至少一张表现具体的主角选择。差异应来自
+读者关心的问题、关系组织和画面结构，不能只换衣服、道具、色调或镜头远近。
 
-每张方向还必须说明：
+压力可以来自人物、自然、制度、内在冲突或有意义的缺席。演员数量按来源和画面论点
+决定，不设置固定多人配额；共同主角可以分担动作与回应。如果原文有可画且重要的核心
+人物相遇，整组不能全部回避它、只剩孤立肖像或静物。
 
-- `causal_visibility`：冲突原因是直接可见还是由具体证据间接呈现；
-- `conflict_delivery`：这张图用什么独特视觉方法连接原因与后果；
-- `conflict_read`：用户在手机缩略图上能读懂的一句话故事；
-- `cause_signal` / `consequence_signal`：画面中的原因和主角承担的后果；
-- `conflict_character_ids`：本张实际出现的已批准冲突人物；
-- `protagonist_action_visible`：主角是否正在选择、拒绝、发现、对抗、保护或离开，
-  而不是只摆出悲伤表情。
+- `scene`：一个连续时刻与地点；互动双方及动作物件须在相应画面中可见。
+- `campaign_composite`：每层声明来源、时间、地点、作用及层间关系；可以跨时跨地，
+  不能暗示原文未发生的共同在场，也不能把头像或象征物当作事件因果证明。
 
-这些字段在生成图片之前进行确定性验证。核心冲突明确点名的人物不会被悄悄省略，
-也不会把已确认的背叛、排斥、隐瞒或家庭替代关系弱化成抽象的“疏离感”。同样，
-系统也不会把原文没有确认的暧昧升级成出轨、暴力或其他新剧情。
+确定性验证检查证据 ID、图层、cast、epoch、因果端点和摘要；独立语义审核检查原文
+是否真正支持设计。有限的设计修复发生在出图前。结构合规不代表创意、摄影或缩略图
+已经达标，最终需要检查真实图片。
 
-#### 四张封面如何保持不同又讲清同一本书
+#### 标题、尺寸与图片提示词
 
-默认四张封面是四种不同的设计论点，不是同一张图换颜色或镜头：
+默认 `composed`：图片模型生成无文字原画，再用固定字体字节和已批准布局本地排入
+完整标题。方向阶段使用实际配置尺寸和同一排版器预检，编译后再批准。布局包含准确
+换行、字号范围、颜色、间距和区域；`safe_zones` 保护人物与动作，不是标题区域。
+当前排版器跨行使用统一字体、字号和颜色，不承诺逐词放大、变色或下划线。
 
-- 至少一张直接呈现完整的已批准因果关系（人物是压力来源时，完整呈现该关系）；
-- 至少一张展现主角清晰、主动且符合剧情的决定；
-- 其余方案按具体故事选择人物数量和表达方式，每张仍需可见的原因、主角反应与后果；
-- 间接表达必须有具体、可辨认的剧情证据，既不是无人物静物，也不是泛化的悲伤肖像；
-- 新 v7 不再采用旧 v5/v6 的 3/4、2/4 多人关系配额，旧方向仍按原版本校验；
-- 四张必须使用不同的 `conflict_delivery`，并同时改变构图拓扑、场景来源、视觉
-  摄影处理、情绪温度和字体逻辑。
+`native` 是明确的替代模式，图片模型直接绘制标题；盲读需要有效的标题遮罩，且必须
+注明遮罩隐藏画面带来的局限。无有效独立输入时报告 unavailable，不能伪称完整盲读。
+两种模式都需检查完整标题、字序、字形、实际遮挡和手机缩略图；不要添加作者行、宣传语、
+副标题、logo 或水印。
 
-系统要求每张都有清晰可读的主角人物，但不固定“主角占据前景、其他人物缩小放在
-背景”的公式。根据故事可以使用关系空间、门槛行动、镜面或玻璃反射、环境压力、
-证据发现、人物群像、字体与场景融合等设计语言。人物、原因、后果和阅读路径仍需
-在手机缩略图尺寸成立。
+`cover-compiler.v17` 的图片提示词总上限为 12,000 Unicode code points；先保护故事
+边界、人物与执行要求，再压缩辅助理由。受保护内容超限会报错，不静默删除事实。
+竖版比例为 `2:3`，保留供应商原生尺寸与 PNG/JPEG 文件；`2048x3072 / high` 是默认
+请求配置，实际部署可以不同。输出须记录真实尺寸，不用放大图冒充原生高分辨率。
 
-#### 视觉执行预算与电影宣传照质感
+#### 批准、图片预算与两阶段审核
 
-v13 编译器先保护人物与故事事实，再完整保留本张镜头、布光、配色、空间语法、
-视觉标识和标题系统；只压缩设计理由、证据解释等辅助文字，不用截断光影换取剧情说明。
-总上限仍为 12,000 Unicode code points；受保护内容本身超限时明确报错，不悄悄丢弃字段。
-真人摄影不等于生活纪实：真实年龄和普通场所同样需要精心布光、自然肤色、主体分离、
-清晰表演和完整标题层级。书名保持一个连续的标题组，英文按从左到右、从上到下读取，
-不为映射人物关系而拆成顺序相反的两列；对齐、字号和留白仍可按每本小说设计。
+批准绑定来源、分析、brief、direction、冻结 recipe、字体/标题布局及图片额度。
+初始批次每个候选一次 `gpt-image-2`、`n=1` 图片调用；额外次数默认
+`extra_image_attempts=0`，非零额度需要明确批准。失败与手动重试也计入累计额度，
+不能因画面不好自动追加一张。分析、设计与图像审核的文本/多模态调用另行记录，
+“3张图”不等于总共3次模型请求。
 
-#### 人物自然度：设计海报，导演真实反应
+每张先检查格式、内容类型、SHA-256、实际尺寸与比例，再进行独立审核：
 
-v8 方向沿用已有构图自由度，通过 `frozen_action`、`gaze_graph`、`blocking` 和
-`depth_plan` 指导人物：单一可拍摄瞬间、具体注视对象、不同反应节拍、自然重心和真实
-手部接触。拒绝和决心是人物意图，不等于每张都举掌、握拳或瞪眼；道具不必全部向镜头展示。
+1. **Stage A 盲读**：读取无标题 artwork 和缩略图，不提供梗概、预期 hook 或设计解释。
+   保存实际可见的人物、动作、压力、异常、疑问、未知和文字污染情况；结果先落盘。
+2. **Stage B 事实与成品审核**：读取冻结 A、最终图片、故事事实和作者约束，检查故事
+   忠实度、因果、人物表演、物理关系、标题与视觉层次；不能反写 A。
 
-v13 增加完整保留的 `HUMAN PERFORMANCE CONTRACT`，并区分角色背景状态与本张具体
-动作，避免同时执行一串姿势。保留海报布光、色彩、标题和核心冲突，以真实焦点过渡、
-自然皮肤变化和克制表情减少摆拍感；不靠磨皮、加皱纹、噪点或模糊掩盖问题。
-视觉复核将人物僵硬、目光无目标、合成边缘等记录为具体证据，使用既有
-`generic_ai_face` / `weak_story_action` 修复码，不增加新的硬性评分维度或自动生图次数。
+结果分为 `recommended_for_human_review`、`human_review_required` 和 `blocked`。
+缺失、不完整或不可用的审核不补造分数。模型也可能漏报，仍需检查实际全尺寸图片和
+缩略图；推荐不自动变成最终选中。未达推荐门槛的绑定候选若被接受，须记录当前图片的
+人工接受理由，不能沿用旧图片的接受记录。
 
-改动前可通过 `./deploy.sh cover-rollback capture` 保存运行版和本地候选版，
-回退工具默认只预览、仅切换 6 个封面源文件；详见 [封面回退说明](docs/cover-rollback.md)。
+| 修复类别 | 当前处理 |
+| --- | --- |
+| 来源 / 设计语义 | 来源错误走有据分析修订；画面设计错误回导演并重新批准，不沿用原提示盲目重绘 |
+| 评估 | 复评保留图片，重新记录 A/B；不调用图片模型 |
+| 排版 | 可从保留原画重新执行原批准布局；需要改变布局时使用独立排版修订 |
+| 渲染 | 仅在明确批准且尚有余额时重试相同配方，失败也占用额度 |
 
-#### 生成后的质量复核与自动修复
+[本地排版修订](docs/cover-typography-amendments.md) 通过
+`propose-typography` → 查看精确预览 → `approve-typography` → `apply-typography`
+执行。`overlay` 只改标题；`contain_panel` 将完整原画等比放入实色画布，零裁剪、零补绘。
+原配方与历史 attempts 不变，图片调用增量为0；应用仍运行新 A/B，不能沿用旧人工接受，
+也不能替换已选中候选。当前使用 CLI 或项目/Workshop API，尚无网页拖拽排版编辑器。
+v1 不支持跨 owner 迁移排版批准；已导入候选和已修订 Workshop 历史的转移限制见该文档。
 
-每张图片首先接受文件格式、内容类型、SHA-256、尺寸和竖版 `2:3` 比例检查。
-配置兼容的多模态 Cover Director 后，系统还会同时检查原图与手机缩略图，重点评分：
+#### Studio、CLI 与审计产物
 
-- 故事事实、必要人物、年龄和生活环境是否忠实；
-- 选定媒介的完成度、人体结构、物理关系、标题和缩略图可读性；
-- `core_conflict_fidelity`：是否真正表现原因与后果，而非只有悲伤氛围；
-- `causal_relationship_clarity`：压力人物、关系、制度或证据是否可辨认；
-- `protagonist_agency`：主角是否有清晰行动和决定。
+在 `http://localhost:5174/projects/PROJECT/covers` 查看来源与分析进度，完成骨架分析后
+创建方向、审查并批准，再生成候选。讨论封面也可在 Workshop 内先完成，不创建虚假的
+项目交付目录。候选生成、质量推荐、明确选中与交付包更新是不同状态；未选中本轮候选时
+保留旧选择。明确选择后核对 selected cover、`cover-set.json`、manifest 和 ZIP 的实际摘要。
 
-发现以下可修复语义问题时，系统会保留第一次产物和报告，生成针对性修复提示词，
-并自动重试一次：
+原生 CLI 的同一流程如下；在与服务一致的数据库、媒体、设置和字体环境中运行，
+`WORKSPACE_ID`、`PROJECT_PATH` 和各阶段 ID/hash 使用实际返回值。`--count` 可选3–5：
 
-- `core_conflict_missing`
-- `causal_relationship_missing`
-- `protagonist_action_missing`
+```bash
+PYTHONPATH=core ./venv/bin/python core/orchestrator.py cover --workspace-id "$WORKSPACE_ID" inspect-source --project "$PROJECT_PATH"
+PYTHONPATH=core ./venv/bin/python core/orchestrator.py cover --workspace-id "$WORKSPACE_ID" analyze --project "$PROJECT_PATH"
+PYTHONPATH=core ./venv/bin/python core/orchestrator.py cover --workspace-id "$WORKSPACE_ID" plan --project "$PROJECT_PATH" --analysis-id "$ANALYSIS_ID" --count 3
+PYTHONPATH=core ./venv/bin/python core/orchestrator.py cover --workspace-id "$WORKSPACE_ID" approve --project "$PROJECT_PATH" \
+  --direction-id "$DIRECTION_ID" --approved-direction-sha256 "$DIRECTION_SHA256" \
+  --expected-brief-sha256 "$BRIEF_SHA256" --confirm-source --extra-image-attempts 0
+PYTHONPATH=core ./venv/bin/python core/orchestrator.py cover --workspace-id "$WORKSPACE_ID" generate --project "$PROJECT_PATH" \
+  --direction-id "$DIRECTION_ID" --approved-direction-sha256 "$DIRECTION_SHA256"
+```
 
-自动修复图不再因为“更新”就覆盖当前候选：只有故事与视觉维度评分均可评估、达到
-80 分且已知维度不低于原图，并且没有剩余阻断/修复项时，才提升为当前待审候选。
-标题顺序歧义即使被评估器列作 warning，也会归入 `title_failure` 阻断。
-修复失败、退步或评分缺失时保留原候选；两次图片及报告通过 `attempt_history` 和
-内容寻址媒体保留，`repair_not_promoted` 说明未提升原因。历史图片以媒体 ID/SHA
-定位，不以可被后续候选覆盖的 pending 投影路径定位。任何自动提升都不等于出版选中。
+不要把这些子命令交给旧 `deploy.sh novel-cover` 快捷路由当作 Prompt 文件执行。
+`analyze`、`plan` 和审核会调用配置的模型；`inspect-source` 仅检查输入。不同 digest 的
+来源、配方或排版不能共享批准。历史方向和图片按原合同保留，不由后台自动升级或重绘。
 
-复核结果分为 `recommended_for_human_review`、`human_review_required` 和 `blocked`。
-即使系统推荐，书名拼写、人物观感、市场吸引力和最终出版选择仍由运营确认。如果
-当前规划模型不支持图片输入，生成结果会进入人工复核状态，不会伪造视觉评分。
-
-通常每张候选需要一次图片模型调用；启用多模态复核时还会增加一次视觉评估调用。
-如果命中上述三类语义修复，会再增加至多一次图片生成和一次评估。Create direction /
-重新规划方向只生成结构化设计方案，不调用图片模型。
-
-#### 审批、版本与产物
-
-推荐在 `http://localhost:5174/projects/PROJECT/covers` 完成以下流程：
-
-1. 点击 **Create direction / 重新规划方向**；
-2. 查看本书视觉语言、核心冲突视觉契约和每张封面的缩略图故事；
-3. 审批最新方向；审批同时绑定故事事实哈希与方向内容哈希；
-4. 生成 3–5 张候选；部分失败不会抹掉已经成功的候选；
-5. 按质量报告重试单张、拒绝不合适候选或选择最终封面；
-6. 选择后更新 `selected-cover`、manifest 与 `book-package.zip`。
-
-设计与审计中间产物保存在项目目录：
+项目中的主要记录：
 
 ```text
 outputs/covers/
-|-- design/
-|   |-- visual-evidence-ledger.json
-|   |-- book-visual-identity.json
-|   |-- core-conflict-visual-contract.json
-|   `-- direction-*.evidence.json / .identity.json / .conflict.json
-|-- directions/direction-*.json
+|-- sources/snapshot-*/manifest.json + documents/
+|-- analyses/analysis-*/analysis.json + attempts/
+|-- analysis-reviews/analysis-*.json
+|-- directions/direction-*.json + direction-*.brief.json
+|-- approvals/direction-*.json
+|-- artwork/<SHA>.png
+|-- evaluations/evaluation-*/blind-read.json + report.json
+|-- typography-amendments/typography-*/
 |-- sets/cover-*.json
 `-- index.json
 ```
 
-交付图片和最终 ZIP 仍位于 `outputs/deliverables/`。方向、生成尝试、修复代码、
-提示词版本、供应商请求信息和质量报告都会保留，方便复盘而不是覆盖历史。
-
-旧版 v4/v5 方向和已经生成的图片继续保留并可查看。它们不会被后台自动改写；要让
-现有小说应用 v8 摄影、核心冲突与差异化规则，需要在 Cover Studio 点击 **重新规划方向**，
-审批新的方向后再生成一组图片。
-
-点击 **创建方向** 时，工作室会先读取故事中的人物与场景设定。若缺少年龄段、职业身份
-或主要生活场景，页面会显示补全表单；保存后继续规划。确认内容单独保存在
-`outputs/covers/story-facts.json`，正文和写作设定保持原样。故事来源变更后需重新确认。
+图片实际扩展名和路径以候选记录为准；Workshop 的对应记录位于其自身 `covers/`。
+新项目候选投影按 cover-set 隔离，历史图片以内容寻址媒体和 attempt 摘要定位。
+工程与跨小说 fixture 回归验证合同，不能替代各题材的实际出图质量验收。
+本轮修复与真实验收分别见 [审查记录](docs/reports/2026-10-10-cover-chain-review.md) 和
+[接管交付文档](docs/design/2026-10-10-cover-studio-takeover.md)。
 
 #### 封面模型配置
 
@@ -712,7 +698,8 @@ Web 用户可以在 **Studio Settings → Models & providers** 中分别配置�
 作为 Cover Director 时默认使用 `medium`，也可选择 `low`、`high`、`xhigh`、
 `max` 或 `ultra`。
 
-无界面部署可使用：
+无界面及旧配置可使用以下环境变量；已保存的 Studio 路由/图片配置按现有配置优先级
+生效，操作前应核对实际解析结果，不以示例值推定部署尺寸或供应商：
 
 ```dotenv
 # 图片渲染
@@ -722,6 +709,7 @@ NOVEL_OS_COVER_MODEL=gpt-image-2
 NOVEL_OS_COVER_SIZE=2048x3072
 NOVEL_OS_COVER_QUALITY=high
 NOVEL_OS_COVER_FORMAT=jpeg
+# 可选 3–5；已批准方向使用其实际方向数
 NOVEL_OS_COVER_COUNT=4
 
 # 方向规划与多模态视觉复核；未设置时继承默认写作连接
@@ -738,18 +726,17 @@ Cover Director 单独配置服务。模型名称必须是该设备和供应商�
 #### 常见封面问题
 
 | 现象 | 含义与处理 |
-|---|---|
-| Create direction 阶段超时 | 这是 Cover Director 文本规划超时，不是 Image2 故障；检查 `cover_director` 路由、推理强度和 timeout |
-| `missing_visual_identity` | 规划模型没有返回完整的本书视觉语言；重新规划，或检查模型是否稳定输出严格 JSON |
-| `missing_core_conflict_contract` | v5 方向缺少核心冲突契约；重新规划方向，不要直接生成旧的半成品方向 |
-| `portfolio_conflict_undercoverage` | 四张中直接呈现冲突原因的方案不足三张 |
-| `replacement_relationship_undercoverage` | 人物构成的完整冲突关系在四张中不足两张 |
-| `protagonist_action_undercoverage` | 四张中表现主角主动行为的方案不足三张 |
-| `cover prompt exceeds 12000 Unicode code points` | 编译提示词仍超过供应商边界；保留报错与方向 JSON，检查压缩逻辑，不要删减故事事实绕过验证 |
-| 只生成 2/4 或 3/4 张 | 已成功候选会保留；对失败卡片执行单张 Retry，无需重做整组 |
-| 方向显示 `stale` | 封面依赖的 Prompt、序言、出版文案、StoryState 或最终正文已变化；重新规划并审批 |
-| 图片有故事感但核心矛盾不清 | 查看质量报告中的三个 conflict/agency 分数与 repair code，使用定向 Retry |
-| 标题拼写或字形错误 | 图片模型直接绘制标题；拒绝或重试该候选，最终仍需人工校对 |
+| --- | --- |
+| 分析或创建方向超时 | 检查 `cover_director` 路由、推理强度、timeout 和已保存进度；不是图片服务故障，不重新生成整本小说 |
+| 分析 partial / failed | 检查对应 attempt 与来源审核错误，使用既有恢复入口；不能拿不完整分析继续出图 |
+| `missing_visual_identity` / `missing_core_conflict_contract` | 方向缺少必要结构；修复设计，不直接生成半成品方案 |
+| `portfolio_conflict_undercoverage` / `protagonist_action_undercoverage` | 按该方向的版本合同补足可见因果与主角选择；v10 没有固定“四张中三张多人”的配额 |
+| 提示词或完整来源超过预算 | 保留错误与冻结来源，明确处理预算；不得截断保护事实或伪称完整审核 |
+| 只生成部分候选 | 已成功候选保留；依据 repair decision 与剩余批准额度恢复，不能自动补充图片调用 |
+| 方向 `stale` / 来源复核阻断 | 检查所选来源政策、当前骨架和分析；更新来源后重新分析、设计并批准 |
+| 核心冲突或主动行为不清 | 回设计/来源处理；单纯换标题不能消除故事阻塞 |
+| 标题遮挡、拼写或字形错误 | `composed` 检查固定字体和本地布局，必要时走独立排版修订；`native` 仍须人工核对模型绘字，重绘需要额度 |
+| 评估 unavailable / incomplete | 配置兼容图片输入的审核模型并复评保留图片，不能把未知当作通过 |
 
 ### 迁移到新环境（不迁移小说产物）
 
@@ -907,10 +894,24 @@ $high-retention-web-novel
 $novel-cover-studio
 ```
 
-策划 Skill 会先读取基础提示，只补问缺失信息，允许反复修订人物、伏笔与章节钩子，
-在作者确认后交付完整 Prompt MD。它使用调用方选择的 LLM，不改动正文生成模型配置。
+策划 Skill 会区分作者硬限制、已确认决定和可拓展草纲。面对开放构想，通常主动提出
+三个因果走线不同的故事方向并推荐；选定后继续发展人物选择、对手反应、代价与后续剧情。
+可以说“继续”“中段不够精彩”让模型推进故事，或说“只改这一段”“收敛定稿”限定范围。
+先贯通全书主线、转折、伏笔与结局，再分配章节；只补问影响当前走线的关键问题，
+具体对白、道具外观和语言润色留给正文。探索回复可以只展示新剧情与当前走线，
+保留已保存的完整骨架，正式交付时再输出完整 17 节及引擎合同。
+它使用调用方选择的 LLM，不改动正文生成模型配置，允许无限次修订。
 Web 的“新建作品 → 头脑风暴完善”会读取镜像内同一份 Skill，可反复讨论、预览和
 下载完整骨架，确认后生成启动命令或一键启动现有全书流水线。原来的普通创建入口保留。
+普通讨论按阶段加载创作规则，保留完整对话和基础设定；需要交付时，模型可在同一轮
+自动进入“全局故事设计 → 完整章节规划 → 骨架交付整合”，无需作者额外确认。前两阶段
+先保存完整创作成果，整合阶段再附模板、合同与当前组织形式的引擎示例。已有骨架的局部
+修订和前次失败候选的合同修复仍直接加载交付资料。所有阶段与最多两次格式修复共享本轮超时。
+基础设定可随时返回预览，空闲且尚未启动创作时可修改。保存后保留原始设定、讨论历史和
+上一版骨架，按新设定重新推导；旧命令和书名确认失效，需要再次确认。
+初始书名可留空。骨架确认后，模型单独推荐多个候选书名及理由；作者可选择、手动修改、
+沿用暂定名或反复输入命名要求。最终确认会同步骨架标题、封面交接、项目参数与完整启动命令，
+保留系列总名、分卷名与章节名。命名请求和结果也按会话持久保存，失败可重试。
 对话支持逐条或全部折叠、展开全文和查看 Markdown 原文；模型回复按 Markdown 排版。
 多本构想可从“已有头脑风暴”列表按书名或任务 ID 搜索并精确恢复，同名会话也彼此独立。
 进入讨论后可通过“切换讨论”选择其他任务；列表显示更新时间、状态、版本和任务 ID。
@@ -922,12 +923,50 @@ Web 的“新建作品 → 头脑风暴完善”会读取镜像内同一份 Skil
 接口未列出的模型仍可手动输入，刷新列表不会替换已保存的模型选择。
 讨论按后台任务执行，会话与骨架版本保存在数据目录的 `workshop_v2/` 下；失败时保留
 上一版完整骨架，窗口中的讨论日志和 `./deploy.sh logs backend` 可查看进度与失败原因。
+模型诊断明细另存于 `workshop_v2/<完整讨论 ID>/diagnostics/<版本>-brainstorm.jsonl`，
+书名请求使用 `<版本>-titles.jsonl`，随数据卷持久保存。每条记录包含讨论、任务、轮次、
+尝试次数和请求编号；记录模型及推理配置、输入大小、开始与结束、格式重试。
+Codex 还记录进程启动、完整输入交付、首个输出及 CLI 事件、最后活动、空闲时长、
+重连次数、可识别的 HTTP 错误类别，以及超时/暂停时最终消息文件是否存在和大小。
+无新事件时每 30 秒记录一次存活检查；CLI 事件不等于模型首个正文 token，也不能证明
+模型始终在思考。其他提供商目前记录请求边界与校验事件，不提供 Codex 级进程细节。
+CLI 输入通过匿名临时文件一次性交付，避免 Python 3.11 短轮询丢失剩余管道输入；
+`stdin_sent` 表示完整输入与 EOF 已可供子进程读取，不表示模型已经接收或处理。
+诊断采用字段白名单，不保存提示词、原始 stdout/stderr、认证信息或模型思考正文；
+单文件上限 5 MiB，优先保留结束记录。日志写入失败不会中断模型调用。
+可在数据目录中用 `tail -f` 跟踪对应 JSONL 文件；界面讨论日志继续展示简明状态。
+运行卡通过现有轮询展示真实阶段，将后台检查、CLI 事件、上游活动与实际模型内容分开。
+计时使用已保存的开始时间，刷新或切换讨论不会重置；轻量进度保存在同目录的
+`<版本>-<操作>.progress.json`，即使详细日志达到容量上限也继续更新。
+Codex 诊断还会为单次调用启动仅绑定容器回环地址的临时 OTel 接收器，区分模型目录请求、
+WebSocket 请求和上游事件，只保留状态、耗时与 token 计数。调用结束或暂停即关闭，
+不修改全局 Codex 配置，收集不可用不会中断生成。上游事件不等于模型持续思考。
+有诊断回调的原生调用还启用独立 metrics 接收；只给本次子进程设置 5 秒导出间隔。
+界面区分最近观测到的公开推理摘要、正文增量和连接消息。时间表示指标批次到达时间，
+计数不是 token 或字符数；后台心跳、预热完成和模型目录查询不算内容进展。当前请求
+长时间没有内容时只提示等待较久，不会断言模型已停止或自动重试。该监控仍使用原生
+`codex exec`，没有改为 API 中转或切换模型，也不显示私有推理内容。
+界面明确区分配置预算与生效预算：当前 Codex CLI 没有应用本项目的 `max_tokens`，
+因此显示“未生效”；不会把配置的 8192 当作实际限制。本轮等待卡提供状态观测，
+未返回的正文不会模拟成逐字输出。
+新增诊断从下一次调用开始记录，无法补回此前已清理的超时输出。
 头脑风暴模型调用默认上限为 15 分钟，可在“设置 → 文本模型路由 → 头脑风暴”中
 按分钟调整，新设置从下一轮调用生效。尚未在页面设置时，兼容
 `NOVEL_OS_WORKSHOP_TIMEOUT_SECONDS` 环境变量（秒）。此设置不改变正文创作模型的超时。
-超时后重试会重新发送已保存的原始设定、完整对话、每轮问题和最新完整骨架。
+新骨架的阶段成果另存于 `workshop_v2/<完整讨论 ID>/delivery/<交付 ID>.json`，可在界面
+展开查看。超时或暂停且已有保存阶段时，点击“从已保存阶段继续”，会保留完整作者上下文，
+复用已完成阶段，仅重新请求尚未完成的内容。如果完整整合已保存但发布中断，点击“完成骨架保存”
+只做本地校验与发布，不再调用模型。最终完整校验通过前，不会以局部成果替换正式骨架。
+恢复必须匹配输入、Skill版本及阶段完整性；新发讨论或修改基础设定不会混用旧阶段。
+没有可复用阶段的旧任务重试，仍会重新发送已保存的原始设定、完整对话、每轮问题和最新完整骨架。
 当前适配器每轮重新调用模型，并未连接提供商的原生会话续跑；超时前尚未返回的生成
 内容不会成为下一轮的已保存上下文。
+推导及书名推荐进行中可点击“暂停推导／暂停推荐”，已保存的对话、要求和完整骨架均保留。
+暂停状态可在关闭窗口、刷新或切换讨论后恢复；点击“继续推导／继续推荐”会从保存的上下文
+重新请求未完成的本轮，不重复添加用户消息。CLI 调用会中止本地进程；远程 API 会停止本地
+等待并尽力关闭连接，服务商侧是否终止生成取决于其接口。暂停前未返回的模型内部进度无法续接，
+迟到结果不会覆盖后续修改。此控制仅用于头脑风暴，已启动的全书创作流程不变。
+同一讨论的恢复调用会等待旧的原生子进程退出，等待也消耗本轮期限；不同讨论互不阻塞。
 
 可从仓库根目录独立校验交付稿并生成启动命令：
 
@@ -1013,17 +1052,15 @@ NOVEL_OS_OUTPUT='markdown' \
 `NOVEL_OS_TITLE`、`NOVEL_OS_GENRE` 和 `NOVEL_OS_EDIT_MODE` 用于保留旧命令中
 显式覆盖的参数；不设置时分别从 Prompt 推断标题、题材，并使用 `line` 编辑模式。
 
-Prompt 的故事线、受众和世界设定确认后，可以生成封面候选：
+完整骨架确认后，在 `http://localhost:5174/projects/PROJECT_SLUG/covers` 分析来源、
+创建并批准方向与图片预算，再生成3–5个候选；原生CLI步骤见上面的 Cover Studio 说明。
 
 ```bash
-NOVEL_OS_PROJECT_NAME='PROJECT_SLUG' NOVEL_OS_COVER_COUNT=4 \
-  ./deploy.sh novel-cover './prompt/TITLE.md'
 ./deploy.sh novel-cover list 'PROJECT_SLUG'
 ```
 
-浏览器打开 `http://localhost:5174/projects/PROJECT_SLUG/covers` 查看原图、
-重试单个失败候选、拒绝方向或确认交付封面。选择操作会重建
-`book-package.zip`；生成失败不会修改小说 run 状态。
+查看原画、标题成品及实际审核，按修复类别与剩余额度处理失败候选。明确选择后才替换
+选中封面并重建 `book-package.zip`；创建方向或生成失败不重新启动正文 run。
 
 运行管理命令：
 
@@ -1064,7 +1101,7 @@ outputs/deliverables/
 |-- meta/novel-classification.json
 |-- meta/novel-serialization.json
 |-- meta/h5-import.json
-|-- covers/pending/cover-01.jpg ... cover-05.jpg
+|-- covers/pending/<cover-set-id>/cover-01.png ... cover-N.png
 |-- covers/selected-cover.jpg
 |-- covers/cover-set.json
 |-- package-manifest.json
@@ -1216,9 +1253,9 @@ curl -fsS http://localhost:${NOVEL_OS_WEB_PORT:-5174}/api/health
 - Codex 找不到 Skill：确认 `$CODEX_HOME/skills/novel-brainstorm-workshop/SKILL.md`
   和 `$CODEX_HOME/skills/novel-cover-studio/SKILL.md` 存在，然后重新打开 Codex
   或开始新对话；
-- 封面生成按钮不可用：在 Studio Settings 或 `.env` 配置封面 endpoint/key；
-- 封面只失败一张：使用工作台 Retry 或 `novel-cover retry`，不要重新生成整组；
-- 标题拼写不正确：拒绝或重试该候选。标题由 image model 直接绘制，候选仍需人工检查。
+- 封面生成按钮不可用：检查模型配置、完整分析、方向批准及图片额度；
+- 封面只失败一张：按 repair decision 恢复；图片重试须有已批准余额，评估/排版修复不隐式重绘；
+- 标题拼写或遮挡：`composed` 检查本地布局与字体，必要时独立批准排版修订；`native` 检查模型绘字。
 
 Codex 出现 `401 Unauthorized` / `Missing bearer` 时，先分别检查宿主机和容器：
 

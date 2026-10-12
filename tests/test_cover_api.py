@@ -114,17 +114,21 @@ def _wait(client: TestClient, job_id: str) -> dict:
     raise AssertionError("cover job did not finish")
 
 
-def test_cover_art_director_uses_its_configured_reasoning_effort(monkeypatch) -> None:
-    from core import llm_client, studio_settings
+@pytest.mark.parametrize("image_connection", ["", "missing-image-connection"])
+def test_cover_art_director_uses_its_configured_reasoning_effort(monkeypatch, image_connection) -> None:
+    from core import llm_client, studio_settings, provider_settings
 
     captured = {}
 
     class FakeClient:
         model = "gpt-5.6-sol"
         provider = "codex"
+        provider_name = "codex"
+        max_tokens = 8192
 
         def __init__(self, **kwargs):
             captured.update(kwargs)
+            self.reasoning_effort = kwargs.get("reasoning_effort")
 
         def complete(self, _system: str, _user: str) -> str:
             return "{}"
@@ -143,11 +147,23 @@ def test_cover_art_director_uses_its_configured_reasoning_effort(monkeypatch) ->
         ),
     )
 
+    # Text analysis must remain available before an image connection is set up.
+    monkeypatch.setattr(provider_settings, "load_configuration", lambda: {
+        "source": "v2", "connections": [], "image_profiles": {"cover": {
+            "connection_id": image_connection, "size": "1024x1536"}}})
     director = routes.get_cover_art_director()
 
     assert isinstance(director, CoverArtDirector)
+    assert director.model == "gpt-5.6-sol"
+    assert director.image_size == "1024x1536"
     assert captured["timeout_seconds"] == 600
     assert captured["reasoning_effort"] == "high"
+    assert director.analysis_configuration["max_workers"] == 3
+    factory = director.analysis_configuration["complete_factory"]
+    first, second = factory(), factory()
+    assert first.__self__ is not second.__self__
+    assert first.__self__ is not director._complete.__self__
+    assert first.__self__.reasoning_effort == second.__self__.reasoning_effort == "high"
 
 
 class CanonAwareFixtureDirector:
@@ -463,7 +479,7 @@ def test_retry_endpoint_replaces_only_the_failed_candidate(tmp_path, monkeypatch
     assert {item["status"] for item in ready["candidates"]} == {"ready"}
 
 
-def test_generation_automatically_repairs_a_render_that_drops_the_causal_relationship(
+def test_generation_keeps_semantic_failure_without_unapproved_image_spend(
     tmp_path, monkeypatch,
 ) -> None:
     client, _ = _client(tmp_path, monkeypatch)
@@ -527,13 +543,12 @@ def test_generation_automatically_repairs_a_render_that_drops_the_causal_relatio
         project["id"], tmp_path / "projects" / project["id"], brief, concepts,
     )
 
-    assert image_client.calls == 5
-    assert evaluator.calls == 5
-    repaired = cover_set.candidates[0]
-    assert repaired.prompt_revision == 2
-    assert len(repaired.attempt_history) == 2
-    assert repaired.attempt_history[1]["repair_codes"] == ["causal_relationship_missing"]
-    assert "Repair focus: causal relationship missing." in repaired.generation_prompt
+    assert image_client.calls == 4
+    assert evaluator.calls == 4
+    original = cover_set.candidates[0]
+    assert original.prompt_revision == 1
+    assert len(original.attempt_history) == 1
+    assert "causal_relationship_missing" in original.quality_report["repair_codes"]
 
 
 def test_selecting_existing_cover_does_not_require_image_api_key(tmp_path, monkeypatch) -> None:
@@ -774,7 +789,7 @@ def test_adaptive_direction_binds_preface_and_final_prose_then_generates_image2_
     assert image_client.calls == 4
     cover_set = client.get(f"/api/projects/{project['id']}/covers").json()[0]
     assert "lead book-cover designer" in cover_set["concepts"][0]["generation_prompt"]
-    assert cover_set["compiler_version"] == "cover-compiler.v14"
+    assert cover_set["compiler_version"] == "cover-compiler.v17"
 
 
 def test_v9_relationship_cast_survives_approval_storage_and_generation(tmp_path, monkeypatch):
@@ -1598,7 +1613,7 @@ def test_approved_v2_direction_generates_four_independent_image2_candidates(
     assert image_client.calls == 4
     cover_set = client.get(f"/api/projects/{project['id']}/covers").json()[0]
     assert cover_set["brief_schema_version"] == 2
-    assert cover_set["compiler_version"] == "cover-compiler.v14"
+    assert cover_set["compiler_version"] == "cover-compiler.v17"
     assert cover_set["brief"]["principal_characters"][0]["age"] == 34
     assert [item["model"] for item in cover_set["candidates"]] == ["gpt-image-2"] * 4
     assert all(item["safe_request_parameters"]["n"] == 1 for item in cover_set["candidates"])

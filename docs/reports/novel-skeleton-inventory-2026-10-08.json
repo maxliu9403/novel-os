@@ -1,0 +1,284 @@
+{
+  "observed_at_utc": "2026-10-08T09:22:31.544046+00:00",
+  "scope": [
+    "docker-data/projects",
+    "projects",
+    "docker-data/workshop_v2",
+    "workshop_v2"
+  ],
+  "project_definition": "directories containing outputs/state/story_state.json, including ws-* namespaces",
+  "project_count": 20,
+  "located_project_skeleton_count": 20,
+  "projects": [
+    {
+      "project_id": "52-dinners-before-i-left-my-husband",
+      "title": "52 Dinners Before I Left My Husband",
+      "root": "docker-data/projects",
+      "project_path": "docker-data/projects/52-dinners-before-i-left-my-husband",
+      "skeleton_path": "docker-data/projects/52-dinners-before-i-left-my-husband/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 66351,
+      "sha256": "7d3f7f276a53259a6eff51e4557619b4ceda122f29dcbaee983cfd75adb0fe41",
+      "status": "located"
+    },
+    {
+      "project_id": "After 24 Saturdays I Left With His Baby",
+      "title": "After 24 Saturdays I Left With His Baby",
+      "root": "docker-data/projects",
+      "project_path": "docker-data/projects/After 24 Saturdays I Left With His Baby",
+      "skeleton_path": "docker-data/projects/After 24 Saturdays I Left With His Baby/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 136061,
+      "sha256": "bea2a294d078f73917854642476e422f139597e77ac4b6980425b3762b9d94ce",
+      "status": "located"
+    },
+    {
+      "project_id": "after-my-7th-sacrifice-saved-his-secret-son-i-left",
+      "title": "After My 7th Sacrifice Saved His Secret Son, I Left",
+      "root": "docker-data/projects",
+      "project_path": "docker-data/projects/after-my-7th-sacrifice-saved-his-secret-son-i-left",
+      "skeleton_path": "docker-data/projects/after-my-7th-sacrifice-saved-his-secret-son-i-left/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 209376,
+      "sha256": "8271b4b8ca463a2c626844e24401cf0ae7850b7e43aa8fc9b2f0b4e626027d23",
+      "status": "located"
+    },
+    {
+      "project_id": "at-her-graduation-my-husband-chose-his-ex-v2",
+      "title": "At Her Graduation, My Husband Chose His Ex",
+      "root": "docker-data/projects",
+      "project_path": "docker-data/projects/at-her-graduation-my-husband-chose-his-ex-v2",
+      "skeleton_path": "docker-data/projects/at-her-graduation-my-husband-chose-his-ex-v2/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 66278,
+      "sha256": "f232edda5608cb0605fa8d9e0e6b1241e23060a80ff14db001414d5a6eb53516",
+      "status": "located"
+    },
+    {
+      "project_id": "built-on-my-name",
+      "title": "Built on My Name",
+      "root": "docker-data/projects",
+      "project_path": "docker-data/projects/built-on-my-name",
+      "skeleton_path": "docker-data/projects/built-on-my-name/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 122430,
+      "sha256": "f3123d66c13685e9d47f226bb50c3a75098b456dbc2192b9f5012c7573d1b806",
+      "status": "located"
+    },
+    {
+      "project_id": "he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events",
+      "title": "He Chose His Hidden Family for Twenty Years and Abandoned Our Daughter During Her Most Important Life Events.",
+      "root": "docker-data/projects",
+      "project_path": "docker-data/projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events",
+      "skeleton_path": "docker-data/projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 12761,
+      "sha256": "dcbb09e72f9d2be2b1a7d2e334ad726311ae116d478cf42907ac76a61dbcc065",
+      "status": "located"
+    },
+    {
+      "project_id": "his-baby-with-her-my-life-without-him",
+      "title": "His Baby with Her. My Life Without Him.",
+      "root": "docker-data/projects",
+      "project_path": "docker-data/projects/his-baby-with-her-my-life-without-him",
+      "skeleton_path": "docker-data/projects/his-baby-with-her-my-life-without-him/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 141232,
+      "sha256": "e2e9b73517bc6129b8b1db5a71b359a368efda529da743b10a285e5628ce85b7",
+      "status": "located"
+    },
+    {
+      "project_id": "my-husband-s-secret-daughter-lived-across-the-street-d7c6589c",
+      "title": "My Husband’s Secret Daughter Lived Across the Street",
+      "root": "docker-data/projects",
+      "project_path": "docker-data/projects/my-husband-s-secret-daughter-lived-across-the-street-d7c6589c",
+      "skeleton_path": "docker-data/projects/my-husband-s-secret-daughter-lived-across-the-street-d7c6589c/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 67306,
+      "sha256": "42315a19cc6dbd407ac3af935f642082b7bc69a3115c542141430a001e4793d1",
+      "status": "located"
+    },
+    {
+      "project_id": "pregnant-and-done-waiting",
+      "title": "Pregnant, and Done Waiting",
+      "root": "docker-data/projects",
+      "project_path": "docker-data/projects/pregnant-and-done-waiting",
+      "skeleton_path": "docker-data/projects/pregnant-and-done-waiting/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 72774,
+      "sha256": "a59fd3e55ef4962b7b51adeea8f3417b74eafc54703f2f47adfe2300d2c258f0",
+      "status": "located"
+    },
+    {
+      "project_id": "the-empty-chair-beside-her",
+      "title": "The Empty Chair Beside Her",
+      "root": "docker-data/projects",
+      "project_path": "docker-data/projects/the-empty-chair-beside-her",
+      "skeleton_path": "docker-data/projects/the-empty-chair-beside-her/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 95226,
+      "sha256": "5832f191911a3d0c1b73f73252c62e39ec1a11f303939c95bdc0ee5b46a4ebca",
+      "status": "located"
+    },
+    {
+      "project_id": "the-hours-i-kept",
+      "title": "The Hours I Kept",
+      "root": "docker-data/projects",
+      "project_path": "docker-data/projects/the-hours-i-kept",
+      "skeleton_path": "docker-data/projects/the-hours-i-kept/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 132125,
+      "sha256": "5803aca6fc08076516033e0ebef9245bed67fcdf504e2d06f9c164e7dba9a6b2",
+      "status": "located"
+    },
+    {
+      "project_id": "the-last-golden-spire",
+      "title": "The Last Golden Spire",
+      "root": "docker-data/projects",
+      "project_path": "docker-data/projects/the-last-golden-spire",
+      "skeleton_path": "docker-data/projects/the-last-golden-spire/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 214124,
+      "sha256": "039132aabeb1beca03bdbaa0c36575e54735e755beeafa3815bd500857dfb5ea",
+      "status": "located"
+    },
+    {
+      "project_id": "the-mother-he-thought-would-stay",
+      "title": "The Mother He Thought Would Stay",
+      "root": "docker-data/projects",
+      "project_path": "docker-data/projects/the-mother-he-thought-would-stay",
+      "skeleton_path": "docker-data/projects/the-mother-he-thought-would-stay/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 100873,
+      "sha256": "d44f105e28d20d5c1d0c22d19f9040fc8d934eeb2e2ac356830e6d5b029e509e",
+      "status": "located"
+    },
+    {
+      "project_id": "the-mother-who-answered-for-me",
+      "title": "The Mother Who Answered for Me",
+      "root": "docker-data/projects",
+      "project_path": "docker-data/projects/the-mother-who-answered-for-me",
+      "skeleton_path": "docker-data/projects/the-mother-who-answered-for-me/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 113309,
+      "sha256": "1fc903baf652f918c291695d2058810319cb6ada28492954c924c5acdc360d43",
+      "status": "located"
+    },
+    {
+      "project_id": "duo-ci-kao-an-de-chen-chuan",
+      "title": "多次靠岸的沉船",
+      "root": "projects",
+      "project_path": "projects/duo-ci-kao-an-de-chen-chuan",
+      "skeleton_path": "projects/duo-ci-kao-an-de-chen-chuan/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 11591,
+      "sha256": "af6c368272a7ac019ba02224c3c700a4c1d2e97acf558aa52a62a26b69d473db",
+      "status": "located"
+    },
+    {
+      "project_id": "li-hun-hou-wo-na-hui-chuang-shi-ren-xi-wei",
+      "title": "离婚后，我拿回了创始人席位",
+      "root": "projects",
+      "project_path": "projects/li-hun-hou-wo-na-hui-chuang-shi-ren-xi-wei",
+      "skeleton_path": "projects/li-hun-hou-wo-na-hui-chuang-shi-ren-xi-wei/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 20124,
+      "sha256": "6ab3e6b5694ef5322dca07ff019c6102a50fa0dc4e104250ee1da4dd07a6341b",
+      "status": "located"
+    },
+    {
+      "project_id": "liang-bian-de-lao-ren-dou-yao-wo-si-hou",
+      "title": "两边的老人都要我伺候",
+      "root": "projects",
+      "project_path": "projects/liang-bian-de-lao-ren-dou-yao-wo-si-hou",
+      "skeleton_path": "projects/liang-bian-de-lao-ren-dou-yao-wo-si-hou/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 23351,
+      "sha256": "c9f0489693e1188939dc11391c5526ccc4b8f2d4dfaf194eda21619e1c42e783",
+      "status": "located"
+    },
+    {
+      "project_id": "the-life-she-kept",
+      "title": "The Life She Kept",
+      "root": "projects",
+      "project_path": "projects/the-life-she-kept",
+      "skeleton_path": "projects/the-life-she-kept/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 12850,
+      "sha256": "441af798540a6dbef4a24b6f94f6cdbf154aa55588b2eceb858bdf17660ebe59",
+      "status": "located"
+    },
+    {
+      "project_id": "the-life-she-kept-v2",
+      "title": "The Life She Kept",
+      "root": "projects",
+      "project_path": "projects/the-life-she-kept-v2",
+      "skeleton_path": "projects/the-life-she-kept-v2/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 12850,
+      "sha256": "441af798540a6dbef4a24b6f94f6cdbf154aa55588b2eceb858bdf17660ebe59",
+      "status": "located"
+    },
+    {
+      "project_id": "孩子出生那天我签了离婚协议",
+      "title": "孩子出生那天，我签了离婚协议",
+      "root": "projects",
+      "project_path": "projects/孩子出生那天我签了离婚协议",
+      "skeleton_path": "projects/孩子出生那天我签了离婚协议/outputs/input/prompt.md",
+      "exists": true,
+      "bytes": 19200,
+      "sha256": "3b905362fec982951b7ee7f6714ac7657826e8d7765db3792af3452c64e5ffa0",
+      "status": "located"
+    }
+  ],
+  "workshop_sessions": [
+    {
+      "session_id": "250b8ab6c3b742e2805d1a09458d3708",
+      "title": "连接验收草稿（未启动创作）",
+      "session_path": "docker-data/workshop_v2/250b8ab6c3b742e2805d1a09458d3708/session.json",
+      "revision": 2,
+      "status": "draft",
+      "has_prompt": false,
+      "prompt_sha256": null,
+      "prepared_valid": false,
+      "project_id": null,
+      "project_copy_sha_matches": null,
+      "versions": []
+    },
+    {
+      "session_id": "a9f05b12de274e649ee4ce31e1d16c25",
+      "title": "Pregnant and Betrayed: He Chose Another",
+      "session_path": "docker-data/workshop_v2/a9f05b12de274e649ee4ce31e1d16c25/session.json",
+      "revision": 16,
+      "status": "paused",
+      "has_prompt": false,
+      "prompt_sha256": null,
+      "prepared_valid": false,
+      "project_id": null,
+      "project_copy_sha_matches": null,
+      "versions": []
+    },
+    {
+      "session_id": "d7c6589ce29349ae99121b5f771fd6d1",
+      "title": "My Husband’s Secret Daughter Lived Across the Street",
+      "session_path": "docker-data/workshop_v2/d7c6589ce29349ae99121b5f771fd6d1/session.json",
+      "revision": 17,
+      "status": "launched",
+      "has_prompt": true,
+      "prompt_sha256": "42315a19cc6dbd407ac3af935f642082b7bc69a3115c542141430a001e4793d1",
+      "prepared_valid": true,
+      "project_id": "my-husband-s-secret-daughter-lived-across-the-street-d7c6589c",
+      "project_copy_sha_matches": true,
+      "versions": [
+        {
+          "path": "docker-data/workshop_v2/d7c6589ce29349ae99121b5f771fd6d1/versions/12.md",
+          "sha256": "35850a159e3821d7aee19561340c8854b7c590d66ec3a5b20fa94a32cb5f8103"
+        },
+        {
+          "path": "docker-data/workshop_v2/d7c6589ce29349ae99121b5f771fd6d1/versions/17.md",
+          "sha256": "42315a19cc6dbd407ac3af935f642082b7bc69a3115c542141430a001e4793d1"
+        }
+      ]
+    }
+  ]
+}

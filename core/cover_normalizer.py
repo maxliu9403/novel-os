@@ -45,6 +45,10 @@ def _assumption(field: str, proposed_value: str, reason: str, *, critical: bool 
         "reason": reason,
         "status": "pending_confirmation",
         "critical": critical,
+        # Missing visual detail is a design input the director may propose.
+        # It remains visible to the author as a source-supplement suggestion,
+        # but it must not block a source-bound cover direction.
+        "provenance": "model_inferred",
     }
 
 
@@ -210,6 +214,7 @@ def _apply_confirmed_legacy_facts(
     protagonist = _role_character(characters, "protagonist") or (
         characters[0] if characters else {}
     )
+    foundation_protagonist = protagonist
     state_characters = _keyed_objects(state.get("characters"))
     state_character = _matching_character(state_characters, protagonist)
     if not protagonist:
@@ -322,7 +327,14 @@ def _apply_confirmed_legacy_facts(
             ", ".join(spaces),
             "confirmed by durable setting and character-location canon",
         )
-    emotional_state = _text(state_character.get("emotional_state"))
+    # A completed manuscript's state describes its latest (often resolution)
+    # emotion, not the epoch chosen for a cover. Prefer source characterization
+    # and otherwise preserve the normalized source promise. Keep this distinct
+    # from `protagonist`, which may have fallen back to a state-only character.
+    emotional_state = _text(
+        foundation_protagonist.get("current_emotional_state"),
+        foundation_protagonist.get("emotional_state"),
+    )
     if emotional_state:
         character_payload["current_emotional_state"] = emotional_state
 
@@ -737,6 +749,7 @@ def _approve_assumption(
             "proposed_value": proposed_value,
             "reason": reason,
             "status": "approved",
+            "provenance": "source",
         })
         return
 

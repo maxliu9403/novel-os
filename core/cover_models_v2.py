@@ -17,7 +17,8 @@ _REAL_PLACE_MARKERS = {
     "new york", "los angeles", "london", "paris", "beijing", "shanghai",
     "tokyo", "singapore", "hong kong", "sydney", "toronto", "chicago",
 }
-_ASSUMPTION_STATUSES = {"pending_confirmation", "approved"}
+_ASSUMPTION_STATUSES = {"pending_confirmation", "approved", "model_inferred"}
+_ASSUMPTION_PROVENANCES = {"source", "model_inferred", "user_confirmed"}
 COVER_REPAIR_CODES = frozenset({
     "age_mismatch",
     "missing_character",
@@ -156,13 +157,17 @@ class PrincipalCharacter:
             current_emotional_state=_text(
                 data.get("current_emotional_state"), f"{prefix}.current_emotional_state", required=False
             ),
-            agency_signal=_text(data.get("agency_signal"), f"{prefix}.agency_signal"),
+            # Registration preserves secondary people even when the source
+            # gives them no action; mandatory cover cast still needs agency.
+            agency_signal=_text(
+                data.get("agency_signal"), f"{prefix}.agency_signal", required=must_appear,
+            ),
             relationships=_texts(data.get("relationships"), f"{prefix}.relationships"),
             source_refs=_texts(data.get("source_refs"), f"{prefix}.source_refs"),
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "character_id": self.character_id,
             "name": self.name,
             "narrative_role": self.narrative_role,
@@ -179,6 +184,7 @@ class PrincipalCharacter:
             "relationships": list(self.relationships),
             "source_refs": list(self.source_refs),
         }
+        return payload
 
 
 @dataclass(frozen=True)
@@ -244,7 +250,7 @@ class LivedEnvironment:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "era": self.era,
             "fictional_place": self.fictional_place,
             "primary_spaces": list(self.primary_spaces),
@@ -253,6 +259,7 @@ class LivedEnvironment:
             "weather_and_season": self.weather_and_season,
             "environment_truths": list(self.environment_truths),
         }
+        return payload
 
 
 @dataclass(frozen=True)
@@ -397,27 +404,156 @@ class VisualAssumption:
     reason: str
     status: str = "pending_confirmation"
     critical: bool = False
+    # ``provenance`` is intentionally separate from ``status``.  Historical
+    # records use ``pending_confirmation`` for every missing visual field, but
+    # a field can now be a safe model proposal rather than a gate that blocks
+    # direction planning.  Keeping the two dimensions separate lets old
+    # records remain readable while making the new policy explicit.
+    # Empty means the field came from a historical record that predates this
+    # dimension.  It must stay absent on round-trip so old source/brief hashes
+    # remain valid.
+    provenance: str = ""
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any], *, index: int = 0) -> "VisualAssumption":
         status = _text(data.get("status") or "pending_confirmation", f"visual_assumptions[{index}].status")
         if status not in _ASSUMPTION_STATUSES:
             raise ValueError(f"Unknown visual assumption status '{status}'")
+        raw_provenance = data.get("provenance")
+        provenance = str(raw_provenance or "").strip()
+        if not provenance and status == "model_inferred":
+            provenance = "model_inferred"
+        if provenance and provenance not in _ASSUMPTION_PROVENANCES:
+            raise ValueError(f"Unknown visual assumption provenance '{provenance}'")
         return cls(
             field=_text(data.get("field"), f"visual_assumptions[{index}].field"),
             proposed_value=_text(data.get("proposed_value"), f"visual_assumptions[{index}].proposed_value"),
             reason=_text(data.get("reason"), f"visual_assumptions[{index}].reason"),
             status=status,
             critical=bool(data.get("critical", False)),
+            provenance=provenance,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "field": self.field,
             "proposed_value": self.proposed_value,
             "reason": self.reason,
             "status": self.status,
             "critical": self.critical,
+        }
+        if self.provenance:
+            payload["provenance"] = self.provenance
+        return payload
+
+
+@dataclass(frozen=True)
+class CoverConstraints:
+    """Story-facing limits handed to the cover studio.
+
+    This is intentionally smaller than a cover direction.  The brainstorm
+    stage records confirmed facts and user preferences; the cover studio owns
+    moment selection, blocking, visual hooks, campaign composition, and image
+    recipes.  Keeping this boundary explicit prevents two agents from doing
+    the same visual analysis.
+    """
+
+    constraint_version: str = "cover-constraints.v1"
+    must_preserve_story_facts: tuple[str, ...] = ()
+    must_show_if_supported: tuple[str, ...] = ()
+    must_not_show: tuple[str, ...] = ()
+    spoiler_ceiling: str = ""
+    user_visual_preferences: tuple[str, ...] = ()
+    preferred_story_node_ids: tuple[str, ...] = ()
+    preferred_character_ids: tuple[str, ...] = ()
+    source_refs: tuple[str, ...] = ()
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "CoverConstraints":
+        def constraint_texts(value: Any, field_name: str) -> tuple[str, ...]:
+            if value is None:
+                return ()
+            if not isinstance(value, (list, tuple)):
+                raise ValueError(f"cover_brief_v2.{field_name} must be a list")
+            if any(not isinstance(item, str) for item in value):
+                raise ValueError(
+                    f"cover_brief_v2.{field_name} must contain only strings"
+                )
+            return tuple(item.strip() for item in value if item.strip())
+
+        allowed = {
+            "constraint_version",
+            "must_preserve_story_facts",
+            "must_show_if_supported",
+            "must_not_show",
+            "spoiler_ceiling",
+            "user_visual_preferences",
+            "preferred_story_node_ids",
+            "preferred_character_ids",
+            "source_refs",
+        }
+        unknown = sorted(set(data) - allowed)
+        if unknown:
+            raise ValueError(
+                "cover_brief_v2.cover_constraints contains unsupported fields: "
+                + ", ".join(str(item) for item in unknown)
+            )
+        version = _text(
+            data.get("constraint_version") or "cover-constraints.v1",
+            "cover_constraints.constraint_version",
+        )
+        if version != "cover-constraints.v1":
+            raise ValueError(
+                "cover_brief_v2.cover_constraints.constraint_version is unsupported"
+            )
+        return cls(
+            constraint_version=version,
+            must_preserve_story_facts=constraint_texts(
+                data.get("must_preserve_story_facts"),
+                "cover_constraints.must_preserve_story_facts",
+            ),
+            must_show_if_supported=constraint_texts(
+                data.get("must_show_if_supported"),
+                "cover_constraints.must_show_if_supported",
+            ),
+            must_not_show=constraint_texts(
+                data.get("must_not_show"),
+                "cover_constraints.must_not_show",
+            ),
+            spoiler_ceiling=_text(
+                data.get("spoiler_ceiling"),
+                "cover_constraints.spoiler_ceiling",
+                required=False,
+            ),
+            user_visual_preferences=constraint_texts(
+                data.get("user_visual_preferences"),
+                "cover_constraints.user_visual_preferences",
+            ),
+            preferred_story_node_ids=constraint_texts(
+                data.get("preferred_story_node_ids"),
+                "cover_constraints.preferred_story_node_ids",
+            ),
+            preferred_character_ids=constraint_texts(
+                data.get("preferred_character_ids"),
+                "cover_constraints.preferred_character_ids",
+            ),
+            source_refs=constraint_texts(
+                data.get("source_refs"),
+                "cover_constraints.source_refs",
+            ),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "constraint_version": self.constraint_version,
+            "must_preserve_story_facts": list(self.must_preserve_story_facts),
+            "must_show_if_supported": list(self.must_show_if_supported),
+            "must_not_show": list(self.must_not_show),
+            "spoiler_ceiling": self.spoiler_ceiling,
+            "user_visual_preferences": list(self.user_visual_preferences),
+            "preferred_story_node_ids": list(self.preferred_story_node_ids),
+            "preferred_character_ids": list(self.preferred_character_ids),
+            "source_refs": list(self.source_refs),
         }
 
 
@@ -445,6 +581,7 @@ class CoverBriefV2:
     visual_assumptions: tuple[VisualAssumption, ...]
     source_prompt_sha256: str
     foundation_sha256: str = ""
+    cover_constraints: CoverConstraints | None = None
 
     @classmethod
     def from_dict(
@@ -491,6 +628,31 @@ class CoverBriefV2:
         assumptions_raw = data.get("visual_assumptions") or []
         if not isinstance(assumptions_raw, (list, tuple)):
             raise ValueError("cover_brief_v2.visual_assumptions must be a list")
+        constraints_raw = data.get("cover_constraints")
+        if constraints_raw is None:
+            cover_constraints = None
+        else:
+            cover_constraints = CoverConstraints.from_dict(
+                _mapping(constraints_raw, "cover_constraints")
+            )
+            node_ids = {item.node_id for item in nodes}
+            unknown_nodes = set(cover_constraints.preferred_story_node_ids) - node_ids
+            if unknown_nodes:
+                raise ValueError(
+                    "cover_brief_v2.cover_constraints.preferred_story_node_ids "
+                    "must reference decisive_story_nodes: "
+                    + ", ".join(sorted(unknown_nodes))
+                )
+            unknown_characters = (
+                set(cover_constraints.preferred_character_ids)
+                - set(character_ids)
+            )
+            if unknown_characters:
+                raise ValueError(
+                    "cover_brief_v2.cover_constraints.preferred_character_ids "
+                    "must reference principal_characters: "
+                    + ", ".join(sorted(unknown_characters))
+                )
         title_direction_raw = _mapping(data.get("title_direction") or {}, "title_direction")
         title_direction = {
             str(key): str(value or "").strip()
@@ -529,9 +691,10 @@ class CoverBriefV2:
             title_direction=title_direction,
             forbidden_elements=_texts(data.get("forbidden_elements"), "forbidden_elements"),
             visual_assumptions=tuple(
-                VisualAssumption.from_dict(_mapping(item, "visual_assumptions"), index=index)
+                VisualAssumption.from_dict(_mapping(item, f"visual_assumptions[{index}]"), index=index)
                 for index, item in enumerate(assumptions_raw)
             ),
+            cover_constraints=cover_constraints,
             source_prompt_sha256=_sha(source_prompt_sha256, "source_prompt_sha256"),
             foundation_sha256=_sha(foundation_sha256, "foundation_sha256", optional=True),
         )
@@ -557,9 +720,31 @@ class CoverBriefV2:
         )
 
     def pending_critical_assumptions(self) -> tuple[VisualAssumption, ...]:
+        """Return the durable list of missing visual fields.
+
+        This method keeps its historical meaning for API and UI compatibility:
+        callers can still show the author which source fields would improve
+        continuity.  Use :meth:`blocking_pending_critical_assumptions` for a
+        workflow gate; model-inferred visual proposals are deliberately not a
+        gate.
+        """
         return tuple(
             item for item in self.visual_assumptions
             if item.critical and item.status == "pending_confirmation"
+        )
+
+    def blocking_pending_critical_assumptions(self) -> tuple[VisualAssumption, ...]:
+        """Return only unresolved source facts that must stop cover planning."""
+        return tuple(
+            item for item in self.pending_critical_assumptions()
+            if item.provenance != "model_inferred"
+        )
+
+    def model_inferred_assumptions(self) -> tuple[VisualAssumption, ...]:
+        """Return safe visual proposals that may be used provisionally."""
+        return tuple(
+            item for item in self.visual_assumptions
+            if item.provenance == "model_inferred" or item.status == "model_inferred"
         )
 
     def validate_concepts(self, concepts: Any) -> bool:
@@ -569,12 +754,18 @@ class CoverBriefV2:
         if len(strategies) != len(concepts):
             raise ValueError("Cover concepts must use distinct visual strategies")
         for concept in concepts:
-            if self.title not in str(concept.generation_prompt):
+            recipe = concept.scene_plan.get("_compiled_recipe") or {}
+            campaign = concept.scene_plan.get("campaign") or {}
+            title_contract = recipe or campaign
+            if title_contract.get("title_render_mode") == "composed":
+                if (title_contract.get("title_layout") or {}).get("title") != self.title:
+                    raise ValueError("Composed cover layout must contain the exact title")
+            elif self.title not in str(concept.generation_prompt):
                 raise ValueError("Every cover prompt must contain the exact title")
         return True
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "schema_version": self.schema_version,
             "title": self.title,
             "author": self.author,
@@ -598,6 +789,9 @@ class CoverBriefV2:
             "source_prompt_sha256": self.source_prompt_sha256,
             "foundation_sha256": self.foundation_sha256,
         }
+        if self.cover_constraints is not None:
+            payload["cover_constraints"] = self.cover_constraints.to_dict()
+        return payload
 
 
 @dataclass(frozen=True)
@@ -784,6 +978,7 @@ class CoverScenePlan:
     conflict_character_ids: tuple[str, ...] = ()
     protagonist_action_visible: bool = False
     story_policy_version: str = ""
+    campaign: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -891,6 +1086,8 @@ class CoverScenePlan:
                 data.get("protagonist_action_visible"),
                 f"{prefix}.protagonist_action_visible",
             ),
+            campaign=(dict(_mapping(data["campaign"], f"{prefix}.campaign"))
+                      if data.get("campaign") is not None else None),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -943,6 +1140,8 @@ class CoverScenePlan:
                 "conflict_character_ids": list(self.conflict_character_ids),
                 "protagonist_action_visible": self.protagonist_action_visible,
             })
+        if self.campaign is not None:
+            payload["campaign"] = dict(self.campaign)
         return payload
 
 
@@ -962,10 +1161,12 @@ class ArtDirectionSet:
     direction_id: str = ""
     direction_sha256: str = ""
     created_at: str = ""
+    source_binding: dict[str, Any] | None = None
+    compiled_recipes: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
-        if self.schema_version != 1:
-            raise ValueError("ArtDirectionSet.schema_version must be 1")
+        if self.schema_version not in {1, 2}:
+            raise ValueError("ArtDirectionSet.schema_version must be 1 or 2")
         if not _SHA256.fullmatch(self.brief_sha256):
             raise ValueError("ArtDirectionSet.brief_sha256 must be a lowercase SHA-256 digest")
         if not 3 <= len(self.plans) <= 5:
@@ -1002,7 +1203,7 @@ class ArtDirectionSet:
                 for index, item in enumerate(raw_plans)
             ),
             visual_assumptions=tuple(
-                VisualAssumption.from_dict(_mapping(item, "visual_assumptions"), index=index)
+                VisualAssumption.from_dict(_mapping(item, f"visual_assumptions[{index}]"), index=index)
                 for index, item in enumerate(raw_assumptions)
             ),
             visual_identity=(
@@ -1023,6 +1224,10 @@ class ArtDirectionSet:
             direction_id=str(data.get("direction_id") or "").strip(),
             direction_sha256=str(data.get("direction_sha256") or "").strip(),
             created_at=str(data.get("created_at") or "").strip(),
+            source_binding=(dict(_mapping(data["source_binding"], "source_binding"))
+                            if data.get("source_binding") is not None else None),
+            compiled_recipes=(dict(_mapping(data["compiled_recipes"], "compiled_recipes"))
+                              if data.get("compiled_recipes") is not None else None),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -1048,6 +1253,10 @@ class ArtDirectionSet:
             payload["core_conflict_visual_contract"] = (
                 self.core_conflict_visual_contract.to_dict()
             )
+        if self.source_binding is not None:
+            payload["source_binding"] = dict(self.source_binding)
+        if self.compiled_recipes is not None:
+            payload["compiled_recipes"] = dict(self.compiled_recipes)
         return payload
 
     def content_hash(self) -> str:

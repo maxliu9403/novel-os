@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 try:
+    from .cover_campaign import CoverCampaignPlan, uses_campaign, uses_commercial_expression, validate_campaign, portfolio_findings
+    from .cover_campaign_evidence import FrozenCampaignEvidenceError, approved_evidence_claim_paths, build_evidence_claims
     from .cover_story_policy import STORY_POLICY_VERSION, story_cast_policy, uses_story_policy
 except ImportError:  # pragma: no cover - legacy CLI imports core modules top-level
+    from cover_campaign import CoverCampaignPlan, uses_campaign, uses_commercial_expression, validate_campaign, portfolio_findings
+    from cover_campaign_evidence import FrozenCampaignEvidenceError, approved_evidence_claim_paths, build_evidence_claims
     from cover_story_policy import STORY_POLICY_VERSION, story_cast_policy, uses_story_policy
 
 import math
@@ -47,6 +51,235 @@ def _evidence_exists(
     if prefix == "evidence" and direction.evidence_ledger is not None:
         return direction.evidence_ledger.by_id(identifier) is not None
     return False
+
+
+def _constraint_reference_exists(
+    brief: CoverBriefV2,
+    direction: ArtDirectionSet,
+    reference: str,
+    *,
+    verified_source_refs: set[str] | None = None,
+) -> bool:
+    """Validate typed source refs while allowing full-skeleton section refs.
+
+    ``section:...`` refs point into the immutable skeleton snapshot and are
+    resolved by the analysis owner.  Typed refs can be checked here because
+    they are represented directly in ``CoverBriefV2`` or its evidence ledger.
+    """
+    # Section/snapshot references are opaque offsets into the immutable source
+    # snapshot.  A non-empty string is not proof that the reference exists;
+    # the analysis owner must pass its verified registry explicitly.
+    if reference.startswith(("section:", "snapshot:")):
+        return verified_source_refs is not None and reference in verified_source_refs
+    return _evidence_exists(brief, direction, reference)
+
+
+def _constraint_story_text(plan: object) -> str:
+    """Collect executable visual fields for conservative exact-match checks."""
+    hook = getattr(plan, "visual_hook", None)
+    fields = [
+        "moment_before", "frozen_action", "moment_after", "blocking",
+        "environment_anchors", "primary_prop", "depth_plan", "motivated_lighting",
+        "color_script", "conflict_delivery", "conflict_read", "cause_signal",
+        "consequence_signal",
+    ]
+    values: list[str] = [str(getattr(plan, field, "") or "") for field in fields]
+    if hook is not None:
+        values.extend(str(getattr(hook, field, "") or "") for field in (
+            "first_glance_subject", "identity_anchor", "genre_signal",
+            "reader_promise", "target_emotion", "expected_thumbnail_read",
+        ))
+    # v10 stores the executable scene in a nested campaign object.  Looking
+    # only at the legacy plan fields lets a forbidden action pass validation.
+    campaign = getattr(plan, "campaign", None)
+    if isinstance(campaign, Mapping):
+        for layer in campaign.get("layers", ()):
+            if isinstance(layer, Mapping):
+                values.extend(str(layer.get(field, "") or "") for field in (
+                    "function", "location", "epoch",
+                ))
+        for edge in campaign.get("interaction_edges", ()):
+            if isinstance(edge, Mapping):
+                values.extend(str(edge.get(field, "") or "") for field in (
+                    "action", "visible_reaction",
+                ))
+        campaign_hook = campaign.get("hook")
+        if isinstance(campaign_hook, Mapping):
+            # Policy fields (spoiler ceiling, withheld answer, open question)
+            # are instructions about what must remain unseen, not depictions.
+            values.extend(str(campaign_hook.get(field, "") or "") for field in (
+                "visible_fact", "unexpected_contradiction", "visual_trigger",
+                "reader_promise",
+            ))
+    # Field boundaries are also clause boundaries. A trailing "do not show"
+    # in one field must not negate a depiction supplied by another field.
+    return ". ".join(values)
+
+
+_REFERENCE_PREFIXES = {"character", "node", "signal", "evidence", "section", "snapshot"}
+_DEPICTION_VERB = r"(?:show|depict|reveal|include|display|showing|depicting|revealing|including|displaying)"
+_DEPICTION_NEGATION = re.compile(
+    rf"(?:\b(?:do not|don't|must not|should not|never|avoid)\s+{_DEPICTION_VERB}"
+    rf"|\bwithout(?:\s+{_DEPICTION_VERB})?"
+    r"|(?:不要|不得|不能|避免|切勿|禁止|不应|不)(?:展示|描绘|呈现|表现|显示|揭示|出现|包含|透露))"
+    r"\s*(?:[:：-]\s*)?(?:(?:the|a|an|any)\s+)?$"
+)
+_NEGATED_NEGATION = re.compile(
+    r"(?:\b(?:not|never|without|cannot|can't|don't|isn't|wasn't)\s*"
+    r"|(?:不能|不得|不可|不准|不许|不应|不要|没有|并非|不是|不必|无需|未|不))$"
+)
+
+
+def _typed_constraint_reference(value: str) -> tuple[str, str] | None:
+    """Parse only an approved typed reference, never arbitrary prose with ':'."""
+    prefix, separator, identifier = value.partition(":")
+    if not separator or prefix.casefold() not in _REFERENCE_PREFIXES:
+        return None
+    identifier = identifier.strip()
+    if not identifier or not re.fullmatch(r"[A-Za-z0-9_.:-]+", identifier):
+        return None
+    return prefix.casefold(), identifier
+
+
+def _contains_forbidden_depiction(text: str, forbidden: str) -> bool:
+    """Match a phrase in visual prose while ignoring explicit non-depiction clauses."""
+    needle = " ".join(forbidden.casefold().split())
+    if not needle:
+        return False
+    normalized = " ".join(text.casefold().split())
+    # Latin words need boundaries ("reconciliationist" is not
+    # "reconciliation"); Chinese phrases do not have whitespace boundaries.
+    left = r"(?<![a-z0-9_])" if needle[0].isascii() and (needle[0].isalnum() or needle[0] == "_") else ""
+    right = r"(?![a-z0-9_])" if needle[-1].isascii() and (needle[-1].isalnum() or needle[-1] == "_") else ""
+    pattern = re.compile(left + re.escape(needle) + right)
+    for match in pattern.finditer(normalized):
+        prefix = normalized[max(0, match.start() - 72):match.start()]
+        negation = _DEPICTION_NEGATION.search(prefix)
+        if negation is not None and not _NEGATED_NEGATION.search(prefix[:negation.start()]):
+            continue
+        return True
+    return False
+
+
+def _validate_story_constraints(
+    brief: CoverBriefV2,
+    direction: ArtDirectionSet,
+    *,
+    verified_source_refs: set[str] | None = None,
+    story_analysis: Mapping[str, Any] | None = None,
+) -> list[ValidationFinding]:
+    """Apply the machine-checkable portion of the optional handoff limits."""
+    constraints = brief.cover_constraints
+    if constraints is None:
+        return []
+    findings: list[ValidationFinding] = []
+    for reference in constraints.source_refs:
+        if not _constraint_reference_exists(
+            brief, direction, reference, verified_source_refs=verified_source_refs,
+        ):
+            findings.append(ValidationFinding(
+                "unknown_constraint_source_ref",
+                "blocker",
+                "Cover constraint source_refs must resolve to approved story evidence",
+                reference,
+            ))
+    known_nodes = {item.node_id for item in brief.decisive_story_nodes}
+    known_characters = {item.character_id for item in brief.principal_characters}
+    known_signals = {item.signal_id for item in brief.secondary_signals}
+    typed_requests: list[tuple[str, str, str]] = []
+    for request in constraints.must_show_if_supported:
+        typed = _typed_constraint_reference(request)
+        if typed is not None:
+            prefix, identifier = typed
+            typed_requests.append((request, prefix, identifier))
+        elif request in known_nodes:
+            typed_requests.append((request, "node", request))
+        elif request in known_characters:
+            typed_requests.append((request, "character", request))
+        elif request in known_signals:
+            typed_requests.append((request, "signal", request))
+    for request, prefix, identifier in typed_requests:
+        reference = f"{prefix}:{identifier}"
+        if prefix in {"section", "snapshot"}:
+            # A free-form section request cannot be asserted from the brief;
+            # verified snapshot references are handled by the analysis owner.
+            if verified_source_refs is None or reference not in verified_source_refs:
+                continue
+        if prefix == "node" and identifier not in known_nodes:
+            findings.append(ValidationFinding(
+                "unknown_constraint_story_ref", "blocker",
+                "must_show_if_supported node reference is not an approved story node", request,
+            ))
+            continue
+        if prefix == "character" and identifier not in known_characters:
+            findings.append(ValidationFinding(
+                "unknown_constraint_story_ref", "blocker",
+                "must_show_if_supported character reference is not an approved character", request,
+            ))
+            continue
+        if prefix == "signal" and identifier not in known_signals:
+            findings.append(ValidationFinding(
+                "unknown_constraint_story_ref", "blocker",
+                "must_show_if_supported signal reference is not an approved story signal", request,
+            ))
+            continue
+        # A character present in the approved principal-character registry is
+        # source-supported even when the optional per-character source_refs
+        # list is empty.  The registry entry itself is the approved fact; the
+        # director still has to put that character in the visible cast.
+        character_evidence: set[str] = set()
+        if prefix == "character" and story_analysis is not None and direction.evidence_ledger is not None:
+            # Full-skeleton ledgers point to snapshot byte spans, not synthetic
+            # cover_brief:character aliases. Resolve the exact character id
+            # through the independently verified analysis registry instead.
+            records = [item for item in story_analysis.get("characters", ())
+                       if isinstance(item, Mapping) and item.get("character_id") == identifier]
+            if len(records) == 1:
+                character_evidence = set(records[0].get("evidence_refs", ())).intersection(
+                    direction.evidence_ledger.allowed_refs,
+                )
+
+        def plan_cites(plan: object) -> bool:
+            refs = getattr(plan, "story_evidence_refs", ())
+            if prefix == "character" and identifier not in getattr(plan, "cast", ()):
+                return False
+            if reference in refs:
+                return True
+            if character_evidence.intersection(refs):
+                return True
+            ledger = direction.evidence_ledger
+            if ledger is None:
+                return False
+            for cited in refs:
+                ref_prefix, _, evidence_identifier = str(cited).partition(":")
+                if ref_prefix != "evidence" or not evidence_identifier:
+                    continue
+                item = ledger.by_id(evidence_identifier)
+                if item is not None and item.source_ref in {
+                    reference,
+                    f"cover_brief:{prefix}:{identifier}",
+                }:
+                    return True
+            return False
+
+        if not any(plan_cites(plan) for plan in direction.plans):
+            findings.append(ValidationFinding(
+                "requested_story_evidence_missing",
+                "blocker",
+                "A source-supported must_show_if_supported item is absent from every cover plan",
+                request,
+            ))
+    story_text = ". ".join(_constraint_story_text(plan) for plan in direction.plans).casefold()
+    for forbidden in constraints.must_not_show:
+        needle = " ".join(forbidden.casefold().split())
+        if _contains_forbidden_depiction(story_text, forbidden):
+            findings.append(ValidationFinding(
+                "cover_constraint_violation",
+                "blocker",
+                "A cover plan contains an exact must_not_show phrase",
+                forbidden,
+            ))
+    return findings
 
 
 def _has_layered_depth(plan: object) -> bool:
@@ -529,44 +762,131 @@ def _validate_story_cast_coverage(brief: CoverBriefV2, direction: ArtDirectionSe
     return findings
 
 
+def _validate_campaign_direction(
+    brief: CoverBriefV2, direction: ArtDirectionSet,
+    story_analysis: Mapping[str, Any] | None,
+    *, defer_campaign_evidence_review: bool = False,
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    commercial = uses_commercial_expression(direction.profile_version)
+    approved_paths, receipt_findings = approved_evidence_claim_paths(direction, story_analysis)
+    findings.extend(ValidationFinding(item.code, "blocker", item.message, item.evidence)
+                    for item in receipt_findings)
+    if defer_campaign_evidence_review:
+        # Deferral is a pre-review step, never permission to accept unknown
+        # evidence, absent quotes or ambiguous event/claim identities.
+        try:
+            build_evidence_claims(direction, story_analysis)
+        except FrozenCampaignEvidenceError as exc:
+            findings.append(ValidationFinding("campaign_evidence_source_invalid", "blocker", str(exc)))
+        except (TypeError, ValueError) as exc:
+            findings.append(ValidationFinding("campaign_evidence_claims_invalid", "blocker", str(exc)))
+    if story_analysis is None or story_analysis.get("coverage_status") != "complete":
+        findings.append(ValidationFinding("campaign_analysis_required", "blocker", "v10 directions require the complete frozen story analysis"))
+    allowed_refs = set(direction.evidence_ledger.allowed_refs) if direction.evidence_ledger else set()
+    if not allowed_refs:
+        findings.append(ValidationFinding("missing_evidence_ledger", "blocker", "Campaign requires application-owned frozen evidence"))
+    policy = story_cast_policy(brief, len(direction.plans))
+    heroes = set(policy["focal_character_ids"])
+    campaigns = []
+    choice_found = False
+    for plan in direction.plans:
+        issue = photographic_medium_issue(plan.art_style)
+        if issue:
+            findings.append(ValidationFinding("non_photographic_medium", "blocker", issue, plan.concept_id))
+        if not commercial and plan.focal_character_id not in heroes:
+            findings.append(ValidationFinding("reader_anchor_not_focal", "blocker", "Campaign must visibly anchor an approved protagonist or co-lead", plan.concept_id))
+        missing = [field for field in ("conflict_delivery", "conflict_read", "cause_signal", "consequence_signal")
+                   if not str(getattr(plan, field, "") or "").strip()]
+        if missing and not commercial:
+            findings.append(ValidationFinding("missing_core_conflict", "blocker",
+                "Every campaign direction must declare its visible cause and protagonist response",
+                f"{plan.concept_id}: {', '.join(missing)}"))
+        if plan.causal_visibility not in ({"", "direct", "indirect"} if commercial else {"direct", "indirect"}):
+            findings.append(ValidationFinding("invalid_causal_visibility", "blocker",
+                "causal_visibility must be direct or indirect", plan.concept_id))
+        try:
+            campaign = CoverCampaignPlan.from_dict(getattr(plan, "campaign", None))
+        except (TypeError, ValueError) as exc:
+            findings.append(ValidationFinding("campaign_schema", "blocker", str(exc), plan.concept_id))
+            continue
+        campaigns.append(campaign)
+        if campaign.expression_mode and not commercial:
+            findings.append(ValidationFinding("campaign_expression_profile", "blocker",
+                "Commercial expression requires a new v11 direction; historical direction semantics cannot change", plan.concept_id))
+        findings.extend(ValidationFinding(item.code, "warning" if commercial and item.code in {
+                            "campaign_static_interaction", "campaign_generic_hook", "campaign_missing_visual_trigger"
+                        } else item.severity, item.message, f"{plan.concept_id}: {item.evidence}")
+                        for item in validate_campaign(campaign, cast=plan.cast, title=brief.title,
+                            allowed_refs=allowed_refs, story_analysis=story_analysis,
+                            approved_claim_paths=approved_paths.get(plan.concept_id, set()),
+                            defer_evidence_review=defer_campaign_evidence_review))
+        choice_found |= plan.protagonist_action_visible and any(
+            edge["actor_id"] in heroes for edge in campaign.interaction_edges)
+    # Structural completeness is necessary, not semantic proof. In particular,
+    # events.participants includes causal/remote/absent participants; it cannot
+    # prove physical co-presence. The independent source review must enforce a
+    # relationship direction when the narrative supports a drawable encounter,
+    # and must verify the declared cause, response and choice against the source.
+    if not choice_found and not commercial:
+        findings.append(ValidationFinding("protagonist_action_undercoverage", "blocker",
+            "At least one direction must declare a source-supported choice by a visible protagonist or co-lead acting in its event"))
+    findings.extend(ValidationFinding(item.code, "warning" if commercial else "blocker", item.message, item.evidence)
+                    for item in portfolio_findings(campaigns))
+    return findings
+
+
 def validate_direction(
     brief: CoverBriefV2,
     direction: ArtDirectionSet,
     *,
     recent_fingerprints: Sequence[Mapping[str, Any]] = (),
+    story_analysis: Mapping[str, Any] | None = None,
+    verified_constraint_source_refs: set[str] | None = None,
+    defer_campaign_evidence_review: bool = False,
 ) -> tuple[ValidationFinding, ...]:
     findings: list[ValidationFinding] = []
+    findings.extend(_validate_story_constraints(
+        brief, direction, verified_source_refs=verified_constraint_source_refs,
+        story_analysis=story_analysis,
+    ))
     if direction.brief_sha256 != brief.source_prompt_sha256:
         findings.append(ValidationFinding(
             "brief_hash_mismatch", "blocker", "Direction is bound to a different brief hash",
         ))
     pending_critical = [
-        *brief.pending_critical_assumptions(),
+        *brief.blocking_pending_critical_assumptions(),
         *(
             item for item in direction.visual_assumptions
-            if item.critical and item.status == "pending_confirmation"
+            if item.critical
+            and item.status == "pending_confirmation"
+            and item.provenance != "model_inferred"
         ),
     ]
     for assumption in pending_critical:
         findings.append(ValidationFinding(
             "unresolved_critical_assumption",
             "blocker",
-            "Critical visual facts must be confirmed before art direction approval",
+            "Blocking story facts must be confirmed before art direction approval; visual appearance may remain model-inferred",
             assumption.field,
         ))
     required = {item.character_id for item in brief.required_characters}
     known = {item.character_id for item in brief.principal_characters}
-    adaptive = direction.profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5", "cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8", "cover-profiles.v9"))
+    campaign_profile = uses_campaign(direction.profile_version)
+    adaptive = campaign_profile or direction.profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5", "cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8", "cover-profiles.v9"))
     optional_conflict_cast = {
         item.character_id for item in brief.principal_characters if not item.must_appear
     }
     strategies = [item.visual_strategy.casefold() for item in direction.plans]
     hooks = [item.visual_hook.hook_type.casefold() for item in direction.plans]
     if len(set(strategies)) != len(strategies):
-        findings.append(ValidationFinding("duplicate_strategy", "blocker", "Direction strategies must be distinct"))
+        findings.append(ValidationFinding("duplicate_strategy", "warning" if uses_commercial_expression(direction.profile_version) else "blocker", "Direction strategies must be distinct"))
     if not adaptive and len(set(hooks)) != len(hooks):
         findings.append(ValidationFinding("duplicate_hook", "blocker", "Visual hooks must be distinct"))
-    if adaptive:
+    if campaign_profile:
+        findings.extend(_validate_campaign_direction(brief, direction, story_analysis,
+                        defer_campaign_evidence_review=defer_campaign_evidence_review))
+    elif adaptive:
         findings.extend(_validate_adaptive_portfolio(
             brief, direction, recent_fingerprints=recent_fingerprints,
         ))

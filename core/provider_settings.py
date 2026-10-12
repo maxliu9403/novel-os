@@ -566,6 +566,14 @@ def save_connection(payload: Mapping[str, Any], connection_id: str | None = None
         elif secret_action != "keep":
             raise ProviderSettingsError("Unknown secret action")
 
+        # Image catalogs belong to the exact endpoint/credential. Never reuse
+        # a text catalog or an image catalog from a connection before edits.
+        image_identity = ("provider", "auth_type", "base_url", "image_base_url", "capabilities")
+        if (existing and secret_action == "keep"
+                and all(existing.get(key) == connection.get(key) for key in image_identity)):
+            connection["discovered_image_models"] = list(existing.get("discovered_image_models") or [])
+            connection["image_models_fetched_at"] = str(existing.get("image_models_fetched_at") or "")
+
         if existing is None:
             connections.append(connection)
         else:
@@ -845,11 +853,13 @@ def image_profile_status(
     profile = dict(config.get("image_profiles", {}).get(profile_id) or {})
     connection_id = str(profile.get("connection_id") or "")
     name = ""
+    provider = "openai_compatible"
     configured = False
     error = str(profile.get("configuration_error") or "Select an image provider connection")
     if connection_id and not profile.get("configuration_error"):
         try:
             connection = _connection(config, connection_id)
+            provider = str(connection.get("provider") or "openai_compatible")
             name = str(connection.get("name") or "")
             if IMAGE_CAPABILITY not in set(connection.get("capabilities") or []):
                 error = "Selected connection does not support image generation"
@@ -859,11 +869,18 @@ def image_profile_status(
                 error = status_error
         except ProviderSettingsError as exc:
             error = str(exc)
+    from core.image_capabilities import default_image_model, image_model_capabilities, validate_image_model
+    model = str(profile.get("model") or default_image_model(provider))
+    try:
+        validate_image_model(model, provider)
+    except ValueError as exc:
+        configured, error = False, str(exc)
     return {
         "id": profile_id,
         "connection_id": connection_id,
         "connection_name": name,
-        "model": str(profile.get("model") or "gpt-image-2"),
+        "model": model,
+        "model_capabilities": image_model_capabilities(provider),
         "size": str(profile.get("size") or "2048x3072"),
         "quality": str(profile.get("quality") or "high"),
         "output_format": str(profile.get("output_format") or "jpeg"),
@@ -888,6 +905,7 @@ def save_image_profile(profile_id: str, payload: Mapping[str, Any]) -> dict[str,
             raise ProviderSettingsError("Selected connection does not support image generation")
         # Cover-specific parameter validation remains in the cover resolver.
         normalized = studio_settings.validate_cover_parameters({
+            "provider": connection.get("provider"),
             "model": payload.get("model"),
             "size": payload.get("size"),
             "quality": payload.get("quality"),
@@ -899,10 +917,6 @@ def save_image_profile(profile_id: str, payload: Mapping[str, Any]) -> dict[str,
             "connection_id": connection_id,
             **normalized,
         }
-        if connection.get("provider") == "codex" and candidate["model"] != "gpt-image-2":
-            raise ProviderSettingsError(
-                "Codex image generation currently requires gpt-image-2"
-            )
         profiles = dict(configuration.get("image_profiles", {}))
         profiles[profile_id] = candidate
         configuration["image_profiles"] = profiles
@@ -923,6 +937,7 @@ def resolve_image_profile(profile_id: str = "cover") -> dict[str, Any]:
     base_url = str(connection.get("image_base_url") or connection.get("base_url") or "").rstrip("/")
     return {
         **profile,
+        "model": profile.get("model") or studio_settings.default_image_model(str(connection.get("provider") or "")),
         "provider": connection.get("provider", "openai_compatible"),
         "base_url": base_url,
         "api_key": _connection_secret(connection),
@@ -1130,6 +1145,55 @@ def refresh_connection_models(connection_id: str) -> list[str]:
     return models
 
 
+def image_connection_models(connection_id: str, *, refresh: bool = False) -> dict[str, Any]:
+    """Read an image endpoint's real catalog without guessing availability.
+
+API /models responses often omit modality. These IDs are provider-returned
+configuration candidates, not evidence that an image-generation call succeeds.
+Codex model/list describes text hosts, not the built-in image tool's model.
+"""
+    with _LOCK:
+        connection = deepcopy(_connection(load_configuration(), connection_id))
+        if IMAGE_CAPABILITY not in set(connection.get("capabilities") or []):
+            raise ProviderSettingsError("Selected connection does not support image generation")
+        if connection.get("provider") == "codex":
+            return {"models": [], "source": "unsupported", "discovery_supported": False,
+                    "exact_model_selection": False, "fetched_at": "",
+                    "message": "当前 Codex 内置图像工具没有图片模型目录，也不支持精确选择型号；实际图片模型由工具决定。文本模型列表和历史 gpt-image-2 配置都不是拉取到的图片模型。"}
+        status, error = _connection_status(connection)
+        if status != "ready":
+            raise ProviderModelDiscoveryError(error)
+        secret = _connection_secret(connection)
+        cached = list(connection.get("discovered_image_models") or [])
+        fetched_at = str(connection.get("image_models_fetched_at") or "")
+    result = {"models": cached, "source": "cache", "discovery_supported": True,
+              "exact_model_selection": True, "fetched_at": fetched_at,
+              "message": "以下候选型号来自图像服务连接的模型目录；该目录不一定声明图像能力，请按服务商说明确认型号支持生成图片。"}
+    if not refresh:
+        return result
+    effective = {**connection, "base_url": connection.get("image_base_url") or connection.get("base_url")}
+    try:
+        models = _discover_models(effective, api_key=secret)
+    except ProviderModelDiscoveryError:
+        raise
+    except Exception as exc:
+        raise ProviderModelDiscoveryError(_safe_error(exc, secret)) from None
+    with _LOCK:
+        configuration = load_configuration()
+        try:
+            current = _connection(configuration, connection_id)
+        except ProviderSettingsError:
+            raise ProviderModelDiscoveryConflict("Provider connection was removed during image refresh") from None
+        identity_keys = ("provider", "auth_type", "base_url", "image_base_url", "secret_ref", "capabilities", "updated_at")
+        if any(current.get(key) != connection.get(key) for key in identity_keys) or _connection_secret(current) != secret:
+            raise ProviderModelDiscoveryConflict("Provider connection changed during image refresh; retry with the saved connection")
+        fetched_at = _utc_now()
+        current["discovered_image_models"] = models
+        current["image_models_fetched_at"] = fetched_at
+        _persist_configuration(configuration)
+    return {**result, "models": models, "source": "provider", "fetched_at": fetched_at}
+
+
 def test_connection(connection_id: str) -> dict[str, Any]:
     with _LOCK:
         configuration = load_configuration()
@@ -1194,6 +1258,7 @@ __all__ = [
     "configuration_status",
     "delete_connection",
     "image_profile_status",
+    "image_connection_models",
     "load_configuration",
     "refresh_connection_models",
     "resolve_image_profile",

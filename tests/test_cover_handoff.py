@@ -92,6 +92,28 @@ def test_parse_cover_handoff_accepts_versioned_multi_character_contract() -> Non
     ]
 
 
+def test_parse_cover_handoff_preserves_story_facing_constraints() -> None:
+    from tests.test_cover_models_v2 import two_character_fixture
+
+    handoff = two_character_fixture()
+    handoff["cover_constraints"] = {
+        "constraint_version": "cover-constraints.v1",
+        "must_preserve_story_facts": ["estranged spouses"],
+        "must_show_if_supported": ["door_choice"],
+        "must_not_show": ["final outcome"],
+        "spoiler_ceiling": "Do not reveal the final relationship outcome.",
+        "user_visual_preferences": [],
+        "preferred_story_node_ids": ["door_choice"],
+        "preferred_character_ids": ["char_mara"],
+        "source_refs": ["section:9.node:door_choice"],
+    }
+
+    brief = parse_cover_handoff(_prompt(handoff))
+
+    assert brief.cover_constraints is not None
+    assert brief.cover_constraints.preferred_story_node_ids == ("door_choice",)
+
+
 def test_v1_generation_prompt_uses_visual_objective_without_conversion_claims() -> None:
     brief = parse_cover_handoff(_prompt(_handoff()))
 
@@ -128,21 +150,23 @@ def test_build_cover_concepts_extracts_precise_story_signals() -> None:
     assert len({item.focal_scene for item in concepts}) == 4
 
 
-def test_english_market_prompts_use_premium_western_story_cover_direction() -> None:
-    brief = parse_cover_handoff(_prompt(_handoff()))
+def test_explicit_north_american_market_preserves_cinematic_quality() -> None:
+    brief = parse_cover_handoff(_prompt(_handoff(market_scope="North America serialized fiction")))
 
     prompt = build_cover_concepts(brief, count=4)[0].generation_prompt
 
     assert "Do not infer or invent ethnicity" in prompt
     assert "American white casting" not in prompt
-    assert "premium US commercial fiction magazine cover" in prompt
+    assert "North America serialized fiction" in prompt
+    assert "premium commercial fiction magazine cover" in prompt
+    assert "premium US" not in prompt
     assert "live-action theatrical film campaign poster" in prompt
     assert "believable on-set publicity still" in prompt
     assert "one frozen cinematic story moment" in prompt
     assert "visible action, reaction, and stakes" in prompt
     assert "principal characters immediately clear" in prompt
     assert "core story atmosphere" in prompt.casefold()
-    assert "Western editorial typography" in prompt
+    assert "Editorial typography" in prompt
     assert "centered title lockup" in prompt
     assert "foreground carries the emotional consequence" in prompt
     assert "background reveals the cause" in prompt
@@ -165,3 +189,37 @@ def test_build_cover_concepts_enforces_three_to_five() -> None:
     brief = parse_cover_handoff(_prompt(_handoff()))
     with pytest.raises(ValueError, match="between 3 and 5"):
         build_cover_concepts(brief, count=2)
+
+
+@pytest.mark.parametrize("market", ["India serialized fiction", "unspecified", "Europe", "Western markets", "English serialized fiction"])
+def test_legacy_prompt_market_is_explicit_and_never_inferred_from_english(market):
+    brief = parse_cover_handoff(_prompt(_handoff(language="English", market_scope=market)))
+    prompt = build_cover_concepts(brief)[0].generation_prompt
+    assert f"Source-declared release market: {market}." in prompt
+    assert "Do not infer a release market from the title language" in prompt
+    assert "United States" not in prompt and "North American" not in prompt
+    assert "premium US" not in prompt and "Western editorial" not in prompt
+    assert "realistic skin texture" in prompt
+
+
+@pytest.mark.parametrize("declared", [None, "India serialized fiction", "North America", "Europe"])
+def test_legacy_artifact_adapter_preserves_explicit_market_or_leaves_unspecified(tmp_path, declared):
+    from core.cover_handoff import resolve_cover_brief
+    inputs = tmp_path / "outputs/input"
+    inputs.mkdir(parents=True)
+    inputs.joinpath("prompt.md").write_text("# A story\nA caretaker claims her key.")
+    brief = {"title": "Her Key", "language": "English", "genre": "drama"}
+    if declared is not None:
+        brief["market_scope"] = declared
+    inputs.joinpath("brief.json").write_text(json.dumps(brief))
+    inputs.joinpath("foundation.json").write_text(json.dumps({
+        "title": "Her Key", "premise": "A caretaker claims her key from a controlling partner.",
+        "characters": [{"name": "Mara", "role": "protagonist", "external_goal": "Claim her own home"}],
+    }))
+    source_before = {p: p.read_bytes() for p in inputs.iterdir()}
+    adapted = resolve_cover_brief(tmp_path)
+    assert adapted.market_scope == (declared or "unspecified")
+    prompt = build_cover_concepts(adapted)[0].generation_prompt
+    assert f"Source-declared release market: {declared or 'unspecified'}." in prompt
+    assert "United States" not in prompt and "premium US" not in prompt
+    assert all(path.read_bytes() == data for path, data in source_before.items())

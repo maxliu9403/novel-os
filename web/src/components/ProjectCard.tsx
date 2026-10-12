@@ -1,126 +1,95 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import type { ProjectSummary } from "../api/client";
+import { api, type ProjectSummary, type ProjectCoverSummary } from "../api/client";
 import StatusPill from "./StatusPill";
 import Icon from "./Icon";
-
-const TILES = ["violet", "blue", "cyan", "amber", "rose", "indigo"] as const;
-const TILE_CLASS: Record<(typeof TILES)[number], string> = {
-  violet: "text-[#625edb] bg-[#eeedff]",
-  blue: "text-[#3974db] bg-[#e8f1ff]",
-  cyan: "text-[#1591ab] bg-[#e3f8fa]",
-  amber: "text-[#c47a1b] bg-[#fff2dc]",
-  rose: "text-[#c85177] bg-[#ffeaf1]",
-  indigo: "text-[#4f69cf] bg-[#e9edff]",
+import { formatProjectTaskTime, projectTaskStatusLabel } from "../lib/projectTasks";
+import { COVER_STATUS_LABELS } from "../lib/projectCovers";
+import "../styles/library.css";
+const COVER_ACTIONS: Record<ProjectCoverSummary["status"], string> = {
+  not_started: "设计封面", processing: "查看进度", awaiting_review: "确认封面",
+  needs_attention: "处理封面", selected: "查看封面",
 };
-
-function tileFor(id: string) {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h + id.charCodeAt(i) * (i + 1)) % TILES.length;
-  return TILES[h];
+const JACKET_TONES = ["sage", "clay", "slate", "sand"] as const;
+function jacketFor(id: string) {
+  return JACKET_TONES[Array.from(id).reduce((sum, char) => sum + char.charCodeAt(0), 0) % JACKET_TONES.length];
 }
 
-function when(iso: string | null | undefined) {
-  if (!iso) return null;
-  try {
-    return new Date(iso).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
-  } catch {
-    return null;
-  }
-}
-
-export default function ProjectCard({
-  p,
-  onDelete,
-}: {
+export default function ProjectCard({ p, onDelete, onResume }: {
   p: ProjectSummary;
   onDelete?: (project: ProjectSummary) => void;
+  onResume?: (project: ProjectSummary) => Promise<void>;
 }) {
-  const tile = tileFor(p.id);
   const menuRef = useRef<HTMLDetailsElement>(null);
-  const progress = (p.target_word_count && p.target_word_count > 0)
-    ? Math.round(((p.word_count ?? 0) / p.target_word_count) * 100)
-    : p.chapter_count
-      ? Math.round(((p.drafted_count ?? 0) / p.chapter_count) * 100)
-      : 0;
-  const touched = when(p.updated_at);
+  const resumeLock = useRef(false);
+  const [resuming, setResuming] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
+  const [failedImage, setFailedImage] = useState<string | null>(null);
+  const started = formatProjectTaskTime(p.task_started_at);
+  const coverStatus = p.cover?.status ?? "not_started";
+  const imageUrl = api.assetUrl(p.cover?.image_url);
+  const showImage = imageUrl && imageUrl !== failedImage;
+
+  async function resume() {
+    if (!onResume || !p.task_id || !p.task_can_resume || resumeLock.current) return;
+    resumeLock.current = true;
+    setResuming(true);
+    setResumeError(null);
+    try { await onResume(p); }
+    catch (e) { setResumeError(e instanceof Error ? e.message : String(e)); }
+    finally { resumeLock.current = false; setResuming(false); }
+  }
 
   return (
-    <article className="glass-card group relative min-h-[168px] text-left">
-      <Link
-        to={`/projects/${p.id}`}
-        className="flex min-h-[168px] flex-col p-5"
-      >
-        <div className="flex items-start justify-between gap-3">
-          <span
-            className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-[18px] text-[22px] font-bold ${TILE_CLASS[tile]}`}
-          >
-            {p.title.charAt(0).toUpperCase()}
-          </span>
-          <div className="mr-8 flex flex-col items-end gap-1.5">
-            <StatusPill status={p.status} />
-            {p.content_rating === "mature" && (
-              <span className="rounded-full border border-[rgba(200,81,119,0.25)] bg-[#ffeaf1] px-2 py-0.5 text-[10px] font-medium text-[#c85177]">
-                成人内容
-              </span>
-            )}
+    <article className="glass-card library-book" aria-label={p.title}>
+      <div className={`library-book__jacket library-book__jacket--${jacketFor(p.id)}`}>
+        {showImage ? <img src={imageUrl} alt={`${p.title}的${p.cover?.image_kind === "selected" ? "选定封面" : "候选封面"}`}
+          loading="lazy" onError={() => setFailedImage(imageUrl)} /> : (
+          <div className="library-book__typeset" aria-hidden="true">
+            <span>NOVEL OS<br />MANUSCRIPT</span>
+            <b><span>{p.title.charAt(0)}</span><span>{p.title.slice(1)}</span></b>
+            <i>{p.genre.split(" · ")[0] || "原创小说"}</i>
+            <span>WORK IN PROGRESS</span>
           </div>
+        )}
+        <span className="library-book__jacket-caption">{showImage
+          ? p.cover?.image_kind === "selected" ? "选定封面" : "候选预览"
+          : "文稿书衣"}</span>
+      </div>
+      <div className="library-book__body">
+        <div className="library-book__byline">{p.genre || "未设置类型"}{p.author ? ` / ${p.author}` : ""}</div>
+        <h2 className="library-book__title" title={p.title}>{p.title}</h2>
+        <p className="library-book__words">{(p.word_count ?? 0).toLocaleString("zh-CN")} 字 <span>·</span> 已写 {p.drafted_count ?? 0}/{p.chapter_count} 章
+          {p.content_rating === "mature" && <span className="library-book__rating">成人内容</span>}
+        </p>
+        <dl className="library-book__statuses">
+          <div><dt>正文</dt><dd><StatusPill status={p.status} label={projectTaskStatusLabel(p.status)} /></dd></div>
+          <div><dt>封面</dt><dd><span className="library-cover-status" data-status={coverStatus} title={p.cover?.detail}>
+            {COVER_STATUS_LABELS[coverStatus]}</span></dd></div>
+        </dl>
+        {p.cover?.detail && <p className="library-book__cover-note">{p.cover.detail}</p>}
+        <div className="library-book__actions">
+          {/* This native link covers the card in CSS; sibling controls stay above it. */}
+          <Link to={`/projects/${p.id}`} className="library-book__open">打开作品 <Icon name="chevron-right" className="h-3.5 w-3.5" /></Link>
+          <Link to={`/projects/${p.id}/covers`} className="library-book__cover-link">{COVER_ACTIONS[coverStatus]}</Link>
         </div>
-
-        <div className="mt-4 min-w-0 flex-1">
-          <span className="mb-1.5 block line-clamp-2 text-[17px] font-semibold leading-snug tracking-[-0.02em] text-ink-text">
-            {p.title}
-          </span>
-          <span className="block truncate text-[13px] text-ink-muted">
-            {p.genre || "未设置类型"}
-            {p.author ? ` · ${p.author}` : ""}
-          </span>
-        </div>
-
-        <div className="mt-4">
-          <div className="mb-2 h-1 overflow-hidden rounded-full bg-[rgba(74,91,133,0.1)]">
-            <div
-              className="h-full rounded-full bg-[var(--color-violet)] transition-all"
-              style={{ width: `${Math.min(100, progress)}%` }}
-            />
+        {onResume && p.task_id && (p.task_can_resume || resuming || resumeError) && (
+          <div className="library-book__recovery">
+            {(p.task_can_resume || resuming) && <button type="button" onClick={() => void resume()} disabled={resuming} className="library-inline-button">
+              {resuming ? "恢复中…" : "恢复重试"}</button>}
+            {resumeError && <p role="alert" className="library-book__error">{resumeError}</p>}
           </div>
-          <div className="flex items-center justify-between text-[12px] text-ink-muted">
-            <span className="nums">
-              {(p.word_count ?? 0).toLocaleString("zh-CN")} 字 · 已写 {p.drafted_count ?? 0}/{p.chapter_count} 章
-            </span>
-            <span className="flex items-center gap-1.5">
-              {touched && <span>{touched}</span>}
-              <Icon
-                name="chevron-right"
-                className="h-3.5 w-3.5 text-paper-muted transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-[var(--color-violet)]"
-              />
-            </span>
-          </div>
-        </div>
-      </Link>
-      {onDelete && (
-        <details ref={menuRef} className="absolute right-3.5 top-3.5 z-20">
-          <summary
-            aria-label={`管理作品《${p.title}》`}
-            title="更多操作"
-            className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-full text-[15px] font-bold tracking-[0.08em] text-ink-muted transition-colors hover:bg-white hover:text-ink-text [&::-webkit-details-marker]:hidden"
-          >
-            ···
-          </summary>
-          <div className="absolute right-0 top-10 w-36 rounded-2xl border border-[rgba(74,91,133,0.14)] bg-white/95 p-1.5 shadow-[0_16px_38px_rgba(23,33,63,0.18)] backdrop-blur-xl">
-            <button
-              type="button"
-              className="w-full rounded-xl px-3 py-2 text-left text-[12.5px] font-medium text-[#b84363] transition-colors hover:bg-[#fff0f4]"
-              onClick={() => {
-                menuRef.current?.removeAttribute("open");
-                onDelete(p);
-              }}
-            >
-              永久删除作品
-            </button>
-          </div>
+        )}
+        <details className="library-book__task">
+          <summary>任务信息</summary>
+          <p><span>任务 ID：</span><span className="break-all font-mono" title={p.task_id ?? undefined}>{p.task_id || "—"}</span></p>
+          <p>{started ? <>启动 <time dateTime={p.task_started_at ?? undefined}>{started}</time></> : "启动时间未知"}</p>
         </details>
-      )}
+      </div>
+      {onDelete && <details ref={menuRef} className="library-book__menu">
+        <summary aria-label={`管理作品《${p.title}》`} title="更多操作">···</summary>
+        <div><button type="button" onClick={() => { menuRef.current?.removeAttribute("open"); onDelete(p); }}>永久删除作品</button></div>
+      </details>}
     </article>
   );
 }

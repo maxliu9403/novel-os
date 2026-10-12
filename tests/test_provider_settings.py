@@ -517,9 +517,12 @@ def test_text_route_response_test_returns_model_reply(monkeypatch, tmp_path) -> 
     assert captured["reasoning_effort"] == "low"
 
 
+@pytest.mark.parametrize("observed_model, model_verified", [("", False), ("gpt-image-2-2026-04-21", True)])
 def test_image_profile_test_returns_immediately_and_deduplicates(
     monkeypatch,
     tmp_path,
+    observed_model,
+    model_verified,
 ) -> None:
     from fastapi.testclient import TestClient
     from api.main import create_app
@@ -539,6 +542,8 @@ def test_image_profile_test_returns_immediately_and_deduplicates(
                 height=1536,
                 request_id="image-test-request",
                 model="gpt-image-2",
+                observed_model=observed_model,
+                model_verified=model_verified,
             )
 
     monkeypatch.setattr(
@@ -568,10 +573,17 @@ def test_image_profile_test_returns_immediately_and_deduplicates(
     assert first.status_code == 202
     assert first.json()["status"] == "running"
     assert second.json()["job_id"] == first.json()["job_id"]
+    provider_settings.save_image_profile("cover", {
+        "connection_id": connection["id"], "model": "later-saved-image-model",
+    })
     release.set()
     completed = _wait_for_job(client, first.json()["job_id"])
     assert completed["status"] == "done"
     assert completed["meta"]["data_url"].startswith("data:image/png;base64,")
+    assert completed["meta"]["requested_model"] == "gpt-image-2"
+    assert completed["meta"]["observed_model"] == observed_model
+    assert completed["meta"]["model_verified"] is model_verified
+    assert provider_settings.image_profile_status()["model"] == "later-saved-image-model"
     assert len(calls) == 1
 
 
@@ -863,3 +875,250 @@ def test_model_catalog_api_refreshes_and_keeps_cache_on_errors(tmp_path, monkeyp
         assert 'provider-secret' not in response.text
         assert client.get(endpoint).json() == ['from-provider']
     assert client.get('/api/studio/providers/missing/models?refresh=true').status_code == 404
+
+
+@pytest.mark.parametrize('model', ['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])
+def test_image25_api_profile_roundtrips_exact_model(model):
+    connection = _connection()
+    saved = provider_settings.save_image_profile('cover', {'connection_id': connection['id'], 'model': model})
+    assert saved['model'] == studio_settings.resolve_cover_settings().model == model
+    assert saved['model_capabilities']['exact_model_selection'] is True
+
+
+def test_new_image_profiles_default_by_transport_without_changing_existing_models(monkeypatch):
+    api = _connection()
+    saved = provider_settings.save_image_profile('cover', {'connection_id': api['id']})
+    assert saved['model'] == 'gpt-image-2.5-sunburst'
+    old = provider_settings.save_image_profile('cover', {'connection_id': api['id'], 'model': 'gpt-image-2'})
+    assert old['model'] == provider_settings.image_profile_status()['model'] == 'gpt-image-2'
+    monkeypatch.setattr(provider_settings.shutil, 'which', lambda name: '/fake/codex')
+    codex = provider_settings.save_connection({'name': 'Codex', 'provider': 'codex',
+        'auth_type': 'codex_session', 'capabilities': ['image_generation']})
+    saved = provider_settings.save_image_profile('cover', {'connection_id': codex['id']})
+    assert saved['model'] == studio_settings.resolve_cover_settings().model == 'codex-image-auto'
+    assert saved['model_capabilities']['exact_model_selection'] is False
+    assert saved['model_capabilities']['model_verification'] == 'unavailable'
+    before = studio_settings.settings_path().read_bytes()
+    for model in ('gpt-image-2.5', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'):
+        with pytest.raises(ValueError, match='exact.*image model|exact image model'):
+            provider_settings.save_image_profile('cover', {'connection_id': codex['id'], 'model': model})
+        assert studio_settings.settings_path().read_bytes() == before
+
+
+def test_invalid_persisted_codex_model_is_reported_unconfigured(monkeypatch):
+    monkeypatch.setattr(provider_settings, '_connection_status', lambda _: ('ready', ''))
+    configuration = {'connections': [{'id': 'codex', 'provider': 'codex', 'capabilities': ['image_generation']}],
+        'image_profiles': {'cover': {'connection_id': 'codex', 'model': 'gpt-image-2.5-flare'}}}
+    status = provider_settings.image_profile_status(configuration=configuration)
+    assert status['configured'] is False
+    assert 'API connection' in status['error']
+    assert status['model'] == 'gpt-image-2.5-flare'
+
+
+def test_legacy_default_model_matches_display_execution_and_migration():
+    studio_settings.save_settings({
+        'NOVEL_OS_LLM_PROVIDER': 'openai_compatible',
+        'NOVEL_OS_BASE_URL': 'https://legacy.example/v1',
+        'NOVEL_OS_API_KEY': 'legacy-test-secret',
+    })
+    assert provider_settings.load_configuration()['source'] == 'legacy'
+    displayed = provider_settings.image_profile_status()['model']
+    assert displayed == studio_settings.resolve_cover_settings().model == 'gpt-image-2'
+    assert studio_settings.cover_status()['model'] == displayed
+    _connection()
+    assert provider_settings.load_configuration()['source'] == 'v2'
+    assert provider_settings.image_profile_status()['model'] == displayed
+    assert studio_settings.resolve_cover_settings().model == displayed
+
+
+@pytest.mark.parametrize('provider, model, exact_selection', [
+    ('openai_compatible', 'gpt-image-2.5-flare', True),
+    ('codex', 'gpt-image-2', False),
+])
+def test_image_model_capabilities_survive_api_response_schemas(tmp_path, monkeypatch, provider, model, exact_selection):
+    from fastapi.testclient import TestClient
+    from api.main import create_app
+
+    monkeypatch.setattr(provider_settings.shutil, 'which', lambda name: '/fake/codex')
+    connection = _connection(provider=provider, auth_type='codex_session' if provider == 'codex' else 'api_key',
+                             secret_action='keep' if provider == 'codex' else 'replace')
+    provider_settings.save_text_routes([{
+        'id': 'default', 'connection_id': connection['id'], 'model': 'story-model',
+        'max_tokens': 8192, 'inherits_default': False,
+    }])
+    client = TestClient(create_app(
+        projects_root=tmp_path / 'projects',
+        db_url=f"sqlite:///{tmp_path / 'api.db'}",
+        media_root=tmp_path / 'media',
+    ))
+    saved = client.put('/api/studio/image-profiles/cover', json={
+        'connection_id': connection['id'], 'model': model,
+    })
+    assert saved.status_code == 200
+    profile = client.get('/api/studio/models').json()['image_profiles']['cover']
+    cover = client.get('/api/studio/cover').json()
+    for payload in (saved.json(), profile, cover):
+        assert payload['model'] == model
+        capability = payload['model_capabilities']
+        assert capability['exact_model_selection'] is exact_selection
+        assert capability['model_verification'] == ('when_reported_by_provider' if exact_selection else 'unavailable')
+        assert 'provider-secret' not in repr(payload)
+
+
+def test_image_catalog_uses_image_endpoint_and_does_not_replace_profile(tmp_path, monkeypatch):
+    from contextlib import closing
+    from io import BytesIO
+    from fastapi.testclient import TestClient
+    from api.main import create_app
+
+    connection = _connection(image_base_url='https://images.example/v1')
+    provider_settings.save_image_profile('cover', {'connection_id': connection['id'], 'model': 'my-saved-image-model'})
+    seen = []
+
+    def response(request, timeout):
+        seen.append(request.full_url)
+        models = ['catalog-image-available', 'another-image-available'] if request.full_url == 'https://images.example/v1/models' else ['text-catalog-only']
+        return closing(BytesIO(json.dumps({'data': [{'id': value} for value in models]}).encode()))
+
+    monkeypatch.setattr(provider_settings.urllib.request, 'urlopen', response)
+    client = TestClient(create_app(projects_root=tmp_path / 'projects', db_url=f'sqlite:///{tmp_path / "image-models.db"}'))
+    result = client.get(f'/api/studio/providers/{connection["id"]}/image-models?refresh=true')
+    assert result.status_code == 200, result.text
+    assert result.json()['models'] == ['another-image-available', 'catalog-image-available']
+    assert result.json()['source'] == 'provider'
+    assert result.json()['discovery_supported'] is True
+    assert seen == ['https://images.example/v1/models']
+    assert provider_settings.image_profile_status()['model'] == 'my-saved-image-model'
+
+
+def test_codex_image_catalog_does_not_mislabel_text_models_or_legacy_name_as_discovered(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api.main import create_app
+    monkeypatch.setattr(provider_settings.shutil, 'which', lambda _: '/fake/codex')
+    connection = _connection(provider='codex', auth_type='codex_session', secret_action='keep')
+    monkeypatch.setattr(provider_settings, '_discover_models', lambda *args, **kwargs: ['codex-text-host'])
+    provider_settings.refresh_connection_models(connection['id'])
+    provider_settings.save_image_profile('cover', {'connection_id': connection['id'], 'model': 'gpt-image-2'})
+    original = studio_settings.settings_path().read_bytes()
+
+    def no_probe(*args, **kwargs):
+        raise AssertionError('Image discovery cannot substitute a text model RPC or a paid generation')
+
+    monkeypatch.setattr(provider_settings, '_discover_models', no_probe)
+    monkeypatch.setattr(provider_settings.subprocess, 'run', no_probe)
+    client = TestClient(create_app(projects_root=tmp_path / 'projects', db_url=f'sqlite:///{tmp_path / "codex-images.db"}'))
+    for refresh in (False, True):
+        response = client.get(f'/api/studio/providers/{connection["id"]}/image-models', params={'refresh': refresh})
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload['models'] == []
+        assert payload['source'] == 'unsupported'
+        assert payload['discovery_supported'] is payload['exact_model_selection'] is False
+        assert payload['message']
+    assert studio_settings.settings_path().read_bytes() == original
+
+
+def test_http_save_codex_automatic_selection_preserves_legacy_until_explicit_save(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api.main import create_app
+    from core import image_client
+
+    monkeypatch.setattr(provider_settings.shutil, 'which', lambda _: '/fake/codex')
+    connection = _connection(provider='codex', auth_type='codex_session', secret_action='keep')
+    provider_settings.save_image_profile('cover', {'connection_id': connection['id'], 'model': 'gpt-image-2'})
+    before = studio_settings.settings_path().read_bytes()
+
+    def no_execution(*args, **kwargs):
+        raise AssertionError('Saving an image profile cannot start a CLI or image generation')
+
+    monkeypatch.setattr(provider_settings.subprocess, 'run', no_execution)
+    monkeypatch.setattr(provider_settings.subprocess, 'Popen', no_execution)
+    monkeypatch.setattr(image_client, 'build_image_generation_client', no_execution)
+    client = TestClient(create_app(projects_root=tmp_path / 'projects', db_url=f'sqlite:///{tmp_path / "save-auto.db"}'))
+    endpoint = '/api/studio/image-profiles/cover'
+    legacy = client.get(endpoint)
+    assert legacy.status_code == 200
+    assert legacy.json()['model'] == 'gpt-image-2'
+    assert studio_settings.settings_path().read_bytes() == before
+
+    saved = client.put(endpoint, json={
+        'connection_id': connection['id'], 'model': 'codex-image-auto',
+        'size': '1024x1536', 'quality': 'high', 'output_format': 'jpeg', 'count': 4,
+    })
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['configured'] is True
+    assert saved.json()['model'] == 'codex-image-auto'
+    restored = client.get(endpoint)
+    assert restored.status_code == 200 and restored.json()['model'] == 'codex-image-auto'
+    assert restored.json()['configured'] is True
+    assert restored.json()['model_capabilities']['exact_model_selection'] is False
+
+
+def test_image_catalog_failure_preserves_separate_cache_and_surfaces_error(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api.main import create_app
+    connection = _connection()
+    monkeypatch.setattr(provider_settings, '_discover_models', lambda *args, **kwargs: ['text-host'])
+    provider_settings.refresh_connection_models(connection['id'])
+    client = TestClient(create_app(projects_root=tmp_path / 'projects', db_url=f'sqlite:///{tmp_path / "images.db"}'))
+    endpoint = f'/api/studio/providers/{connection["id"]}/image-models'
+    cached = client.get(endpoint).json()
+    assert cached['models'] == [] and cached['source'] == 'cache'
+    monkeypatch.setattr(provider_settings, '_discover_models', lambda *args, **kwargs: ['actual-image-id'])
+    assert client.get(endpoint + '?refresh=true').json()['models'] == ['actual-image-id']
+    assert provider_settings.configuration_status()['connections'][0]['discovered_models'] == ['text-host']
+    for failure, status in [
+        (provider_settings.ProviderModelDiscoveryTimeout('Timed out'), 504),
+        (provider_settings.ProviderModelDiscoveryError('Remote failed'), 502),
+        (ValueError('provider-secret is private'), 502),
+    ]:
+        def fail(*args, **kwargs):
+            raise failure
+        monkeypatch.setattr(provider_settings, '_discover_models', fail)
+        response = client.get(endpoint + '?refresh=true')
+        assert response.status_code == status, response.text
+        assert 'provider-secret' not in response.text
+        restored = client.get(endpoint).json()
+        assert restored['models'] == ['actual-image-id']
+        assert restored['source'] == 'cache' and restored['fetched_at']
+
+
+def test_image_catalog_rejects_concurrent_connection_edit_and_clears_old_cache(monkeypatch):
+    connection = _connection(image_base_url='https://first-images.example/v1')
+    monkeypatch.setattr(provider_settings, '_discover_models', lambda *args, **kwargs: ['former-image'])
+    provider_settings.image_connection_models(connection['id'], refresh=True)
+    retained = provider_settings.save_connection({**connection, 'name': 'Renamed', 'secret_action': 'keep'}, connection['id'])
+    assert provider_settings.image_connection_models(connection['id'])['models'] == ['former-image']
+
+    def concurrent_edit(*args, **kwargs):
+        provider_settings.save_connection({**retained, 'image_base_url': 'https://second-images.example/v1',
+                                          'secret_action': 'keep'}, connection['id'])
+        return ['stale-image']
+
+    monkeypatch.setattr(provider_settings, '_discover_models', concurrent_edit)
+    with pytest.raises(provider_settings.ProviderModelDiscoveryConflict, match='changed'):
+        provider_settings.image_connection_models(connection['id'], refresh=True)
+    assert provider_settings.image_connection_models(connection['id'])['models'] == []
+
+
+def test_image_catalog_refresh_does_not_hold_settings_lock_over_request(monkeypatch):
+    connection = _connection()
+    entered, release = threading.Event(), threading.Event()
+    results = []
+
+    def discover(*args, **kwargs):
+        entered.set()
+        assert release.wait(2)
+        return []
+
+    monkeypatch.setattr(provider_settings, '_discover_models', discover)
+    thread = threading.Thread(target=lambda: results.append(provider_settings.image_connection_models(connection['id'], refresh=True)))
+    thread.start()
+    try:
+        assert entered.wait(1)
+        provider_settings.save_image_profile('cover', {'connection_id': connection['id'], 'model': 'custom-model'})
+    finally:
+        release.set()
+        thread.join(2)
+    assert results[0]['models'] == []
+    assert provider_settings.image_profile_status()['model'] == 'custom-model'

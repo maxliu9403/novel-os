@@ -1,10 +1,15 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { afterEach, vi } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 import CoverStudio from "../routes/CoverStudio";
 import { api, type CoverDirection, type CoverStoryFacts } from "../api/client";
 
+beforeEach(() => {
+  vi.spyOn(api, "coverRepairTask").mockResolvedValue(null);
+  vi.spyOn(api, "coverDirectionTask").mockResolvedValue(null);
+  vi.spyOn(api, "coverGenerationTask").mockResolvedValue(null);
+});
 afterEach(() => vi.restoreAllMocks());
 
 const facts: CoverStoryFacts = {
@@ -39,12 +44,23 @@ function setup(storyFacts = facts) {
     timeout_seconds: 300, inherits_base_url: false, inherits_api_key: false,
   });
   vi.spyOn(api, "covers").mockResolvedValue([]);
-  vi.spyOn(api, "coverDirections").mockResolvedValue([]);
+  vi.spyOn(api, "coverDirections").mockResolvedValue([{...direction, status: "approved"}]);
+  vi.spyOn(api, "coverSource").mockResolvedValue({
+    selector: {source_type: "project_input", project_id: "book"}, source_content_sha256: "a".repeat(64),
+    source_bundle_sha256: "b".repeat(64), origin: {relative_path: "outputs/input/prompt.md"}, documents: [], analyses: [],
+  });
   const read = vi.spyOn(api, "coverStoryFacts").mockResolvedValue(storyFacts);
   const save = vi.spyOn(api, "confirmCoverStoryFacts").mockResolvedValue({
     ...facts, pending_fields: [], revision_sha256: "after",
   });
-  const create = vi.spyOn(api, "createCoverDirection").mockResolvedValue(direction);
+  const create = vi.spyOn(api, "startCoverDirectionTask").mockImplementation(async () => {
+    const task = {task_id: "task-1", status: "completed" as const, analysis_id: "", count: 4,
+      freshness_policy: "require_current_head", direction_id: direction.direction_id, error: null,
+      created_at: "2026-10-11T14:00:00Z", updated_at: "2026-10-11T14:01:00Z", finished_at: "2026-10-11T14:01:00Z"};
+    vi.mocked(api.coverDirections).mockResolvedValue([direction]);
+    vi.mocked(api.coverDirectionTask).mockResolvedValue(task);
+    return task;
+  });
   render(<MemoryRouter initialEntries={["/projects/book/covers"]}>
     <Routes><Route path="/projects/:id/covers" element={<CoverStudio />} /></Routes>
   </MemoryRouter>);
@@ -53,7 +69,7 @@ function setup(storyFacts = facts) {
 
 test("collects only missing cover facts before creating a direction", async () => {
   const { user, save, create } = setup();
-  await user.click(await screen.findByRole("button", { name: "创建美术方向" }));
+  await user.click(await screen.findByRole("button", { name: "重新规划封面方向" }));
   const input = await screen.findByLabelText("Audrey Blake · 封面年龄段");
   expect(input).toHaveValue("");
   expect(screen.getByText("Returning designer")).toBeInTheDocument();
@@ -65,14 +81,14 @@ test("collects only missing cover facts before creating a direction", async () =
     expected_revision_sha256: "before",
     characters: [{ character_id: "char_audrey", age_band: "30–35 years old" }],
   }));
-  expect(create).toHaveBeenCalledWith("book", 4);
+  expect(create).toHaveBeenCalledWith("book", 4, "", "require_current_head");
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
 
 test("does not create a direction if saving cover facts fails", async () => {
   const { user, save, create } = setup();
   save.mockRejectedValue(new Error("资料已更新，请重新读取"));
-  await user.click(await screen.findByRole("button", { name: "创建美术方向" }));
+  await user.click(await screen.findByRole("button", { name: "重新规划封面方向" }));
   await user.type(await screen.findByLabelText("Audrey Blake · 封面年龄段"), "30–35 years old");
   await user.click(screen.getByRole("button", { name: "保存并创建方向" }));
   expect(await screen.findByText("资料已更新，请重新读取")).toBeInTheDocument();
@@ -82,8 +98,8 @@ test("does not create a direction if saving cover facts fails", async () => {
 
 test("creates directly when all cover facts are already present", async () => {
   const { user, create, save, read } = setup({ ...facts, pending_fields: [] });
-  await user.click(await screen.findByRole("button", { name: "创建美术方向" }));
-  await waitFor(() => expect(create).toHaveBeenCalledWith("book", 4));
+  await user.click(await screen.findByRole("button", { name: "重新规划封面方向" }));
+  await waitFor(() => expect(create).toHaveBeenCalledWith("book", 4, "", "require_current_head"));
   expect(read).toHaveBeenCalledWith("book");
   expect(save).not.toHaveBeenCalled();
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

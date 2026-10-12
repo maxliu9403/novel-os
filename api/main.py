@@ -85,8 +85,14 @@ def create_app(projects_root: Optional[Path] = None, db_url: Optional[str] = Non
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    from .cover_workbench import router as cover_workbench_router
+    app.include_router(cover_workbench_router)
+    from .cover_workbench_assets import router as cover_workbench_assets_router
+    app.include_router(cover_workbench_assets_router)
     app.include_router(router)
     app.include_router(workshop_router)
+    from .costs import router as costs_router
+    app.include_router(costs_router)
     if projects_root is not None:
         app.dependency_overrides[get_service] = lambda: ProjectService(projects_root)
     if media_root is not None:

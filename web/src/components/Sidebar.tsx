@@ -88,12 +88,13 @@ export default function Sidebar() {
           )}
         </button>
         <SideLink to="/" label="作品库" hint="全部作品" icon="library" end collapsed={compact} />
+        <SideLink to="/workshop" label="头脑风暴" hint="讨论档案" icon="sparkles" collapsed={compact} />
         <SideLink to="/settings" label="设置" hint="模型配置" icon="sparkles" collapsed={compact} />
         {projectPath && (
           <>
             <div className={`my-1 h-px bg-[rgba(74,91,133,0.12)] ${compact ? "mx-1" : "mx-2"}`} />
             <SideLink to={projectPath} label="作品概览" hint="工作台" icon="layout-dashboard" end collapsed={compact} />
-            <SideLink to={`${projectPath}/covers`} label="封面" hint="2K 工作室" icon="image" end collapsed={compact} />
+            <SideLink to={`${projectPath}/covers`} label="封面" hint="设计与审核" icon="image" end collapsed={compact} />
           </>
         )}
       </nav>

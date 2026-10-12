@@ -1,30 +1,76 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { motion } from "motion/react";
-import { api, type CoverCandidate, type CoverDirection, type CoverSet, type CoverStoryFacts, type CoverStoryFactsConfirmation, type JobStatus, type ProjectDetail, type StudioCoverStatus } from "../api/client";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { motion, useReducedMotion } from "motion/react";
+import "../styles/cover-studio.css";
+import "../styles/cover-repair.css";
+import { api, type CoverCandidate, type CoverDirection, type CoverGenerationTask, type CoverRefinementReplanContext, type CoverRepairTask, type CoverSet, type CoverStoryFacts, type CoverStoryFactsConfirmation, type JobStatus, type ProjectDetail, type StudioCoverStatus } from "../api/client";
 import Scene from "../components/Scene";
 import Icon from "../components/Icon";
 import Modal, { Field, fieldClass, textareaClass } from "../components/Modal";
 import { useToast } from "../components/toastContext";
 import { useConfirm } from "../components/confirmContext";
+import CoverSkeletonPanel, { type CoverAnalysisNotice } from "../components/CoverSkeletonPanel";
+import CoverWorkspaceTabs, { type CoverWorkspaceTab } from "../components/CoverWorkspaceTabs";
+import GenerationCostPanel from "../components/GenerationCostPanel";
+import { useCoverDirectionTask } from "../components/useCoverDirectionTask";
+import CoverQualityDetails from "../components/CoverQualityDetails";
+import CoverCommercialReview from "../components/CoverCommercialReview";
+import CoverDirectionTaskStatus from "../components/CoverDirectionTaskStatus";
+import { useCoverGenerationTask } from "../components/useCoverGenerationTask";
+import CoverGenerationTaskStatus from "../components/CoverGenerationTaskStatus";
+import { useCoverRepairTask } from "../components/useCoverRepairTask";
+import CoverRepairTaskPanel, { CoverRepairStartDialog } from "../components/CoverRepairTaskPanel";
+import CoverRefinementRetryActions from "../components/CoverRefinementRetryActions";
+import { isRefinementConcept, refinementReferenceUrl, refinementReplanContext, refinementSavedResult, refinementUnavailableReason, repairKind } from "../lib/coverRepair";
+import { workshopApi } from "../api/workshop";
 
 
 const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+function isCoverWorkspaceTab(value: string | null): value is CoverWorkspaceTab {
+  return value !== null && ["gallery", "directions", "analysis", "costs"].includes(value);
+}
+
 type CoverProgress = {
-  mode: "generate" | "retry";
+  mode: "retry";
   completed: number;
   total: number;
   phase: "preparing" | "rendering";
   candidateNumber?: number;
 };
 
-type JobProgressContext =
-  | { mode: "generate"; total: number; knownSetIds: Set<string> }
-  | { mode: "retry"; candidateNumber: number };
+type JobProgressContext = { mode: "retry"; candidateNumber: number };
 
 export default function CoverStudio() {
-  const { id = "" } = useParams();
+  const {id = "", sessionId} = useParams();
+  return <CoverStudioWorkspace key={sessionId ? `workshop:${sessionId}` : id} />;
+}
+
+function CoverStudioWorkspace() {
+  const { id: projectId = "", sessionId } = useParams();
+  const id = sessionId ? `workshop:${sessionId}` : projectId;
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabAnchor = useRef<HTMLDivElement>(null);
+  const tabNavigation = useRef(0);
+  useEffect(() => { tabNavigation.current += 1; }, [searchParams]);
+  const selectTab = (tab: CoverWorkspaceTab) => {
+    tabNavigation.current += 1;
+    // Returning from a long panel should reveal the beginning of the next one.
+    if (tabAnchor.current && tabAnchor.current.getBoundingClientRect().top < 0) {
+      tabAnchor.current.scrollIntoView({block: "start"});
+    }
+    setSearchParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.set("tab", tab);
+      return next;
+    });
+    document.getElementById(`cover-tab-${tab}`)?.focus({preventScroll: true});
+  };
+  const owner = useRef(id);
+  useEffect(() => {
+    owner.current = id;
+    return () => { owner.current = ""; };
+  }, [id]);
   const toast = useToast();
   const confirm = useConfirm();
   const [project, setProject] = useState<ProjectDetail | null>(null);
@@ -32,12 +78,32 @@ export default function CoverStudio() {
   const [sets, setSets] = useState<CoverSet[]>([]);
   const [directions, setDirections] = useState<CoverDirection[]>([]);
   const [directionsLoaded, setDirectionsLoaded] = useState(false);
+  const directionRead = useRef(0);
+  const coverRead = useRef(0);
+  const taskSelectionTime = useRef(0);
   const [selectedSetId, setSelectedSetId] = useState("");
   const [loadedProjectId, setLoadedProjectId] = useState("");
-  const [busy, setBusy] = useState("");
+  const [operation, setBusy] = useState("");
   const [progress, setProgress] = useState<CoverProgress | null>(null);
   const [error, setError] = useState("");
+  const [repairTarget, setRepairTarget] = useState<{owner: string; candidate: CoverCandidate; number: number; setId: string; revision: number; mode: "repair" | "refinement"; initialPrompt?: string} | null>(null);
+  const [repairError, setRepairError] = useState("");
+  const [analysisId, setAnalysisId] = useState("");
+  const [analysisNotice, setAnalysisNotice] = useState<CoverAnalysisNotice | null>(null);
+  const [freshness, setFreshness] = useState("require_current_head");
+  const chooseAnalysis = useCallback((value: string, policy: string) => {
+    setAnalysisId(value); setFreshness(policy);
+  }, []);
   const [missingFacts, setMissingFacts] = useState<{ projectId: string; facts: CoverStoryFacts } | null>(null);
+  const completeDirection = useCallback((next: CoverDirection[], notify: boolean) => {
+    directionRead.current += 1;
+    setDirections(next);
+    setDirectionsLoaded(true);
+    if (notify) toast("美术方向已生成，等待审核", "success");
+  }, [toast]);
+  const directionTask = useCoverDirectionTask(id, completeDirection);
+  const directionPlanning = directionTask.task?.status === "running"
+    || directionTask.task?.status === "queued" || operation === "direction:create";
 
   const applySets = useCallback((next: CoverSet[], preferredSetId?: string) => {
     setSets(next);
@@ -50,18 +116,45 @@ export default function CoverStudio() {
     ));
   }, []);
 
+  const updateGeneratedSets = useCallback((next: CoverSet[], task: CoverGenerationTask, notify: boolean) => {
+    const timestamp = Date.parse(task.created_at) || 0;
+    if (timestamp < taskSelectionTime.current) return;
+    taskSelectionTime.current = timestamp;
+    coverRead.current += 1;
+    applySets(next, task.cover_set_id || undefined);
+    if (notify && task.status === "completed") toast(task.result_status === "partial" || (task.progress?.failed || 0) > 0
+      ? "封面批次已处理，部分图片生成失败" : "封面候选图已保存，请查看质量审核结果", "success");
+  }, [applySets, toast]);
+  const generationTask = useCoverGenerationTask(id, updateGeneratedSets);
+  const updateRepairSets = useCallback((next: CoverSet[], task: CoverRepairTask, notify: boolean) => {
+    const timestamp = Date.parse(task.created_at) || 0;
+    if (timestamp < taskSelectionTime.current) return;
+    taskSelectionTime.current = timestamp;
+    coverRead.current += 1;
+    applySets(next, task.cover_set_id || undefined);
+    if (notify && task.status === "completed") toast(`单张${task.kind === "refinement" ? "精修" : "修复"}结果已保存，请检查图片和审核结果`, "success");
+  }, [applySets, toast]);
+  const repairTask = useCoverRepairTask(id, updateRepairSets);
+  const busy = operation || (generationTask.busy ? "generate" : repairTask.busy ? "repair" : directionTask.busy ? "direction:create" : "");
+
   const load = useCallback(() => Promise.all([
-      api.project(id), api.studioCover(), api.covers(id),
-    ]), [id]);
+      sessionId ? workshopApi.get(sessionId).then(value => ({
+        id, title: value.input.title || "讨论中的小说", genre: value.input.genres.join("、"),
+        author: value.input.author, chapter_count: 0, status: value.status, style: {},
+      } as ProjectDetail)) : api.project(id), api.studioCover(), api.covers(id),
+    ]), [id, sessionId]);
 
   useEffect(() => {
     let live = true;
+    const request = coverRead.current;
     load()
       .then(([nextProject, nextSettings, nextSets]) => {
         if (!live) return;
+        setAnalysisId("");
+        setFreshness("require_current_head");
         setProject(nextProject);
         setSettings(nextSettings);
-        applySets(nextSets);
+        if (request === coverRead.current) applySets(nextSets);
         setError("");
       })
       .catch((cause) => live && setError(cause instanceof Error ? cause.message : String(cause)))
@@ -71,12 +164,13 @@ export default function CoverStudio() {
 
   useEffect(() => {
     let live = true;
+    const request = ++directionRead.current;
     api.coverDirections(id)
-      .then((next) => live && setDirections(Array.isArray(next) ? next : []))
-      .catch(() => live && setDirections([]))
-      .finally(() => live && setDirectionsLoaded(true));
+      .then((next) => live && request === directionRead.current && setDirections(Array.isArray(next) ? next : []))
+      .catch(() => live && request === directionRead.current && setDirections([]))
+      .finally(() => live && request === directionRead.current && setDirectionsLoaded(true));
     return () => { live = false; };
-  }, [id]);
+  }, [id, repairTask.task?.direction_id]);
 
   const loading = loadedProjectId !== id;
 
@@ -84,48 +178,43 @@ export default function CoverStudio() {
     () => sets.find((item) => item.cover_set_id === selectedSetId) || sets[0] || null,
     [selectedSetId, sets],
   );
-  const approvedDirection = directions[0]?.status === "approved" ? directions[0] : null;
+  const batchDirections = useMemo(() => directions.filter(direction => !direction.source_binding?.single_candidate_repair), [directions]);
+  const repairDirectionIsLatest = Boolean(directions[0]?.source_binding?.single_candidate_repair);
+  const approvedDirection = !repairDirectionIsLatest && batchDirections[0]?.status === "approved" ? batchDirections[0] : null;
+  const requestedTab = searchParams.get("tab");
+  const selectedTab: CoverWorkspaceTab = isCoverWorkspaceTab(requestedTab) ? requestedTab
+    : sets.length > 0 || generationTask.task || repairTask.task ? "gallery"
+    : batchDirections.length > 0 || directionTask.task ? "directions" : "analysis";
+  // A completed job remains useful until its exact saved direction is approved.
+  // Never dismiss running tasks, sync failures, or a different direction's result.
+  const directionCompletionApproved = directionTask.task?.status === "completed"
+    && !directionTask.checking && !directionTask.connectionError
+    && directions.some(direction => direction.direction_id === directionTask.task?.direction_id && direction.status === "approved");
+  const generationCount = approvedDirection?.plans.length || settings?.count || 4;
   const generationAllowed = Boolean(settings?.configured && approvedDirection);
-  const generationDisabledReason = !settings?.configured
+  const generationDisabledReason = generationTask.connectionError || generationTask.checking
+    ? "正在同步封面生成状态，请稍候"
+    : generationTask.busy
+    ? "本批封面正在后台处理"
+    : repairTask.busy
+    ? `正在处理或同步单张封面${repairTask.task?.kind === "refinement" ? "精修" : "修复"}`
+    : directionTask.connectionError || directionTask.checking
+    ? "正在同步美术方向状态，请稍候"
+    : directionPlanning
+    ? "美术方向正在规划，完成后请先审核方案"
+    : repairDirectionIsLatest
+    ? "最新方案仅用于单张封面；请在任务面板确认，或重新规划整批方向"
+    : !settings?.configured
     ? "请先配置封面模型"
     : !directionsLoaded
       ? "正在读取美术方向"
-      : !directions[0]
-        ? "请先创建美术方向"
-        : directions[0].status === "stale"
+      : !batchDirections[0]
+        ? analysisId ? "请先创建美术方向" : "请先分析完整骨架"
+        : batchDirections[0].status === "stale"
           ? "当前美术方向已过期，请先创建并批准新方向"
           : !approvedDirection
             ? "请先审核并批准美术方向"
             : "";
-
-  const updateProgress = (nextSets: CoverSet[], context: JobProgressContext) => {
-    if (context.mode === "retry") {
-      setProgress((currentProgress) => currentProgress?.mode === "retry"
-        ? { ...currentProgress, phase: "rendering" }
-        : currentProgress);
-      return undefined;
-    }
-
-    // A generation job creates its CoverSet asynchronously. Until that new set
-    // appears, keep the user in a preparation state instead of counting an old set.
-    const generatedSet = nextSets.find((item) => !context.knownSetIds.has(item.cover_set_id));
-    if (!generatedSet) {
-      setProgress((currentProgress) => currentProgress?.mode === "generate"
-        ? { ...currentProgress, phase: "preparing" }
-        : currentProgress);
-      return undefined;
-    }
-    const completed = generatedSet.candidates.filter((candidate) => candidate.status !== "pending").length;
-    setProgress((currentProgress) => currentProgress?.mode === "generate"
-      ? {
-          ...currentProgress,
-          completed: Math.min(completed, currentProgress.total),
-          total: generatedSet.requested_count || currentProgress.total,
-          phase: "rendering",
-        }
-      : currentProgress);
-    return generatedSet.cover_set_id;
-  };
 
   const waitForJob = async (initial: JobStatus, context: JobProgressContext) => {
     let job = initial;
@@ -133,8 +222,9 @@ export default function CoverStudio() {
       await wait(700);
       const [nextJob, nextSets] = await Promise.all([api.getJob(job.job_id), api.covers(id)]);
       job = nextJob;
-      const preferredSetId = updateProgress(nextSets, context);
-      applySets(nextSets, preferredSetId);
+      setProgress(currentProgress => currentProgress?.candidateNumber === context.candidateNumber
+        ? {...currentProgress, phase: "rendering"} : currentProgress);
+      applySets(nextSets);
     }
     if (job.status === "error") throw new Error(job.error || "封面任务失败");
   };
@@ -156,81 +246,78 @@ export default function CoverStudio() {
   };
 
   const generate = async () => {
-    if (!settings || !generationAllowed) return;
-    setBusy("generate");
-    setProgress({
-      mode: "generate", completed: 0, total: settings.count, phase: "preparing",
-    });
+    if (!settings || !generationAllowed || !approvedDirection || busy) return;
+    selectTab("gallery");
     setError("");
     try {
-      await waitForJob(
-          await (approvedDirection
-            ? api.generateCovers(id, settings.count, {
-                direction_id: approvedDirection.direction_id,
-                approved_direction_sha256: approvedDirection.direction_sha256,
-              })
-            : api.generateCovers(id, settings.count)),
-        { mode: "generate", total: settings.count, knownSetIds: new Set(sets.map((item) => item.cover_set_id)) },
-      );
-      applySets(await api.covers(id));
-      toast("封面候选图已生成", "success");
+      await generationTask.start(generationCount, {
+        direction_id: approvedDirection.direction_id,
+        approved_direction_sha256: approvedDirection.direction_sha256,
+      });
     } catch (cause) {
-      await Promise.all([reconcileSets(), reconcileDirections()]);
+      if (owner.current !== id) return;
+      await reconcileDirections();
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
       toast(message, "error");
-    } finally {
-      setBusy("");
-      setProgress(null);
     }
   };
 
-  const approveDirection = async (direction: CoverDirection) => {
+  const approveDirection = async (direction: CoverDirection, extraImageAttempts = 0) => {
+    const navigationAtStart = tabNavigation.current;
     setBusy(`direction:${direction.direction_id}`);
     try {
-      const approved = await api.approveCoverDirection(
-        id, direction.direction_id, direction.brief_sha256, direction.direction_sha256,
-      );
+      const approved = await (direction.source_binding
+        ? api.approveCoverDirection(id, direction.direction_id, direction.brief_sha256, direction.direction_sha256, true, extraImageAttempts)
+        : api.approveCoverDirection(id, direction.direction_id, direction.brief_sha256, direction.direction_sha256));
+      if (owner.current !== id) return;
       setDirections((items) => items.map((item) => (
         item.direction_id === approved.direction_id ? approved : item
       )));
+      if (tabNavigation.current === navigationAtStart) selectTab("gallery");
       toast("美术方向已批准", "success");
     } catch (cause) {
+      if (owner.current !== id) return;
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
       toast(message, "error");
     } finally {
-      setBusy("");
+      if (owner.current === id) setBusy("");
     }
   };
 
   const planDirection = async () => {
-    if (!settings) return;
-    const created = await api.createCoverDirection(id, settings.count);
-    setDirections((items) => [
-      created,
-      ...items.filter((item) => item.direction_id !== created.direction_id),
-    ]);
-    toast("美术方向已生成，等待审核", "success");
+    if (!settings || owner.current !== id) return;
+    await directionTask.start(settings.count, analysisId, freshness);
   };
 
   const createDirection = async () => {
-    if (!settings) return;
+    if (!settings || busy) return;
+    selectTab("directions");
     setBusy("direction:create");
     setError("");
     try {
+      if (analysisId) {
+        await planDirection();
+        return;
+      }
+      if (!directions[0] || directions[0].source_binding || sessionId) {
+        throw new Error("请先分析完整骨架，或选择已完成的骨架分析。旧封面仍可查看。 ");
+      }
       const facts = await api.coverStoryFacts(id);
-      if (facts.pending_fields.length > 0) {
+      if (owner.current !== id) return;
+      if ((facts.blocking_pending_fields || facts.pending_fields).length > 0) {
         setMissingFacts({ projectId: id, facts });
         return;
       }
       await planDirection();
     } catch (cause) {
+      if (owner.current !== id) return;
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
       toast(message, "error");
     } finally {
-      setBusy("");
+      if (owner.current === id) setBusy("");
     }
   };
 
@@ -238,7 +325,8 @@ export default function CoverStudio() {
     setBusy("direction:facts");
     try {
       const facts = await api.confirmCoverStoryFacts(id, body);
-      if (facts.pending_fields.length > 0) {
+      if (owner.current !== id) return;
+      if ((facts.blocking_pending_fields || facts.pending_fields).length > 0) {
         setMissingFacts({ projectId: id, facts });
         return;
       }
@@ -247,17 +335,18 @@ export default function CoverStudio() {
       try {
         await planDirection();
       } catch (cause) {
+        if (owner.current !== id) return;
         const message = cause instanceof Error ? cause.message : String(cause);
         setError(message);
         toast(message, "error");
       }
     } finally {
-      setBusy("");
+      if (owner.current === id) setBusy("");
     }
   };
 
   const retry = async (candidate: CoverCandidate, repairCodes: string[] = []) => {
-    if (!current) return;
+    if (!current || busy || isRefinementConcept(current.concepts.find(concept => concept.concept_id === candidate.concept_id))) return;
     const candidateNumber = current.candidates.findIndex((item) => item.candidate_id === candidate.candidate_id) + 1;
     setBusy(candidate.candidate_id);
     setProgress({
@@ -284,12 +373,94 @@ export default function CoverStudio() {
     }
   };
 
+  const startRepair = async (refinementPrompt?: string) => {
+    if (!repairTarget || repairTarget.owner !== id || busy) return;
+    if (repairTarget.mode === "refinement" && !refinementPrompt?.trim()) return;
+    setRepairError("");
+    try {
+      await repairTask.start(repairTarget.setId, repairTarget.candidate.candidate_id, repairTarget.revision,
+        repairTarget.mode === "refinement" ? refinementPrompt?.trim() : undefined);
+      if (owner.current === id) setRepairTarget(null);
+    } catch (cause) {
+      if (owner.current === id) setRepairError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+  const approveRepair = async () => {
+    if (busy) return;
+    try { await repairTask.approve(); }
+    catch (cause) { if (owner.current === id) toast(cause instanceof Error ? cause.message : String(cause), "error"); }
+  };
+
+  const replanRefinement = (task: CoverRepairTask, context?: CoverRefinementReplanContext, message = "") => {
+    const parent = sets.find(set => set.cover_set_id === task.parent_cover_set_id);
+    const original = parent?.candidates.find(candidate => candidate.candidate_id === task.parent_candidate_id);
+    if (!parent || !original || !refinementReferenceUrl(task, original)
+      || (context && (context.parent_cover_set_id !== parent.cover_set_id || context.parent_candidate_id !== original.candidate_id))) {
+      toast("原始参考图片暂不可用，无法重新规划精修。请恢复原图后重新加载。", "error"); return;
+    }
+    const reason = refinementUnavailableReason(original, parent.concepts.find(concept => concept.concept_id === original.concept_id));
+    if (reason) {toast(reason, "error"); return;}
+    setRepairError(message);
+    setRepairTarget({owner: id, candidate: original, number: task.candidate_number, setId: parent.cover_set_id,
+      revision: context?.expected_revision ?? parent.revision, mode: "refinement",
+      initialPrompt: context?.refinement_prompt ?? task.refinement_prompt ?? ""});
+  };
+  const retryRefinement = async (task: CoverRepairTask) => {
+    if (busy || task.kind !== "refinement" || !["failed", "interrupted"].includes(task.status)) return;
+    const navigationVersion = tabNavigation.current;
+    try {
+      const resumed = await repairTask.retry(task.task_id);
+      if (owner.current === id && resumed) window.requestAnimationFrame(() => {
+        if (owner.current !== id || tabNavigation.current !== navigationVersion) return;
+        const panel = document.getElementById("cover-repair-task");
+        // Instant movement also respects reduced-motion preferences. A user who
+        // navigates elsewhere during the request keeps their chosen page.
+        panel?.scrollIntoView?.({block: "start", behavior: "auto"});
+        panel?.focus({preventScroll: true});
+      });
+      if (owner.current === id && resumed && ["failed", "interrupted"].includes(resumed.status)) {
+        toast("已恢复后续失败任务。请在上方任务面板点击“重试精修”继续。", "error");
+      }
+    }
+    catch (cause) {
+      if (owner.current !== id) return;
+      const context = refinementReplanContext(cause);
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (context) {replanRefinement(task, context, message); return;}
+      const saved = refinementSavedResult(cause);
+      if (saved && sets.some(set => set.cover_set_id === saved.cover_set_id && set.candidates.some(candidate => candidate.candidate_id === saved.candidate_id))) {
+        setSelectedSetId(saved.cover_set_id);
+      }
+      toast(message, saved ? "success" : "error");
+    }
+  };
+
+  const reevaluate = async (candidate: CoverCandidate) => {
+    if (!current) return;
+    setBusy(candidate.candidate_id);
+    try {
+      let job = await api.reevaluateCover(id, current.cover_set_id, candidate.candidate_id, current.revision);
+      while (job.status === "running") {
+        await wait(700);
+        job = await api.getJob(job.job_id);
+      }
+      if (job.status === "error") throw new Error(job.error || "封面评估失败");
+      applySets(await api.covers(id), current.cover_set_id);
+      toast("已有图片的评估已更新，未重新出图", "success");
+    } catch (cause) {
+      await reconcileSets();
+      toast(cause instanceof Error ? cause.message : String(cause), "error");
+    } finally {
+      setBusy("");
+    }
+  };
+
   const select = async (candidate: CoverCandidate) => {
     if (!current) return;
     const stale = current.status === "stale";
     const accepted = await confirm({
       title: "使用这张封面？",
-      message: stale
+      message: sessionId ? "保存为本次讨论选定的封面。导入正式项目后，还需要在项目中明确选定。" : stale
         ? "这张候选图基于旧版故事设计生成，仍将其设为交付封面吗？"
         : "将这张候选图设为交付封面，并重新生成交付包吗？",
       confirmLabel: "使用此封面",
@@ -297,12 +468,9 @@ export default function CoverStudio() {
     if (!accepted) return;
     setBusy(candidate.candidate_id);
     try {
-      const updated = await api.selectCover(
-        id, current.cover_set_id, candidate.candidate_id,
-        current.revision, current.active_revision, stale,
-      );
+      const updated = await api.selectCover(id, current.cover_set_id, candidate.candidate_id, current.revision, current.active_revision, stale);
       applySets(sets.map((item) => item.cover_set_id === updated.cover_set_id ? updated : item));
-      toast("已选择交付封面", "success");
+      toast(sessionId ? "已保存本次讨论的封面选择" : "已选择交付封面", "success");
     } catch (cause) {
       await reconcileSets();
       toast(cause instanceof Error ? cause.message : String(cause), "error");
@@ -339,26 +507,25 @@ export default function CoverStudio() {
 
   return (
     <Scene quiet>
-      <div className="workspace-page">
+      <div className="workspace-page cover-studio">
         <Link
-          to={`/projects/${id}`}
-          className="inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-muted transition-colors hover:text-ink-text"
+          to={sessionId ? "/" : `/projects/${id}`}
+          className="cover-studio__back"
         >
-          <Icon name="arrow-left" className="h-3.5 w-3.5" /> 返回作品
+          <Icon name="arrow-left" className="h-3.5 w-3.5" /> {sessionId ? "返回书库" : "返回作品"}
         </Link>
 
-        <header className="mt-6 flex flex-wrap items-end justify-between gap-5 border-b border-[rgba(74,91,133,0.14)] pb-6">
-          <div className="min-w-0">
-            <p className="eyebrow">{project?.title || id}</p>
-            <h1 className="font-display text-[30px] font-semibold leading-tight text-ink-text sm:text-[34px]">
+        <header className="cover-studio__header">
+          <div className="cover-studio__title">
+            <p className="cover-studio__eyebrow">NOVEL OS / COVER ATELIER</p>
+            <h1>
               封面工作室
             </h1>
-            <p className="mt-2 text-[13px] text-ink-muted">
-              {settings?.model || "gpt-image-2"} · {settings?.size || "2048x3072"} · {qualityLabel(settings?.quality || "high")}
-            </p>
+            <p className="cover-studio__book">{project?.title || id}</p>
+            <p className="cover-studio__specs"><span>{settings?.model_capabilities?.exact_model_selection === false ? "Codex · 自动选择图片模型" : settings?.model || "模型待配置"}</span><span>{settings?.size || "尺寸待配置"}</span><span>{qualityLabel(settings?.quality || "high")}</span></p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {current && (
+          <div className="cover-studio__actions">
+            {current && !sessionId && (
               <a
                 href={api.deliveryPackageUrl(id)}
                 download="book-package.zip"
@@ -368,7 +535,7 @@ export default function CoverStudio() {
                 <Icon name="download" className="h-4 w-4" /> 交付包
               </a>
             )}
-            {directionsLoaded && !directions[0] && (
+            {directionsLoaded && !batchDirections[0] && (
               <button
                 type="button"
                 className="btn-secondary"
@@ -377,7 +544,7 @@ export default function CoverStudio() {
                 aria-label="创建美术方向"
               >
                 <Icon name="sparkles" className="h-4 w-4" />
-                {busy === "direction:create" ? "规划中" : "创建方向"}
+                {operation === "direction:create" ? "提交中" : directionTask.checking ? "同步中" : directionPlanning ? "规划中" : "创建方向"}
               </button>
             )}
             <div className="flex flex-col items-end gap-1">
@@ -386,12 +553,12 @@ export default function CoverStudio() {
                 className="btn-primary"
                 disabled={!generationAllowed || Boolean(busy)}
                 onClick={generate}
-                aria-label={`生成 ${settings?.count || 4} 张封面`}
+                aria-label={`生成 ${generationCount} 张封面`}
                 aria-describedby={generationDisabledReason ? "cover-generation-requirement" : undefined}
                 title={generationDisabledReason || undefined}
               >
                 <Icon name="sparkles" className="h-4 w-4" />
-                {busy === "generate" ? "生成中" : `生成 ${settings?.count || 4} 张封面`}
+                {busy === "generate" ? "生成中" : `生成 ${generationCount} 张封面`}
               </button>
               {generationDisabledReason && (
                 <span id="cover-generation-requirement" className="max-w-56 text-right text-[10.5px] text-ink-muted">
@@ -401,6 +568,29 @@ export default function CoverStudio() {
             </div>
           </div>
         </header>
+
+        <CoverGenerationTaskStatus task={generationTask.task} checking={generationTask.checking}
+          connectionError={generationTask.connectionError} lastSyncedAt={generationTask.lastSyncedAt}
+          submitting={generationTask.submitting} />
+
+        <CoverRepairTaskPanel task={repairTask.task} checking={repairTask.checking} error={repairTask.error}
+          syncedAt={repairTask.syncedAt} submitting={repairTask.submitting} disabled={Boolean(busy)} onApprove={approveRepair}
+          onRetry={retryRefinement} onReplan={task => replanRefinement(task)}
+          compact={selectedTab !== "gallery"} onShowDetails={() => selectTab("gallery")}
+          original={sets.find(set => set.cover_set_id === repairTask.task?.parent_cover_set_id)?.candidates.find(candidate => candidate.candidate_id === repairTask.task?.parent_candidate_id)} />
+
+        {!directionCompletionApproved && <CoverDirectionTaskStatus task={directionTask.task} checking={directionTask.checking}
+          connectionError={directionTask.connectionError} lastSyncedAt={directionTask.lastSyncedAt}
+          submitting={operation === "direction:create"} />}
+
+        {selectedTab !== "directions" && batchDirections[0]?.status === "awaiting_approval" && !directionPlanning && (
+          <div className="cover-workspace-notice"><span>美术方向待审核，批准后即可生成候选封面。</span>
+            <button type="button" className="btn-secondary" onClick={() => selectTab("directions")}>审核美术方向</button></div>
+        )}
+        {selectedTab !== "analysis" && analysisNotice && (analysisNotice.active || analysisNotice.needsAttention) && (
+          <div className="cover-workspace-notice" role="status"><span>{analysisNotice.message || "正在读取故事分析进度…"}</span>
+            <button type="button" className="btn-secondary" onClick={() => selectTab("analysis")}>查看故事分析</button></div>
+        )}
 
         {error && (
           <div
@@ -422,18 +612,20 @@ export default function CoverStudio() {
 
         {progress && <GenerationProgress progress={progress} />}
 
-        {directions.length > 0 && (
-          <DirectionWorkspace
-            directions={directions}
-            busy={busy}
-            onApprove={approveDirection}
-            onCreate={createDirection}
-          />
-        )}
+        <div ref={tabAnchor} aria-hidden="true" />
+        <CoverWorkspaceTabs selected={selectedTab} onSelect={selectTab} indicators={{
+          gallery: generationTask.task?.status === "running" || generationTask.task?.status === "queued" ? "生成中" : current ? `${readyCount(current)}/${current.requested_count}` : undefined,
+          directions: directionPlanning ? "规划中" : batchDirections[0] ? directionStatusLabel(batchDirections[0].status) : undefined,
+          analysis: analysisNotice?.active ? "分析中" : analysisNotice?.needsAttention ? "需关注" : analysisId ? "已完成" : undefined,
+        }} />
 
-        <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="font-display text-[18px] font-semibold text-ink-text">
+        <div id="cover-panel-gallery" role="tabpanel" aria-labelledby="cover-tab-gallery" className="cover-workspace-panel" hidden={selectedTab !== "gallery"} tabIndex={0}>
+        <section className="cover-gallery" aria-label="封面候选画廊">
+        <div className="cover-gallery__header">
+          <div className="cover-section-heading">
+            <span className="cover-section-number" aria-hidden="true">02</span>
+            <div><p className="cover-gallery__eyebrow">候选画廊</p>
+            <h2>
               {current ? `已生成 ${readyCount(current)}/${current.requested_count} 张` : "尚未生成封面"}
             </h2>
             <p className="mt-1 text-[12px] text-ink-muted">
@@ -443,6 +635,7 @@ export default function CoverStudio() {
                   ? "封面生成任务已启动"
                   : "尚无已保存的封面候选图"}
             </p>
+            </div>
           </div>
           {sets.length > 1 && (
             <label className="flex items-center gap-2 text-[12px] text-ink-muted">
@@ -463,34 +656,77 @@ export default function CoverStudio() {
         </div>
 
         {current ? (
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="cover-gallery__grid" data-count={current.candidates.length}>
             {current.candidates.map((candidate, index) => (
               <CandidateCard
-                key={candidate.candidate_id}
+                key={`${current.cover_set_id}:${candidate.candidate_id}`}
+                owner={id} setId={current.cover_set_id} sets={sets} repairTask={repairTask.task}
                 candidate={candidate}
                 concept={current.concepts.find((item) => item.concept_id === candidate.concept_id)}
                 index={index}
                 busy={busy === candidate.candidate_id}
                 disabled={Boolean(busy)}
                 generating={Boolean(
-                  progress && (
-                    (progress.mode === "generate" && candidate.status === "pending")
-                    || (progress.mode === "retry" && progress.candidateNumber === index + 1)
-                  )
+                  (generationTask.task?.status === "running" && generationTask.task.cover_set_id === current.cover_set_id
+                    && generationTask.task.progress?.phase === "generating"
+                    && generationTask.task.progress.current_candidate_id === candidate.candidate_id)
+                  || (progress?.mode === "retry" && progress.candidateNumber === index + 1)
                 )}
                 onRetry={(repairCodes) => retry(candidate, repairCodes)}
                 onSelect={() => select(candidate)}
                 onReject={() => reject(candidate)}
+                onReevaluate={() => reevaluate(candidate)}
+                onRepair={() => {setRepairError(""); setRepairTarget({owner: id, candidate, number: index + 1, setId: current.cover_set_id, revision: current.revision, mode: "repair"});}}
+                onRefine={() => {setRepairError(""); setRepairTarget({owner: id, candidate, number: index + 1, setId: current.cover_set_id, revision: current.revision, mode: "refinement"});}}
+                onRetryRefinement={retryRefinement} onReplanRefinement={task => replanRefinement(task)}
               />
             ))}
           </div>
         ) : !progress ? (
           <EmptyCoverWorkspace
-            direction={directions[0] || null}
+            direction={batchDirections[0] || null}
             directionsLoaded={directionsLoaded}
+            analysisReady={Boolean(analysisId)}
+            directionPlanning={directionPlanning}
           />
         ) : null}
+        </section>
+        </div>
+
+        <div id="cover-panel-costs" role="tabpanel" aria-labelledby="cover-tab-costs" className="cover-workspace-panel" hidden={selectedTab !== "costs"} tabIndex={0}>
+        <GenerationCostPanel owner={id} refreshKey={`${current?.revision ?? 0}:${directionTask.task?.updated_at ?? ""}:${generationTask.task?.updated_at ?? ""}:${repairTask.task?.updated_at ?? ""}`} />
+        </div>
+
+        <div id="cover-panel-directions" role="tabpanel" aria-labelledby="cover-tab-directions" className="cover-workspace-panel" hidden={selectedTab !== "directions"} tabIndex={0}>
+        {batchDirections.length > 0 && (
+          <DirectionWorkspace
+            key={batchDirections[0].direction_id}
+            directions={batchDirections}
+            busy={busy}
+            approvalLocked={repairDirectionIsLatest}
+            onApprove={approveDirection}
+            onCreate={createDirection}
+          />
+        )}
+        {batchDirections.length === 0 && <div className="cover-workspace-empty glass-panel">
+          <h2>{directionPlanning ? "美术方向正在规划" : "还没有美术方向"}</h2>
+          <p>{directionPlanning ? "进度保留在页头，规划完成后可在此审核方案。" : analysisId ? "故事分析已就绪，可创建本书的封面方向。" : "先完成故事分析，再规划本书的画面与排版。"}</p>
+          {!directionPlanning && (analysisId ? <button type="button" className="btn-primary" disabled={Boolean(busy)} onClick={createDirection}>创建方向</button>
+            : <button type="button" className="btn-secondary" onClick={() => selectTab("analysis")}>前往故事分析</button>)}
+        </div>}
+        </div>
+
+        <div id="cover-panel-analysis" role="tabpanel" aria-labelledby="cover-tab-analysis" className="cover-workspace-panel" hidden={selectedTab !== "analysis"} tabIndex={0}>
+          <CoverSkeletonPanel key={id} owner={id} onAnalysis={chooseAnalysis} onStatus={setAnalysisNotice} />
+          {analysisId && <div className="cover-workspace-notice"><span>故事分析已就绪，可前往美术方向查看或创建方案。</span>
+            <button type="button" className="btn-secondary" onClick={() => selectTab("directions")}>前往美术方向</button></div>}
+        </div>
       </div>
+
+      {repairTarget?.owner === id && <CoverRepairStartDialog key={`${id}:${repairTarget.setId}:${repairTarget.candidate.candidate_id}:${repairTarget.mode}`}
+        candidate={repairTarget.candidate} number={repairTarget.number} mode={repairTarget.mode} initialPrompt={repairTarget.initialPrompt}
+        busy={Boolean(busy)} error={repairError} onClose={() => setRepairTarget(null)} onStart={startRepair} />}
+
       {missingFacts?.projectId === id && (
         <CoverFactsModal
           key={`${id}:${missingFacts.facts.revision_sha256}`}
@@ -512,12 +748,13 @@ function CoverFactsModal({ facts, busy, onClose, onConfirm }: {
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
-  const ready = facts.pending_fields.every((item) => values[item.field]?.trim());
+  const requiredFields = facts.blocking_pending_fields || facts.pending_fields;
+  const ready = requiredFields.every((item) => values[item.field]?.trim());
   const confirm = async () => {
     setError("");
     const characters = new Map<string, CoverStoryFactsConfirmation["characters"][number]>();
     let primarySpaces: string[] | undefined;
-    for (const item of facts.pending_fields) {
+    for (const item of requiredFields) {
       const value = values[item.field]?.trim() || "";
       if (item.field === "lived_environment.primary_spaces") {
         primarySpaces = [...new Set(value.split("\n").map((line) => line.trim()).filter(Boolean))];
@@ -550,7 +787,7 @@ function CoverFactsModal({ facts, busy, onClose, onConfirm }: {
         </div>
       ))}
       <form onSubmit={(event) => { event.preventDefault(); if (ready && !busy) void confirm(); }}>
-        {facts.pending_fields.map((item) => {
+        {requiredFields.map((item) => {
           const age = item.field.endsWith(".age");
           const spaces = item.field === "lived_environment.primary_spaces";
           const label = spaces ? "主要生活场景（每行一个）"
@@ -582,25 +819,29 @@ function CoverFactsModal({ facts, busy, onClose, onConfirm }: {
 }
 
 function EmptyCoverWorkspace({
-  direction, directionsLoaded,
+  direction, directionsLoaded, analysisReady, directionPlanning,
 }: {
   direction: CoverDirection | null;
   directionsLoaded: boolean;
+  analysisReady: boolean;
+  directionPlanning: boolean;
 }) {
   const approved = direction?.status === "approved";
-  const nextStep = !directionsLoaded
+  const nextStep = directionPlanning
+    ? "正在处理美术方向请求；当前状态见上方，方案完成后可审核。"
+    : !directionsLoaded
     ? "正在读取现有美术方向。"
     : !direction
-      ? "下一步：点击“创建方向”。"
+      ? analysisReady ? "下一步：点击“创建方向”。" : "下一步：点击上方“分析完整骨架”。"
       : direction.status === "stale"
         ? "现有方向已过期，请先创建并批准新方向。"
         : approved
           ? "美术方向已批准，现在可以生成候选封面。"
-          : "下一步：审核上方方案并批准美术方向。";
+          : "下一步：审核下方方案并批准美术方向。";
   return (
     <section
       aria-label="封面生成流程"
-      className="mt-4 rounded-[8px] border border-[rgba(74,91,133,0.16)] bg-white/65 px-5 py-5"
+      className="cover-empty"
     >
       <div className="flex items-start gap-3">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#eef1f8] text-ink-muted">
@@ -609,14 +850,15 @@ function EmptyCoverWorkspace({
         <div>
           <p className="text-[13px] font-semibold text-ink-text">正文流程不会自动生成封面</p>
           <p className="mt-1 text-[12px] leading-5 text-ink-muted">
-            请先确定封面的美术方向，审核通过后再生成候选图。
+            从小说骨架分析人物与冲突，再创建美术方向，审核通过后生成候选图。
           </p>
         </div>
       </div>
       <ol className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-paper-line pt-3 text-[11.5px] font-medium text-ink-text">
-        <li><span className="nums mr-1.5 text-ink-muted">1</span>创建美术方向</li>
-        <li><span className="nums mr-1.5 text-ink-muted">2</span>审核并批准</li>
-        <li><span className="nums mr-1.5 text-ink-muted">3</span>生成候选封面</li>
+        <li><span className="nums mr-1.5 text-ink-muted">1</span>分析完整骨架</li>
+        <li><span className="nums mr-1.5 text-ink-muted">2</span>创建美术方向</li>
+        <li><span className="nums mr-1.5 text-ink-muted">3</span>审核并批准</li>
+        <li><span className="nums mr-1.5 text-ink-muted">4</span>生成候选封面</li>
       </ol>
       <p className="mt-2 text-[11px] text-ink-muted">{nextStep}</p>
     </section>
@@ -624,14 +866,16 @@ function EmptyCoverWorkspace({
 }
 
 function DirectionWorkspace({
-  directions, busy, onApprove, onCreate,
+  directions, busy, approvalLocked, onApprove, onCreate,
 }: {
   directions: CoverDirection[];
   busy: string;
-  onApprove: (direction: CoverDirection) => void;
+  approvalLocked: boolean;
+  onApprove: (direction: CoverDirection, extraImageAttempts?: number) => void;
   onCreate: () => void;
 }) {
   const direction = directions[0];
+  const [extraImageAttempts, setExtraImageAttempts] = useState(0);
   const characters = direction.brief?.principal_characters || [];
   const environment = direction.brief?.lived_environment || {};
   const identity = direction.visual_identity;
@@ -646,11 +890,11 @@ function DirectionWorkspace({
   return (
     <section
       aria-label="故事事实与美术方向"
-      className="mt-7 border-y border-[rgba(74,91,133,0.14)] py-5"
+      className="cover-directions"
     >
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="cover-directions__header">
         <div>
-          <p className="eyebrow">故事事实</p>
+          <p className="cover-studio__eyebrow">03 / 设计档案</p>
           <h2 className="mt-1 font-display text-[18px] font-semibold text-ink-text">
             美术方向审核
           </h2>
@@ -669,6 +913,19 @@ function DirectionWorkspace({
         </span>
       </div>
 
+      <CoverCommercialReview review={direction.source_binding?.campaign_evidence_review}
+        commercial={direction.profile_version === "cover-profiles.v11"}
+        concepts={direction.plans.map((plan, index) => ({concept_id: plan.concept_id, label: `方向 ${index + 1}`}))} />
+      <details className="cover-direction-record" open={direction.status !== "approved"}>
+        <summary>{direction.status === "approved" ? "查看已批准方案与故事依据" : "审阅画面方案与故事依据"}<span>{direction.plans.length} 个美术方向</span></summary>
+      {direction.source_binding && <p className="mt-3 rounded border border-paper-line bg-white p-3 text-xs text-ink-muted">
+        本次审核同时确认所展示的骨架快照与封面事实，首批生成 {direction.plans.length} 张图片，每张执行两次独立看图评估。
+        {direction.source_binding.freshness_policy === "pinned_snapshot" ? " 本方向固定采用所选历史快照。" : " 生成前会再次核对当前骨架。"}
+      </p>}
+      {direction.source_binding && direction.status === "awaiting_approval" && <label className="mt-3 flex items-center gap-2 text-xs text-ink-muted">
+        <input type="checkbox" checked={extraImageAttempts === 1} onChange={event => setExtraImageAttempts(event.target.checked ? 1 : 0)} />
+        允许每张候选图额外重绘 1 次，最多增加 {direction.plans.length} 次图片调用；故事方案变更仍需重新审核。默认不允许额外出图。
+      </label>}
       {characters.length > 0 && (
         <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {characters.map((character) => (
@@ -770,7 +1027,13 @@ function DirectionWorkspace({
       {assumptions.length > 0 && (
         <div className="mt-3 border-l-2 border-[#d6a85f] bg-[#fff7e8] px-3 py-2.5 text-[11.5px] text-[#72511d]">
           <p className="font-semibold">
-            本次审核包含 {assumptions.filter((item) => item.status === "pending_confirmation").length} 项待确认的视觉假设
+            {(() => {
+              const blocking = assumptions.filter((item) => item.status === "pending_confirmation" && item.provenance !== "model_inferred");
+              const inferred = assumptions.filter((item) => item.provenance === "model_inferred" || item.status === "model_inferred");
+              return blocking.length > 0
+                ? `本次审核包含 ${blocking.length} 项待确认的来源事实`
+                : `本次审核包含 ${inferred.length} 项由模型推演的视觉细节`;
+            })()}
           </p>
           <ul className="mt-1.5 space-y-1">
             {assumptions.map((item, index) => (
@@ -783,9 +1046,9 @@ function DirectionWorkspace({
         </div>
       )}
 
-      <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <div className="cover-direction-plans">
         {direction.plans.map((plan, index) => (
-          <article key={plan.concept_id} className="rounded-[6px] border border-paper-line bg-white/65 p-3">
+          <article key={plan.concept_id} className="cover-direction-plan">
             <div className="flex items-start justify-between gap-3">
               <p className="text-[12px] font-semibold text-ink-text">
                 方向 {index + 1}：{formatStrategy(plan.portfolio_slot || plan.visual_strategy)}
@@ -822,6 +1085,14 @@ function DirectionWorkspace({
             )}
             <p className="mt-1 text-[11px] leading-4 text-ink-muted">出场人物：{plan.cast.length ? plan.cast.join("、") : "无人物方案"} · 核心道具/意象：{plan.primary_prop}</p>
             <p className="mt-1 text-[11px] leading-4 text-ink-muted">{plan.visual_hook.open_question}</p>
+            {plan.campaign && <div className="mt-3 space-y-1 rounded border border-paper-line bg-white p-3 text-xs">
+              <p className="font-semibold">{plan.campaign.composition_mode === "campaign_composite" ? "电影宣传组合海报" : "同场景冲突海报"} · {plan.campaign.cover_epoch}</p>
+              <p>画面局势：{plan.campaign.hook.visible_fact}</p>
+              <p>异常与钩子：{plan.campaign.hook.unexpected_contradiction}</p>
+              <p>刻意留白：{plan.campaign.hook.withheld_answer}</p>
+              {plan.campaign.interaction_edges.map((edge, index) => <p key={index}>{edge.actor_id} → {edge.action} → {edge.target_id}；{edge.visible_reaction}</p>)}
+              {!!plan.campaign.layers?.length && <details><summary>海报图层与故事时点</summary>{plan.campaign.layers.map(layer => <p key={layer.layer_id}>{layer.function} · {layer.epoch} · {layer.location}</p>)}</details>}
+            </div>}
             {plan.design_rationale && (
               <div className="mt-2 border-l-2 border-[#9dafdc] pl-2.5 text-[10.5px] leading-4 text-ink-muted">
                 <p><span className="font-semibold text-ink-text">设计理由：</span>{plan.design_rationale}</p>
@@ -834,13 +1105,15 @@ function DirectionWorkspace({
         ))}
       </div>
 
+      </details>
+
       {direction.status !== "approved" && direction.status !== "stale" && (
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
             className="btn-primary"
-            disabled={Boolean(busy)}
-            onClick={() => onApprove(direction)}
+            disabled={Boolean(busy) || approvalLocked}
+            onClick={() => {if (!approvalLocked) onApprove(direction, extraImageAttempts);}}
             aria-label="批准美术方向"
           >
             <Icon name="circle-check" className="h-4 w-4" /> 批准美术方向
@@ -886,64 +1159,22 @@ function DirectionWorkspace({
 }
 
 function GenerationProgress({ progress }: { progress: CoverProgress }) {
-  const isRetry = progress.mode === "retry";
-  const isPreparing = progress.phase === "preparing";
-  const nextCover = Math.min(progress.completed + 1, progress.total);
-  const title = isRetry
-    ? `正在重新生成候选图 ${progress.candidateNumber}`
-    : isPreparing
-      ? "正在准备生成封面"
-      : progress.completed >= progress.total
-        ? "正在完成本组封面"
-        : `正在生成第 ${nextCover}/${progress.total} 张封面`;
-  const completedLabel = isRetry
-    ? "正在渲染一张候选图"
-    : `已完成 ${progress.completed}/${progress.total} 张`;
-  const percentage = progress.total > 0
-    ? Math.round((progress.completed / progress.total) * 100)
-    : 0;
-
-  return (
-    <section
-      role="status"
-      aria-live="polite"
-      aria-label="封面生成进度"
-      className="mt-6 rounded-[8px] border border-[rgba(104,86,168,0.22)] bg-[#f8f6ff] px-4 py-3.5 text-ink-text shadow-[0_8px_22px_rgba(83,67,137,0.07)]"
-    >
-      <div className="flex items-start gap-3">
-        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#e8e2ff] text-[#6552a6]">
-          <Icon name="sparkles" className="h-4 w-4 animate-pulse" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <p className="text-[13px] font-semibold">{title}</p>
-            <span className="nums text-[11px] font-medium text-ink-muted">{completedLabel}</span>
-          </div>
-          <div
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={progress.total}
-            aria-valuenow={progress.completed}
-            aria-label={title}
-            className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#e5e0f3]"
-          >
-            <span
-              className="block h-full rounded-full bg-[#7864c2] transition-[width] duration-500 ease-out"
-              style={{ width: `${percentage}%` }}
-            />
-          </div>
-          <p className="mt-2 text-[11.5px] text-ink-muted">
-            {isPreparing ? "每张图片返回后，预览会随即更新。" : "预览正在显示最新结果。"}
-          </p>
-        </div>
+  return <section role="status" aria-live="polite" aria-label="封面生成进度" className="cover-direction-task">
+    <div className="cover-direction-task__main">
+      <span className="cover-direction-task__mark" aria-hidden="true"><span className="cover-direction-task__spinner" /></span>
+      <div className="cover-direction-task__message">
+        <h2>正在重新生成候选图 {progress.candidateNumber}</h2>
+        <p>正在处理一张候选图，完成后更新预览。</p>
       </div>
-    </section>
-  );
+    </div>
+  </section>;
 }
 
 function CandidateCard({
-  candidate, concept, index, busy, disabled, generating, onRetry, onSelect, onReject,
+  candidate, concept, index, busy, disabled, generating, onRetry, onSelect, onReject, onReevaluate, onRepair, onRefine,
+  owner, setId, sets, repairTask, onRetryRefinement, onReplanRefinement,
 }: {
+  owner: string; setId: string; sets: CoverSet[]; repairTask: CoverRepairTask | null;
   candidate: CoverCandidate;
   concept?: CoverSet["concepts"][number];
   index: number;
@@ -953,23 +1184,47 @@ function CandidateCard({
   onRetry: (repairCodes?: string[]) => void;
   onSelect: () => void;
   onReject: () => void;
+  onReevaluate: () => void;
+  onRepair: () => void;
+  onRefine: () => void;
+  onRetryRefinement: (task: CoverRepairTask) => void;
+  onReplanRefinement: (task: CoverRepairTask) => void;
 }) {
+  const reduceMotion = useReducedMotion();
   const imageUrl = api.assetUrl(candidate.url);
   const label = `候选图 ${index + 1}`;
   const repairCodes = candidate.quality_report?.repair_codes || [];
   const [repairCode, setRepairCode] = useState(repairCodes[0] || "");
+  const report = candidate.quality_report;
+  const reviewBadge = candidate.status === "ready" && report?.status === "blocked" ? "需修复"
+    : candidate.status === "ready" && report?.status === "human_review_required" ? "待人工审核" : "";
+  const scene = concept?.scene_plan || {};
+  const bound = Boolean(scene._compiled_recipe || scene.campaign || report?.recipe_sha256 || report?.evaluation);
+  const decision = report?.repair_decision as { kind?: string } | undefined;
+  const sourceBinding = scene._source_binding as {direction_id?: string} | undefined;
+  const refinement = isRefinementConcept(concept) || (repairTask?.kind === "refinement"
+    && repairTask.cover_set_id === setId && repairTask.result_candidate_id === candidate.candidate_id);
+  const failedRefinement = refinement && candidate.status === "failed";
+  const canRepairOne = !failedRefinement && Boolean(repairKind(candidate) && sourceBinding?.direction_id);
+  const refinementReason = refinementUnavailableReason(candidate, concept);
+  const showRefinement = ["ready", "selected", "rejected"].includes(candidate.status);
+  const authorization = scene._generation_authorization as { extra_image_attempts?: number; image_attempts_reserved?: number } | undefined;
+  const remainingAttempts = Math.max(0, 1 + (authorization?.extra_image_attempts || 0)
+    - Math.max(authorization?.image_attempts_reserved || 0, candidate.attempt_history?.filter((item) => item.operation !== "typography_recomposition").length || 0));
+  const canRetry = !refinement && (!bound || (remainingAttempts > 0 && (!decision?.kind || decision.kind === "render")));
   return (
     <motion.article
       data-testid="cover-slot"
       aria-busy={generating || busy}
-      initial={{ opacity: 0, y: 12 }}
+      initial={reduceMotion ? false : { opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.04, duration: 0.28 }}
-      className="min-w-0 overflow-hidden rounded-[8px] border border-[rgba(74,91,133,0.16)] bg-white shadow-[0_10px_28px_rgba(37,52,91,0.08)]"
+      className={`cover-candidate${candidate.status === "selected" ? " is-selected" : ""}`}
+      aria-label={label}
     >
-      <div className="relative aspect-[2/3] w-full overflow-hidden bg-[#e9edf4]">
+      <div className="cover-candidate__artwork">
         {imageUrl ? (
-          <img src={imageUrl} alt={`封面${label}`} className="h-full w-full object-cover" />
+          <img src={imageUrl} alt={`封面${label}`} className="h-full w-full object-contain" />
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-5 text-center text-ink-muted">
             <span className={`flex h-10 w-10 items-center justify-center rounded-full ${
@@ -983,13 +1238,13 @@ function CandidateCard({
                 : busy
                   ? "重新生成中"
                   : candidate.status === "failed"
-                    ? "生成失败"
+                    ? failedRefinement ? "精修失败 · 原图保留" : "生成失败"
                     : `候选图 ${index + 1}`}
             </span>
           </div>
         )}
-        <span className={`absolute left-2 top-2 rounded-full border px-2 py-1 text-[10px] font-semibold capitalize backdrop-blur-md ${statusClass(candidate.status)}`}>
-          {generating ? "生成中" : candidateStatusLabel(candidate.status)}
+        <span className={`absolute left-2 top-2 rounded-full border px-2 py-1 text-[10px] font-semibold capitalize backdrop-blur-md ${reviewBadge === "需修复" ? "border-[#df93a7] bg-[#fff1f4]/95 text-[#96354e]" : statusClass(candidate.status)}`}>
+          {generating ? "生成中" : reviewBadge || candidateStatusLabel(candidate.status)}
         </span>
         {imageUrl && (
           <a
@@ -1004,10 +1259,11 @@ function CandidateCard({
           </a>
         )}
       </div>
-      <div className="min-h-[142px] p-3.5">
-        <p className="truncate text-[12px] font-semibold text-ink-text">
+      <div className="cover-candidate__body">
+        <p className="cover-candidate__number">候选 / {String(index + 1).padStart(2, "0")}</p>
+        <h3 className="cover-candidate__title" title={formatStrategy(concept?.visual_strategy)}>
           {formatStrategy(concept?.visual_strategy) || `方向 ${index + 1}`}
-        </p>
+        </h3>
         <p className="mt-1 line-clamp-2 min-h-[34px] text-[11.5px] leading-[17px] text-ink-muted">
           {candidate.error || concept?.focal_scene || "等待生成"}
         </p>
@@ -1022,20 +1278,28 @@ function CandidateCard({
             {qualityStatusLabel(candidate.quality_report.status)}
           </p>
         )}
+        <CoverQualityDetails candidate={candidate} concept={concept} disabled={disabled} onReevaluate={onReevaluate} />
         <div className="mt-3 flex min-h-9 flex-wrap items-center gap-1.5">
-          {candidate.status === "failed" && (
+          {showRefinement && <button type="button" className="btn-secondary px-3 py-2 text-[11.5px]" onClick={onRefine}
+            disabled={disabled || Boolean(refinementReason)} aria-label={`精修${label}`} aria-describedby={refinementReason ? `refinement-reason-${candidate.candidate_id}` : undefined}>
+            <Icon name="sparkles" className="h-3.5 w-3.5" /> 精修这张
+          </button>}
+          {canRepairOne && <button type="button" className="btn-secondary px-3 py-2 text-[11.5px]" onClick={onRepair} disabled={disabled} aria-label={`修复${label}`}>
+            <Icon name="history" className="h-3.5 w-3.5" /> 修复这一张
+          </button>}
+          {candidate.status === "failed" && canRetry && !canRepairOne && (
             <button type="button" className="btn-secondary px-3 py-2 text-[11.5px]" onClick={() => onRetry()} disabled={disabled} aria-label={`重试${label}`}>
               <Icon name="history" className="h-3.5 w-3.5" /> 重试
             </button>
           )}
-          {candidate.status === "ready" && (
+          {(candidate.status === "ready" || candidate.status === "rejected") && (
             <>
               <button type="button" className="btn-primary px-3 py-2 text-[11.5px]" onClick={onSelect} disabled={disabled} aria-label={`选择${label}`}>
                 <Icon name="circle-check" className="h-3.5 w-3.5" /> 选择
               </button>
-              <button type="button" className="btn-ghost px-2.5 py-2 text-[11.5px]" onClick={onReject} disabled={disabled} aria-label={`拒绝${label}`}>
+              {candidate.status === "ready" && <button type="button" className="btn-ghost px-2.5 py-2 text-[11.5px]" onClick={onReject} disabled={disabled} aria-label={`拒绝${label}`}>
                 拒绝
-              </button>
+              </button>}
             </>
           )}
           {candidate.status === "selected" && (
@@ -1044,7 +1308,10 @@ function CandidateCard({
             </span>
           )}
         </div>
-        {candidate.status === "ready" && repairCodes.length > 0 && (
+        {showRefinement && refinementReason && <p id={`refinement-reason-${candidate.candidate_id}`} className="cover-repair__note">{refinementReason}</p>}
+        {failedRefinement && <CoverRefinementRetryActions owner={owner} setId={setId} candidateId={candidate.candidate_id}
+          number={index + 1} knownTask={repairTask} sets={sets} disabled={disabled} onRetry={onRetryRefinement} onReplan={onReplanRefinement} />}
+        {candidate.status === "ready" && repairCodes.length > 0 && canRetry && !canRepairOne && (
           <div className="mt-2 flex items-center gap-1.5 border-t border-paper-line pt-2">
             <select
               value={repairCode}
@@ -1075,7 +1342,7 @@ function CandidateCard({
 function LoadingWorkspace() {
   return (
     <Scene quiet>
-      <div className="workspace-page">
+      <div className="workspace-page cover-studio">
         <p className="text-[13px] text-ink-muted">正在加载封面工作区</p>
         <div className="mt-7 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {emptyCandidates(4).map((candidate) => (

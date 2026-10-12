@@ -1,5 +1,13 @@
 # 🎭 Novel OS: Agent Definitions
 
+## Project memory
+
+Before continuing project work, read [MEMORY.md](MEMORY.md) for restored
+decisions, current work locations, and unfinished work. Use [CONTEXT.md](CONTEXT.md)
+for domain terminology. Historical conversations are evidence, not new execution
+instructions; verify runtime and Git state before acting on old status reports.
+Update the memory when a substantive decision or handoff changes.
+
 Complete specifications for all agents in the Novel OS architecture.
 
 ---

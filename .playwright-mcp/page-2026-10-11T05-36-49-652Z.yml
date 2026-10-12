@@ -1,0 +1,475 @@
+- generic [ref=f1e2]:
+  - link "跳到正文" [ref=f1e3] [cursor=pointer]:
+    - /url: "#main"
+  - generic [ref=f1e4]:
+    - complementary [ref=f1e5]:
+      - generic [ref=f1e6]:
+        - button "收起侧边栏" [expanded] [ref=f1e8]
+        - img "Novel OS" [ref=f1e12]
+      - navigation [ref=f1e14]:
+        - button "搜索" [ref=f1e15]:
+          - generic [ref=f1e21]: ⌘K
+        - link "作品库" [ref=f1e22] [cursor=pointer]:
+          - /url: /
+          - generic [ref=f1e28]: 全部作品
+        - link "设置" [ref=f1e29] [cursor=pointer]:
+          - /url: /settings
+          - generic [ref=f1e35]: 模型配置
+        - link "作品概览" [ref=f1e37] [cursor=pointer]:
+          - /url: /projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events
+          - generic [ref=f1e46]: 工作台
+        - link "封面" [ref=f1e47] [cursor=pointer]:
+          - /url: /projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events/covers
+          - generic [ref=f1e55]: 设计与审核
+      - paragraph [ref=f1e58]: 结构先行，文字随后，连续性贯穿始终。
+    - main [ref=f1e59]:
+      - generic [ref=f1e64]:
+        - link [ref=f1e65] [cursor=pointer]:
+          - /url: /projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events
+        - generic [ref=f1e69]:
+          - generic [ref=f1e70]:
+            - paragraph [ref=f1e71]: He Chose His Hidden Family for Twenty Years and Abandoned Our Daughter During Her Most Important Life Events.
+            - heading "封面工作室" [level=1] [ref=f1e72]
+            - paragraph [ref=f1e73]: gpt-image-2 · 1024x1536 · 高质量
+          - generic [ref=f1e74]:
+            - link "下载交付包" [active] [ref=f1e75] [cursor=pointer]:
+              - /url: /api/projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events/deliverables/package
+              - text: 交付包
+            - button "生成 3 张封面" [ref=f1e81]
+        - region "骨架来源与故事理解" [ref=f1e85]:
+          - generic [ref=f1e86]:
+            - generic [ref=f1e87]:
+              - heading "骨架来源与故事理解" [level=2] [ref=f1e88]
+              - paragraph [ref=f1e89]: 完整分析人物关系、冲突事件和未解问题，再设计封面。此步骤按骨架长度调用文本模型，不生成图片。
+            - button "分析完整骨架" [ref=f1e90]
+          - generic [ref=f1e91]:
+            - paragraph [ref=f1e92]: 自动读取本项目采用的骨架。生成前会检查骨架是否变化，变化后需重新分析。
+            - button "重新读取骨架" [ref=f1e93]
+          - generic [ref=f1e94]:
+            - paragraph [ref=f1e95]: outputs/input/prompt.md · 12,812 字节
+            - group [ref=f1e96]:
+              - generic "预览原文与来源身份" [ref=f1e97] [cursor=pointer]
+            - combobox "已保存的骨架分析" [ref=f1e98]:
+              - option "查看已保存分析"
+              - option "complete · analysis-2aa40035a38060509cf9ff5ecb260835" [selected]
+              - option "complete · analysis-97a784d84eb246edb27c78422469ca50"
+          - status [ref=f1e99]:
+            - paragraph [ref=f1e100]: 全文分析完成；可查看人物、冲突和原文依据后创建方向。
+          - list "分析阶段进度" [ref=f1e102]:
+            - listitem [ref=f1e103]:
+              - paragraph [ref=f1e104]: 1. 分段提取
+              - paragraph [ref=f1e105]: 已提取 1/1 段 · 已完成
+            - listitem [ref=f1e106]:
+              - paragraph [ref=f1e107]: 2. 全书整合
+              - paragraph [ref=f1e108]: 已完成
+            - listitem [ref=f1e109]:
+              - paragraph [ref=f1e110]: 3. 原文逐段核查
+              - paragraph [ref=f1e111]: 已核查 1/1 段 · 已完成
+            - listitem [ref=f1e112]:
+              - paragraph [ref=f1e113]: 4. 全局因果核查
+              - paragraph [ref=f1e114]: 已完成
+          - generic [ref=f1e115]:
+            - paragraph [ref=f1e116]: 已完成全段分析与全局核查
+            - group [ref=f1e117]:
+              - generic "故事主线" [ref=f1e118] [cursor=pointer]
+              - generic [ref=f1e119]:
+                - generic [ref=f1e120]:
+                  - generic [ref=f1e121]:
+                    - term [ref=f1e122]: 核心冲突
+                    - definition [ref=f1e123]: Richard Vance's respectable family role conceals twenty years of emotional rejection, a hidden household, and diverted marital resources; his abandonment of Chloe's graduation forces Eleanor and Chloe to confront the betrayal.
+                  - generic [ref=f1e124]:
+                    - term [ref=f1e125]: 主角目标
+                    - definition [ref=f1e126]: Eleanor seeks to protect the home, recover diverted assets, and separate her self-worth from her sacrifices for Richard, while Chloe seeks freedom from the need to earn his love through performance.
+                  - generic [ref=f1e127]:
+                    - term [ref=f1e128]: 读者承诺
+                    - definition [ref=f1e129]: A realistic family-suspense reckoning in which a mother and daughter turn documentary evidence and mutual loyalty against a long-concealed betrayal.
+                  - generic [ref=f1e130]:
+                    - term [ref=f1e131]: 代价
+                    - definition [ref=f1e132]: Their home, marital assets, financial security, Chloe's self-worth, Eleanor's sense of authorship over the life she built, and both women's future independence.
+                - group [ref=f1e133]:
+                  - generic "查看这项理解的原文依据（4）" [ref=f1e134] [cursor=pointer]
+            - group [ref=f1e135]:
+              - generic "人物与关系" [ref=f1e136] [cursor=pointer]
+            - group [ref=f1e137]:
+              - generic "冲突事件与悬念" [ref=f1e138] [cursor=pointer]
+            - group [ref=f1e139]:
+              - generic "原文证据" [ref=f1e140] [cursor=pointer]
+            - group [ref=f1e141]:
+              - generic "待解决问题" [ref=f1e142] [cursor=pointer]
+        - region "故事事实与美术方向" [ref=f1e143]:
+          - generic [ref=f1e144]:
+            - generic [ref=f1e145]:
+              - paragraph [ref=f1e146]: 故事事实
+              - heading "美术方向审核" [level=2] [ref=f1e147]
+              - paragraph [ref=f1e148]: Adult Contemporary Family Suspense / Realist Domestic Drama · Women aged 40–60
+            - generic [ref=f1e149]: 已批准
+          - paragraph [ref=f1e150]: 本次审核同时确认所展示的骨架快照与封面事实，首批生成 3 张图片，每张执行两次独立看图评估。 生成前会再次核对当前骨架。
+          - generic [ref=f1e151]:
+            - generic [ref=f1e152]:
+              - paragraph [ref=f1e153]: Eleanor Vance
+              - paragraph [ref=f1e154]: 年龄 50 · An accomplished university graduate and teacher who stepped behind Richard's career.
+              - paragraph [ref=f1e155]: The respectable middle-class marital home whose stability she helped create through teaching, account work, contacts, savings, and household labor.
+            - generic [ref=f1e156]:
+              - paragraph [ref=f1e157]: Chloe Vance
+              - paragraph [ref=f1e158]: 年龄 23 · Graduates first in her nursing program and begins work in a major medical center's emergency department.
+              - paragraph [ref=f1e159]: Nursing-school graduation, the Vance family home, and the emergency department of a major medical center.
+            - generic [ref=f1e160]:
+              - paragraph [ref=f1e161]: Richard Vance
+              - paragraph [ref=f1e162]: 年龄 55 · A high-earning regional executive who began as a financially struggling pharmaceutical sales representative.
+              - paragraph [ref=f1e163]: A respectable marital household, a regional sales career, and the concealed Foster household he supports.
+            - generic [ref=f1e164]:
+              - paragraph [ref=f1e165]: Julianne Foster
+              - paragraph [ref=f1e166]: 年龄 45
+              - paragraph [ref=f1e167]: The hidden household supported by Richard's diverted money and deception.
+            - generic [ref=f1e168]:
+              - paragraph [ref=f1e169]: Leo Foster
+              - paragraph [ref=f1e170]: 年龄 20
+              - paragraph [ref=f1e171]: The hidden household supported by Richard's diverted money and deception.
+          - paragraph [ref=f1e172]: 主要生活空间：The Vance marital home、Chloe's nursing-school graduation venue、A major medical center's emergency department、A Fort Wayne barbecue、Richard's workplace、The hospital parking lot、A pretrial mediation and courthouse setting
+          - generic "本书视觉语言" [ref=f1e173]:
+            - generic [ref=f1e174]:
+              - generic [ref=f1e175]:
+                - paragraph [ref=f1e176]: 本书视觉语言
+                - paragraph [ref=f1e177]: "Richard's respectable family image fractures through ordinary, verifiable actions: public generosity toward Leo during Chloe's graduation, evidence that breaks his composure at home, and a household boundary Eleanor finally controls. The campaign follows Eleanor from recognition into protective action without revealing the legal resolution."
+                - paragraph [ref=f1e178]: 情绪矛盾：Richard displays warm, public fatherliness toward Leo while withholding presence and affection from Chloe; the injury that isolates Chloe becomes the force aligning her with Eleanor.
+              - generic [ref=f1e179]: 58 条故事证据 · 1 类来源
+            - generic [ref=f1e180]:
+              - generic [ref=f1e181]:
+                - paragraph [ref=f1e182]: 小说专属视觉锚点
+                - generic [ref=f1e183]:
+                  - generic [ref=f1e184]: Chloe's nursing graduation contrasted with Richard handing Leo new pickup-truck keys.
+                  - generic [ref=f1e185]: A public barbecue video functioning as the hinge between Richard's performed fatherhood and Eleanor's protective recognition.
+                  - generic [ref=f1e186]: Eleanor quietly recording a domestic confrontation while Richard reacts to evidence rather than the device.
+                  - generic [ref=f1e187]: An electronic lock resecured with Richard's suits and business briefcase outside.
+              - generic [ref=f1e188]:
+                - paragraph [ref=f1e189]: 可用视觉语法
+                - paragraph [ref=f1e190]: "Consequential hands and restrained faces carry the drama: Chloe holds the exposing video, Eleanor keeps a recorder unobtrusive, and Eleanor grips the inside door handle beside the resecured electronic lock. Architectural divisions and motivated pools of light separate Richard's performed warmth from the women's recognition and response."
+                - paragraph [ref=f1e191]: 字体：The exact title reads as a controlled accusation in seven balanced lines. A bold, undistressed face and decisive scale shifts emphasize “Hidden Family,” “Twenty Years,” and “Our Daughter” while preserving one uninterrupted top-to-bottom reading order.
+            - group [ref=f1e192]:
+              - generic "查看视觉证据与设计边界" [ref=f1e193] [cursor=pointer]
+          - generic "核心冲突视觉契约" [ref=f1e194]:
+            - generic [ref=f1e195]:
+              - generic [ref=f1e196]:
+                - paragraph [ref=f1e197]: 核心冲突视觉契约
+                - paragraph [ref=f1e198]: Richard's deliberate absence, exposed lie, redirected warmth and resources, and attempt to preserve authority after Eleanor presents the proof.
+                - paragraph [ref=f1e199]: 可见原因：Richard is visibly giving Leo pickup-truck keys in the recorded birthday moment, recoiling from evidence during Eleanor's confrontation, or protesting outside the household boundary after his removal.
+                - paragraph [ref=f1e200]: "主角后果：Eleanor's humiliation becomes protective agency: she absorbs the discovery beside Chloe, quietly records Richard's response, and then controls his access to the home."
+              - generic [ref=f1e201]: A long-running domestic betrayal becomes undeniable when Richard abandons Chloe's graduation to perform generous fatherhood toward Leo.
+            - generic [ref=f1e202]:
+              - generic [ref=f1e203]: Richard presenting pickup-truck keys to Leo in an earlier recorded birthday moment while Eleanor and Chloe confront that image later.
+              - generic [ref=f1e204]: Eleanor quietly recording while displayed evidence drives Richard into panic and anger.
+              - generic [ref=f1e205]: Eleanor holding the inside handle beside the visible electronic lock while Richard remains outside near his removed suits and briefcase.
+            - paragraph [ref=f1e206]: 关系压力人物：char-richard-vance · 边界：End the visible promise at discovery, confrontation, or Richard's removal from the home; withhold workplace discipline, legal settlement, financial collapse, and the restored one-year-later future.
+          - generic [ref=f1e207]:
+            - paragraph [ref=f1e208]: 本次审核包含 14 项由模型推演的视觉细节
+            - list [ref=f1e209]:
+              - listitem [ref=f1e210]:
+                - text: "Eleanor Vance's cover-only physical appearance: Use subtle age-legibility appropriate to the source age of fifty, a composed but wounded expression, and restrained contemporary styling; leave ethnicity, hair color, eye color, and body type uncommitted."
+                - generic [ref=f1e211]: · The source provides Eleanor's exact age, family role, and cover-epoch emotional direction but no physical identity or wardrobe details.
+              - listitem [ref=f1e212]:
+                - text: "Chloe Vance's cover-only physical appearance: Use young-adult age-legibility appropriate to the source age of twenty-three and an emotionally hurt expression beginning to harden into resolve; leave ethnicity, hair color, eye color, and body type uncommitted."
+                - generic [ref=f1e213]: · The source provides Chloe's exact age, nursing status, and emotional arc but no physical identity or wardrobe details.
+              - listitem [ref=f1e214]:
+                - text: "Richard Vance's cover-only physical appearance: Use age-legibility appropriate to the source age of fifty-five and polished contemporary business presentation consistent with a high-earning regional executive; leave ethnicity, hair color, eye color, and body type uncommitted."
+                - generic [ref=f1e215]: · The source provides Richard's exact age and executive status but no physical identity or wardrobe details.
+              - listitem [ref=f1e216]:
+                - text: "Spatial composition for the three cover figures: Place Eleanor and Chloe in visible emotional alignment and Richard spatially separated or divided from them, using the empty chair, exposed video, or documentary evidence as a secondary clue rather than depicting the late legal outcome."
+                - generic [ref=f1e217]: · The source establishes the emerging mother-daughter alliance, Richard's divided loyalties, and the empty-chair and evidence motifs but does not prescribe a cover composition.
+              - listitem [ref=f1e218]:
+                - text: "Eleanor Vance's cover-only physical appearance: Cast a believable fifty-year-old woman with a composed but wounded face and restrained contemporary styling; do not prescribe ethnicity, hair color, eye color, or body type."
+                - generic [ref=f1e219]: · The source fixes Eleanor's age, role, and cover-epoch emotional direction but supplies no physical identity or exact wardrobe.
+              - listitem [ref=f1e220]:
+                - text: "Chloe Vance's cover-only physical appearance: Cast a believable twenty-three-year-old woman whose hurt can tighten into recognition; use restrained graduation-appropriate contemporary clothing without prescribing ethnicity, hair color, eye color, or body type."
+                - generic [ref=f1e221]: · The source fixes Chloe's age, nursing achievement, and emotional arc but not her physical identity or wardrobe.
+              - listitem [ref=f1e222]:
+                - text: "Richard Vance's cover-only physical appearance: Cast a believable fifty-five-year-old man with polished contemporary business presentation consistent with a regional executive; do not prescribe ethnicity, hair color, eye color, or body type."
+                - generic [ref=f1e223]: · The source provides Richard's age and executive status but no physical identity or exact wardrobe.
+              - listitem [ref=f1e224]:
+                - text: "Leo Foster's cover-only physical appearance: Cast a believable twenty-year-old man in natural birthday-casual styling; do not imply biological paternity or prescribe ethnicity, hair color, eye color, or body type."
+                - generic [ref=f1e225]: · The composite requires Leo in the source-supported Fort Wayne event, but the source supplies only his age, role, and relationship to Richard.
+              - listitem [ref=f1e226]:
+                - text: "Continuity of principal identities: Use the same performers for Eleanor, Chloe, and Richard across all applicable directions, preserving age-true skin, hair, facial structure, and proportions under different lighting."
+                - generic [ref=f1e227]: · A coherent campaign requires stable identities even though the source leaves physical characteristics open.
+              - listitem [ref=f1e228]:
+                - text: "Graduation-lunch set dressing: Use a modest contemporary lunch interior without signage or geographic markers; treat all furnishings as cover-only set dressing."
+                - generic [ref=f1e229]: · The source confirms the graduation lunch but does not specify its geographic location or interior details.
+              - listitem [ref=f1e230]:
+                - text: "Recorded-confrontation staging: Stage Eleanor and Richard across a narrow dining table with a restrained, unreadable evidence spread and a discreet recorder partly sheltered beneath Eleanor's resting hand."
+                - generic [ref=f1e231]: · The source confirms the evidence, recording, panic, and anger but does not prescribe exact furniture, body positions, or recording-device design.
+              - listitem [ref=f1e232]:
+                - text: "Removed belongings at the threshold: Use a restrained grouping of Richard's suits and business briefcase outside the doorway as immediate belongings removed with him, without implying later employment consequences."
+                - generic [ref=f1e233]: · The source confirms Eleanor throws Richard's suits and briefcase outside during his removal from the marital home.
+              - listitem [ref=f1e234]:
+                - text: "Electronic lock and door staging: Stage a partly open inward-opening door from a three-quarter interior viewpoint; Eleanor firmly holds the inside handle with fingers clear of the latch while the resecured electronic lock remains visible."
+                - generic [ref=f1e235]: · The source confirms Eleanor changes the electronic locks, while exact door geometry and the frozen photographic instant are cover-staging choices.
+              - listitem [ref=f1e236]:
+                - text: "Provider artwork lettering: Generate text-free photographic artwork with genuine upper negative space, then apply the exact full title locally using each composed title layout; include no author line or extra lettering."
+                - generic [ref=f1e237]: · The portfolio requires exact mobile-readable typography while keeping provider artwork free of unreliable generated text.
+          - generic [ref=f1e238]:
+            - article [ref=f1e239]:
+              - generic [ref=f1e240]:
+                - paragraph [ref=f1e241]: 方向 1：A — exposure and recognition
+                - generic [ref=f1e242]: Cross-time relational contradiction
+              - generic [ref=f1e243]:
+                - generic [ref=f1e244]:
+                  - term [ref=f1e245]: 构图
+                  - definition [ref=f1e246]: Cross-time screen diagonal
+                - generic [ref=f1e247]:
+                  - term [ref=f1e248]: 主体策略
+                  - definition [ref=f1e249]: Relationship-led
+                - generic [ref=f1e250]:
+                  - term [ref=f1e251]: 场景
+                  - definition [ref=f1e252]: Recorded-betrayal campaign composite
+                - generic [ref=f1e253]:
+                  - term [ref=f1e254]: 地点
+                  - definition [ref=f1e255]: A Fort Wayne barbecue
+                - generic [ref=f1e256]:
+                  - term [ref=f1e257]: 美术风格
+                  - definition [ref=f1e258]: Live-action photographic campaign imagery with unselfconscious behavior, believable age-true faces, natural skin and hair, subtle tonal variation, soft highlight roll-off, real contact shadows, and no beautification or synthetic cutout edges.
+                - generic [ref=f1e259]:
+                  - term [ref=f1e260]: 情绪
+                  - definition [ref=f1e261]: Cold recognition set against seductive public warmth.
+                - generic [ref=f1e262]:
+                  - term [ref=f1e263]: 字体排版
+                  - definition [ref=f1e264]: Centered serif-bold lettering in white, with “Hidden Family,” “Twenty Years,” and “Our Daughter” enlarged and a restrained oxidized-red rule beneath “Our Daughter”; no distressing, author line, or extra text.
+              - paragraph [ref=f1e265]: In the later lunch layer, Chloe holds the forwarded video naturally between herself and Eleanor as both go cold; in the earlier Fort Wayne layer, Richard releases new pickup-truck keys into Leo's hand.
+              - generic [ref=f1e266]:
+                - generic [ref=f1e267]:
+                  - generic [ref=f1e268]: 直接冲突
+                  - generic [ref=f1e269]: The eye moves from Eleanor's recognition and Chloe's phone to the earlier key handoff that caused their shock, then returns to the closed emotional space between mother and daughter.
+                - paragraph [ref=f1e270]: 缩略图故事：A mother and daughter discover that the father who missed the daughter's graduation was warmly giving another young man a new vehicle.
+                - paragraph [ref=f1e271]: 原因：Richard visibly placing new pickup-truck keys into Leo's hand in the earlier Fort Wayne recording. · 后果：Eleanor turns her attention from the video toward Chloe as both women go cold with recognition.
+              - paragraph [ref=f1e272]: 出场人物：char-eleanor-vance、char-chloe-vance、char-richard-vance、char-leo-foster · 核心道具/意象：The phone carrying the public Fort Wayne barbecue video, treated as a clean evidentiary surface rather than a legible social-media interface.
+              - paragraph [ref=f1e273]: What will Eleanor do now that Richard's public celebration proves where he chose to be during Chloe's graduation?
+              - generic [ref=f1e274]:
+                - paragraph [ref=f1e275]: 电影宣传组合海报 · At the graduation lunch, after the ceremony and before any direct confrontation with Richard.
+                - paragraph [ref=f1e276]: 画面局势：Richard gives Leo new pickup-truck keys in an earlier Fort Wayne celebration that Eleanor and Chloe view later at the graduation lunch.
+                - paragraph [ref=f1e277]: 异常与钩子：The man absent from his high-achieving daughter's graduation is radiant while giving another young man a new vehicle.
+                - paragraph [ref=f1e278]: 刻意留白：How extensive Richard's hidden commitment is and how Eleanor and Chloe will respond remain unresolved.
+                - paragraph [ref=f1e279]: char-richard-vance → Richard releases the new pickup-truck keys into Leo's open hand. → char-leo-foster；Leo receives the keys and meets Richard's celebratory attention.
+                - paragraph [ref=f1e280]: char-chloe-vance → Chloe holds the forwarded video where Eleanor can view it beside her. → char-eleanor-vance；Eleanor goes cold as her attention shifts from the image toward Chloe.
+                - group [ref=f1e281]:
+                  - generic "海报图层与故事时点" [ref=f1e282]
+              - generic [ref=f1e283]:
+                - paragraph [ref=f1e284]: "设计理由：The contradiction explains the betrayal before any document must be read: Richard gives visible attention and material generosity to Leo while Eleanor and Chloe witness the proof later. Dominant scale stays with the women, preserving reader identification with their shared injury."
+                - paragraph [ref=f1e285]: 故事依据：Richard attends Leo's twentieth-birthday barbecue in Fort Wayne and gives him pickup-truck keys while Chloe graduates; a public video exposes his lie to Eleanor and Chloe at the later graduation lunch.
+                - paragraph [ref=f1e286]: 字体表达：Seven balanced lines keep the exact long title readable at mobile size, while the emphasized phrases form three escalating accusations above the two-layer revelation.
+                - paragraph [ref=f1e287]: 差异说明：This is the portfolio's only cross-time composite and derives suspense from recorded evidence rather than a live confrontation or household boundary.
+            - article [ref=f1e288]:
+              - generic [ref=f1e289]:
+                - paragraph [ref=f1e290]: 方向 2：B — confrontation and documentation
+                - generic [ref=f1e291]: Quiet evidentiary confrontation
+              - generic [ref=f1e292]:
+                - generic [ref=f1e293]:
+                  - term [ref=f1e294]: 构图
+                  - definition [ref=f1e295]: Compressed table opposition
+                - generic [ref=f1e296]:
+                  - term [ref=f1e297]: 主体策略
+                  - definition [ref=f1e298]: Character-led
+                - generic [ref=f1e299]:
+                  - term [ref=f1e300]: 场景
+                  - definition [ref=f1e301]: Domestic evidence confrontation
+                - generic [ref=f1e302]:
+                  - term [ref=f1e303]: 地点
+                  - definition [ref=f1e304]: The Vance marital home
+                - generic [ref=f1e305]:
+                  - term [ref=f1e306]: 美术风格
+                  - definition [ref=f1e307]: Live-action photographic campaign still with unselfconscious actor behavior, believable hand-to-prop contact, age-true skin and hair, natural focus falloff, soft practical-light roll-off, and no glamour retouching, etched pores, or artificial edge halos.
+                - generic [ref=f1e308]:
+                  - term [ref=f1e309]: 情绪
+                  - definition [ref=f1e310]: Methodical restraint against evidence-driven panic.
+                - generic [ref=f1e311]:
+                  - term [ref=f1e312]: 字体排版
+                  - definition [ref=f1e313]: A centered serif-bold statement in white with smaller same-family connective lines; “Hidden Family,” “Twenty Years,” and “Our Daughter” receive dominant scale, with one restrained rust underline and no distressed effects.
+              - paragraph [ref=f1e314]: Eleanor keeps a recording device quiet beneath her resting hand while holding Richard's gaze; Richard draws one displayed still toward himself as panic sharpens into anger.
+              - generic [ref=f1e315]:
+                - generic [ref=f1e316]:
+                  - generic [ref=f1e317]: 直接冲突
+                  - generic [ref=f1e318]: The reading path rises from Eleanor's discreet recording hand to her steady face, crosses the displayed proof, and terminates in Richard's evidence-driven panic.
+                - paragraph [ref=f1e319]: 缩略图故事：A wife quietly records her husband's panicked reaction to proof of his divided family loyalty.
+                - paragraph [ref=f1e320]: 原因：Richard visibly recoils from and reaches toward the displayed video stills and financial records as his composure fractures. · 后果：Eleanor holds her position and quietly records his response rather than retreating from his anger.
+              - paragraph [ref=f1e321]: 出场人物：char-eleanor-vance、char-richard-vance · 核心道具/意象：The discreet recorder Eleanor uses while Richard reacts to the evidence.
+              - paragraph [ref=f1e322]: What will Richard expose as Eleanor quietly records his response to the evidence?
+              - generic [ref=f1e323]:
+                - paragraph [ref=f1e324]: 同场景冲突海报 · Chapter 7 and Chapter 8, after Richard's late return.
+                - paragraph [ref=f1e325]: 画面局势：Eleanor quietly records while confronting Richard with evidence that drives his panicked, angry response.
+                - paragraph [ref=f1e326]: 异常与钩子：The executive accustomed to controlling the respectable household is destabilized by his wife's calm command of the proof.
+                - paragraph [ref=f1e327]: 刻意留白：What Richard will admit and how Eleanor will use the recording remain unrevealed.
+                - paragraph [ref=f1e328]: char-eleanor-vance → Eleanor quietly records while maintaining her position across the displayed evidence from Richard. → char-richard-vance；Richard pitches forward in panic and anger at the displayed evidence.
+                - group [ref=f1e329]:
+                  - generic "海报图层与故事时点" [ref=f1e330]
+              - generic [ref=f1e331]:
+                - paragraph [ref=f1e332]: 设计理由：The scene makes Eleanor active without turning the recording into a theatrical trap. Richard's reaction remains causally truthful because the displayed proof breaks his composure, and the two-person staging avoids asserting Chloe's presence during this captured instant.
+                - paragraph [ref=f1e333]: 故事依据：Eleanor confronts Richard with video stills, toll bills, and debit-card statements and quietly records his panicked, angry response.
+                - paragraph [ref=f1e334]: 字体表达：The ordered vertical lockup echoes Eleanor's methodical construction of a record; balanced seven-line phrasing prevents the exact long title from collapsing into thumbnail-sized text.
+                - paragraph [ref=f1e335]: 差异说明：Unlike the cross-time discovery and threshold boundary, this direction derives suspense from a real-time procedural action inside the marriage.
+            - article [ref=f1e336]:
+              - generic [ref=f1e337]:
+                - paragraph [ref=f1e338]: 方向 3：C — boundary and agency
+                - generic [ref=f1e339]: Domestic access reversal
+              - generic [ref=f1e340]:
+                - generic [ref=f1e341]:
+                  - term [ref=f1e342]: 构图
+                  - definition [ref=f1e343]: Partly open threshold wedge
+                - generic [ref=f1e344]:
+                  - term [ref=f1e345]: 主体策略
+                  - definition [ref=f1e346]: Environment-led
+                - generic [ref=f1e347]:
+                  - term [ref=f1e348]: 场景
+                  - definition [ref=f1e349]: Domestic removal and lock change
+                - generic [ref=f1e350]:
+                  - term [ref=f1e351]: 地点
+                  - definition [ref=f1e352]: The Vance marital home
+                - generic [ref=f1e353]:
+                  - term [ref=f1e354]: 美术风格
+                  - definition [ref=f1e355]: Live-action photographic campaign still with believable balance, coherent door mechanics, real garment and briefcase contact, age-true skin and hair, motivated mixed-temperature light, natural focus falloff, and no glamour finish or synthetic edge halos.
+                - generic [ref=f1e356]:
+                  - term [ref=f1e357]: 情绪
+                  - definition [ref=f1e358]: Quietly defiant and unsettled at the beginning of separation, never victorious.
+                - generic [ref=f1e359]:
+                  - term [ref=f1e360]: 字体排版
+                  - definition [ref=f1e361]: Centered sans-bold lettering shaped by subtly narrowing line lengths, with “Hidden Family,” “Twenty Years,” and “Our Daughter” largest in exact reading order; white type and a restrained brass accent echo the door hardware.
+              - paragraph [ref=f1e362]: From a three-quarter interior view, Eleanor firmly holds the inside handle of the partly open door beside the visible electronic lock; Richard protests outside near the suits and briefcase removed with him.
+              - generic [ref=f1e363]:
+                - generic [ref=f1e364]:
+                  - generic [ref=f1e365]: 直接冲突
+                  - generic [ref=f1e366]: Richard's excluded body and removed belongings establish the rupture; the door edge leads directly to Eleanor's face and firm grip, making her active boundary the final visual beat.
+                - paragraph [ref=f1e367]: 缩略图故事：A wife controls the resecured home threshold while her betraying husband protests outside beside the business belongings removed with him.
+                - paragraph [ref=f1e368]: 原因：Richard remains outside the marital threshold with his suits and briefcase after the betrayal and household confrontation. · 后果：Eleanor firmly holds the inside handle beside the visible electronic lock, maintaining control of access despite visible uncertainty.
+              - paragraph [ref=f1e369]: 出场人物：char-eleanor-vance、char-richard-vance · 核心道具/意象：The visible electronic lock governing Richard's access.
+              - paragraph [ref=f1e370]: Can Eleanor maintain the boundary she has drawn against Richard?
+              - generic [ref=f1e371]:
+                - paragraph [ref=f1e372]: 同场景冲突海报 · After the bear pendant is broken.
+                - paragraph [ref=f1e373]: 画面局势：Eleanor controls the resecured threshold from inside while Richard remains outside near the suits and briefcase removed with him.
+                - paragraph [ref=f1e374]: 异常与钩子：The high-status husband who treated the household as his domain is denied access by the woman whose contributions sustained it.
+                - paragraph [ref=f1e375]: 刻意留白：Whether Eleanor can protect the home and recover what Richard diverted remains unresolved.
+                - paragraph [ref=f1e376]: char-eleanor-vance → Eleanor holds the inside handle beside the resecured electronic lock, maintaining the household boundary against Richard. → char-richard-vance；Richard protests from outside near the suits and briefcase removed with him.
+                - group [ref=f1e377]:
+                  - generic "海报图层与故事时点" [ref=f1e378]
+              - generic [ref=f1e379]:
+                - paragraph [ref=f1e380]: "设计理由：The threshold converts Eleanor's response into a universally legible action specific to the source: she controls access to the home she helped create. Richard's exterior position and removed executive belongings show immediate consequence without revealing later workplace or legal outcomes."
+                - paragraph [ref=f1e381]: 故事依据：After the bear pendant is broken, Eleanor removes Richard from the marital home and changes the electronic locks while he protests that they cannot manage the property tax without him.
+                - paragraph [ref=f1e382]: 字体表达：The narrowing seven-line lockup echoes the doorway without splitting the sentence into competing columns, and the enlarged upper region preserves full-title readability on mobile.
+                - paragraph [ref=f1e383]: 差异说明：This is the portfolio's only environment-led direction, using domestic architecture and controlled access rather than recorded media or tabletop evidence.
+          - button "重新规划封面方向" [ref=f1e384]: 重新规划方向
+        - generic [ref=f1e388]:
+          - generic [ref=f1e389]:
+            - heading "已生成 3/3 张" [level=2] [ref=f1e390]
+            - paragraph [ref=f1e391]: 已就绪
+          - generic [ref=f1e392]:
+            - text: 版本
+            - combobox "版本" [ref=f1e393]:
+              - option "最新 · 已就绪" [selected]
+              - option "版本 1 · 已选择"
+        - generic [ref=f1e394]:
+          - article [ref=f1e395]:
+            - generic [ref=f1e396]:
+              - img "封面候选图 1" [ref=f1e397]
+              - generic [ref=f1e398]: 已就绪
+              - link "查看候选图 1原始尺寸" [ref=f1e399] [cursor=pointer]:
+                - /url: /api/projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events/media/598a4c2ac1e1/raw
+            - generic [ref=f1e404]:
+              - paragraph [ref=f1e405]: An elegant cross-time composite makes the public birthday recording the structural wound. Eleanor and Chloe dominate the cool graduation-lunch layer while a separate amber layer shows Richard giving Leo the truck keys; a clean diagonal transition preserves the different times and places.
+              - paragraph [ref=f1e406]: In the later lunch layer, Chloe holds the forwarded video naturally between herself and Eleanor as both go cold; in the earlier Fort Wayne layer, Richard releases new pickup-truck keys into Leo's hand.
+              - paragraph [ref=f1e407]: 需要人工审核
+              - generic [ref=f1e408]:
+                - generic [ref=f1e409]:
+                  - paragraph [ref=f1e410]: 评估已完成
+                  - paragraph [ref=f1e411]: 请结合故事表达与画面效果做最终选择。
+                  - paragraph [ref=f1e412]: 不会自动追加出图。已批准额外出图 0 次，当前剩余 0 次。
+                  - button "重新评估已有图片" [ref=f1e413]
+                - generic [ref=f1e414]:
+                  - paragraph [ref=f1e415]: 候选图差异检查
+                  - paragraph [ref=f1e416]: 未发现像素层面的重复。仍需人工判断故事表达是否雷同。
+                  - paragraph [ref=f1e417]: 此项只比较图像相似度，不代表故事差异或商业吸引力评分。
+                - group [ref=f1e418]:
+                  - generic "查看故事与画面评估" [ref=f1e419] [cursor=pointer]
+                - generic [ref=f1e420]:
+                  - link "查看无标题画稿" [ref=f1e421] [cursor=pointer]:
+                    - /url: /api/projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events/media/9899a196f4d9/raw
+                  - link "查看完整封面" [ref=f1e422] [cursor=pointer]:
+                    - /url: /api/projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events/media/598a4c2ac1e1/raw
+                - group [ref=f1e423]:
+                  - generic "生成与修复对比（2 次）" [ref=f1e424] [cursor=pointer]
+              - generic [ref=f1e425]:
+                - text: 人工接受理由
+                - textbox "候选图 1的人工接受理由" [ref=f1e426]:
+                  - /placeholder: 说明已检查的问题，以及仍选择这张封面的理由
+                - text: 当前评估未达到建议标准，选择前需要留下理由。
+              - generic [ref=f1e427]:
+                - button "选择候选图 1" [disabled] [ref=f1e428]: 选择
+                - button "拒绝候选图 1" [ref=f1e433]: 拒绝
+          - article [ref=f1e434]:
+            - generic [ref=f1e435]:
+              - img "封面候选图 2" [ref=f1e436]
+              - generic [ref=f1e437]: 已就绪
+              - link "查看候选图 2原始尺寸" [ref=f1e438] [cursor=pointer]:
+                - /url: /api/projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events/media/889a99ae9b92/raw
+            - generic [ref=f1e443]:
+              - paragraph [ref=f1e444]: A single domestic confrontation is structured around Eleanor's quiet recording and Richard's evidence-driven loss of composure. The recorder remains consequential but unobtrusive; Richard's panic belongs to the displayed proof before him.
+              - paragraph [ref=f1e445]: Eleanor keeps a recording device quiet beneath her resting hand while holding Richard's gaze; Richard draws one displayed still toward himself as panic sharpens into anger.
+              - paragraph [ref=f1e446]: 需要人工审核
+              - generic [ref=f1e447]:
+                - generic [ref=f1e448]:
+                  - paragraph [ref=f1e449]: 评估已完成
+                  - paragraph [ref=f1e450]: 画面工艺需要修复。当前支持按原方案重绘整图，不支持局部编辑。
+                  - paragraph [ref=f1e451]: 不会自动追加出图。已批准额外出图 0 次，当前剩余 0 次。
+                  - button "重新评估已有图片" [ref=f1e452]
+                - generic [ref=f1e453]:
+                  - paragraph [ref=f1e454]: 候选图差异检查
+                  - paragraph [ref=f1e455]: 未发现像素层面的重复。仍需人工判断故事表达是否雷同。
+                  - paragraph [ref=f1e456]: 此项只比较图像相似度，不代表故事差异或商业吸引力评分。
+                - group [ref=f1e457]:
+                  - generic "查看故事与画面评估" [ref=f1e458] [cursor=pointer]
+                - generic [ref=f1e459]:
+                  - link "查看无标题画稿" [ref=f1e460] [cursor=pointer]:
+                    - /url: /api/projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events/media/8fa2a5a21684/raw
+                  - link "查看完整封面" [ref=f1e461] [cursor=pointer]:
+                    - /url: /api/projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events/media/889a99ae9b92/raw
+                - group [ref=f1e462]:
+                  - generic "生成与修复对比（2 次）" [ref=f1e463] [cursor=pointer]
+              - generic [ref=f1e464]:
+                - text: 人工接受理由
+                - textbox "候选图 2的人工接受理由" [ref=f1e465]:
+                  - /placeholder: 说明已检查的问题，以及仍选择这张封面的理由
+                - text: 当前评估未达到建议标准，选择前需要留下理由。
+              - generic [ref=f1e466]:
+                - button "选择候选图 2" [disabled] [ref=f1e467]: 选择
+                - button "拒绝候选图 2" [ref=f1e472]: 拒绝
+          - article [ref=f1e473]:
+            - generic [ref=f1e474]:
+              - img "封面候选图 3" [ref=f1e475]
+              - generic [ref=f1e476]: 已就绪
+              - link "查看候选图 3原始尺寸" [ref=f1e477] [cursor=pointer]:
+                - /url: /api/projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events/media/36ebfaa37d70/raw
+            - generic [ref=f1e482]:
+              - paragraph [ref=f1e483]: "The home threshold becomes an active mechanism: Eleanor controls the resecured doorway from inside while Richard protests outside near the suits and briefcase removed with him. Her uncertainty remains visible, preventing the scene from reading as completed victory."
+              - paragraph [ref=f1e484]: From a three-quarter interior view, Eleanor firmly holds the inside handle of the partly open door beside the visible electronic lock; Richard protests outside near the suits and briefcase removed with him.
+              - paragraph [ref=f1e485]: 发现质量阻塞问题
+              - generic [ref=f1e486]:
+                - generic [ref=f1e487]:
+                  - paragraph [ref=f1e488]: 评估已完成
+                  - paragraph [ref=f1e489]: 画面工艺需要修复。当前支持按原方案重绘整图，不支持局部编辑。
+                  - paragraph [ref=f1e490]: 不会自动追加出图。已批准额外出图 0 次，当前剩余 0 次。
+                  - button "重新评估已有图片" [ref=f1e491]
+                - generic [ref=f1e492]:
+                  - paragraph [ref=f1e493]: 候选图差异检查
+                  - paragraph [ref=f1e494]: 未发现像素层面的重复。仍需人工判断故事表达是否雷同。
+                  - paragraph [ref=f1e495]: 此项只比较图像相似度，不代表故事差异或商业吸引力评分。
+                - group [ref=f1e496]:
+                  - generic "查看故事与画面评估" [ref=f1e497] [cursor=pointer]
+                - generic [ref=f1e498]:
+                  - link "查看无标题画稿" [ref=f1e499] [cursor=pointer]:
+                    - /url: /api/projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events/media/76950d05650d/raw
+                  - link "查看完整封面" [ref=f1e500] [cursor=pointer]:
+                    - /url: /api/projects/he-chose-his-hidden-family-for-twenty-years-and-abandoned-our-daughter-during-her-most-important-life-events/media/36ebfaa37d70/raw
+                - group [ref=f1e501]:
+                  - generic "生成与修复对比（2 次）" [ref=f1e502] [cursor=pointer]
+              - generic [ref=f1e503]:
+                - text: 人工接受理由
+                - textbox "候选图 3的人工接受理由" [ref=f1e504]:
+                  - /placeholder: 说明已检查的问题，以及仍选择这张封面的理由
+                - text: 当前评估未达到建议标准，选择前需要留下理由。
+              - generic [ref=f1e505]:
+                - button "选择候选图 3" [disabled] [ref=f1e506]: 选择
+                - button "拒绝候选图 3" [ref=f1e511]: 拒绝

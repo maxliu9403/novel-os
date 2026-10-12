@@ -122,3 +122,27 @@ def test_default_live_director_uses_v9_and_hydrates_policy_after_model_response(
     direction = director.plan(brief, count=4)
     assert direction.profile_version == 'cover-profiles.v9'
     assert all(plan.story_policy_version == 'cover-story.v1' for plan in direction.plans)
+
+
+def test_action_object_and_passive_victim_are_not_pressure_subjects():
+    from core.cover_story_policy import story_cast_policy
+    brief, _ = story_fixture()
+    neutral = replace(brief.principal_characters[1], narrative_role='spouse')
+    brief = replace(brief, principal_characters=(brief.principal_characters[0], neutral), relationship_map=(),
+                    core_conflict='Mara threatens Oren. Oren is betrayed by Mara.')
+    assert story_cast_policy(brief, 4)['pressure_character_ids'] == []
+
+
+def test_chinese_roles_and_directional_pressure_do_not_confuse_victims():
+    from core.cover_story_policy import story_cast_policy
+    brief, _ = story_fixture()
+    heroine = replace(brief.principal_characters[0], name='林青', narrative_role='女主角')
+    spouse = replace(brief.principal_characters[1], name='赵远', narrative_role='配偶')
+    child = replace(brief.principal_characters[2], name='林安', narrative_role='共同主人公')
+    brief = replace(brief, principal_characters=(heroine, spouse, child), relationship_map=(),
+                    core_conflict='赵远威胁林青，林青保护林安。')
+    policy = story_cast_policy(brief, 4)
+    assert policy['focal_character_ids'] == ['char_mara', 'char_child']
+    assert policy['pressure_character_ids'] == ['char_oren']
+    brief = replace(brief, core_conflict='林青威胁赵远。赵远被林青背叛。')
+    assert story_cast_policy(brief, 4)['pressure_character_ids'] == []

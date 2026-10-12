@@ -7,6 +7,13 @@ approval policy, and compilation.
 
 from __future__ import annotations
 
+try:
+    from core.usage_tracking import scoped_usage
+except ModuleNotFoundError as exc:
+    if exc.name != "core":
+        raise
+    from usage_tracking import scoped_usage
+
 import hashlib
 import json
 import os
@@ -221,6 +228,7 @@ class PipelineRunner:
     def _store(cls, project: Path, run_id: str) -> ManifestStore:
         return ManifestStore(cls._run_dir(project, run_id) / "run.json")
 
+    @scoped_usage("manuscript", lambda a: a["spec"].project_path)
     def run(self, spec: RunSpec) -> RunManifest:
         project = Path(spec.project_path).resolve()
         spec.project_path = str(project)
@@ -246,6 +254,7 @@ class PipelineRunner:
                 self._event(manifest, "methods.policy_unavailable", error_type=method_policy_error)
             return self._execute(manifest, project, store)
 
+    @scoped_usage("manuscript", lambda a: a["project_path"] or a["self"].project_path or ".")
     def resume(
         self,
         run_id: str,

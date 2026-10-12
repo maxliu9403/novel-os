@@ -13,7 +13,7 @@ STORY_PROFILE = "cover-profiles.v9"
 
 
 def uses_story_policy(profile: str) -> bool:
-    return profile.casefold() == STORY_PROFILE
+    return profile.casefold() in {STORY_PROFILE, "cover-profiles.v10"}
 
 
 def _role(value: str) -> str:
@@ -27,7 +27,10 @@ def _named_pressure(name: str, text: str) -> bool:
     action = r"(?:abandons?|betrays?|excludes?|threatens?|evicts?|controls?|blackmails?|conceals?|withholds?)\b"
     return bool(name.strip() and (
         re.search(subject + rf"(?:\s+{action}|['’]s\s+(?:betrayal|abandonment|exclusion|coercion|threat)\b)", text, re.IGNORECASE)
-        or re.search(action + rf"\s+{subject}", text, re.IGNORECASE)
+        # An action followed by the person's name identifies the object/victim,
+        # not its initiator ("Mara threatens Oren").  Passive subjects likewise
+        # cannot enter this branch because the action must follow the name.
+        or re.search(re.escape(name.strip()) + r"(?:正|曾|正在|一直)?(?:抛弃|背叛|排挤|威胁|驱逐|控制|勒索|隐瞒|扣留|逼迫|强迫)", text)
     ))
 
 
@@ -36,8 +39,8 @@ def story_cast_policy(brief: CoverBriefV2, count: int) -> dict[str, Any]:
     characters = brief.principal_characters
     heroes = [
         item.character_id for item in characters
-        if re.search(r"\b(protagonist|heroine|hero|lead|main character)\b", _role(item.narrative_role))
-        and not re.search(r"\b(antagonist|villain)\b", _role(item.narrative_role))
+        if re.search(r"\b(protagonist|heroine|hero|lead|main character)\b|主角|主人公|主视角", _role(item.narrative_role))
+        and not re.search(r"\b(antagonist|villain)\b|反派|对立|施压", _role(item.narrative_role))
     ] or [brief.reader_anchor_character.character_id]
     conflict_evidence = "\n".join([
         brief.core_conflict,
@@ -47,13 +50,13 @@ def story_cast_policy(brief: CoverBriefV2, count: int) -> dict[str, Any]:
         item.character_id for item in characters
         if item.character_id not in heroes
         and (
-            re.search(r"\b(antagonist|villain|opposing force|opponent)\b", _role(item.narrative_role))
+            re.search(r"\b(antagonist|villain|opposing force|opponent)\b|反派|对立角色|对立方|施压者|主要阻力", _role(item.narrative_role))
             or _named_pressure(item.name, conflict_evidence)
         )
     ]
     primary_pressure = [
         item.character_id for item in characters if item.character_id in pressure
-        and not re.search(r"\b(secondary|minor)\b", _role(item.narrative_role))
+        and not re.search(r"\b(secondary|minor)\b|次要|次级", _role(item.narrative_role))
     ] or pressure
     known = {item.character_id for item in characters}
     linked = set()

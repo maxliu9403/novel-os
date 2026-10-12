@@ -187,10 +187,41 @@ def pending_fields(brief: CoverBriefV2) -> list[dict[str, str]]:
     return result
 
 
+def blocking_pending_fields(brief: CoverBriefV2) -> list[dict[str, str]]:
+    """Return only source-owned confirmations that the workflow must collect."""
+    result = pending_fields(brief)
+    blocking = {item.field for item in brief.blocking_pending_critical_assumptions()}
+    return [item for item in result if item["field"] in blocking]
+
+
+def source_supplement_recommendations(brief: CoverBriefV2) -> list[dict[str, str]]:
+    """Expose optional skeleton improvements without turning them into a gate."""
+    result: list[dict[str, str]] = []
+    for assumption in brief.model_inferred_assumptions():
+        item = {
+            "field": assumption.field,
+            "label": _field_label(brief, assumption.field),
+            "proposed_value": assumption.proposed_value,
+            "reason": assumption.reason,
+            "provenance": assumption.provenance,
+        }
+        match = _CHARACTER_FIELD.fullmatch(assumption.field)
+        if match:
+            index = int(match.group("index"))
+            if index < len(brief.principal_characters):
+                character = brief.principal_characters[index]
+                item["character_id"] = character.character_id
+                item["character_name"] = character.name
+        result.append(item)
+    return result
+
+
 def response_payload(brief: CoverBriefV2) -> dict[str, Any]:
     return {
         "brief": brief.to_dict(),
         "pending_fields": pending_fields(brief),
+        "blocking_pending_fields": blocking_pending_fields(brief),
+        "source_supplement_recommendations": source_supplement_recommendations(brief),
         "revision_sha256": brief_revision_sha256(brief),
     }
 
@@ -530,9 +561,11 @@ __all__ = [
     "RELATIVE_PATH",
     "StoryFactsLock",
     "apply_persisted_story_facts",
+    "blocking_pending_fields",
     "brief_revision_sha256",
     "confirm_missing_story_facts",
     "pending_fields",
     "read_cover_source_snapshot",
     "response_payload",
+    "source_supplement_recommendations",
 ]

@@ -7,6 +7,10 @@ for the UI to poll. Single-process, single-user no external queue needed.
 
 from __future__ import annotations
 
+from contextvars import copy_context
+from contextlib import nullcontext
+from core.usage_tracking import usage_scope
+
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -49,6 +53,8 @@ class JobRunner:
         *,
         result_mapper: Callable[[object], dict] | None = None,
         unique_key: str = "",
+        cancel_event: threading.Event | None = None,
+        defer_cancel_completion: bool = False,
     ) -> str:
         with self._lock:
             project_path = str((meta or {}).get("project_path") or "")
@@ -74,11 +80,17 @@ class JobRunner:
                 "meta": dict(meta or {}),
                 **(meta or {}),
                 "_unique_key": unique_key,
+                "_cancel_event": cancel_event,
+                "_defer_cancel_completion": defer_cancel_completion,
+                "cancel_requested": False,
             }
 
         def run() -> None:
             try:
-                result = fn()
+                owner = (meta or {}).get("project_path")
+                scope = usage_scope(owner, "cover" if kind.startswith("cover.") else "manuscript") if owner else nullcontext()
+                with scope:
+                    result = fn()
                 result_meta = (
                     result_mapper(result)
                     if result_mapper is not None
@@ -88,8 +100,25 @@ class JobRunner:
             except Exception as e:  # noqa: BLE001 - surface any agent failure to the UI
                 self._update(job_id, status="error", error=f"{type(e).__name__}: {e}")
 
-        threading.Thread(target=run, daemon=True).start()
+        threading.Thread(target=copy_context().run, args=(run,), daemon=True).start()
         return job_id
+
+    def cancel(self, job_id: str) -> bool:
+        """Request cancellation; opted-in workers remain active until they drain."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job or job.get("_cancel_event") is None:
+                return False
+            if job.get("_cancelled") or job.get("cancel_requested"):
+                return True
+            if job.get("status") != "running":
+                return False
+            job["_cancel_event"].set()
+            job["cancel_requested"] = True
+            if job.get("_defer_cancel_completion"):
+                return True
+            job.update(status="error", error="任务已暂停。", finished_at=_now(), _cancelled=True)
+            return True
 
     def running_for_project(
         self, project_id: str, *, project_path: str = ""
@@ -102,6 +131,20 @@ class JobRunner:
                 if job.get("status") == "running"
                 and self._matches_project(job, project_id, project_path)
             ]
+
+    def latest_for_project(
+        self, project_id: str, *, project_path: str = "", kind: str, run_id: str
+    ) -> dict | None:
+        """Inspect the latest submitted operation without treating it as run state."""
+        with self._lock:
+            for job in reversed(self._jobs.values()):
+                if (
+                    job.get("kind") == kind
+                    and job.get("run_id") == run_id
+                    and self._matches_project(job, project_id, project_path)
+                ):
+                    return self._copy_job(job)
+        return None
 
     def prepare_project_deletion(self, project_id: str, project_path: str) -> None:
         """Atomically reject active work and fence the path from new work.
@@ -133,7 +176,11 @@ class JobRunner:
     def _update(self, job_id: str, **fields) -> None:
         with self._lock:
             job = self._jobs.get(job_id)
-            if job:
+            if job and not job.get("_cancelled"):
+                if job.get("_defer_cancel_completion") and job.get("cancel_requested"):
+                    # The callable has exited, including any in-flight result
+                    # persistence. Only now release uniqueness/deletion fences.
+                    fields.update(status="error", error="任务已暂停。", _cancelled=True)
                 if "meta" in fields:
                     merged = dict(job.get("meta") or {})
                     merged.update(fields.pop("meta") or {})
@@ -167,6 +214,9 @@ class JobRunner:
     def _copy_job(job: dict) -> dict:
         result = dict(job)
         result.pop("_unique_key", None)
+        result.pop("_cancel_event", None)
+        result.pop("_cancelled", None)
+        result.pop("_defer_cancel_completion", None)
         result["meta"] = dict(job.get("meta") or {})
         return result
 

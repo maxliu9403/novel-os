@@ -221,7 +221,10 @@ def _legacy_cover_brief(project: Path, prompt_text: str) -> CoverBrief:
         "language": language,
         "genre": genre,
         "target_audience": audience,
-        "market_scope": f"{language} serialized fiction",
+        "market_scope": _text(
+            brief.get("market_scope"), metadata.get("market_scope"),
+            bible.get("market_scope"), "unspecified",
+        ),
         "core_task": _text(
             protagonist.get("external_goal"), main_thread.get("description"), premise
         ),
@@ -330,40 +333,19 @@ def _declares_fictional(value: str) -> bool:
     return any(marker in folded for marker in ("fictional", "fictionalized", "imaginary", "invented", "虚构"))
 
 
-def _uses_western_market(brief: CoverBrief) -> bool:
-    """Select the Western commercial profile from the locked market branch."""
-    market = f"{brief.language} {brief.market_scope}".casefold()
-    return any(
-        marker in market
-        for marker in (
-            "english",
-            "英文",
-            "英语",
-            "united states",
-            "美国",
-            "u.s.",
-            "us market",
-            "north america",
-            "北美",
-            "american",
-            "欧美",
-            "western",
-            "europe",
-        )
-    )
-
-
-def _western_market_direction() -> list[str]:
-    """Return model-facing direction for premium English-market cover art."""
+def _market_visual_direction(brief: CoverBrief) -> list[str]:
+    """Keep source market metadata separate from language and visual quality."""
+    market = brief.market_scope.strip() or "unspecified"
     return [
-        "Market visual direction: target the United States and North American serialized-fiction market.",
+        f"Source-declared release market: {market}.",
+        "Do not infer a release market from the title language, and do not replace a broad or unspecified market with a particular country. Derive cultural and setting details only from the approved story.",
         "Casting and identity: preserve only identity traits explicitly established in the approved story. Do not infer or invent ethnicity, nationality, or other identity traits from the release market.",
-        "Aesthetic: premium US commercial fiction magazine cover expressed as a live-action theatrical film campaign poster, built around a believable on-set publicity still with cinematic production design, sophisticated color grading, realistic skin texture, and a high-end campaign finish; avoid a stock-photo or synthetic-composite look.",
+        "Aesthetic: premium commercial fiction magazine cover expressed as a live-action theatrical film campaign poster, built around a believable on-set publicity still with cinematic production design, sophisticated color grading, realistic skin texture, and a high-end campaign finish; avoid a stock-photo or synthetic-composite look.",
         "Character priority: keep the principal characters immediately clear, unobstructed, recognizable, and larger than environmental detail; faces, eyes, expression, hands, and the story-relevant gesture must remain readable at mobile thumbnail size.",
         "Story feeling: make the image feel like a scene, not a generic portrait; show one frozen cinematic story moment with visible action, reaction, and stakes, so the viewer can infer what just happened and what is about to happen.",
         "Core story atmosphere: derive the mood from the approved conflict through expression, body distance, unfinished action, motivated light, lived setting, and one story-bearing prop rather than a generic filter or decorative symbolism.",
         "Conflict staging: build emotional geography rather than generic sadness or a flat group portrait. The foreground carries the emotional consequence or decisive response while the background reveals the cause through an evidence-supported relationship action; connect the planes through gaze, gesture, distance, and interrupted movement.",
-        "Western editorial typography: choose a premium display serif or refined modern grotesk that fits the genre, with precise kerning, deliberate tracking, strong hierarchy, and a cinematic centered title lockup on the horizontal center axis within generous title-safe space for mobile thumbnail readability.",
+        "Editorial typography: choose a premium display font that fits the genre and supports the exact title language, with precise kerning, deliberate tracking, strong hierarchy, and a cinematic centered title lockup on the horizontal center axis within generous title-safe space for mobile thumbnail readability.",
     ]
 
 
@@ -463,10 +445,9 @@ def _generation_prompt(brief: CoverBrief, strategy: dict[str, str]) -> str:
         f"Exclude: {forbidden}; real place names and identifiable real-city landmarks.",
         "Keep one dominant conflict. Do not create a collage or multiple competing scenes.",
     ]
-    if _uses_western_market(brief):
-        # Keep market direction close to the visual instructions so the image
-        # model treats it as art direction rather than optional metadata.
-        lines[1:1] = _western_market_direction()
+    # This legacy entry point still creates new images. Preserve its quality
+    # policy without translating language or a broad region into a US market.
+    lines[1:1] = _market_visual_direction(brief)
     return "\n".join(lines)
 
 

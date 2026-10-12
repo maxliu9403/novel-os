@@ -7,6 +7,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+from core.usage_tracking import scoped_usage
 
 from . import db, richtext, tenancy
 from .models import (
@@ -14,6 +15,8 @@ from .models import (
     ProjectDetail, ProjectSummary, RelationshipOut, StageDiff, StageProvenance,
 )
 from .project_operations import ProjectMutationBlocked, project_operations
+from .project_task_summary import parse_task_time, project_task_summary
+from .project_cover_summary import project_cover_summary
 
 # core/ modules import each other by top-level name; put core/ on the path once.
 _CORE = Path(__file__).resolve().parent.parent / "core"
@@ -252,6 +255,8 @@ class ProjectService:
 
     def list_projects(self) -> list[ProjectSummary]:
         out: list[ProjectSummary] = []
+        creation_times: dict[str, datetime] = {}
+        oldest = datetime.min.replace(tzinfo=timezone.utc)
         base = self.base_dir
         if not base.exists():
             return out
@@ -261,10 +266,19 @@ class ProjectService:
                 continue
             s = self._load(child.name)
             out.append(self._summary(child.name, s, state_file))
+            creation_times[child.name] = parse_task_time(s.metadata.get("created")) or oldest
+        # Launched tasks first, newest start first. Keep untasked legacy/draft
+        # projects deterministic without pretending their creation is a launch.
+        out.sort(key=lambda p: p.id)
+        out.sort(key=lambda p: (
+            p.task_started_at is not None,
+            parse_task_time(p.task_started_at) or creation_times[p.id],
+        ), reverse=True)
         return out
 
     def _summary(self, project_id: str, s: StoryState, state_file: Path | None = None) -> ProjectSummary:
         chapters = list(s.chapters.values())
+        task = project_task_summary(self._project_dir(project_id), s.metadata, chapters)
         words = sum(c.word_count for c in chapters)
         drafted = sum(1 for c in chapters if c.status != "planned")
         updated = None
@@ -282,7 +296,15 @@ class ProjectService:
             title=s.metadata.get("title", project_id),
             genre=s.metadata.get("genre", "") or _genre_label(genres),
             chapter_count=len(chapters),
-            status=s.metadata.get("status", "in_progress"),
+            status=task.status,
+            task_id=task.task_id,
+            task_started_at=task.task_started_at,
+            task_can_resume=task.task_can_resume,
+            task_error=task.task_error,
+            task_phase=task.task_phase,
+            task_resume_job_id=task.task_resume_job_id,
+            cover=project_cover_summary(self._project_dir(project_id), project_id,
+                workspace_id=self.workspace.id if self.workspace else tenancy.DEFAULT_WORKSPACE_ID),
             author=s.metadata.get("author", ""),
             word_count=words,
             drafted_count=drafted,
@@ -303,6 +325,7 @@ class ProjectService:
     def project_detail(self, project_id: str) -> ProjectDetail:
         s = self._load(project_id)
         chapters = list(s.chapters.values())
+        task = project_task_summary(self._project_dir(project_id), s.metadata, chapters)
         rating = s.metadata.get("content_rating", "general")
         if rating not in ("general", "mature"):
             rating = "general"
@@ -316,7 +339,15 @@ class ProjectService:
             genre=s.metadata.get("genre", "") or _genre_label(genres),
             author=s.metadata.get("author", ""),
             chapter_count=len(chapters),
-            status=s.metadata.get("status", "in_progress"),
+            status=task.status,
+            task_id=task.task_id,
+            task_started_at=task.task_started_at,
+            task_can_resume=task.task_can_resume,
+            task_error=task.task_error,
+            task_phase=task.task_phase,
+            task_resume_job_id=task.task_resume_job_id,
+            cover=project_cover_summary(self._project_dir(project_id), project_id,
+                workspace_id=self.workspace.id if self.workspace else tenancy.DEFAULT_WORKSPACE_ID),
             style={
                 "tone": s.style_profile.tone,
                 "point_of_view": s.style_profile.point_of_view,
@@ -910,6 +941,7 @@ class ProjectService:
         s.save_state()
         return s.binder.to_tree()
 
+    @scoped_usage("manuscript", lambda a: a["self"].project_path(a["project_id"]))
     def refresh_synopsis(self, project_id: str, number: int) -> dict:
         """Ask the Architect for a corkboard synopsis and save it on the binder node."""
         from prose_sanitize import sanitize_manuscript, strip_em_dashes  # noqa: E402
@@ -1676,6 +1708,7 @@ POV: {pov or "[unspecified]"}
         )
         return wc
 
+    @scoped_usage("manuscript", lambda a: a["self"].project_path(a["project_id"]))
     def continue_paragraph(self, project_id: str, number: int, instruction: str) -> dict:
         """Scribe writes the next paragraph from an author instruction (chat)."""
         instruction = (instruction or "").strip()
@@ -1764,6 +1797,7 @@ Chapter {number} POV: {pov or "[unspecified]"} · Location: {location or "[unspe
             cls._consequence_previews.pop(preview_id, None)
         return len(matching)
 
+    @scoped_usage("manuscript", lambda a: a["self"].project_path(a["project_id"]))
     def preview_consequence(
         self,
         project_id: str,

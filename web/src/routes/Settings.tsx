@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import {
   api,
   type ImageModelProfile,
+  type ImageModelCatalog,
   type ImageTestResult,
   type JobStatus,
   type ModelCapability,
@@ -18,8 +19,9 @@ import Icon from "../components/Icon";
 import Modal from "../components/Modal";
 import { useConfirm } from "../components/confirmContext";
 import { useToast } from "../components/toastContext";
+import PricingSettings from "../components/PricingSettings";
 
-type SettingsTab = "connections" | "text" | "images";
+type SettingsTab = "connections" | "text" | "images" | "pricing";
 
 const controlClass =
   "h-10 w-full rounded-lg border border-[rgba(74,91,133,0.18)] bg-white px-3 text-[13px] font-medium text-ink-text shadow-[inset_0_1px_2px_rgba(23,33,63,0.04)] placeholder:text-paper-muted focus:border-[rgba(104,103,234,0.55)] focus:outline-none focus:ring-4 focus:ring-[rgba(104,103,234,0.09)]";
@@ -73,7 +75,10 @@ function jobResult<T>(job: JobStatus): T {
 export default function Settings() {
   const toast = useToast();
   const confirm = useConfirm();
-  const [tab, setTab] = useState<SettingsTab>(() => new URLSearchParams(window.location.search).get("tab") === "text" ? "text" : "connections");
+  const [tab, setTab] = useState<SettingsTab>(() => {
+    const initial = new URLSearchParams(window.location.search).get("tab");
+    return initial === "text" || initial === "images" || initial === "pricing" ? initial : "connections";
+  });
   const [configuration, setConfiguration] = useState<StudioModelConfiguration | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -168,7 +173,7 @@ export default function Settings() {
           </div>
         </motion.header>
 
-        <nav aria-label="模型设置" className="mt-6 flex w-full max-w-[560px] rounded-lg bg-[rgba(74,91,133,0.07)] p-1">
+        <nav aria-label="模型设置" className="mt-6 flex w-full max-w-[700px] rounded-lg bg-[rgba(74,91,133,0.07)] p-1">
           <TabButton active={tab === "connections"} onClick={() => setTab("connections")} icon="waypoints">
             服务连接
           </TabButton>
@@ -177,6 +182,9 @@ export default function Settings() {
           </TabButton>
           <TabButton active={tab === "images"} onClick={() => setTab("images")} icon="image">
             图像生成
+          </TabButton>
+          <TabButton active={tab === "pricing"} onClick={() => setTab("pricing")} icon="waypoints">
+            费用估算
           </TabButton>
         </nav>
 
@@ -222,6 +230,7 @@ export default function Settings() {
                 onSaved={load}
               />
             )}
+            {tab === "pricing" && <PricingSettings />}
           </motion.div>
         )}
       </div>
@@ -266,7 +275,7 @@ function TabButton({ active, onClick, icon, children }: {
       onClick={onClick}
       className={`flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md px-2 py-2 text-[12px] font-semibold transition-colors sm:px-4 sm:text-[13px] ${active ? "bg-white text-ink-text shadow-sm" : "text-ink-muted hover:text-ink-text"}`}
     >
-      <Icon name={icon} className="hidden h-3.5 w-3.5 sm:block" />
+      <span className="hidden sm:inline-flex"><Icon name={icon} className="h-3.5 w-3.5" /></span>
       <span className="truncate">{children}</span>
     </button>
   );
@@ -679,15 +688,53 @@ function ImageProfilePanel({ profile, connections, onSaved }: {
   const [draft, setDraft] = useState(profile);
   const [busy, setBusy] = useState<"save" | "test" | "">("");
   const [preview, setPreview] = useState<ImageTestResult | null>(null);
+  const [catalogs, setCatalogs] = useState<Record<string, {value?: ImageModelCatalog; loading: boolean; error?: string}>>({});
+  const live = useRef(true);
+  const requested = useRef(new Set<string>());
+  const modelDrafts = useRef<Record<string, string>>({[profile.connection_id]: profile.model});
   const imageConnections = connections.filter((item) => item.capabilities.includes("image_generation"));
   const selected = connections.find((item) => item.id === draft.connection_id);
+  const codexImageConnection = selected?.provider === "codex";
+  const catalog = catalogs[draft.connection_id];
+  const imageModelChoices = [...new Set(catalog?.value?.models || [])];
+  const savedCodexConnection = connections.find(item => item.id === profile.connection_id)?.provider === "codex";
+  const normalizeSavedModel = savedCodexConnection && ["gpt-image-2", "codex-image-auto"].includes(profile.model)
+    ? "codex-image-auto" : profile.model.trim();
+  const draftModel = codexImageConnection ? "codex-image-auto" : draft.model.trim();
+  const dirty = draft.connection_id !== profile.connection_id || draftModel !== normalizeSavedModel
+    || (["size", "quality", "output_format", "count", "timeout_seconds"] as const).some(key => draft[key] !== profile[key]);
+
+  useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
+  const loadImageModels = useCallback(async (connectionId: string) => {
+    setCatalogs(current => ({...current, [connectionId]: {...current[connectionId], loading: true, error: ""}}));
+    try {
+      const value = await api.providerImageModels(connectionId, true);
+      if (live.current) setCatalogs(current => ({...current, [connectionId]: {value, loading: false}}));
+    } catch (error) {
+      if (live.current) setCatalogs(current => ({...current, [connectionId]: {...current[connectionId], loading: false, error: messageOf(error)}}));
+    }
+  }, []);
+  useEffect(() => {
+    if (!draft.connection_id || requested.current.has(draft.connection_id)) return;
+    requested.current.add(draft.connection_id);
+    void loadImageModels(draft.connection_id);
+  }, [draft.connection_id, loadImageModels]);
+
+  function changeConnection(connectionId: string) {
+    modelDrafts.current[draft.connection_id] = draft.model;
+    const nextCodex = connections.find(item => item.id === connectionId)?.provider === "codex";
+    const previous = modelDrafts.current[connectionId];
+    setDraft({...draft, connection_id: connectionId, model: nextCodex ? "codex-image-auto"
+      : previous && previous !== "codex-image-auto" ? previous : "gpt-image-2.5-sunburst"});
+    setPreview(null);
+  }
 
   async function save() {
     setBusy("save");
     try {
       const updated = await api.updateCoverProfile({
         connection_id: draft.connection_id,
-        model: draft.model.trim(),
+        model: draftModel,
         size: draft.size,
         quality: draft.quality,
         output_format: draft.output_format,
@@ -705,9 +752,10 @@ function ImageProfilePanel({ profile, connections, onSaved }: {
   }
 
   async function testImage() {
+    if (dirty || !profile.configured) return;
     const accepted = await confirm({
       title: "生成测试图片",
-      message: `确定使用已保存的封面设置，通过 ${draft.model} 生成一张可能产生费用的测试图片吗？`,
+      message: `确定使用已保存的封面设置，通过 ${savedCodexConnection ? "Codex 内置图片工具（自动选择模型）" : profile.model} 生成一张可能产生费用的测试图片吗？`,
       confirmLabel: "生成测试图片",
     });
     if (!accepted) return;
@@ -716,7 +764,7 @@ function ImageProfilePanel({ profile, connections, onSaved }: {
       const initial = await api.testCoverProfile();
       const completed = await waitForStudioJob(
         initial,
-        Math.max(draft.timeout_seconds * 1000 + 30_000, 210_000),
+        Math.max(profile.timeout_seconds * 1000 + 30_000, 210_000),
       );
       const result = jobResult<ImageTestResult>(completed);
       if (!result.data_url) throw new Error("图像测试未返回预览");
@@ -734,9 +782,10 @@ function ImageProfilePanel({ profile, connections, onSaved }: {
       <SectionHeading
         id="image-profile-title"
         title="封面图像模型"
-        detail={profile.configured ? `${profile.connection_name} · ${profile.model}` : profile.error}
-        action={<div className="flex gap-2"><button type="button" className="btn-secondary !rounded-lg" disabled={!profile.configured || !!busy} onClick={() => void testImage()}>{busy === "test" ? "生成中…" : "测试图片"}</button><button type="button" className="btn-primary !rounded-lg" disabled={!imageConnections.length || !!busy} onClick={() => void save()}>{busy === "save" ? "保存中…" : "保存设置"}</button></div>}
+        detail={profile.configured ? `${profile.connection_name} · ${savedCodexConnection ? "Codex 内置图片工具（自动选择）" : profile.model}` : profile.error}
+        action={<div className="flex gap-2"><button type="button" className="btn-secondary !rounded-lg" disabled={!profile.configured || dirty || !!busy} title={dirty ? "请先保存图像设置，再测试已保存的配置" : undefined} onClick={() => void testImage()}>{busy === "test" ? "生成中…" : "测试图片"}</button><button type="button" className="btn-primary !rounded-lg" disabled={!selected || !draftModel || !!busy} onClick={() => void save()}>{busy === "save" ? "保存中…" : "保存设置"}</button></div>}
       />
+      {dirty && <p className="mt-3 text-[12px] text-ink-muted">设置尚未保存。请先保存，再测试当前图像配置。</p>}
       {!imageConnections.length ? (
         <EmptyState icon="image" title="请先添加支持图像生成的连接" />
       ) : (
@@ -744,15 +793,33 @@ function ImageProfilePanel({ profile, connections, onSaved }: {
           <div className="rounded-lg border border-[rgba(74,91,133,0.14)] bg-white p-5 sm:p-6">
             <div className="grid gap-x-5 sm:grid-cols-2">
               <FormField label="服务商连接" htmlFor="image-connection">
-                <select id="image-connection" className={controlClass} value={draft.connection_id} onChange={(event) => setDraft({ ...draft, connection_id: event.target.value })}>
+                <select id="image-connection" className={controlClass} value={draft.connection_id} onChange={(event) => changeConnection(event.target.value)}>
                   <option value="">选择连接</option>
                   {imageConnections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}
                 </select>
               </FormField>
               <FormField label="图像模型" htmlFor="image-model">
-                <input id="image-model" className={controlClass} value={draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} list="image-models" placeholder="gpt-image-2" />
-                <datalist id="image-models">{selected?.discovered_models.map((model) => <option key={model} value={model} />)}</datalist>
+                <input id="image-model" className={controlClass} readOnly={codexImageConnection} value={codexImageConnection ? "Codex 内置图片工具（自动选择）" : draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} list={codexImageConnection ? undefined : "image-models"} placeholder="输入服务商支持的完整模型 ID" aria-describedby="image-model-guidance" />
+                <datalist id="image-models">{imageModelChoices.map(model => <option key={model} value={model} />)}</datalist>
               </FormField>
+            </div>
+            {selected && <div className="mb-4 text-[12px] leading-6 text-ink-muted">
+              <div className="flex flex-wrap items-center justify-between gap-2"><span>{catalog?.loading ? "正在读取图片模型目录…"
+                : catalog?.value?.source === "unsupported" ? "当前连接不提供图片型号列表"
+                : catalog?.value ? `服务商目录返回 ${catalog.value.models.length} 个候选型号` : "尚未读取图片模型目录"}</span>
+                <button type="button" className="btn-secondary !h-8 !text-[11px]" disabled={catalog?.loading} onClick={() => void loadImageModels(selected.id)}>拉取图片模型列表</button></div>
+              {catalog?.error && <p role="alert" className="mt-2 text-[#9d334c]">图片模型列表获取失败：{catalog.error}。当前填写的型号保持不变。</p>}
+              {catalog?.value?.message && <p className="mt-2">{catalog.value.message}</p>}
+            </div>}
+            <div id="image-model-guidance" className="mb-5 rounded-lg bg-[#f3f4fa] p-3 text-[12px] leading-6 text-ink-muted">
+              {codexImageConnection ? <p>当前 Codex 连接使用内置图片工具，由 Codex 自动选择实际图片模型。无法指定 Sunburst 或 Flare；需要精确型号时，请选择支持图像生成的 API 连接。</p> : <>
+                <p>GPT Image 2.5：Sunburst 注重成图质量，Flare 注重速度。请使用完整模型 ID。</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button type="button" className="btn-secondary !h-8 !text-[11px]" onClick={() => setDraft({...draft, model: "gpt-image-2.5-sunburst"})}>使用 Sunburst · 推荐</button>
+                  <button type="button" className="btn-secondary !h-8 !text-[11px]" onClick={() => setDraft({...draft, model: "gpt-image-2.5-flare"})}>使用 Flare</button>
+                </div>
+              </>}
+              {!codexImageConnection && draft.model.trim() === "gpt-image-2.5" && <p className="mt-2 text-[#9d334c]">gpt-image-2.5 不是官方列出的完整 ID，请选择 gpt-image-2.5-sunburst 或 gpt-image-2.5-flare。</p>}
             </div>
             <div className="border-t border-[rgba(74,91,133,0.11)] pt-5">
               <p className="mb-2 text-[12px] font-medium text-ink-muted">竖版尺寸</p>
@@ -786,7 +853,11 @@ function ImageProfilePanel({ profile, connections, onSaved }: {
           </div>
           <aside className="min-h-[360px] rounded-lg border border-[rgba(74,91,133,0.14)] bg-[#e8edf6] p-3">
             {preview ? (
-              <figure><img src={preview.data_url} alt="服务商生成测试图" className="aspect-[2/3] w-full rounded-md bg-white object-cover shadow-sm" /><figcaption className="px-1 pb-1 pt-3 text-[11px] text-ink-muted">{preview.model} · {preview.width}×{preview.height}</figcaption></figure>
+              <figure><img src={preview.data_url} alt="服务商生成测试图" className="aspect-[2/3] w-full rounded-md bg-white object-cover shadow-sm" /><figcaption className="space-y-1 px-1 pb-1 pt-3 text-[11px] text-ink-muted">
+                <p>{preview.width}×{preview.height}</p>
+                <p>请求配置：{(preview.requested_model || preview.model) === "codex-image-auto" ? "Codex 自动选择" : preview.requested_model || preview.model}</p>
+                <p>{preview.observed_model ? `服务商报告型号：${preview.observed_model}${preview.model_verified ? "（已核验匹配）" : ""}` : "服务商未返回实际图片型号"}</p>
+              </figcaption></figure>
             ) : (
               <div className="flex h-full min-h-[332px] flex-col items-center justify-center text-center text-ink-muted"><Icon name="image" className="h-6 w-6" /><p className="mt-3 text-[12px] font-medium">测试图片预览</p></div>
             )}

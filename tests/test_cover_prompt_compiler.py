@@ -131,7 +131,7 @@ def test_compile_is_deterministic_and_contains_age_environment_and_hook() -> Non
     second = compile_cover_prompt(brief_fixture(), scene_fixture())
 
     assert first.text == second.text
-    assert first.compiler_version == "cover-compiler.v14"
+    assert first.compiler_version == "cover-compiler.v17"
     assert [name for name in first.modules] == [
         "PHOTOGRAPHIC RENDER CONTRACT", "HUMAN PERFORMANCE CONTRACT",
         "ROLE AND OUTPUT", "STORY TRUTH", "CAST LOCK", "SINGLE CINEMATIC MOMENT",
@@ -151,6 +151,67 @@ def test_compile_is_deterministic_and_contains_age_environment_and_hook() -> Non
     assert "VISUAL HOOK" in first.text
     assert first.text.count('The Door Is Mine') == 1
     assert len(first.text) <= 12000
+
+
+def test_compile_carries_story_facing_cover_constraints_into_prompt_locks() -> None:
+    payload = two_character_fixture()
+    payload["cover_constraints"] = {
+        "constraint_version": "cover-constraints.v1",
+        "must_preserve_story_facts": ["estranged spouses"],
+        "must_show_if_supported": ["door_choice"],
+        "must_not_show": ["final reconciliation"],
+        "spoiler_ceiling": "Do not reveal the final relationship outcome.",
+        "user_visual_preferences": ["restrained live-action photography"],
+        "preferred_story_node_ids": ["door_choice"],
+        "preferred_character_ids": ["char_mara"],
+        "source_refs": ["section:9.node:door_choice"],
+    }
+    brief = CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+
+    compiled = compile_cover_prompt(brief, scene_fixture())
+
+    assert "Author-confirmed cover constraints" in compiled.modules["AUTHORITATIVE STORY BOUNDARIES"]
+    assert "Do not depict: final reconciliation." in compiled.modules["AUTHORITATIVE STORY BOUNDARIES"]
+    assert "Spoiler ceiling: Do not reveal the final relationship outcome." in compiled.text
+
+
+def test_image_prompt_receives_only_approved_story_boundaries_not_portfolio_hints() -> None:
+    payload = two_character_fixture()
+    payload["cover_constraints"] = {
+        "constraint_version": "cover-constraints.v1",
+        "must_preserve_story_facts": ["the spouses are estranged"],
+        "must_show_if_supported": ["UNAPPROVED_CANDIDATE_DETAIL_7"],
+        "must_not_show": ["UNSUPPORTED_ENDING_EVENT_7"],
+        "spoiler_ceiling": "Never reveal UNSUPPORTED_ENDING_EVENT_7.",
+        "user_visual_preferences": ["FREEFORM_PREFERENCE_7"],
+        "preferred_story_node_ids": ["door_choice"],
+        "preferred_character_ids": ["char_mara"],
+        "source_refs": ["section:9.node:door_choice"],
+    }
+    brief = CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+
+    compiled = compile_cover_prompt(brief, scene_fixture())
+
+    assert "AUTHORITATIVE STORY BOUNDARIES" in compiled.modules
+    assert "UNSUPPORTED_ENDING_EVENT_7" in compiled.modules["AUTHORITATIVE STORY BOUNDARIES"]
+    assert "UNAPPROVED_CANDIDATE_DETAIL_7" not in compiled.text
+    assert "FREEFORM_PREFERENCE_7" not in compiled.text
+    assert "preferred_story_node_ids" not in compiled.text
+    assert "preferred_character_ids" not in compiled.text
+
+
+def test_story_boundary_module_is_never_silently_truncated() -> None:
+    payload = two_character_fixture()
+    payload["cover_constraints"] = {
+        "constraint_version": "cover-constraints.v1",
+        "must_preserve_story_facts": ["fact " * 4000],
+        "must_not_show": ["ending " * 4000],
+        "spoiler_ceiling": "ceiling " * 4000,
+    }
+    brief = CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+
+    with pytest.raises(ValueError, match="protected story content"):
+        compile_cover_prompt(brief, scene_fixture())
 
 
 def test_compile_directs_a_centered_cinematic_but_readable_title_lockup() -> None:
@@ -363,6 +424,24 @@ def test_compile_keeps_exact_title_once_and_overrides_legacy_left_title_zone() -
 def test_compile_rejects_unresolved_required_assumption() -> None:
     with pytest.raises(ValueError, match="pending"):
         compile_cover_prompt(brief_fixture(pending_required_assumption=True), scene_fixture())
+
+
+def test_compile_allows_model_inferred_appearance_and_marks_it_provisional() -> None:
+    payload = two_character_fixture()
+    payload["visual_assumptions"] = [{
+        "field": "principal_characters[0].physical_identity",
+        "proposed_value": "natural, age-appropriate appearance",
+        "reason": "The skeleton leaves appearance open for cover direction.",
+        "status": "model_inferred",
+        "critical": True,
+        "provenance": "model_inferred",
+    }]
+    brief = CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+
+    compiled = compile_cover_prompt(brief, scene_fixture())
+
+    assert "model-inferred" in compiled.modules["CAST LOCK"]
+    assert "must not be written back as story canon" in compiled.modules["CAST LOCK"]
 
 
 def test_compile_rejects_unresolved_story_evidence_reference() -> None:
@@ -749,7 +828,7 @@ def test_old_compiler_repair_restores_visual_fields_even_without_budget_overflow
     assert scene.color_script in repaired.text
     assert scene.motivated_lighting in repaired.text
     assert 'Repair focus: age mismatch.' in repaired.text
-    assert repaired.compiler_version == 'cover-compiler.v14'
+    assert repaired.compiler_version == 'cover-compiler.v17'
 
 
 def test_visual_contract_itself_over_budget_is_not_silently_truncated():

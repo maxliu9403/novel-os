@@ -20,6 +20,20 @@ HUMAN_PERFORMANCE_CONTRACT = (
     "Do not present every prop to camera."
 )
 
+CAMPAIGN_HUMAN_PERFORMANCE_CONTRACT = (
+    "Within each story_moment layer direct one captured instant with a specific goal, eyeline and distinct reaction per person. "
+    "Portrait layers express character position and emotion; do not invent physical interaction there. "
+    "Use plausible weight, relaxed joints, natural asymmetric expressions and real hand/prop contact. "
+    "Scene mode shares one time/place. Composite layers can have explicitly different times and lighting; "
+    "never flatten separate layers into an invented simultaneous scene. Do not present every prop to camera."
+)
+
+
+def campaign_render_policy() -> dict:
+    return {"version": "photographic-cover.v4", "medium": "live_action_photography",
+            "requirements": PHOTOGRAPHIC_RENDER_CONTRACT,
+            "human_performance": CAMPAIGN_HUMAN_PERFORMANCE_CONTRACT}
+
 RENDER_POLICY = {
     "version": "photographic-cover.v3",
     "medium": "live_action_photography",

@@ -6,7 +6,11 @@ import json
 import os
 import re
 import tempfile
+import fcntl
+import threading
 import uuid
+import weakref
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +29,9 @@ _PROVENANCE_FIELDS = (
     "relative_path", "media_id", "sha256", "width", "height", "content_type",
     "provider", "model", "request_id", "generation_prompt", "safe_request_parameters",
 )
+_MUTATION_LOCKS = weakref.WeakValueDictionary()
+_MUTATION_GUARD = threading.Lock()
+_MUTATION_HELD = threading.local()
 
 
 class CoverConflict(ValueError):
@@ -38,13 +45,35 @@ class ActiveCoverPointer:
 
 
 class CoverStore:
-    def __init__(self, project_path: str | Path) -> None:
+    def __init__(self, project_path: str | Path, *, cover_root: str | Path | None = None) -> None:
         self.project_path = Path(project_path).resolve()
-        self.root = self.project_path / "outputs" / "covers"
+        self.root = Path(cover_root).resolve() if cover_root else self.project_path / "outputs" / "covers"
         self.sets_dir = self.root / "sets"
         self.directions_dir = self.root / "directions"
         self.design_dir = self.root / "design"
         self.index_path = self.root / "index.json"
+
+    @contextmanager
+    def mutation_lock(self):
+        """Serialize the short revision-check/write transaction, never model calls."""
+        key = str(self.root.resolve())
+        with _MUTATION_GUARD:
+            lock = _MUTATION_LOCKS.setdefault(key, threading.RLock())
+        with lock:
+            held = getattr(_MUTATION_HELD, "roots", set())
+            if key in held:
+                yield
+                return
+            self.root.mkdir(parents=True, exist_ok=True)
+            descriptor = os.open(self.root / ".mutation.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(descriptor, "a+") as stream:
+                fcntl.flock(stream, fcntl.LOCK_EX)
+                _MUTATION_HELD.roots = held | {key}
+                try:
+                    yield
+                finally:
+                    _MUTATION_HELD.roots = held
+                    fcntl.flock(stream, fcntl.LOCK_UN)
 
     def create(self, cover_set: CoverSet) -> CoverSet:
         path = self._set_path(cover_set.cover_set_id)
@@ -223,15 +252,16 @@ class CoverStore:
         return stale
 
     def save(self, cover_set: CoverSet, *, expected_revision: int) -> CoverSet:
-        current = self.load(cover_set.cover_set_id)
-        if current.revision != expected_revision:
-            raise CoverConflict(
-                f"Cover set revision changed: expected {expected_revision}, found {current.revision}"
-            )
-        self._validate_ready_provenance(current, cover_set)
-        saved = replace(cover_set, revision=current.revision + 1)
-        self._write_json(self._set_path(saved.cover_set_id), saved.to_dict())
-        return saved
+        with self.mutation_lock():
+            current = self.load(cover_set.cover_set_id)
+            if current.revision != expected_revision:
+                raise CoverConflict(
+                    f"Cover set revision changed: expected {expected_revision}, found {current.revision}"
+                )
+            self._validate_ready_provenance(current, cover_set)
+            saved = replace(cover_set, revision=current.revision + 1)
+            self._write_json(self._set_path(saved.cover_set_id), saved.to_dict())
+            return saved
 
     def active(self) -> ActiveCoverPointer:
         if not self.index_path.is_file():

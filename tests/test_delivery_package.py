@@ -9,6 +9,7 @@ import pytest
 
 from core import delivery_package
 from core.cover_models import CoverBrief, CoverCandidate, CoverConcept, CoverSet
+from core.cover_store import CoverStore
 from core.delivery_package import build_delivery_package
 from core.h5_import import object_digest
 from core.novel_classification import canonical_json_bytes, infer_classification
@@ -154,6 +155,53 @@ def test_identical_inputs_produce_identical_archive_bytes(tmp_path) -> None:
     second = build_delivery_package(project, cover_set=cover_set).archive_path.read_bytes()
 
     assert second == first
+
+
+def test_package_uses_active_selection_even_when_another_batch_is_passed(tmp_path) -> None:
+    project = tmp_path / "project"
+    _payloads(project, selected=True)
+    store = CoverStore(project)
+    selected = store.create(_cover_set(selected=True))
+    store.set_active(selected.cover_set_id, expected_revision=0)
+
+    result = build_delivery_package(project, cover_set=_cover_set())
+
+    manifest = json.loads(result.manifest_path.read_text())
+    assert manifest["cover"]["cover_set_id"] == selected.cover_set_id
+    assert manifest["cover"]["selected_candidate_id"] == selected.selected_candidate_id
+    assert json.loads((project / "outputs/deliverables/covers/cover-set.json").read_text())["cover_set_id"] == selected.cover_set_id
+
+
+def test_package_omits_other_batches_and_corrupted_legacy_candidate_bytes(tmp_path) -> None:
+    project = tmp_path / "project"
+    _payloads(project)
+    deliverables = project / "outputs/deliverables"
+    (deliverables / "covers/pending/cover-01.jpg").write_bytes(b"another batch's bytes")
+    unrelated = deliverables / "covers/pending/other-batch/cover-01.jpg"
+    unrelated.parent.mkdir()
+    unrelated.write_bytes(b"unrelated")
+
+    result = build_delivery_package(project, cover_set=_cover_set())
+
+    manifest = json.loads(result.manifest_path.read_text())
+    candidates = [entry for entry in manifest["files"] if entry["role"] == "cover_candidate"]
+    assert [entry["path"] for entry in candidates] == [f"covers/pending/cover-{i:02d}.jpg" for i in range(2, 5)]
+    with zipfile.ZipFile(result.archive_path) as archive:
+        assert "covers/pending/cover-01.jpg" not in archive.namelist()
+        assert "covers/pending/other-batch/cover-01.jpg" not in archive.namelist()
+
+
+def test_unselected_package_does_not_import_leftover_selected_cover(tmp_path) -> None:
+    project = tmp_path / "project"
+    _payloads(project, selected=True)
+
+    result = build_delivery_package(project, cover_set=_cover_set())
+
+    with zipfile.ZipFile(result.archive_path) as archive:
+        assert "covers/selected-cover.jpg" not in archive.namelist()
+        imported = json.loads(archive.read("meta/h5-import.json"))
+        assert imported["cover"]["selection_action"] == "keep_existing"
+        assert imported["cover"]["selected"] is None
 
 
 def test_failed_archive_rebuild_preserves_previous_package(tmp_path, monkeypatch) -> None:

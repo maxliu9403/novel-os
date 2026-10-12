@@ -12,6 +12,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Deterministic cover typography uses local, redistributable Latin/CJK fonts.
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
 # Keep the production API on the same authenticated Codex transport as local
 # development. The Compose service mounts only auth.json and config.toml.
 COPY --from=codex-cli /usr/local/bin/node /usr/local/bin/node

@@ -181,15 +181,15 @@ def test_generate_preserves_partial_success_and_candidate_errors(tmp_path) -> No
     assert cover_set.status == "partial"
     assert [item.status for item in cover_set.candidates] == ["ready", "failed", "ready", "failed"]
     assert cover_set.candidates[1].error == "provider unavailable"
-    assert len(list((tmp_path / "project" / "outputs/deliverables/covers/pending").glob("*"))) == 2
+    assert len(list((tmp_path / "project" / "outputs/deliverables/covers/pending").rglob("*.jpg"))) == 2
 
 
-def test_new_generation_removes_pending_images_from_previous_cover_set(tmp_path) -> None:
+def test_new_generation_keeps_each_batch_pending_images_separate(tmp_path) -> None:
     project = tmp_path / "project"
     first, _, _ = _service(
         tmp_path, [_jpeg(marker=bytes([index])) for index in range(1, 5)]
     )
-    first.generate("project-one", project, _brief(), _concepts())
+    original = first.generate("project-one", project, _brief(), _concepts())
 
     failed = ImageClientError("provider unavailable", retryable=True)
     second, _, _ = _service(
@@ -199,7 +199,8 @@ def test_new_generation_removes_pending_images_from_previous_cover_set(tmp_path)
 
     pending = project / "outputs/deliverables/covers/pending"
     assert partial.status == "partial"
-    assert [path.name for path in pending.iterdir()] == ["cover-01.jpg"]
+    assert [path.name for path in (pending / partial.cover_set_id).iterdir()] == ["cover-01.jpg"]
+    assert len(list((pending / original.cover_set_id).glob("*.jpg"))) == 4
 
 
 def test_invalid_image_bytes_create_no_deliverable_projection(tmp_path) -> None:
@@ -239,7 +240,7 @@ def test_identical_image_bytes_reuse_content_addressed_media(tmp_path) -> None:
 
     assert {candidate.media_id for candidate in cover_set.candidates} == {"media-1"}
     assert len(list((tmp_path / "media/project-one").glob("**/*.jpg"))) == 1
-    assert len(list((tmp_path / "project/outputs/deliverables/covers/pending").glob("*.jpg"))) == 4
+    assert len(list((tmp_path / "project/outputs/deliverables/covers/pending").rglob("*.jpg"))) == 4
 
 
 def test_retry_calls_only_failed_candidate_and_reaches_ready(tmp_path) -> None:
@@ -624,7 +625,7 @@ def test_automatic_repair_keeps_original_unless_story_and_art_both_pass(tmp_path
         visual_evaluator=CoverVisualEvaluator(complete=evaluate),
         thumbnail_projector=lambda *_args, **_kwargs: b'thumbnail')
     project = tmp_path / 'project'
-    result = service.generate('project-one', project, brief, concepts)
+    result = service.generate('project-one', project, brief, concepts, extra_image_attempts=1)
     candidate = result.candidates[0]
     assert len(client.prompts) == 5  # one bounded correction, never an unbounded loop
     assert len(candidate.attempt_history) == 2
@@ -654,7 +655,7 @@ def test_manual_retry_after_unpromoted_repair_uses_a_new_prompt_revision(tmp_pat
     service = CoverService(image_client=client, media_store=LocalMediaStore(tmp_path / 'media'),
         media_add=Registrar(), visual_evaluator=evaluator,
         thumbnail_projector=lambda *_args, **_kwargs: b'thumbnail')
-    result = service.generate('project-one', tmp_path / 'project', brief, concepts)
+    result = service.generate('project-one', tmp_path / 'project', brief, concepts, extra_image_attempts=2)
     original = result.candidates[0]
     assert original.prompt_revision == 1
     updated = service.retry_candidate('project-one', tmp_path / 'project', result.cover_set_id,
@@ -663,3 +664,315 @@ def test_manual_retry_after_unpromoted_repair_uses_a_new_prompt_revision(tmp_pat
     assert [a['prompt_revision'] for a in retried.attempt_history] == [1, 2, 3]
     assert retried.prompt_revision == 3
     assert retried.attempt_history[:2] == original.attempt_history
+
+
+def _actual_jpeg():
+    from io import BytesIO
+    from PIL import Image
+    output = BytesIO()
+    Image.new("RGB", (400, 600), (35, 45, 55)).save(output, format="JPEG")
+    return output.getvalue()
+
+
+def _bound_inputs():
+    from core.cover_typography import prepare_title_layout, canonical_digest
+    brief = _brief_v2()
+    direction = CoverArtDirector.from_fixture(director_fixture()).plan(brief, count=4)
+    concepts = [scene_to_cover_concept(brief, plan) for plan in direction.plans]
+    layout = prepare_title_layout({"title": brief.title, "lines": [brief.title], "font_id": "sans-bold",
+        "font_size_min": .02, "font_size_max": .07, "region": [.1, .02, .8, .18],
+        "align": "left", "safe_zones": [[0, .5, 1, .5]]}, expected_title=brief.title)
+    recipes = {}
+    for concept in concepts:
+        recipe = {"image_prompt": f"Approved artwork without letters: {concept.concept_id}",
+            "compiler_version": "fixture-frozen.v1", "title_render_mode": "composed", "title_layout": layout}
+        recipes[concept.concept_id] = {**recipe, "recipe_sha256": canonical_digest(recipe)}
+    return brief, concepts, recipes
+
+
+def _independent_evaluator(report=None):
+    from tests.test_cover_quality import _blind_observation, _scores
+    response = report or _scores()
+    if response.get("blockers") and "findings" not in response:
+        response = {**response, "findings": [{"code": code, "severity": "blocker", "message": "Fixture observed failure", "evidence": "The central figure at the doorway"} for code in response["blockers"]]}
+    return CoverVisualEvaluator(complete=lambda *_: _scores(), blind_complete=_blind_observation,
+        verify_complete=lambda *_: response)
+
+
+def test_bound_generation_uses_frozen_recipe_persists_artwork_final_and_independent_evaluation(tmp_path):
+    import json
+    brief, concepts, recipes = _bound_inputs()
+    original = _actual_jpeg()
+    service, client, _ = _service(tmp_path, [original] * 4)
+    service.visual_evaluator = _independent_evaluator()
+    project = tmp_path / "project"
+    result = service.generate("project-one", project, brief, concepts, compiled_recipes=recipes,
+        source_binding={"direction_id": "approved-direction", "analysis_id": "complete-analysis"})
+    assert client.prompts == [recipes[item.concept_id]["image_prompt"] for item in concepts]
+    assert len(client.prompts) == 4
+    for candidate in result.candidates:
+        report = candidate.quality_report
+        assert report["evaluation"]["evaluation_status"] == "complete"
+        assert report["evaluation"]["blindness_level"] == "artwork"
+        assert report["assets"]["artwork_sha256"] == digest(original)
+        assert (project / report["assets"]["artwork_relative_path"]).read_bytes() == original
+        assert report["assets"]["final_cover_sha256"] == candidate.sha256 != digest(original)
+        stored = json.loads((project / report["evaluation"]["relative_path"]).read_text())
+        assert stored["quality_report"]["evaluation"]["blind_read"] == report["evaluation"]["blind_read"]
+        assert candidate.attempt_history[0]["quality_report"]["assets"] == report["assets"]
+
+
+def test_changed_recipe_is_rejected_before_an_image_request(tmp_path):
+    brief, concepts, recipes = _bound_inputs()
+    recipes[concepts[0].concept_id]["image_prompt"] = "unapproved changed prompt"
+    service, client, _ = _service(tmp_path, [_actual_jpeg()] * 4)
+    with pytest.raises(CoverServiceError, match="recipe hash"):
+        service.generate("project-one", tmp_path / "project", brief, concepts, compiled_recipes=recipes)
+    assert client.prompts == []
+
+
+def test_new_story_design_failure_does_not_spend_extra_budget_and_requires_new_approval(tmp_path):
+    from tests.test_cover_quality import _scores
+    brief, concepts, recipes = _bound_inputs()
+    service, client, _ = _service(tmp_path, [_actual_jpeg()] * 8)
+    service.visual_evaluator = _independent_evaluator({**_scores(), "status": "blocked", "core_conflict_fidelity": 20,
+        "blockers": ["core_conflict_missing"], "repair_codes": ["core_conflict_missing"]})
+    result = service.generate("project-one", tmp_path / "project", brief, concepts, compiled_recipes=recipes, extra_image_attempts=1)
+    assert len(client.prompts) == 4
+    candidate = result.candidates[0]
+    assert candidate.quality_report["repair_decision"]["action"] == "new_direction_approval"
+    with pytest.raises(CoverServiceError, match="new_direction_approval"):
+        service.retry_candidate("project-one", tmp_path / "project", result.cover_set_id, candidate.candidate_id,
+            expected_revision=result.revision, repair_codes=["core_conflict_missing"])
+    assert len(client.prompts) == 4
+
+
+@pytest.mark.parametrize("budget", [0, 1])
+def test_new_render_retry_enforces_cumulative_budget_and_keeps_exact_recipe(tmp_path, budget):
+    from tests.test_cover_quality import _scores
+    brief, concepts, recipes = _bound_inputs()
+    service, client, _ = _service(tmp_path, [_actual_jpeg()] * 8)
+    service.visual_evaluator = _independent_evaluator({**_scores(), "status": "blocked", "blockers": ["generic_ai_face"], "repair_codes": ["generic_ai_face"]})
+    project = tmp_path / "project"
+    result = service.generate("project-one", project, brief, concepts, compiled_recipes=recipes, extra_image_attempts=budget)
+    candidate = result.candidates[0]
+    if budget:
+        result = service.retry_candidate("project-one", project, result.cover_set_id, candidate.candidate_id,
+            expected_revision=result.revision, repair_codes=["generic_ai_face"])
+        assert client.prompts[-1] == recipes[candidate.concept_id]["image_prompt"]
+        assert len(result.candidates[0].attempt_history) == 2
+    with pytest.raises(CoverServiceError, match="budget is exhausted"):
+        service.retry_candidate("project-one", project, result.cover_set_id, candidate.candidate_id,
+            expected_revision=result.revision, repair_codes=["generic_ai_face"])
+    assert len(client.prompts) == 4 + budget
+
+
+def test_workshop_cover_root_does_not_create_project_delivery_structure(tmp_path):
+    brief, concepts, recipes = _bound_inputs()
+    service, _, _ = _service(tmp_path, [_actual_jpeg()] * 4)
+    service.visual_evaluator = _independent_evaluator()
+    session = tmp_path / "session"
+    result = service.generate("workshop-session", session, brief, concepts, compiled_recipes=recipes, cover_root=session / "covers")
+    assert (session / "covers/sets" / f"{result.cover_set_id}.json").is_file()
+    assert not (session / "outputs").exists()
+    assert all((session / item.relative_path).is_file() for item in result.candidates)
+
+
+def test_reevaluation_preserves_image_and_attempt_history_without_an_image_call(tmp_path):
+    brief, concepts, recipes = _bound_inputs()
+    service, client, _ = _service(tmp_path, [_actual_jpeg()] * 4)
+    # No evaluator initially: this is an evaluation failure, not a redraw request.
+    project = tmp_path / "project"
+    initial = service.generate("project-one", project, brief, concepts, compiled_recipes=recipes)
+    candidate = initial.candidates[0]
+    assert candidate.quality_report["repair_decision"]["kind"] == "evaluation"
+    service.visual_evaluator = _independent_evaluator()
+    reviewed = service.reevaluate_candidate("project-one", project, initial.cover_set_id, candidate.candidate_id,
+        expected_revision=initial.revision)
+    updated = reviewed.candidates[0]
+    assert len(client.prompts) == 4
+    assert updated.sha256 == candidate.sha256
+    assert updated.attempt_history == candidate.attempt_history
+    assert updated.quality_report["evaluation"]["evaluation_status"] == "complete"
+    assert updated.quality_report["evaluation"]["previous_evaluation_id"] == candidate.quality_report["evaluation"]["evaluation_id"]
+
+
+@pytest.mark.parametrize("review_status", ["blocked", "human_review_required", "recommended_for_human_review", None])
+@pytest.mark.parametrize("owner", ["project", "workshop"])
+@pytest.mark.parametrize("candidate_status", ["ready", "rejected"])
+def test_completed_cover_can_be_selected_without_a_reason_regardless_of_review(tmp_path, review_status, owner, candidate_status):
+    brief, concepts, recipes = _bound_inputs()
+    service, client, _ = _service(tmp_path, [_actual_jpeg()] * 4)
+    project = tmp_path / "project"
+    kwargs = {"cover_root": project / "discussion" / "covers"} if owner == "workshop" else {}
+    result = service.generate("project-one", project, brief, concepts, compiled_recipes=recipes, **kwargs)
+    report = {"status": review_status, "blockers": ["core_conflict_missing"],
+              "evaluation": {"evaluation_status": "incomplete"}} if review_status else {}
+    assert result.candidates[0].status == "ready", result.candidates[0].error
+    target = replace(result.candidates[0], status=candidate_status, quality_report=report)
+    siblings = tuple(replace(c, status="failed") for c in result.candidates[1:])
+    store = CoverStore(project, **kwargs)
+    result = store.save(replace(result, candidates=(target, *siblings)), expected_revision=result.revision)
+    selected = service.select_candidate(project, result.cover_set_id, target.candidate_id,
+        expected_revision=result.revision, expected_active_revision=0, **kwargs)
+    assert selected.selected_candidate_id == target.candidate_id
+    assert selected.candidates[0].status == "selected"
+    assert selected.candidates[0].quality_report == report  # Selection does not claim that model review passed.
+    assert selected.candidates[1:] == siblings
+    assert store.active().cover_set_id == result.cover_set_id
+    assert len(client.prompts) == 4  # Selection never generates or evaluates another image.
+
+
+def test_optional_legacy_quality_reason_is_preserved_without_being_required(tmp_path):
+    brief, concepts, recipes = _bound_inputs()
+    service, client, _ = _service(tmp_path, [_actual_jpeg()] * 4)
+    project = tmp_path / "project"
+    result = service.generate("project-one", project, brief, concepts, compiled_recipes=recipes)
+    candidate = result.candidates[0]
+    selected = service.select_candidate(project, result.cover_set_id, candidate.candidate_id,
+        expected_revision=result.revision, expected_active_revision=0,
+        quality_acceptance_reason="I inspected the source and accept the current composition.")
+    assert selected.candidates[0].quality_report["human_acceptance"]["reason"].startswith("I inspected")
+    assert len(client.prompts) == 4
+
+
+def test_failed_provider_attempt_consumes_bound_budget(tmp_path):
+    brief, concepts, recipes = _bound_inputs()
+    service, client, _ = _service(tmp_path, [ImageClientError("provider failed"), *[_actual_jpeg()] * 3])
+    project = tmp_path / "project"
+    result = service.generate("project-one", project, brief, concepts, compiled_recipes=recipes)
+    failed = result.candidates[0]
+    assert failed.status == "failed"
+    assert result.concepts[0].scene_plan["_generation_authorization"]["image_attempts_reserved"] == 1
+    with pytest.raises(CoverServiceError, match="budget is exhausted"):
+        service.retry_candidate("project-one", project, result.cover_set_id, failed.candidate_id,
+            expected_revision=result.revision)
+    assert len(client.prompts) == 4
+
+
+def test_actual_artwork_duplicates_block_recommendation_without_extra_provider_calls(tmp_path):
+    brief, concepts, recipes = _bound_inputs()
+    service, client, _ = _service(tmp_path, [_actual_jpeg()] * 4)
+    service.visual_evaluator = _independent_evaluator()
+    project = tmp_path / "project"
+    result = service.generate("project-one", project, brief, concepts, compiled_recipes=recipes)
+    candidate = result.candidates[0]
+    comparison = candidate.quality_report["portfolio_comparison"]
+    assert comparison["status"] == "complete"
+    assert comparison["basis"] == "artwork"
+    assert len(comparison["matches"]) == 3
+    assert all(item["kind"] == "exact" for item in comparison["matches"])
+    assert "duplicate_artwork" in candidate.quality_report["blockers"]
+    assert candidate.quality_report["status"] == "blocked"
+    assert len(client.prompts) == 4
+    # Better evaluator scores cannot erase the local duplicate finding.
+    reviewed = service.reevaluate_candidate("project-one", project, result.cover_set_id,
+        candidate.candidate_id, expected_revision=result.revision)
+    assert "duplicate_artwork" in reviewed.candidates[0].quality_report["blockers"]
+    assert len(client.prompts) == 4
+
+
+def test_actual_image_comparison_unavailable_is_not_reported_as_pass(tmp_path, monkeypatch):
+    brief, concepts, recipes = _bound_inputs()
+    service, client, _ = _service(tmp_path, [_actual_jpeg()] * 4)
+    service.visual_evaluator = _independent_evaluator()
+    def fail(_images):
+        raise ValueError("Cannot decode one image")
+    monkeypatch.setattr("api.cover_service.compare_cover_images", fail)
+    result = service.generate("project-one", tmp_path / "project", brief, concepts, compiled_recipes=recipes)
+    report = result.candidates[0].quality_report
+    assert report["portfolio_comparison"]["status"] == "unavailable"
+    assert report["status"] == "human_review_required"
+    assert len(client.prompts) == 4
+
+
+def test_local_title_recomposition_recovers_saved_artwork_without_image_client(tmp_path, monkeypatch):
+    from core.cover_typography import CoverTypographyError
+    from api import cover_service as module
+    brief, concepts, recipes = _bound_inputs()
+    original = _actual_jpeg()
+    service, client, _ = _service(tmp_path, [original] * 4)
+    service.visual_evaluator = _independent_evaluator()
+    compose = module.compose_cover
+    calls = 0
+    def temporarily_unavailable(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise CoverTypographyError("temporary local compositor failure")
+        return compose(*args, **kwargs)
+    monkeypatch.setattr(module, "compose_cover", temporarily_unavailable)
+    project = tmp_path / "project"
+    initial = service.generate("project-one", project, brief, concepts, compiled_recipes=recipes)
+    candidate = initial.candidates[0]
+    assert candidate.status == "failed"
+    assert candidate.quality_report["repair_decision"]["kind"] == "typography"
+    artwork_sha = candidate.quality_report["assets"]["artwork_sha256"]
+    service.image_client = None
+    result = service.reevaluate_candidate("project-one", project, initial.cover_set_id, candidate.candidate_id,
+        expected_revision=initial.revision)
+    updated = result.candidates[0]
+    assert updated.status == "ready"
+    assert updated.quality_report["assets"]["artwork_sha256"] == artwork_sha == digest(original)
+    assert updated.quality_report["local_recomposition"]["image_provider_called"] is False
+    assert updated.attempt_history[:-1] == candidate.attempt_history
+    assert updated.attempt_history[-1]["operation"] == "typography_recomposition"
+    assert result.concepts[0].scene_plan["_generation_authorization"]["image_attempts_reserved"] == 1
+    assert len(client.prompts) == 4
+    # Reapplying the identical approved layout has identical final bytes and does
+    # not manufacture another image-generation attempt.
+    again = service.recompose_candidate("project-one", project, result.cover_set_id, candidate.candidate_id,
+        expected_revision=result.revision)
+    assert again.candidates[0].sha256 == updated.sha256
+    assert again.candidates[0].attempt_history == updated.attempt_history
+
+
+def test_impossible_approved_title_layout_requires_new_direction_without_redraw(tmp_path, monkeypatch):
+    from core.cover_typography import CoverTypographyError
+    brief, concepts, recipes = _bound_inputs()
+    service, client, _ = _service(tmp_path, [_actual_jpeg()] * 4)
+    def impossible(*_args, **_kwargs):
+        raise CoverTypographyError("Approved title cannot fit the approved bounds")
+    monkeypatch.setattr("api.cover_service.compose_cover", impossible)
+    project = tmp_path / "project"
+    initial = service.generate("project-one", project, brief, concepts, compiled_recipes=recipes)
+    candidate = initial.candidates[0]
+    service.image_client = None
+    with pytest.raises(CoverServiceError, match="approve a new direction"):
+        service.reevaluate_candidate("project-one", project, initial.cover_set_id, candidate.candidate_id,
+            expected_revision=initial.revision)
+    assert len(client.prompts) == 4
+    saved = CoverStore(project).load(initial.cover_set_id).candidates[0]
+    assert saved.attempt_history == candidate.attempt_history
+    assert saved.quality_report["assets"]["artwork_sha256"] == candidate.quality_report["assets"]["artwork_sha256"]
+
+
+@pytest.mark.parametrize('model', ['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare', 'publisher/image-v3'])
+def test_service_persists_configured_model_and_explicit_verification_provenance(tmp_path, model):
+    from types import SimpleNamespace
+    class ModelClient(FakeImageClient):
+        settings = SimpleNamespace(model=model)
+        def generate(self, prompt):
+            return replace(super().generate(prompt), model=model, observed_model=model, model_verified=True)
+    registrar = Registrar()
+    service = CoverService(image_client=ModelClient([_jpeg(marker=bytes([i])) for i in range(4)]),
+        media_store=LocalMediaStore(tmp_path / 'media'), media_add=registrar)
+    result = service.generate('project-one', tmp_path / 'project', _brief(), _concepts())
+    assert all(c.status == 'ready' and c.model == model for c in result.candidates)
+    assert all(c.safe_request_parameters['model_verified'] is True and
+               c.safe_request_parameters['observed_model'] == model for c in result.candidates)
+
+
+def test_service_rejects_mismatching_observed_model_even_when_labeled_with_request(tmp_path):
+    from types import SimpleNamespace
+    class Mislabelled(FakeImageClient):
+        settings = SimpleNamespace(model='gpt-image-2.5-sunburst')
+        def generate(self, prompt):
+            return replace(super().generate(prompt), model=self.settings.model,
+                           observed_model='gpt-image-2', model_verified=False)
+    registrar = Registrar()
+    service = CoverService(image_client=Mislabelled([_jpeg()] * 4),
+        media_store=LocalMediaStore(tmp_path / 'media'), media_add=registrar)
+    result = service.generate('project-one', tmp_path / 'project', _brief(), _concepts())
+    assert all(c.status == 'failed' and 'model verification' in c.error for c in result.candidates)
+    assert not registrar.calls

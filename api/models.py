@@ -3,6 +3,16 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class ProjectCoverSummary(BaseModel):
+    status: Literal["not_started", "processing", "awaiting_review", "needs_attention", "selected"] = "not_started"
+    detail: str = ""
+    image_url: str | None = None
+    image_kind: Literal["selected", "candidate"] | None = None
+    cover_set_id: str | None = None
+    candidate_id: str | None = None
+    candidate_count: int = 0
+
+
 class ProjectSummary(BaseModel):
     id: str
     title: str
@@ -14,12 +24,19 @@ class ProjectSummary(BaseModel):
     drafted_count: int = 0
     content_rating: str = "general"  # general | mature
     updated_at: str | None = None
+    task_id: str | None = None
+    task_started_at: str | None = None
+    task_can_resume: bool = False
+    task_error: str | None = None
+    task_phase: str | None = None
+    task_resume_job_id: str | None = None
     genres: list[str] = []
     premise: str = ""
     target_word_count: int = 80000
     session_word_target: int = 1000
     classification: dict = {}
     narrative_format: dict = {}
+    cover: ProjectCoverSummary = Field(default_factory=ProjectCoverSummary)
 
 
 class ProjectDetail(BaseModel):
@@ -29,6 +46,12 @@ class ProjectDetail(BaseModel):
     author: str
     chapter_count: int
     status: str
+    task_id: str | None = None
+    task_started_at: str | None = None
+    task_can_resume: bool = False
+    task_error: str | None = None
+    task_phase: str | None = None
+    task_resume_job_id: str | None = None
     style: dict
     content_rating: str = "general"
     word_count: int = 0
@@ -38,6 +61,7 @@ class ProjectDetail(BaseModel):
     session_word_target: int = 1000
     classification: dict = {}
     narrative_format: dict = {}
+    cover: ProjectCoverSummary = Field(default_factory=ProjectCoverSummary)
 
 
 class ProjectDeletionInventory(BaseModel):
@@ -115,6 +139,14 @@ class StudioCoverUpdate(BaseModel):
     director_reasoning_effort: str | None = None
 
 
+class ImageModelCapabilities(BaseModel):
+    exact_model_selection: bool
+    default_model: str
+    model_verification: Literal["unavailable", "when_reported_by_provider"]
+    note: str
+    reference_edit_transport: Literal["codex_image_attachment", "images_edits_multipart"] | None = None
+
+
 class StudioCoverStatus(BaseModel):
     configured: bool
     has_api_key: bool
@@ -135,6 +167,7 @@ class StudioCoverStatus(BaseModel):
     director_reasoning_effort: str = ""
     director_inherits_writing: bool = True
     error: str | None = None
+    model_capabilities: ImageModelCapabilities | None = None
 
 
 class ProviderTemplateOut(BaseModel):
@@ -218,6 +251,7 @@ class ImageProfileOut(ImageProfileUpdate):
     connection_name: str
     configured: bool
     error: str
+    model_capabilities: ImageModelCapabilities | None = None
 
 
 class StudioModelConfigurationOut(BaseModel):
@@ -237,12 +271,24 @@ class ProviderTestResult(BaseModel):
     tested_at: str
 
 
+class ImageModelCatalogOut(BaseModel):
+    models: list[str]
+    discovery_supported: bool
+    exact_model_selection: bool
+    source: Literal["provider", "cache", "unsupported"]
+    message: str
+    fetched_at: str = ""
+
+
 class ImageTestResult(BaseModel):
     ok: bool
     data_url: str
     width: int
     height: int
     model: str
+    requested_model: str = ""
+    observed_model: str = ""
+    model_verified: bool = False
     request_id: str
 
 
@@ -743,11 +789,15 @@ class CoverDirectionCreate(BaseModel):
     source_prompt_sha256: str = ""
     foundation_sha256: str = ""
     count: int = 4
+    analysis_id: str = ""
+    freshness_policy: str = "require_current_head"
 
 
 class CoverDirectionApproval(BaseModel):
     expected_brief_sha256: str
     approved_direction_sha256: str
+    confirm_source: bool = False
+    extra_image_attempts: int = Field(default=0, ge=0, le=1)
 
 
 class CoverStoryFactCharacter(BaseModel):
@@ -771,15 +821,18 @@ class CoverCandidateMutation(BaseModel):
     expected_active_revision: int = 0
     confirm_stale: bool = False
     repair_codes: list[str] = []
+    quality_acceptance_reason: str = ""
 
 
 class Job(BaseModel):
     job_id: str
+    task_id: str | None = None
     kind: str
     status: str
     error: str | None = None
     started_at: str | None = None
     finished_at: str | None = None
+    cancel_requested: bool = False
     meta: dict = {}
 
 

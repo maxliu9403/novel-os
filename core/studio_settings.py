@@ -11,8 +11,10 @@ from typing import Any, Mapping, Optional
 
 try:
     from .image_binary import aspect_ratio_matches
+    from .image_capabilities import DEFAULT_IMAGE_MODEL, default_image_model, image_model_capabilities, validate_image_model
 except ImportError:  # pragma: no cover - legacy top-level core imports
     from image_binary import aspect_ratio_matches
+    from image_capabilities import DEFAULT_IMAGE_MODEL, default_image_model, image_model_capabilities, validate_image_model
 
 # Keys we are willing to set from the Studio UI into the process env.
 _ENV_KEYS = (
@@ -42,7 +44,7 @@ _ENV_KEYS = (
 )
 
 _COVER_SIZE = "2048x3072"
-_COVER_MODEL = "gpt-image-2"
+_COVER_MODEL = DEFAULT_IMAGE_MODEL
 DEFAULT_COVER_TIMEOUT_SECONDS = 300.0
 _COVER_DIRECTOR_TIMEOUT_SECONDS = 600.0
 _COVER_QUALITIES = {"low", "medium", "high", "auto"}
@@ -65,7 +67,7 @@ class CoverSettings:
     base_url: str
     api_key: str
     provider: str = "openai_compatible"
-    model: str = "gpt-image-2"
+    model: str = DEFAULT_IMAGE_MODEL
     size: str = _COVER_SIZE
     quality: str = "high"
     output_format: str = "jpeg"
@@ -209,6 +211,28 @@ def cover_director_status(source: Mapping[str, Any] | None = None) -> dict[str, 
     }
 
 
+def resolve_cover_size(source: Mapping[str, Any] | None = None) -> str:
+    """Read canvas dimensions without requiring an image provider connection.
+
+    Text-only source analysis and direction planning share a director factory;
+    local typography needs the configured dimensions, not image credentials.
+    """
+    if source is None:
+        try:
+            from .provider_settings import load_configuration
+        except ImportError:  # pragma: no cover - legacy top-level imports
+            from provider_settings import load_configuration
+        configuration = load_configuration()
+        if configuration.get("source") == "v2":
+            profile = configuration.get("image_profiles", {}).get("cover") or {}
+            return _validate_cover_size(str(profile.get("size") or _COVER_SIZE))
+        values: dict[str, Any] = dict(os.environ)
+        values.update(load_settings())
+    else:
+        values = dict(source)
+    return _validate_cover_size(str(values.get("NOVEL_OS_COVER_SIZE") or _COVER_SIZE))
+
+
 def resolve_cover_settings(source: Mapping[str, Any] | None = None) -> CoverSettings:
     """Resolve image settings without mutating writing-model configuration."""
     if source is None:
@@ -245,7 +269,9 @@ def resolve_cover_settings(source: Mapping[str, Any] | None = None) -> CoverSett
     ).strip()
 
     normalized = validate_cover_parameters({
-        "model": values.get("NOVEL_OS_COVER_MODEL") or _COVER_MODEL,
+        # Legacy environment settings retain their historical model until the
+        # user explicitly chooses a new model or creates a new image profile.
+        "model": values.get("NOVEL_OS_COVER_MODEL") or "gpt-image-2",
         "size": values.get("NOVEL_OS_COVER_SIZE") or _COVER_SIZE,
         "quality": values.get("NOVEL_OS_COVER_QUALITY") or "high",
         "output_format": values.get("NOVEL_OS_COVER_FORMAT") or "jpeg",
@@ -308,9 +334,11 @@ def validate_cover_parameters(source: Mapping[str, Any]) -> dict[str, Any]:
     if timeout <= 0:
         raise ValueError("Cover timeout must be a positive number")
 
-    model = str(source.get("model") or _COVER_MODEL).strip()
+    provider = str(source.get("provider") or "")
+    model = str(source.get("model") or default_image_model(provider)).strip()
     if not model:
         raise ValueError("Cover model is required")
+    validate_image_model(model, provider)
     return {
         "model": model,
         "size": size,
@@ -331,7 +359,7 @@ def cover_status(source: Mapping[str, Any] | None = None) -> dict[str, Any]:
             "configured": False,
             "has_api_key": False,
             "base_url": "",
-            "model": "gpt-image-2",
+            "model": DEFAULT_IMAGE_MODEL,
             "size": _COVER_SIZE,
             "quality": "high",
             "output_format": "jpeg",
@@ -358,6 +386,7 @@ def cover_status(source: Mapping[str, Any] | None = None) -> dict[str, Any]:
         "has_api_key": has_key,
         "base_url": settings.base_url,
         "model": settings.model,
+        "model_capabilities": image_model_capabilities(settings.provider),
         "size": settings.size,
         "quality": settings.quality,
         "output_format": settings.output_format,

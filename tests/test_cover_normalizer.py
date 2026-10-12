@@ -188,6 +188,49 @@ def test_legacy_project_keeps_missing_cover_facts_pending(tmp_path) -> None:
     }
 
 
+@pytest.mark.parametrize("source_field", ["current_emotional_state", "emotional_state", None])
+def test_legacy_protagonist_keeps_source_emotion_over_completed_state(tmp_path, source_field) -> None:
+    project, prompt = _write_legacy_project(tmp_path, include_confirmed_facts=True)
+    foundation_path = project / "outputs/input/foundation.json"
+    foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
+    foundation["premise"] = "Claire confronts her family's continuing financial coercion."
+    if source_field:
+        foundation["characters"][0][source_field] = "angry and vigilant while challenging the coercion"
+    foundation_path.write_text(json.dumps(foundation), encoding="utf-8")
+    state_path = project / "outputs/state/story_state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["characters"]["claire_bennett"].update(
+        arc_stage="resolution", emotional_state="peaceful after all conflict has ended")
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    result = normalize_legacy_project(project, prompt)
+
+    expected = foundation["characters"][0][source_field] if source_field else result.emotional_promise
+    assert result.principal_characters[0].current_emotional_state == expected
+    assert "peaceful after all conflict" not in result.principal_characters[0].current_emotional_state
+    assert "continuing financial coercion" in result.core_conflict
+
+
+def test_legacy_state_only_protagonist_does_not_promote_resolution_emotion(tmp_path) -> None:
+    project, prompt = _write_legacy_project(tmp_path, include_confirmed_facts=True)
+    foundation_path = project / "outputs/input/foundation.json"
+    foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
+    foundation["characters"] = []
+    foundation_path.write_text(json.dumps(foundation), encoding="utf-8")
+    state_path = project / "outputs/state/story_state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["characters"]["claire_bennett"].update(
+        current_emotional_state="peaceful after the ending", emotional_state="peaceful after the ending",
+        external_goal="Set boundaries against her family's coercion")
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    result = normalize_legacy_project(project, prompt)
+
+    assert result.principal_characters[0].character_id == "claire_bennett"
+    assert result.principal_characters[0].current_emotional_state == result.emotional_promise
+    assert "peaceful after the ending" not in result.principal_characters[0].current_emotional_state
+
+
 def test_legacy_project_recovers_identity_from_json_character_ledger(tmp_path) -> None:
     project, _ = _write_legacy_project(tmp_path, include_confirmed_facts=True)
     occupation = "Music teacher pursuing a community choir teaching role."

@@ -324,6 +324,32 @@ def test_director_prompt_defines_exact_machine_readable_response_contract() -> N
     assert "book-specific lettering" in field_rules["typography_style"]
 
 
+def test_director_contract_surfaces_story_constraints_without_design_fields() -> None:
+    payload = two_character_fixture()
+    payload["cover_constraints"] = {
+        "constraint_version": "cover-constraints.v1",
+        "must_preserve_story_facts": ["estranged spouses"],
+        "must_show_if_supported": ["door_choice"],
+        "must_not_show": ["final reconciliation"],
+        "spoiler_ceiling": "Do not reveal the final relationship outcome.",
+        "user_visual_preferences": ["restrained live-action photography"],
+        "preferred_story_node_ids": ["door_choice"],
+        "preferred_character_ids": ["char_mara"],
+        "source_refs": ["section:9.node:door_choice"],
+    }
+    brief = CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+
+    contract = CoverArtDirector._response_contract(brief, 4, profile_version="cover-profiles.v8")
+
+    story_constraints = contract["story_constraints"]
+    assert story_constraints["source"] == "brief.cover_constraints"
+    assert story_constraints["required"] is False
+    assert story_constraints["constraints"]["preferred_story_node_ids"] == ["door_choice"]
+    assert "candidate_moments" not in story_constraints["constraints"]
+    assert "visual_hook" not in story_constraints["constraints"]
+    assert "cover moment selection" in story_constraints["studio_owns"]
+
+
 def test_director_contract_requires_shared_core_conflict_evidence_in_every_plan() -> None:
     contract = json.loads(CoverArtDirector._user_prompt(_brief(), 4))[
         "response_contract"
