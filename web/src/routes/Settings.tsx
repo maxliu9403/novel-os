@@ -22,6 +22,7 @@ import Modal from "../components/Modal";
 import { useConfirm } from "../components/confirmContext";
 import { useToast } from "../components/toastContext";
 import PricingSettings from "../components/PricingSettings";
+import "../styles/settings.css";
 
 type SettingsTab = "connections" | "text" | "images" | "pricing";
 
@@ -85,6 +86,7 @@ export default function Settings() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<ProviderConnection | "new" | null>(null);
+  const [newProvider, setNewProvider] = useState<string | undefined>();
   const [testingId, setTestingId] = useState("");
 
   const load = useCallback(async () => {
@@ -149,216 +151,358 @@ export default function Settings() {
 
   return (
     <Scene quiet>
-      <div className="workspace-page">
-        <motion.header
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="border-b border-[rgba(74,91,133,0.14)] pb-7"
-        >
-          <p className="eyebrow">工作室设置</p>
-          <div className="flex flex-wrap items-end justify-between gap-5">
+      <div className="workspace-page settings-page">
+        <div className="settings-workbench">
+          <motion.header
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.32 }}
+            className="settings-masthead"
+          >
             <div>
-              <h1 className="font-display text-[30px] font-semibold text-ink-text sm:text-[34px]">
-                模型与服务商
-              </h1>
-              <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-[12px] font-medium text-ink-muted">
-                <HealthLabel ready={textReady} label="文本模型" />
-                <HealthLabel ready={imageReady} label="图像模型" />
-                <HealthLabel ready={visionReady} label="视觉审阅" />
-                <span>{configuration?.connections.length ?? 0} 个连接</span>
+              <p className="settings-kicker">Workspace / Model atelier</p>
+              <h1 className="settings-title">模型与<em>服务商</em></h1>
+              <p className="settings-lede">
+                把写作、视觉与图像拆成三条独立链路。每条链路只暴露它真正需要的能力，
+                让模型配置像一张可读的工艺图，而不是一组隐藏开关。
+              </p>
+              {configuration?.source === "legacy" && <span className="settings-legacy">已载入旧版设置</span>}
+            </div>
+            <div className="settings-status-board">
+              <div className="settings-status-board__head">
+                <span>System status</span>
+                <span>Studio / Models</span>
+              </div>
+              <div className="settings-status-line">
+                <span className="settings-status-line__name">
+                  <span className={`settings-status-dot ${textReady ? "settings-status-dot--ready" : ""}`} />
+                  <span>文本模型{textReady ? "已就绪" : "需要配置"}</span>
+                </span>
+                <span className={`settings-status-line__value ${textReady ? "settings-status-line__value--ready" : ""}`}>TEXT</span>
+              </div>
+              <div className="settings-status-line">
+                <span className="settings-status-line__name">
+                  <span className={`settings-status-dot ${imageReady ? "settings-status-dot--ready" : ""}`} />
+                  <span>图像模型{imageReady ? "已就绪" : "需要配置"}</span>
+                </span>
+                <span className={`settings-status-line__value ${imageReady ? "settings-status-line__value--ready" : ""}`}>IMAGE</span>
+              </div>
+              <div className="settings-status-line">
+                <span className="settings-status-line__name">
+                  <span className={`settings-status-dot ${visionReady ? "settings-status-dot--ready" : ""}`} />
+                  <span>视觉审阅{visionReady ? "已就绪" : "需要配置"}</span>
+                </span>
+                <span className={`settings-status-line__value ${visionReady ? "settings-status-line__value--ready" : ""}`}>VISION</span>
+              </div>
+              <div className="settings-status-board__foot">
+                <span className="settings-status-board__count nums">{String(configuration?.connections.length ?? 0).padStart(2, "0")}</span>
+                <span className="settings-status-board__foot-note">个连接 · {configuration?.templates.length ?? 0} 个模板</span>
               </div>
             </div>
-            {configuration?.source === "legacy" && (
-              <span className="rounded-full border border-[rgba(200,122,27,0.28)] bg-[#fff8ee] px-3 py-1.5 text-[11px] font-medium text-[#8d5a19]">
-                已载入旧版设置
-              </span>
-            )}
-          </div>
-        </motion.header>
+          </motion.header>
 
-        <nav aria-label="模型设置" className="mt-6 flex w-full max-w-[700px] rounded-lg bg-[rgba(74,91,133,0.07)] p-1">
-          <TabButton active={tab === "connections"} onClick={() => setTab("connections")} icon="waypoints">
-            服务连接
-          </TabButton>
-          <TabButton active={tab === "text"} onClick={() => setTab("text")} icon="bot">
-            文本路由
-          </TabButton>
-          <TabButton active={tab === "images"} onClick={() => setTab("images")} icon="image">
-            图像生成
-          </TabButton>
-          <TabButton active={tab === "pricing"} onClick={() => setTab("pricing")} icon="waypoints">
-            费用估算
-          </TabButton>
-        </nav>
+          <nav aria-label="模型设置" role="tablist" className="settings-tabs">
+            <TabButton active={tab === "connections"} onClick={() => setTab("connections")} icon="waypoints" index="01" meta="LINKS" label="服务连接" />
+            <TabButton active={tab === "text"} onClick={() => setTab("text")} icon="bot" index="02" meta="ROUTES" label="文本路由" />
+            <TabButton active={tab === "images"} onClick={() => setTab("images")} icon="image" index="03" meta="MEDIA" label="图像生成" />
+            <TabButton active={tab === "pricing"} onClick={() => setTab("pricing")} icon="waypoints" index="04" meta="COST" label="费用估算" />
+          </nav>
 
-        {error && (
-          <div role="alert" className="mt-6 rounded-lg border border-[rgba(200,80,100,0.28)] bg-[#fff5f7] px-4 py-3 text-[13px] text-[#9d334c]">
-            {error}
-          </div>
-        )}
+          {error && <div role="alert" className="settings-error">{error}</div>}
 
-        {loading && <div className="py-16 text-[13px] text-ink-muted">正在加载模型配置…</div>}
+          {loading && <div className="settings-loading">正在读取模型配置…</div>}
 
-        {configuration && !loading && (
-          <motion.div
-            key={tab}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2 }}
-            className="pt-7"
-          >
-            {tab === "connections" && (
-              <ConnectionsPanel
-                connections={configuration.connections}
-                testingId={testingId}
-                onAdd={() => setEditing("new")}
-                onEdit={setEditing}
-                onTest={(connection) => void testConnection(connection)}
-                onDelete={(connection) => void removeConnection(connection)}
-              />
-            )}
-            {tab === "text" && (
-              <TextRoutesPanel
-                key={configuration.text_routes.map((route) => `${route.id}:${route.connection_id}:${route.model}:${route.reasoning_effort}:${route.inherits_default}:${route.effective_timeout_seconds}`).join("|")}
-                routes={configuration.text_routes}
-                connections={configuration.connections}
-                onSaved={load}
-              />
-            )}
-            {tab === "images" && (
-              <>
-                <VisionReviewPanel
-                  key={(configuration.vision_routes ?? []).map((route) => `${route.id}:${route.connection_id}:${route.model}`).join("|")}
-                  route={(configuration.vision_routes ?? []).find((item) => item.id === "cover_review")}
-                  connections={configuration.connections}
-                  onSaved={load}
-                />
-                <ImageProfilePanel
-                  key={`${configuration.image_profiles.cover.connection_id}:${configuration.image_profiles.cover.model}:${configuration.image_profiles.cover.size}:${configuration.image_profiles.cover.quality}:${configuration.image_profiles.cover.output_format}:${configuration.image_profiles.cover.count}`}
-                  profile={configuration.image_profiles.cover}
-                  connections={configuration.connections}
-                  onSaved={load}
-                />
-              </>
-            )}
-            {tab === "pricing" && <PricingSettings />}
-          </motion.div>
-        )}
+          {configuration && !loading && (
+            <div className="settings-stage">
+              <motion.div
+                key={tab}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+                className="settings-main"
+              >
+                {tab === "connections" && (
+                  <div className="settings-surface settings-surface--flush">
+                    <ConnectionsPanel
+                      connections={configuration.connections}
+                      templates={configuration.templates}
+                      testingId={testingId}
+                      onAdd={(provider) => { setNewProvider(provider); setEditing("new"); }}
+                      onEdit={setEditing}
+                      onTest={(connection) => void testConnection(connection)}
+                      onDelete={(connection) => void removeConnection(connection)}
+                    />
+                  </div>
+                )}
+                {tab === "text" && (
+                  <div className="settings-surface">
+                    <TextRoutesPanel
+                      key={configuration.text_routes.map((route) => `${route.id}:${route.connection_id}:${route.model}:${route.reasoning_effort}:${route.inherits_default}:${route.effective_timeout_seconds}`).join("|")}
+                      routes={configuration.text_routes}
+                      connections={configuration.connections}
+                      onSaved={load}
+                    />
+                  </div>
+                )}
+                {tab === "images" && (
+                  <div className="settings-surface settings-surface--flush">
+                    <VisionReviewPanel
+                      key={(configuration.vision_routes ?? []).map((route) => `${route.id}:${route.connection_id}:${route.model}`).join("|")}
+                      route={(configuration.vision_routes ?? []).find((item) => item.id === "cover_review")}
+                      connections={configuration.connections}
+                      onSaved={load}
+                    />
+                    <ImageProfilePanel
+                      key={`${configuration.image_profiles.cover.connection_id}:${configuration.image_profiles.cover.model}:${configuration.image_profiles.cover.size}:${configuration.image_profiles.cover.quality}:${configuration.image_profiles.cover.output_format}:${configuration.image_profiles.cover.count}`}
+                      profile={configuration.image_profiles.cover}
+                      connections={configuration.connections}
+                      onSaved={load}
+                    />
+                  </div>
+                )}
+                {tab === "pricing" && (
+                  <div className="settings-surface">
+                    <PricingSettings />
+                  </div>
+                )}
+              </motion.div>
+              <SettingsInspector tab={tab} configuration={configuration} />
+            </div>
+          )}
+        </div>
       </div>
 
       {configuration && (
         <ProviderEditor
-          key={editing === "new" ? "new" : editing?.id ?? "closed"}
+          key={editing === "new" ? `new:${newProvider ?? ""}` : editing?.id ?? "closed"}
           open={editing !== null}
           connection={editing === "new" ? null : editing}
+          initialProvider={newProvider}
           templates={configuration.templates}
-          onClose={() => setEditing(null)}
+          onClose={() => { setEditing(null); setNewProvider(undefined); }}
           onSaved={async () => {
             setEditing(null);
+            setNewProvider(undefined);
             await load();
           }}
         />
       )}
     </Scene>
   );
+
 }
 
-function HealthLabel({ ready, label }: { ready: boolean; label: string }) {
-  return (
-    <span className={`inline-flex items-center gap-1.5 ${ready ? "text-[#267553]" : "text-[#9b651e]"}`}>
-      <Icon name={ready ? "circle-check" : "circle-alert"} className="h-3.5 w-3.5" />
-      {label}{ready ? "已就绪" : "需要配置"}
-    </span>
-  );
-}
-
-function TabButton({ active, onClick, icon, children }: {
+function TabButton({ active, onClick, icon, index, meta, label }: {
   active: boolean;
   onClick: () => void;
   icon: "waypoints" | "bot" | "image";
-  children: ReactNode;
+  index: string;
+  meta: string;
+  label: string;
 }) {
   return (
     <button
       type="button"
       role="tab"
+      aria-label={label}
       aria-selected={active}
       onClick={onClick}
-      className={`flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md px-2 py-2 text-[12px] font-semibold transition-colors sm:px-4 sm:text-[13px] ${active ? "bg-white text-ink-text shadow-sm" : "text-ink-muted hover:text-ink-text"}`}
+      className="settings-tab"
     >
-      <span className="hidden sm:inline-flex"><Icon name={icon} className="h-3.5 w-3.5" /></span>
-      <span className="truncate">{children}</span>
+      <span className="settings-tab__index" aria-hidden>{index}</span>
+      <span className="settings-tab__icon" aria-hidden><Icon name={icon} className="h-3.5 w-3.5" /></span>
+      <span className="settings-tab__label" aria-hidden>{label}</span>
+      <span className="settings-tab__meta" aria-hidden>{meta}</span>
     </button>
   );
 }
 
-function ConnectionsPanel({ connections, testingId, onAdd, onEdit, onTest, onDelete }: {
+function SettingsInspector({ tab, configuration }: { tab: SettingsTab; configuration: StudioModelConfiguration }) {
+  const defaultRoute = configuration.text_routes.find((route) => route.id === "default");
+  const vision = (configuration.vision_routes ?? []).find((route) => route.id === "cover_review");
+  const image = configuration.image_profiles.cover;
+  const configuredRoutes = configuration.text_routes.filter((route) => route.configured).length;
+  const modelCount = configuration.connections.reduce((total, connection) => total + connection.discovered_models.length, 0);
+  const note = {
+    connections: "连接密钥写入受保护的 secrets 文件；文本、视觉与图像能力彼此独立，删除被路由引用的连接会被阻止。",
+    text: "推理等级来自模型元数据。切换连接会清空上一连接的模型与等级，避免把旧模型带进新链路。",
+    images: "图像生成与视觉审阅分离。纯文本模型不会收到图片字节；视觉审阅失败时保留候选并转人工审核。",
+    pricing: "单价仅用于估算。保存后会重算历史用量，但不改写原始 Token 记录；订阅额度不等同于实际扣款。",
+  }[tab];
+
+  return (
+    <aside className="settings-inspector" aria-label="当前模型拓扑">
+      <div className="settings-inspector__head">
+        <span>Live topology</span>
+        <span className="settings-inspector__live">LIVE</span>
+      </div>
+      <div className="settings-inspector__body">
+        <div className="settings-route">
+          <div className="settings-route__head"><span className="settings-route__step">01</span><span className="settings-route__label">TEXT</span></div>
+          <p className="settings-route__value">{defaultRoute?.effective_connection_name ? `当前默认 · ${defaultRoute.effective_connection_name}` : "未配置"}</p>
+          <p className="settings-route__meta">{defaultRoute ? `${defaultRoute.effective_model || "默认模型"}${defaultRoute.effective_reasoning_effort ? ` · effort ${defaultRoute.effective_reasoning_effort}` : ""}` : "设置默认写作路由"}</p>
+        </div>
+        <div className="settings-route">
+          <div className="settings-route__head"><span className="settings-route__step">02</span><span className="settings-route__label">VISION</span></div>
+          <p className="settings-route__value">{vision?.configured ? `已连接 · ${vision.connection_name || "视觉模型"}` : "未配置"}</p>
+          <p className="settings-route__meta">{vision?.configured ? `${vision.effective_model || "默认模型"}${vision.source === "fallback" ? " · 沿用封面指导" : ""}` : "封面评审降级为人工审核"}</p>
+        </div>
+        <div className="settings-route">
+          <div className="settings-route__head"><span className="settings-route__step">03</span><span className="settings-route__label">IMAGE</span></div>
+          <p className="settings-route__value">{image.configured ? `图像 · ${image.connection_name || "已连接"}` : "未配置"}</p>
+          <p className="settings-route__meta">{image.configured ? (image.model || "默认图像模型") : "封面与海报生成入口禁用"}</p>
+        </div>
+        <div className="settings-inspector__counts">
+          <div className="settings-inspector__count"><strong className="nums">{String(configuration.connections.length).padStart(2, "0")}</strong><span>Links</span></div>
+          <div className="settings-inspector__count"><strong className="nums">{String(configuredRoutes).padStart(2, "0")}</strong><span>Routes</span></div>
+          <div className="settings-inspector__count"><strong className="nums">{String(modelCount).padStart(2, "0")}</strong><span>Models</span></div>
+          <div className="settings-inspector__count"><strong className="nums">{String(configuration.templates.length).padStart(2, "0")}</strong><span>Templates</span></div>
+        </div>
+        <p className="settings-inspector__note">{note}</p>
+        <span className="settings-inspector__stamp">Novel OS / Model atelier</span>
+      </div>
+    </aside>
+  );
+}
+
+const PROVIDER_MARKS: Record<string, string> = {
+  codex: "CX", deepseek: "DS", openai: "OA", openai_compatible: "OC",
+  anthropic: "AN", openrouter: "OR", ollama: "OL",
+};
+
+function capabilityLabel(capability: ModelCapability): string {
+  if (capability === "text_generation") return "文本";
+  if (capability === "image_generation") return "图像";
+  return "视觉";
+}
+
+function ConnectionsPanel({ connections, templates, testingId, onAdd, onEdit, onTest, onDelete }: {
   connections: ProviderConnection[];
+  templates: ProviderTemplate[];
   testingId: string;
-  onAdd: () => void;
+  onAdd: (provider?: string) => void;
   onEdit: (connection: ProviderConnection) => void;
   onTest: (connection: ProviderConnection) => void;
   onDelete: (connection: ProviderConnection) => void;
 }) {
   return (
-    <section aria-labelledby="connections-title">
+    <section aria-labelledby="connections-title" className="settings-connections">
       <SectionHeading
         id="connections-title"
         title="服务商连接"
-        action={<button type="button" onClick={onAdd} className="btn-primary !rounded-lg"><Icon name="plus" className="h-3.5 w-3.5" /> 添加连接</button>}
+        detail="管理文本、视觉与图像能力的来源；每条连接只保留它真正需要的凭据。"
+        action={<button type="button" onClick={() => onAdd()} className="btn-primary !rounded-lg"><Icon name="plus" className="h-3.5 w-3.5" /> 添加连接</button>}
       />
+
       {connections.length === 0 ? (
-        <EmptyState icon="waypoints" title="暂无服务商连接" action="添加连接" onAction={onAdd} />
+        <div className="settings-empty-connections">
+          <Icon name="waypoints" className="h-6 w-6 text-ink-muted" />
+          <p>暂无服务商连接</p>
+          <button type="button" className="btn-secondary mt-4 !rounded-md" onClick={() => onAdd()}>添加第一个连接</button>
+        </div>
       ) : (
-        <div className="mt-5 overflow-hidden rounded-lg border border-[rgba(74,91,133,0.14)] bg-white">
-          {connections.map((connection, index) => (
-            <div key={connection.id} className={`grid gap-4 px-4 py-4 sm:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_auto] sm:items-center sm:px-5 ${index ? "border-t border-[rgba(74,91,133,0.11)]" : ""}`}>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${connection.status === "ready" ? "bg-[#39a875]" : "bg-[#d18b32]"}`} />
-                  <h3 className="truncate text-[14px] font-semibold text-ink-text">{connection.name}</h3>
+        <div className="settings-connection-grid">
+          {connections.map((connection) => {
+            const failed = connection.last_test_ok === false;
+            const ready = connection.status === "ready" && !failed;
+            const statusClass = failed ? "error" : ready ? "ready" : "warn";
+            const statusText = failed ? "ERROR" : ready ? "READY" : "UNTESTED";
+            const statusDetail = connection.last_tested_at
+              ? (connection.last_test_ok ? "连接验证成功" : connection.last_test_error)
+              : (connection.error || "尚未测试");
+            const visibleModels = connection.discovered_models.slice(0, 3);
+            const moreModels = connection.discovered_models.length - visibleModels.length;
+            return (
+              <article className="settings-connection" key={connection.id}>
+                <div className="settings-connection__top">
+                  <div className="settings-connection__id">
+                    <span className="settings-connection__mark" aria-hidden>{PROVIDER_MARKS[connection.provider] ?? connection.provider.slice(0, 2).toUpperCase()}</span>
+                    <div className="min-w-0">
+                      <h3 className="settings-connection__name">{connection.name}</h3>
+                      <p className="settings-connection__provider">{connection.provider.replaceAll("_", " ")} · {authLabel(connection.auth_type)}</p>
+                    </div>
+                  </div>
+                  <span className={`settings-connection__status settings-connection__status--${statusClass}`}>
+                    <span className={`settings-status-dot settings-status-dot--${ready ? "ready" : "warn"}`} aria-hidden />
+                    {statusText}
+                  </span>
                 </div>
-                <p className="mt-1 truncate pl-4 text-[11px] uppercase text-ink-muted">
-                  {connection.provider.replaceAll("_", " ")} · {authLabel(connection.auth_type)}
-                </p>
-              </div>
-              <div>
-                <div className="flex flex-wrap gap-1.5">
+
+                <div className="settings-connection__caps">
                   {connection.capabilities.map((capability) => (
-                    <span key={capability} className="rounded bg-[#f0f3fa] px-2 py-1 text-[10px] font-medium text-ink-muted">
-                      {capability === "text_generation" ? "文本" : capability === "image_generation" ? "图像" : "视觉"}
-                    </span>
+                    <span key={capability} className={`settings-cap ${capability === "image_input" ? "settings-cap--accent" : ""}`}>{capabilityLabel(capability)}</span>
                   ))}
+                  <span className="settings-cap">{connection.discovered_models.length} models</span>
                 </div>
-                <p className={`mt-1.5 text-[11px] ${connection.last_test_ok === false ? "text-[#a33b54]" : "text-ink-muted"}`}>
-                  {connection.last_tested_at ? connection.last_test_ok ? "连接验证成功" : connection.last_test_error : connection.error || "尚未测试"}
-                </p>
-              </div>
-              <div className="flex items-center justify-end gap-2">
-                <button type="button" className="btn-secondary !rounded-md !px-3 !py-2" disabled={testingId === connection.id} onClick={() => onTest(connection)}>{testingId === connection.id ? "测试中…" : "测试"}</button>
-                <button type="button" className="btn-ghost !rounded-md !px-3 !py-2" onClick={() => onEdit(connection)}>编辑</button>
-                <button type="button" aria-label={`删除${connection.name}`} title="删除连接" className="flex h-9 w-9 items-center justify-center rounded-md text-ink-muted hover:bg-[#fff1f4] hover:text-[#a33b54]" onClick={() => onDelete(connection)}>
-                  <span aria-hidden className="text-[16px] leading-none">×</span>
-                </button>
-              </div>
-            </div>
-          ))}
+
+                <div className="settings-connection__models" aria-label={`${connection.name} 模型`}>
+                  {visibleModels.length ? visibleModels.map((model) => (
+                    <span className="settings-model-chip" key={model} title={model}>
+                      {connection.model_details?.[model]?.name && connection.model_details[model].name !== model
+                        ? `${connection.model_details[model].name} · ${model}`
+                        : model}
+                    </span>
+                  )) : <span className="settings-model-chip">尚未读取模型目录</span>}
+                  {moreModels > 0 && <span className="settings-model-chip settings-model-chip--more">+{moreModels}</span>}
+                </div>
+
+                <p className={`settings-connection__meta ${failed ? "settings-connection__meta--error" : ""}`}>{statusDetail}</p>
+
+                <div className="settings-connection__actions">
+                  <button type="button" className="btn-secondary" disabled={testingId === connection.id} onClick={() => onTest(connection)}>{testingId === connection.id ? "测试中…" : "测试"}</button>
+                  <button type="button" className="btn-ghost" onClick={() => onEdit(connection)}>编辑</button>
+                  <button type="button" aria-label={`删除${connection.name}`} title="删除连接" className="settings-connection__delete" onClick={() => onDelete(connection)}>
+                    <span aria-hidden className="text-[16px] leading-none">×</span>
+                  </button>
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
+
+      <div className="settings-subsection">
+        <div className="settings-subhead">
+          <div>
+            <h3>可添加的服务商</h3>
+            <p>选择一个模板开始；已经拥有的能力类型会在下一步自动带入。</p>
+          </div>
+          <span className="settings-subhead__count">{templates.length} TEMPLATES</span>
+        </div>
+        <div className="settings-template-grid">
+          {templates.map((template) => (
+            <button key={template.id} type="button" className="settings-template" aria-label={`添加 ${template.label} 连接`} onClick={() => onAdd(template.id)}>
+              <span className="settings-template__mark" aria-hidden>{PROVIDER_MARKS[template.id] ?? template.label.slice(0, 2).toUpperCase()}</span>
+              <span className="settings-template__copy">
+                <strong>{template.label}</strong>
+                <span>{template.capabilities.map(capabilityLabel).join(" / ")}</span>
+              </span>
+              <span className="settings-template__plus" aria-hidden><Icon name="plus" className="h-3 w-3" /></span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="settings-delivery" aria-label="连接约定">
+        <span>Keys · 0600</span>
+        <span>Codex session</span>
+        <span>No image bytes to text-only</span>
+        <span>Independent vision</span>
+      </div>
     </section>
   );
 }
 
-function ProviderEditor({ open, connection, templates, onClose, onSaved }: {
+function ProviderEditor({ open, connection, initialProvider, templates, onClose, onSaved }: {
   open: boolean;
   connection: ProviderConnection | null;
+  initialProvider?: string;
   templates: ProviderTemplate[];
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
   const toast = useToast();
-  const initialTemplate = templates.find((item) => item.id === connection?.provider) ?? templates[0];
+  const initialTemplate = templates.find((item) => item.id === (connection?.provider ?? initialProvider)) ?? templates[0];
   const [provider, setProvider] = useState(initialTemplate?.id ?? "openai_compatible");
   const [name, setName] = useState(connection?.name ?? initialTemplate?.label ?? "");
   const [baseUrl, setBaseUrl] = useState(connection?.base_url ?? initialTemplate?.default_base_url ?? "");
@@ -502,7 +646,7 @@ function reasoningLevelsFor(provider: string, detail?: ProviderModelDetail): str
 
 function modelOptionLabel(model: string, details: Record<string, ProviderModelDetail>): string {
   const name = details[model]?.name;
-  return name && name !== model ? `${name} · ${model}` : model;
+  return name && name !== model ? name : model;
 }
 
 function effectiveConnectionId(
@@ -687,7 +831,7 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
               ? (REASONING_EFFORT_LABELS[defaultReasoning] ?? defaultReasoning)
               : "";
             return (
-              <div key={route.id} className={`grid gap-4 px-4 py-4 lg:grid-cols-[190px_minmax(160px,1fr)_minmax(160px,1fr)_145px_120px] lg:items-center lg:px-5 ${index ? "border-t border-[rgba(74,91,133,0.11)]" : ""}`}>
+              <div key={route.id} className={`grid gap-4 px-4 py-4 lg:grid-cols-[140px_135px_minmax(180px,1.3fr)_95px_105px] lg:items-center lg:px-5 ${index ? "border-t border-[rgba(74,91,133,0.11)]" : ""}`}>
                 <div>
                   <h3 className="text-[13px] font-semibold text-ink-text">{meta.label}</h3>
                   <p className="mt-0.5 text-[11px] text-ink-muted">{meta.detail}</p>
@@ -696,7 +840,7 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
                   setManualModels((current) => ({ ...current, [route.id]: false }));
                   update(route.id, { connection_id: event.target.value, model: "", reasoning_effort: "" });
                 }}>
-                  <option value="">选择连接</option>
+                  <option value="">{inherited ? `继承 · ${selected?.name ?? "默认连接"}` : "选择连接"}</option>
                   {textConnections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}
                 </select>
                 <div>
@@ -717,6 +861,12 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
                     {models.map((model) => <option key={model} value={`model:${model}`}>{modelOptionLabel(model, details)}</option>)}
                     <option value="manual">手动输入…</option>
                   </select>
+                  {!manual && currentModel && details[currentModel]?.name && details[currentModel].name !== currentModel && (
+                    <p className="settings-model-meta">
+                      {currentModel}
+                      {details[currentModel].context_window ? ` · ${details[currentModel].context_window >= 1_000_000 ? `${(details[currentModel].context_window / 1_000_000).toFixed(1)}M` : `${Math.round(details[currentModel].context_window / 1000)}K`} ctx` : ""}
+                    </p>
+                  )}
                   {manual && <input aria-label={`${meta.label}自定义模型`} className={`${controlClass} mt-2`} value={route.model} onChange={(event) => update(route.id, { model: event.target.value })} placeholder="输入完整模型 ID" />}
                 </div>
                 <select
@@ -1052,7 +1202,7 @@ function ImageProfilePanel({ profile, connections, onSaved }: {
                 </select>
               </FormField>
               <FormField label="图像模型" htmlFor="image-model">
-                <input id="image-model" className={controlClass} readOnly={codexImageConnection} value={codexImageConnection ? "Codex 内置图片工具（自动选择）" : draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} list={codexImageConnection ? undefined : "image-models"} placeholder="输入服务商支持的完整模型 ID" aria-describedby="image-model-guidance" />
+                <input id="image-model" className={controlClass} readOnly={codexImageConnection} value={codexImageConnection ? "Codex 自动选择" : draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} list={codexImageConnection ? undefined : "image-models"} placeholder="输入服务商支持的完整模型 ID" aria-describedby="image-model-guidance" />
                 <datalist id="image-models">{imageModelChoices.map(model => <option key={model} value={model} />)}</datalist>
               </FormField>
             </div>

@@ -1,5 +1,10 @@
 # Novel OS 项目记忆
 
+## 最新设计：2026-10-18 模型与服务商全页工作台（已实现并部署）
+
+Settings 从“上方标题 + 一条连接列表 + 大量空白”改为全页 Model Atelier：整页工作台铺满视口，左侧标题 + 右侧深色 System Status，四段编号标签页横贯全宽；主体为“主工作区 + Live Topology 侧栏”，连接页使用双列连接卡与可点击的服务商模板目录，图像/文本/计费页复用同一工作台框架。Inspector 实时展示 TEXT / VISION / IMAGE 三条链路与连接、路由、模型、模板数量。桌面 1440、宽屏 2560、390px 均已截图检查；页面宽度填满可用区域，390px 无横向溢出。设计截图见 `docs/design/settings-workbench-2026-10-18.png`。已提交 `8199aea` 并部署到 5174；前后端 healthy，桌面 1440 实机截图与设计一致。
+
+保留全部既有功能与文案：服务连接增删改测、模板点选会预选服务商、文本路由、视觉审阅、封面图像、费用估算、ProviderEditor。测试增至 43 文件 511 项通过；`tsc -b` / `vite build` / 改动文件 ESLint 通过。
 ## 最新开发：2026-10-18 DeepSeek 文本接入 + 独立视觉审阅（未部署）
 
 用户批准 Settings 设计稿后实施，Codex 登录与图像 profile 保持不变。Studio 新增 `deepseek` provider 模板，只声明 `text_generation`；密钥仍写入 `studio_settings.secrets.json`。文本路由可直接设 DeepSeek；模型以 `/models` 实际返回为准（当前 `deepseek-flash`、`deepseek-v4-pro`），不再写死旧别名。DeepSeek 不进入 image profile，也不能被选为视觉审阅连接。`/models` 元数据含 `effort.supported_levels`（low/high/max，默认 high）、上下文/输出上限、输入模态与显示名；`model_details` 随连接保存并通过 `/model-catalog` 暴露，UI 按模型显示可用推理等级，DeepSeek 请求发送 `reasoning_effort`。切换连接会清空上一连接的模型/推理值，避免把 Codex 模型带进 DeepSeek 列表。

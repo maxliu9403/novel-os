@@ -305,7 +305,7 @@ describe("model provider settings", () => {
     await user.click(await screen.findByRole("tab", { name: "图像生成" }));
     expect(screen.getByText(/当前 Codex 连接/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "使用 Sunburst · 推荐" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("图像模型")).toHaveValue("Codex 内置图片工具（自动选择）");
+    expect(screen.getByLabelText("图像模型")).toHaveValue("Codex 自动选择");
     expect(screen.getByLabelText("图像模型")).toHaveAttribute("readonly");
     await screen.findByText("当前连接不提供图片型号列表");
     expect(document.querySelectorAll("#image-models option")).toHaveLength(0);
@@ -334,7 +334,7 @@ describe("model provider settings", () => {
     await user.clear(screen.getByLabelText("图像模型"));
     await user.type(screen.getByLabelText("图像模型"), "publisher/custom-image");
     await user.selectOptions(screen.getByLabelText("服务商连接"), "codex");
-    expect(screen.getByLabelText("图像模型")).toHaveValue("Codex 内置图片工具（自动选择）");
+    expect(screen.getByLabelText("图像模型")).toHaveValue("Codex 自动选择");
     await user.selectOptions(screen.getByLabelText("服务商连接"), "primary");
     expect(screen.getByLabelText("图像模型")).toHaveValue("publisher/custom-image");
     expect(screen.getByLabelText("图像模型")).not.toHaveAttribute("readonly");
@@ -692,7 +692,7 @@ describe("model provider settings", () => {
     await user.click(await screen.findByRole("tab", { name: "文本路由" }));
 
     const model = screen.getByLabelText("默认写作模型模型");
-    expect(within(model).getByRole("option", { name: "DeepSeek-V4-Pro · deepseek-v4-pro" })).toBeInTheDocument();
+    expect(within(model).getByRole("option", { name: "DeepSeek-V4-Pro" })).toBeInTheDocument();
     const reasoning = screen.getByLabelText("默认写作模型推理强度");
     expect(reasoning).toBeEnabled();
     expect(within(reasoning).getAllByRole("option").map((option) => option.textContent)).toEqual(["模型默认（高）", "低", "高", "最大"]);
@@ -737,4 +737,13 @@ describe("model provider settings", () => {
     expect(within(screen.getByLabelText("默认写作模型推理强度")).getAllByRole("option").map((option) => option.textContent)).toEqual([
       "模型默认（高）", "低", "高", "最大",
     ]);
+  });
+
+  it("preselects a provider from the template catalog", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("button", { name: "添加 DeepSeek 连接" }));
+    expect(screen.getByRole("dialog", { name: "添加连接" })).toBeInTheDocument();
+    expect(screen.getByLabelText("服务商")).toHaveValue("deepseek");
+    expect(screen.getByLabelText("连接名称")).toHaveValue("DeepSeek");
   });
