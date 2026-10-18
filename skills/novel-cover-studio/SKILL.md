@@ -1,6 +1,6 @@
 ---
 name: novel-cover-studio
-description: Design novel covers from a complete skeleton using promotional poster art, four concepts, direct image selection, single-image refinement, local typography and verified delivery; preserve legacy cover workflows.
+description: Use when designing or repairing Novel OS covers from a complete skeleton, including promotional poster concepts, direct image selection, single-image refinement, local typography and verified delivery; preserve legacy cover workflows.
 ---
 
 # Novel Cover Studio
