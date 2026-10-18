@@ -79,6 +79,10 @@ function response(body: unknown, status = 200) {
   }));
 }
 
+function catalog(models: string[], details: Record<string, unknown> = {}) {
+  return { models, details };
+}
+
 function imageCatalog(models = ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]) {
   return {models, discovery_supported: true, exact_model_selection: true, source: "provider",
     message: "服务商返回的候选型号，请确认图片生成支持。", fetched_at: "2026-10-11T15:00:00Z"};
@@ -90,7 +94,7 @@ beforeEach(() => {
     const path = String(input);
     if (path.endsWith("/api/studio/models")) return response(configuration());
     if (path.endsWith("/api/studio/providers/primary/image-models?refresh=true")) return response(imageCatalog());
-    if (path.endsWith("/api/studio/providers/primary/models?refresh=true")) return response(["story-model", "planning-model"]);
+    if (path.endsWith("/api/studio/providers/primary/model-catalog?refresh=true")) return response(catalog(["story-model", "planning-model"]));
     if (path.endsWith("/api/studio/providers") && init?.method === "POST") {
       return response({ ...configuration().connections[0], id: "new-provider" }, 201);
     }
@@ -242,7 +246,7 @@ describe("model provider settings", () => {
     await waitFor(() => expect(document.querySelector('#image-models option[value="publisher/refreshed-image"]')).toBeInTheDocument());
     expect(screen.getByLabelText("图像模型")).toHaveValue("publisher/private-image");
     expect(document.querySelector('#image-models option[value="gpt-image-2"]')).not.toBeInTheDocument();
-    expect(fetchMock.mock.calls.filter(call => String(call[0]).includes("/primary/models"))).toHaveLength(0);
+    expect(fetchMock.mock.calls.filter(call => String(call[0]).includes("/primary/model-catalog"))).toHaveLength(0);
     expect(fetchMock.mock.calls.some(call => call[1]?.method === "PUT")).toBe(false);
   });
 
@@ -418,8 +422,8 @@ describe("model provider settings", () => {
 
   it("loads models from the connection API once for inherited routes and saves an actual dropdown choice", async () => {
     const baseFetch = fetchMock.getMockImplementation()!;
-    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/api/studio/providers/primary/models?refresh=true")
-      ? response(["fresh-api-model", "another-api-model"]) : baseFetch(input, init));
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/api/studio/providers/primary/model-catalog?refresh=true")
+      ? response(catalog(["fresh-api-model", "another-api-model"])) : baseFetch(input, init));
     const user = userEvent.setup();
     renderSettings();
     await user.click(await screen.findByRole("tab", { name: "文本路由" }));
@@ -427,7 +431,7 @@ describe("model provider settings", () => {
     await within(model).findByRole("option", { name: "fresh-api-model" });
     expect(within(model).getByRole("option", { name: "story-model（当前 / 自定义）" })).toBeInTheDocument();
     expect(model).toHaveValue("model:story-model");
-    expect(fetchMock.mock.calls.filter((call) => String(call[0]).includes("/providers/primary/models"))).toHaveLength(1);
+    expect(fetchMock.mock.calls.filter((call) => String(call[0]).includes("/providers/primary/model-catalog"))).toHaveLength(1);
     await user.selectOptions(model, "model:fresh-api-model");
     expect(screen.getByLabelText("头脑风暴模型")).toHaveValue("model:fresh-api-model");
     await user.click(screen.getByRole("button", { name: "保存路由" }));
@@ -444,7 +448,7 @@ describe("model provider settings", () => {
     const baseFetch = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).endsWith("/api/studio/models")) return response(config);
-      if (String(input).endsWith("/api/studio/providers/primary/models?refresh=true")) return ++attempts === 1 ? response({ detail: "Discovery is unavailable" }, 502) : response(["public-model"]);
+      if (String(input).endsWith("/api/studio/providers/primary/model-catalog?refresh=true")) return ++attempts === 1 ? response({ detail: "Discovery is unavailable" }, 502) : response(catalog(["public-model"]));
       return baseFetch(input, init);
     });
     const user = userEvent.setup();
@@ -476,8 +480,8 @@ describe("model provider settings", () => {
     const baseFetch = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).endsWith("/api/studio/models")) return response(config);
-      if (String(input).endsWith("/api/studio/providers/primary/models?refresh=true")) return primaryReply;
-      if (String(input).endsWith("/api/studio/providers/secondary/models?refresh=true")) return response(["second-connection-model"]);
+      if (String(input).endsWith("/api/studio/providers/primary/model-catalog?refresh=true")) return primaryReply;
+      if (String(input).endsWith("/api/studio/providers/secondary/model-catalog?refresh=true")) return response(catalog(["second-connection-model"]));
       return baseFetch(input, init);
     });
     const user = userEvent.setup();
@@ -486,13 +490,14 @@ describe("model provider settings", () => {
     await user.selectOptions(screen.getByLabelText("默认写作模型连接"), "secondary");
     const model = screen.getByLabelText("默认写作模型模型");
     await within(model).findByRole("option", { name: "second-connection-model" });
-    await act(async () => { resolvePrimary(new Response(JSON.stringify(["late-primary-model"]), { status: 200 })); });
+    await act(async () => { resolvePrimary(new Response(JSON.stringify(catalog(["late-primary-model"])), { status: 200 })); });
     expect(within(model).queryByRole("option", { name: "late-primary-model" })).not.toBeInTheDocument();
     expect(within(model).getByRole("option", { name: "second-connection-model" })).toBeInTheDocument();
-    expect(model).toHaveValue("model:story-model");
-    expect(fetchMock.mock.calls.filter((call) => String(call[0]).includes("/providers/secondary/models"))).toHaveLength(1);
-    await user.selectOptions(model, "model:");
-    expect(screen.getByLabelText("头脑风暴模型")).toHaveValue("model:");
+    expect(model).toHaveValue("model:");
+    expect(within(model).queryByRole("option", { name: /story-model/ })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter((call) => String(call[0]).includes("/providers/secondary/model-catalog"))).toHaveLength(1);
+    await user.selectOptions(model, "model:second-connection-model");
+    expect(screen.getByLabelText("头脑风暴模型")).toHaveValue("model:second-connection-model");
     await user.selectOptions(screen.getByLabelText("默认写作模型连接"), "");
     expect(within(model).queryByRole("option", { name: "second-connection-model" })).not.toBeInTheDocument();
   });
@@ -651,35 +656,85 @@ describe("model provider settings", () => {
   });
 
 
-  it("disables and clears reasoning effort for DeepSeek text routes", async () => {
+  it("uses DeepSeek model metadata for names and reasoning levels", async () => {
     const config = configuration();
     config.connections.push({
       ...config.connections[0], id: "deepseek", name: "DeepSeek", provider: "deepseek",
       base_url: "https://api.deepseek.com/v1", capabilities: ["text_generation"],
-      discovered_models: ["deepseek-reasoner", "deepseek-chat"],
+      discovered_models: ["deepseek-flash", "deepseek-v4-pro"],
+      model_details: {
+        "deepseek-flash": {
+          id: "deepseek-flash", name: "DeepSeek-V4.1-Flash",
+          reasoning: { supported_levels: ["low", "high", "max"], default_level: "high" },
+          input_modalities: ["text", "image"],
+        },
+        "deepseek-v4-pro": {
+          id: "deepseek-v4-pro", name: "DeepSeek-V4-Pro",
+          reasoning: { supported_levels: ["low", "high", "max"], default_level: "high" },
+          input_modalities: ["text"],
+        },
+      },
     });
     config.text_routes = config.text_routes.map((route) => route.id === "default"
-      ? { ...route, connection_id: "deepseek", model: "deepseek-reasoner", reasoning_effort: "high" }
+      ? { ...route, connection_id: "deepseek", model: "deepseek-v4-pro", reasoning_effort: "" }
       : route);
     const baseFetch = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).endsWith("/api/studio/models")) return response(config);
+      const path = String(input);
+      if (path.endsWith("/api/studio/models")) return response(config);
+      if (path.endsWith("/providers/deepseek/model-catalog?refresh=true")) return response(catalog(
+        ["deepseek-flash", "deepseek-v4-pro"], config.connections[1].model_details,
+      ));
       return baseFetch(input, init);
     });
     const user = userEvent.setup();
     renderSettings();
     await user.click(await screen.findByRole("tab", { name: "文本路由" }));
 
+    const model = screen.getByLabelText("默认写作模型模型");
+    expect(within(model).getByRole("option", { name: "DeepSeek-V4-Pro · deepseek-v4-pro" })).toBeInTheDocument();
     const reasoning = screen.getByLabelText("默认写作模型推理强度");
-    expect(reasoning).toBeDisabled();
-    expect(reasoning).toHaveValue("");
-    expect(screen.getByLabelText("头脑风暴推理强度")).toBeDisabled();
+    expect(reasoning).toBeEnabled();
+    expect(within(reasoning).getAllByRole("option").map((option) => option.textContent)).toEqual(["模型默认（高）", "低", "高", "最大"]);
+    await user.selectOptions(reasoning, "max");
     await user.click(screen.getByRole("button", { name: "保存路由" }));
     await waitFor(() => {
       const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith("/api/studio/model-routes") && item[1]?.method === "PUT");
       const routes = JSON.parse(String(call?.[1]?.body)).routes;
       expect(routes.find((route: { id: string }) => route.id === "default")).toMatchObject({
-        connection_id: "deepseek", model: "deepseek-reasoner", reasoning_effort: "",
+        connection_id: "deepseek", model: "deepseek-v4-pro", reasoning_effort: "max",
       });
     });
+  });
+
+  it("clears the previous model when switching connections", async () => {
+    const config = configuration();
+    config.connections.push({
+      ...config.connections[0], id: "deepseek", name: "DeepSeek", provider: "deepseek",
+      base_url: "https://api.deepseek.com/v1", capabilities: ["text_generation"],
+      discovered_models: ["deepseek-flash", "deepseek-v4-pro"],
+      model_details: {},
+    });
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/api/studio/models")) return response(config);
+      if (path.endsWith("/providers/deepseek/model-catalog?refresh=true")) return response(catalog(["deepseek-flash", "deepseek-v4-pro"]));
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+    const model = screen.getByLabelText("默认写作模型模型");
+    expect(model).toHaveValue("model:story-model");
+
+    await user.selectOptions(screen.getByLabelText("默认写作模型连接"), "deepseek");
+    await within(model).findByRole("option", { name: "deepseek-flash" });
+
+    expect(model).toHaveValue("model:");
+    expect(within(model).queryByRole("option", { name: /story-model|gpt-6-astra/ })).not.toBeInTheDocument();
+    expect(within(model).getByRole("option", { name: "deepseek-v4-pro" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("默认写作模型推理强度")).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "模型默认（高）", "低", "高", "最大",
+    ]);
   });

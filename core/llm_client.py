@@ -61,6 +61,10 @@ from typing import Callable, Optional, Tuple
 # they share the OpenAI shape. Arbitrary openai_compatible endpoints are
 # validated by the vision-route connection capability.
 IMAGE_INPUT_PROVIDERS = frozenset({"codex", "openai", "azure", "openai_compatible", "openrouter"})
+# DeepSeek V4 exposes low/high/max thinking effort through the OpenAI-format
+# ``reasoning_effort`` field. Its default is high, so an empty route field
+# intentionally omits the parameter.
+DEEPSEEK_REASONING_EFFORTS = frozenset({"low", "high", "max"})
 
 DEFAULT_MAX_TOKENS = 8192
 DEFAULT_OPENAI_TIMEOUT_SECONDS = 1800.0
@@ -879,6 +883,9 @@ class LLMClient:
                 {"role": "user", "content": user},
             ],
         }
+        if (self.provider_name == "deepseek"
+                and self.reasoning_effort in DEEPSEEK_REASONING_EFFORTS):
+            request["reasoning_effort"] = self.reasoning_effort
         if not _env_flag("NOVEL_OS_LLM_STREAMING", True):
             resp = self._backend.chat.completions.create(**request)
             observe_usage(getattr(resp, "usage", None), provider=self.provider_name, observed_model=getattr(resp, "model", None))

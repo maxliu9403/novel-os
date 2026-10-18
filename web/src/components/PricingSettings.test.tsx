@@ -116,21 +116,21 @@ test("loads the DeepSeek reference preset without dropping other provider prices
   const preset = vi.spyOn(api, "studioPricingPreset").mockResolvedValue({
     preset: "deepseek",
     models: [
-      { provider: "deepseek", model: "deepseek-reasoner", input_usd_per_million: 0.55,
-        cached_input_usd_per_million: 0.14, output_usd_per_million: 2.19, image_usd_per_image: null },
-      { provider: "deepseek", model: "deepseek-chat", input_usd_per_million: 0.27,
-        cached_input_usd_per_million: 0.07, output_usd_per_million: 1.10, image_usd_per_image: null },
+      { provider: "deepseek", model: "deepseek-flash", input_usd_per_million: 0.30,
+        cached_input_usd_per_million: 0.006, output_usd_per_million: 1.20, image_usd_per_image: null },
+      { provider: "deepseek", model: "deepseek-v4-pro", input_usd_per_million: 1.32,
+        cached_input_usd_per_million: 0.044, output_usd_per_million: 3.96, image_usd_per_image: null },
     ],
   });
   await user.click(await screen.findByRole("button", { name: "载入 2 个模型参考价" }));
   await screen.findByRole("status");
   expect(preset).toHaveBeenCalledWith("deepseek");
-  expect(screen.getByLabelText("模型 2")).toHaveValue("deepseek-reasoner");
-  expect(screen.getByLabelText("模型 3")).toHaveValue("deepseek-chat");
+  expect(screen.getByLabelText("模型 2")).toHaveValue("deepseek-flash");
+  expect(screen.getByLabelText("模型 3")).toHaveValue("deepseek-v4-pro");
   await user.click(screen.getByRole("button", { name: "保存计费设置" }));
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
   const saved = save.mock.calls[0][0];
   expect(saved.models.map(row => `${row.provider}:${row.model}`)).toEqual([
-    "codex:text-fixture", "deepseek:deepseek-reasoner", "deepseek:deepseek-chat",
+    "codex:text-fixture", "deepseek:deepseek-flash", "deepseek:deepseek-v4-pro",
   ]);
 });

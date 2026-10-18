@@ -54,6 +54,7 @@ TEXT_ROUTE_IDS = (
     "cover_director",
 )
 REASONING_EFFORTS = ("", "low", "medium", "high", "xhigh", "max", "ultra")
+REASONING_LEVEL_VALUES = frozenset(value for value in REASONING_EFFORTS if value)
 WORKSHOP_DEFAULT_TIMEOUT_SECONDS = 900
 
 PROVIDER_TEMPLATES: tuple[dict[str, Any], ...] = (
@@ -109,7 +110,7 @@ PROVIDER_TEMPLATES: tuple[dict[str, Any], ...] = (
         "default_base_url": "https://api.deepseek.com/v1",
         "capabilities": [TEXT_CAPABILITY],
         "requires_api_key": True,
-        "model_placeholder": "deepseek-reasoner",
+        "model_placeholder": "DeepSeek model ID",
     },
     {
         "id": "ollama",
@@ -505,6 +506,7 @@ def _public_connection(connection: Mapping[str, Any]) -> dict[str, Any]:
         "last_test_ok": connection.get("last_test_ok"),
         "last_test_error": connection.get("last_test_error", ""),
         "discovered_models": list(connection.get("discovered_models") or []),
+        "model_details": dict(connection.get("model_details") or {}),
     }
 
 
@@ -586,7 +588,8 @@ def save_connection(payload: Mapping[str, Any], connection_id: str | None = None
             "last_tested_at": (existing or {}).get("last_tested_at", ""),
             "last_test_ok": (existing or {}).get("last_test_ok"),
             "last_test_error": (existing or {}).get("last_test_error", ""),
-            "discovered_models": list((existing or {}).get("discovered_models") or []),
+            "discovered_models": [],
+            "model_details": {},
         }
 
         secret_action = str(payload.get("secret_action") or "keep")
@@ -609,6 +612,17 @@ def save_connection(payload: Mapping[str, Any], connection_id: str | None = None
             connection["secret_ref"] = ""
         elif secret_action != "keep":
             raise ProviderSettingsError("Unknown secret action")
+
+        # Text catalogs belong to the exact endpoint and credential. Renaming a
+        # connection keeps them; editing the endpoint or replacing its key
+        # invalidates both IDs and metadata.
+        catalog_same = bool(existing) and secret_action == "keep" and all(
+            existing.get(key) == connection.get(key)
+            for key in ("provider", "auth_type", "base_url")
+        )
+        if catalog_same:
+            connection["discovered_models"] = list(existing.get("discovered_models") or [])
+            connection["model_details"] = dict(existing.get("model_details") or {})
 
         # Image catalogs belong to the exact endpoint/credential. Never reuse
         # a text catalog or an image catalog from a connection before edits.
@@ -1265,6 +1279,44 @@ def _codex_models(command: str, timeout_seconds: float) -> list[str]:
             process.stdout.close()
 
 
+class ModelCatalog(list):
+    """Model IDs plus bounded provider metadata for UI options."""
+
+    def __init__(self, models=(), details: Mapping[str, Any] | None = None) -> None:
+        super().__init__(models)
+        self.details = dict(details or {})
+
+
+def _model_detail(item: Mapping[str, Any], model_id: str) -> dict[str, Any]:
+    detail: dict[str, Any] = {"id": model_id}
+    name = item.get("name")
+    if isinstance(name, str) and name.strip():
+        detail["name"] = name.strip()[:200]
+    for key in ("context_window", "max_output_tokens"):
+        value = item.get(key)
+        if type(value) is int and 0 < value <= 1_000_000_000:
+            detail[key] = value
+    for key in ("input_modalities", "output_modalities"):
+        value = item.get(key)
+        if isinstance(value, list):
+            detail[key] = [str(entry).strip()[:40] for entry in value[:16] if str(entry).strip()]
+    effort = item.get("effort")
+    if isinstance(effort, Mapping):
+        levels = [
+            str(level).strip().lower()
+            for level in (effort.get("supported_levels") or [])
+            if str(level).strip().lower() in REASONING_LEVEL_VALUES
+        ]
+        levels = list(dict.fromkeys(levels))
+        default = str(effort.get("default_level") or "").strip().lower()
+        if levels:
+            detail["reasoning"] = {
+                "supported_levels": levels,
+                "default_level": default if default in levels else levels[0],
+            }
+    return detail
+
+
 def _discover_models(
     connection: Mapping[str, Any], timeout_seconds: float = 12.0, *, api_key: str | None = None,
 ) -> list[str]:
@@ -1273,7 +1325,8 @@ def _discover_models(
         command = shutil.which("codex")
         if not command:
             raise ProviderSettingsError("Codex CLI is not available in the API runtime")
-        return _codex_models(command, timeout_seconds)
+        models = _codex_models(command, timeout_seconds)
+        return ModelCatalog(models, {model: {"id": model, "name": model} for model in models})
 
     base_url = str(connection.get("base_url") or "").rstrip("/")
     if not base_url:
@@ -1320,7 +1373,16 @@ def _discover_models(
         items = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(items, list):
             raise ProviderModelDiscoveryError("Provider returned an invalid model catalog")
-        return sorted({str(item.get("id")) for item in items if isinstance(item, dict) and item.get("id")})
+        details: dict[str, dict[str, Any]] = {}
+        for item in items:
+            if not isinstance(item, Mapping):
+                continue
+            model_id = str(item.get("id") or "").strip()
+            if model_id and len(model_id) <= 200:
+                details[model_id] = _model_detail(item, model_id)
+        if not details:
+            raise ProviderModelDiscoveryError("Provider returned an invalid model catalog")
+        return ModelCatalog(sorted(details), details)
     raise ProviderModelDiscoveryError(
         f"Provider model endpoint returned HTTP {last_http_error}"
         if last_http_error is not None
@@ -1352,9 +1414,25 @@ def refresh_connection_models(connection_id: str) -> list[str]:
         identity_keys = ("provider", "auth_type", "base_url", "image_base_url", "secret_ref", "capabilities", "updated_at")
         if any(current.get(key) != connection.get(key) for key in identity_keys) or _connection_secret(current) != secret:
             raise ProviderModelDiscoveryConflict("Provider connection changed during refresh; retry with the saved connection")
-        current["discovered_models"] = models
+        current["discovered_models"] = list(models)
+        current_models = set(models)
+        details = getattr(models, "details", None)
+        if details is not None:
+            current["model_details"] = {
+                model_id: detail for model_id, detail in details.items()
+                if model_id in current_models
+            }
         _persist_configuration(configuration)
-    return models
+    return list(models)
+
+
+def refresh_connection_model_catalog(connection_id: str) -> dict[str, Any]:
+    """Refresh IDs and metadata together for the model selector."""
+    models = refresh_connection_models(connection_id)
+    with _LOCK:
+        connection = _connection(load_configuration(), connection_id)
+        details = dict(connection.get("model_details") or {})
+    return {"models": list(models), "details": details}
 
 
 def image_connection_models(connection_id: str, *, refresh: bool = False) -> dict[str, Any]:
@@ -1444,7 +1522,10 @@ def test_connection(connection_id: str) -> dict[str, Any]:
         connection["last_test_ok"] = ok
         connection["last_test_error"] = "" if ok else error
         if models:
-            connection["discovered_models"] = models
+            connection["discovered_models"] = list(models)
+            details = getattr(models, "details", None)
+            if details is not None:
+                connection["model_details"] = dict(details)
         configuration["source"] = "v2"
         _persist_configuration(configuration)
         return {
@@ -1458,6 +1539,7 @@ def test_connection(connection_id: str) -> dict[str, Any]:
 
 __all__ = [
     "IMAGE_CAPABILITY",
+    "ModelCatalog",
     "IMAGE_INPUT_CAPABILITY",
     "IMAGE_INPUT_PROVIDERS",
     "PROVIDER_TEMPLATES",
@@ -1475,6 +1557,7 @@ __all__ = [
     "image_profile_status",
     "image_connection_models",
     "load_configuration",
+    "refresh_connection_model_catalog",
     "refresh_connection_models",
     "resolve_image_profile",
     "resolve_text_route",

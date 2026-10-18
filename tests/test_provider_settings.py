@@ -1242,7 +1242,20 @@ def test_deepseek_model_discovery_falls_back_to_root_catalog(monkeypatch) -> Non
         calls.append(request.full_url)
         if request.full_url.endswith("/v1/models"):
             raise urllib.error.HTTPError(request.full_url, 404, "Not Found", None, None)
-        return FakeResponse(json.dumps({"data": [{"id": "deepseek-reasoner"}, {"id": "deepseek-chat"}]}).encode())
+        return FakeResponse(json.dumps({"data": [
+            {
+                "id": "deepseek-flash", "name": "DeepSeek-V4.1-Flash",
+                "context_window": 1048576, "max_output_tokens": 393216,
+                "input_modalities": ["text", "image"], "output_modalities": ["text"],
+                "effort": {"supported_levels": ["low", "high", "max"], "default_level": "high"},
+            },
+            {
+                "id": "deepseek-v4-pro", "name": "DeepSeek-V4-Pro",
+                "context_window": 1048576, "max_output_tokens": 393216,
+                "input_modalities": ["text"], "output_modalities": ["text"],
+                "effort": {"supported_levels": ["low", "high", "max"], "default_level": "high"},
+            },
+        ]}).encode())
 
     monkeypatch.setattr(provider_settings.urllib.request, "urlopen", fake_urlopen)
     models = provider_settings._discover_models({
@@ -1250,7 +1263,12 @@ def test_deepseek_model_discovery_falls_back_to_root_catalog(monkeypatch) -> Non
         "capabilities": ["text_generation"],
     }, api_key="test-key")
 
-    assert models == ["deepseek-chat", "deepseek-reasoner"]
+    assert models == ["deepseek-flash", "deepseek-v4-pro"]
+    assert models.details["deepseek-flash"]["name"] == "DeepSeek-V4.1-Flash"
+    assert models.details["deepseek-flash"]["input_modalities"] == ["text", "image"]
+    assert models.details["deepseek-v4-pro"]["reasoning"] == {
+        "supported_levels": ["low", "high", "max"], "default_level": "high",
+    }
     assert calls == [
         "https://api.deepseek.com/v1/models",
         "https://api.deepseek.com/models",
@@ -1288,3 +1306,74 @@ def test_vision_route_api_roundtrip_and_fallback(tmp_path) -> None:
     })
     assert rejected.status_code == 400
     assert "Model is required" in rejected.json()["detail"]
+
+
+def test_model_catalog_api_returns_ids_and_metadata(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api.main import create_app
+
+    connection = _connection()
+    details = {
+        "model-a": {
+            "id": "model-a", "name": "Model A", "reasoning": {
+                "supported_levels": ["low", "high", "max"], "default_level": "high",
+            },
+        },
+    }
+    monkeypatch.setattr(
+        provider_settings, "_discover_models",
+        lambda *args, **kwargs: provider_settings.ModelCatalog(["model-a"], details),
+    )
+    client = TestClient(create_app(
+        projects_root=tmp_path / "projects",
+        db_url=f"sqlite:///{tmp_path / 'catalog.db'}",
+    ))
+    endpoint = f"/api/studio/providers/{connection['id']}/model-catalog"
+
+    refreshed = client.get(endpoint, params={"refresh": True})
+    assert refreshed.status_code == 200
+    assert refreshed.json() == {"models": ["model-a"], "details": details}
+    cached = client.get(endpoint)
+    assert cached.status_code == 200
+    assert cached.json() == {"models": ["model-a"], "details": details}
+    configuration = client.get("/api/studio/models").json()
+    assert configuration["connections"][0]["model_details"] == details
+
+
+def test_connection_rename_keeps_catalog_but_endpoint_or_key_change_clears_it(monkeypatch):
+    connection = _connection()
+    details = {"model-a": {"id": "model-a", "name": "Model A"}}
+    monkeypatch.setattr(
+        provider_settings, "_discover_models",
+        lambda *args, **kwargs: provider_settings.ModelCatalog(["model-a"], details),
+    )
+    provider_settings.refresh_connection_models(connection["id"])
+
+    renamed = provider_settings.save_connection({
+        "name": "Renamed", "provider": "openai_compatible",
+        "auth_type": "api_key", "base_url": connection["base_url"],
+        "capabilities": ["text_generation"], "secret_action": "keep",
+    }, connection["id"])
+    assert renamed["discovered_models"] == ["model-a"]
+    assert renamed["model_details"] == details
+
+    moved = provider_settings.save_connection({
+        "name": "Moved", "provider": "openai_compatible",
+        "auth_type": "api_key", "base_url": "https://other.example/v1",
+        "capabilities": ["text_generation"], "secret_action": "keep",
+    }, connection["id"])
+    assert moved["discovered_models"] == []
+    assert moved["model_details"] == {}
+
+    monkeypatch.setattr(
+        provider_settings, "_discover_models",
+        lambda *args, **kwargs: provider_settings.ModelCatalog(["model-a"], details),
+    )
+    provider_settings.refresh_connection_models(connection["id"])
+    replaced = provider_settings.save_connection({
+        "name": "Moved", "provider": "openai_compatible",
+        "auth_type": "api_key", "base_url": "https://other.example/v1",
+        "capabilities": ["text_generation"], "secret_action": "replace",
+        "api_key": "new-secret",
+    }, connection["id"])
+    assert replaced["model_details"] == {}

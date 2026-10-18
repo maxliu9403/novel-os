@@ -202,6 +202,19 @@ export interface ProviderTemplate {
   model_placeholder: string;
 }
 
+export interface ProviderModelDetail {
+  id: string;
+  name?: string;
+  context_window?: number;
+  max_output_tokens?: number;
+  input_modalities?: string[];
+  output_modalities?: string[];
+  reasoning?: {
+    supported_levels: string[];
+    default_level: string;
+  };
+}
+
 export interface ProviderConnection {
   id: string;
   name: string;
@@ -217,6 +230,12 @@ export interface ProviderConnection {
   last_test_ok: boolean | null;
   last_test_error: string;
   discovered_models: string[];
+  model_details?: Record<string, ProviderModelDetail>;
+}
+
+export interface ProviderModelCatalog {
+  models: string[];
+  details: Record<string, ProviderModelDetail>;
 }
 
 export interface TextModelRoute {
@@ -1116,6 +1135,8 @@ export const api = {
     del(`/api/studio/providers/${encodeURIComponent(id)}`),
   testProvider: (id: string) =>
     send<ProviderTestResult>(`/api/studio/providers/${encodeURIComponent(id)}/test`, "POST"),
+  providerModelCatalog: (id: string, refresh = false) =>
+    get<ProviderModelCatalog>(`/api/studio/providers/${encodeURIComponent(id)}/model-catalog${refresh ? "?refresh=true" : ""}`),
   providerModels: (id: string, refresh = false) =>
     get<string[]>(`/api/studio/providers/${encodeURIComponent(id)}/models${refresh ? "?refresh=true" : ""}`),
   providerImageModels: (id: string, refresh = false) =>

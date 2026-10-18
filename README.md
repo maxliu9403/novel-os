@@ -292,9 +292,12 @@ vision-review connection, and a cover image model. One connection can provide
 both text and image generation; API keys are stored separately from normal
 Studio metadata and are never returned by the API.
 
-DeepSeek is text-only. Add it as a **text** connection, set the default route to
-`deepseek-reasoner` (or `deepseek-chat`), and keep image generation on a
-Codex/OpenAI/OpenAI-compatible image profile. Cover semantic review, blind reads
+DeepSeek does not provide image generation. Add it as a **text** connection, choose one of the model
+IDs returned by its `/models` endpoint (currently `deepseek-flash` and
+`deepseek-v4-pro`), and keep image generation on a
+Codex/OpenAI/OpenAI-compatible image profile. Its thinking effort uses
+`low`/`high`/`max` (default `high`) and is exposed per route from the model
+metadata. Cover semantic review, blind reads
 and poster advice use the separate **vision review** route on the Image tab;
 it must point to a connection that accepts image input. If no vision connection
 is configured, cover review degrades to human review and poster advice is marked
@@ -824,11 +827,12 @@ OpenAI-compatible、Anthropic、OpenRouter、DeepSeek 或 Ollama 连接，然后
 API Key 与普通配置分开保存且不会通过 API 返回。Codex 连接直接复用
 `codex login`，无需把登录凭据复制给 Novel OS。
 
-DeepSeek 只提供文本能力：把 DeepSeek 连接设为默认写作路由（推荐
-`deepseek-reasoner`，也可选 `deepseek-chat`），封面出图仍使用 Codex/OpenAI
-图像连接；封面评审与海报建议在「图像生成 → 视觉审阅」中单独选择支持图像输入的
-连接。未配置视觉审阅时，封面评审降级为人工审核，海报建议明确标记不可用，
-不会把图片发给纯文本模型。
+DeepSeek 不提供图像生成：把 DeepSeek 连接设为默认写作路由，模型 ID 以
+`/models` 返回结果为准（当前为 `deepseek-flash`、`deepseek-v4-pro`），推理等级
+按模型元数据提供 `low`/`high`/`max`（默认 `high`）。封面出图仍使用
+Codex/OpenAI 图像连接；封面评审与海报建议在「图像生成 → 视觉审阅」中单独选择
+支持图像输入的连接。未配置视觉审阅时，封面评审降级为人工审核，海报建议明确
+标记不可用，不会把图片发给纯文本模型。
 
 在新设备上创建独立配置：
 

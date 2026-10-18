@@ -206,6 +206,12 @@ class ProviderConnectionOut(BaseModel):
     last_test_ok: bool | None = None
     last_test_error: str
     discovered_models: list[str]
+    model_details: dict[str, dict] = Field(default_factory=dict)
+
+
+class ProviderModelCatalogOut(BaseModel):
+    models: list[str]
+    details: dict[str, dict]
 
 
 class TextRouteInput(BaseModel):

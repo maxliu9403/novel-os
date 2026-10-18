@@ -9,6 +9,7 @@ import {
   type ModelCapability,
   type ProviderConnection,
   type ProviderConnectionInput,
+  type ProviderModelDetail,
   type ProviderTemplate,
   type StudioModelConfiguration,
   type TextModelRoute,
@@ -483,7 +484,26 @@ function CapabilityToggle({ active, disabled, label, icon, onClick }: {
   );
 }
 
-type ModelCatalog = { models: string[]; status: "cached" | "loading" | "ready" | "error"; error?: string };
+type ModelCatalog = {
+  models: string[];
+  details: Record<string, ProviderModelDetail>;
+  status: "cached" | "loading" | "ready" | "error";
+  error?: string;
+};
+
+const ALL_REASONING_LEVELS = ["low", "medium", "high", "xhigh", "max", "ultra"] as const;
+
+function reasoningLevelsFor(provider: string, detail?: ProviderModelDetail): string[] {
+  const supported = detail?.reasoning?.supported_levels ?? [];
+  if (supported.length) return supported;
+  if (provider === "deepseek") return ["low", "high", "max"];
+  return [...ALL_REASONING_LEVELS];
+}
+
+function modelOptionLabel(model: string, details: Record<string, ProviderModelDetail>): string {
+  const name = details[model]?.name;
+  return name && name !== model ? `${name} · ${model}` : model;
+}
 
 function effectiveConnectionId(
   route: { id: string; inherits_default: boolean; connection_id: string; effective_connection_id?: string },
@@ -511,7 +531,11 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
   const textConnections = connections.filter((item) => item.capabilities.includes("text_generation"));
   const [manualModels, setManualModels] = useState<Record<string, boolean>>({});
   const [catalogs, setCatalogs] = useState<Record<string, ModelCatalog>>(() => Object.fromEntries(
-    connections.map((connection) => [connection.id, { models: connection.discovered_models, status: "cached" }]),
+    connections.map((connection) => [connection.id, {
+      models: connection.discovered_models,
+      details: connection.model_details ?? {},
+      status: "cached",
+    }]),
   ));
   const requested = useRef(new Set<string>());
   const inFlight = useRef(new Set<string>());
@@ -530,12 +554,36 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
   const loadModels = useCallback(async (connectionId: string) => {
     if (inFlight.current.has(connectionId)) return;
     inFlight.current.add(connectionId);
-    setCatalogs((current) => ({ ...current, [connectionId]: { models: current[connectionId]?.models ?? [], status: "loading" } }));
+    setCatalogs((current) => ({
+      ...current,
+      [connectionId]: {
+        ...current[connectionId],
+        models: current[connectionId]?.models ?? [],
+        details: current[connectionId]?.details ?? {},
+        status: "loading",
+      },
+    }));
     try {
-      const models = await api.providerModels(connectionId, true);
-      if (live.current) setCatalogs((current) => ({ ...current, [connectionId]: { models: [...new Set(models)], status: "ready" } }));
+      const catalog = await api.providerModelCatalog(connectionId, true);
+      if (live.current) setCatalogs((current) => ({
+        ...current,
+        [connectionId]: {
+          models: [...new Set(catalog.models)],
+          details: catalog.details ?? {},
+          status: "ready",
+        },
+      }));
     } catch (error) {
-      if (live.current) setCatalogs((current) => ({ ...current, [connectionId]: { models: current[connectionId]?.models ?? [], status: "error", error: messageOf(error) } }));
+      if (live.current) setCatalogs((current) => ({
+        ...current,
+        [connectionId]: {
+          ...current[connectionId],
+          models: current[connectionId]?.models ?? [],
+          details: current[connectionId]?.details ?? {},
+          status: "error",
+          error: messageOf(error),
+        },
+      }));
     } finally {
       inFlight.current.delete(connectionId);
     }
@@ -565,9 +613,11 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
       const updated = await api.updateTextRoutes(draft.map(({ id, connection_id, model, max_tokens, reasoning_effort, inherits_default }) => {
         const effectiveId = effectiveConnectionId({ id, inherits_default, connection_id }, defaultRoute);
         const provider = connections.find((connection) => connection.id === effectiveId)?.provider;
+        const effectiveModel = inherits_default ? defaultRoute?.model ?? "" : model;
+        const levels = reasoningLevelsFor(provider ?? "", catalogs[effectiveId]?.details?.[effectiveModel]);
         return {
           id, connection_id, model, max_tokens,
-          reasoning_effort: provider === "deepseek" ? "" : reasoning_effort,
+          reasoning_effort: levels.includes(reasoning_effort) ? reasoning_effort : "",
           inherits_default,
           ...(id === "workshop" && workshopTimeoutDirty ? { timeout_seconds: timeoutSeconds } : {}),
         };
@@ -625,16 +675,27 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
             const connectionId = effectiveConnectionId(route, defaultRoute);
             const selected = connections.find((item) => item.id === connectionId);
             const models = catalogs[connectionId]?.models ?? [];
+            const details = catalogs[connectionId]?.details ?? {};
             const currentModel = inherited ? defaultRoute?.model ?? route.effective_model : route.model;
             const manual = !inherited && manualModels[route.id];
-            const reasoningDisabled = selected?.provider === "deepseek";
+            const reasoningDetail = details[currentModel] ?? details[route.model];
+            const reasoningLevels = reasoningLevelsFor(selected?.provider ?? "", reasoningDetail);
+            const reasoningValue = reasoningLevels.includes(route.reasoning_effort) ? route.reasoning_effort : "";
+            const defaultReasoning = reasoningDetail?.reasoning?.default_level
+              ?? (selected?.provider === "deepseek" ? "high" : route.effective_reasoning_effort);
+            const defaultReasoningLabel = defaultReasoning
+              ? (REASONING_EFFORT_LABELS[defaultReasoning] ?? defaultReasoning)
+              : "";
             return (
               <div key={route.id} className={`grid gap-4 px-4 py-4 lg:grid-cols-[190px_minmax(160px,1fr)_minmax(160px,1fr)_145px_120px] lg:items-center lg:px-5 ${index ? "border-t border-[rgba(74,91,133,0.11)]" : ""}`}>
                 <div>
                   <h3 className="text-[13px] font-semibold text-ink-text">{meta.label}</h3>
                   <p className="mt-0.5 text-[11px] text-ink-muted">{meta.detail}</p>
                 </div>
-                <select aria-label={`${meta.label}连接`} className={controlClass} value={inherited ? "" : route.connection_id} disabled={inherited} onChange={(event) => update(route.id, { connection_id: event.target.value })}>
+                <select aria-label={`${meta.label}连接`} className={controlClass} value={inherited ? "" : route.connection_id} disabled={inherited} onChange={(event) => {
+                  setManualModels((current) => ({ ...current, [route.id]: false }));
+                  update(route.id, { connection_id: event.target.value, model: "", reasoning_effort: "" });
+                }}>
                   <option value="">选择连接</option>
                   {textConnections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}
                 </select>
@@ -642,11 +703,18 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
                   <select aria-label={`${meta.label}模型`} className={controlClass} value={manual ? "manual" : `model:${currentModel}`} disabled={inherited} onChange={(event) => {
                     const isManual = event.target.value === "manual";
                     setManualModels((current) => ({ ...current, [route.id]: isManual }));
-                    if (!isManual) update(route.id, { model: event.target.value.slice(6) });
+                    if (!isManual) {
+                      const nextModel = event.target.value.slice(6);
+                      const nextLevels = reasoningLevelsFor(selected?.provider ?? "", details[nextModel]);
+                      update(route.id, {
+                        model: nextModel,
+                        reasoning_effort: nextLevels.includes(route.reasoning_effort) ? route.reasoning_effort : "",
+                      });
+                    }
                   }}>
                     <option value="model:">{selected?.provider === "codex" ? "Codex 默认模型" : "选择模型"}</option>
-                    {currentModel && !models.includes(currentModel) && <option value={`model:${currentModel}`}>{currentModel}（当前 / 自定义）</option>}
-                    {models.map((model) => <option key={model} value={`model:${model}`}>{model}</option>)}
+                    {currentModel && !models.includes(currentModel) && <option value={`model:${currentModel}`}>{modelOptionLabel(currentModel, details)}（当前 / 自定义）</option>}
+                    {models.map((model) => <option key={model} value={`model:${model}`}>{modelOptionLabel(model, details)}</option>)}
                     <option value="manual">手动输入…</option>
                   </select>
                   {manual && <input aria-label={`${meta.label}自定义模型`} className={`${controlClass} mt-2`} value={route.model} onChange={(event) => update(route.id, { model: event.target.value })} placeholder="输入完整模型 ID" />}
@@ -654,20 +722,13 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
                 <select
                   aria-label={`${meta.label}推理强度`}
                   className={controlClass}
-                  value={reasoningDisabled ? "" : route.reasoning_effort}
-                  disabled={reasoningDisabled}
-                  title={reasoningDisabled ? "DeepSeek 的推理强度由模型选择决定" : undefined}
+                  value={reasoningValue}
                   onChange={(event) => update(route.id, { reasoning_effort: event.target.value as TextModelRoute["reasoning_effort"] })}
                 >
-                  <option value="">{reasoningDisabled ? "—（由模型决定）" : `继承 / 默认${route.effective_reasoning_effort ? `（${REASONING_EFFORT_LABELS[route.effective_reasoning_effort] ?? route.effective_reasoning_effort}）` : ""}`}</option>
-                  {!reasoningDisabled && <>
-                    <option value="low">低</option>
-                    <option value="medium">中</option>
-                    <option value="high">高</option>
-                    <option value="xhigh">很高</option>
-                    <option value="max">最大</option>
-                    <option value="ultra">极限</option>
-                  </>}
+                  <option value="">{selected?.provider === "deepseek"
+                    ? `模型默认${defaultReasoningLabel ? `（${defaultReasoningLabel}）` : "（高）"}`
+                    : `继承 / 默认${defaultReasoningLabel ? `（${defaultReasoningLabel}）` : ""}`}</option>
+                  {reasoningLevels.map((level) => <option key={level} value={level}>{REASONING_EFFORT_LABELS[level] ?? level}</option>)}
                 </select>
                 {route.id === "default" ? (
                   <span className={`text-[11px] font-medium ${route.configured ? "text-[#267553]" : "text-[#9b651e]"}`}>{route.configured ? "已就绪" : "未完成"}</span>

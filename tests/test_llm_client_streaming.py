@@ -123,3 +123,31 @@ def test_named_vision_providers_report_image_input_support():
         client = object.__new__(LLMClient)
         client.provider_name = provider
         assert client.supports_image_input is expected
+
+
+def test_deepseek_reasoning_effort_is_sent_only_for_supported_levels(monkeypatch):
+    captured = {}
+
+    class Completions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+                usage=None,
+            )
+
+    monkeypatch.setattr(llm_client, "_env_flag", lambda *args, **kwargs: False)
+    client = object.__new__(LLMClient)
+    client.provider_name = "deepseek"
+    client.model = "deepseek-v4-pro"
+    client.max_tokens = 128
+    client.reasoning_effort = "max"
+    client._backend = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+
+    assert client.complete("role", "task") == "ok"
+    assert captured["reasoning_effort"] == "max"
+
+    client.reasoning_effort = "medium"
+    captured.clear()
+    assert client.complete("role", "task") == "ok"
+    assert "reasoning_effort" not in captured

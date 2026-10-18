@@ -31,7 +31,7 @@ from .models import (
     ArtifactRevisionOut, ChapterQualityOut, EvaluationReportOut, PromotionReceiptOut,
     CoverDirectionCreate, CoverDirectionApproval, CoverStoryFactsUpdate,
     ImageProfileOut, ImageProfileUpdate, ImageModelCatalogOut,
-    ProviderConnectionInput, ProviderConnectionOut, ProviderTestResult,
+    ProviderConnectionInput, ProviderConnectionOut, ProviderModelCatalogOut, ProviderTestResult,
     StudioModelConfigurationOut, TextModelTestRequest, TextRouteOut, TextRoutesUpdate,
     VisionRouteInput, VisionRouteOut,
 )
@@ -399,6 +399,30 @@ def test_studio_provider(connection_id: str):
         return provider_settings.test_connection(connection_id)
     except provider_settings.ProviderSettingsError as exc:
         raise _provider_settings_error(exc) from exc
+
+
+@router.get(
+    "/studio/providers/{connection_id}/model-catalog",
+    response_model=ProviderModelCatalogOut,
+)
+def get_studio_provider_model_catalog(connection_id: str, refresh: bool = False):
+    from core import provider_settings
+
+    if refresh:
+        try:
+            return provider_settings.refresh_connection_model_catalog(connection_id)
+        except provider_settings.ProviderModelDiscoveryError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        except provider_settings.ProviderSettingsError as exc:
+            raise HTTPException(status_code=404, detail="Provider connection not found") from exc
+    configuration = provider_settings.configuration_status()
+    for connection in configuration["connections"]:
+        if connection["id"] == connection_id:
+            return {
+                "models": connection["discovered_models"],
+                "details": connection.get("model_details") or {},
+            }
+    raise HTTPException(status_code=404, detail="Provider connection not found")
 
 
 @router.get("/studio/providers/{connection_id}/models", response_model=list[str])

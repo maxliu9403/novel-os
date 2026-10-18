@@ -77,7 +77,7 @@ export default function PricingSettings() {
         <span className="pricing-settings__preset-mark">DS</span>
         <div>
           <h3>DeepSeek 参考价</h3>
-          <p>一键填入 deepseek-reasoner 与 deepseek-chat 的输入、缓存输入和输出参考价；不会覆盖其它服务商的自定义价格。</p>
+          <p>一键填入 deepseek-flash 与 deepseek-v4-pro 的峰值输入、缓存输入和输出参考价（非高峰约减半）；不会覆盖其它服务商的自定义价格。</p>
         </div>
       </div>
       <button type="button" className="btn-secondary" disabled={saving || presetBusy} onClick={() => void loadDeepSeekPreset()}>{presetBusy ? "载入中…" : "载入 2 个模型参考价"}</button>

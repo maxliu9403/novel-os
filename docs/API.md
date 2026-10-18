@@ -231,6 +231,7 @@ PATCH /api/studio/providers/{connection_id}
 DELETE /api/studio/providers/{connection_id}
 POST /api/studio/providers/{connection_id}/test
 GET  /api/studio/providers/{connection_id}/models
+GET  /api/studio/providers/{connection_id}/model-catalog
 PUT  /api/studio/model-routes
 POST /api/studio/model-routes/{route_id}/test
 PUT  /api/studio/vision-routes/{route_id}
@@ -247,8 +248,12 @@ connections keep authentication in the Codex credential store. `vision_routes`
 is a separate route for image-input work (cover review, blind read, poster
 advice); it only accepts connections with the `image_input` capability. DeepSeek
 connections are text-only: they cannot be selected for image generation or
-vision review. The pricing preset endpoint returns editable DeepSeek reference
-rows without writing them. The image test route performs one explicit, billable
+vision review. Provider model metadata is available from `model-catalog`:
+model IDs, display names, context/output limits, input modalities and
+`effort.supported_levels` / `effort.default_level`. DeepSeek exposes
+`low`/`high`/`max` thinking effort, defaulting to `high`; Studio sends the
+selected value as `reasoning_effort`. The pricing preset endpoint returns
+editable DeepSeek reference rows without writing them. The image test route performs one explicit, billable
 generation; provider connection tests do
 not generate an image. Text-response and image tests return `202` immediately
 with a job id. Poll the job endpoint until `status` is `done` or `error`; the

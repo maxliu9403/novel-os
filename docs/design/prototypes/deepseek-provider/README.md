@@ -16,7 +16,7 @@
 ## 已确认的产品决策
 
 1. **一步到位做独立 vision 路由**：`cover_director` 回归纯文本；封面语义评审、独立盲读、海报建议使用单独的「视觉审阅」连接（默认 Codex）。
-2. **默认文本模型为 `deepseek-reasoner`**：其余写作角色继承默认；DeepSeek 的推理强度由模型决定，不再显示无意义的 effort 选项。
+2. **默认文本模型使用 DeepSeek `/models` 返回的模型**（当前为 `deepseek-flash` / `deepseek-v4-pro`）：模型元数据提供 `low` / `high` / `max` 推理等级，默认 `high`，UI 按模型展示可用等级。
 3. **不做一键「DeepSeek 写作 + Codex 图像」配置卡片**：通过连接与路由正常配置。
 4. **补 DeepSeek 价格预设**：费用估算页提供两档参考价，可一键载入并继续编辑。
 5. **直接切默认路由**：默认写作模型指向 DeepSeek，封面/海报的视觉审阅独立配置。
@@ -26,7 +26,7 @@
 | 页面 | 说明 |
 |---|---|
 | 服务连接 | Codex 仍保留登录、图像生成、视觉理解；DeepSeek 只声明文本能力。能力说明解释三者的边界。 |
-| 文本路由 | 默认写作模型为 DeepSeek + `deepseek-reasoner`；其余角色继承；封面指导为文本策划，视觉审阅不在本页。 |
+| 文本路由 | 默认写作模型为 DeepSeek + `/models` 返回的模型；其余角色继承；推理等级来自模型元数据；封面指导为文本策划，视觉审阅不在本页。 |
 | 图像生成 | 新增「视觉审阅」卡片（连接 + 模型 + 状态），下方保留现有封面图像模型；可预览“未配置视觉审阅”的降级状态。 |
 | 费用估算 | DeepSeek 参考价预设、汇率、两档 DeepSeek 单价与 Codex 单价。 |
 | 添加连接弹窗 | DeepSeek 服务商、基础地址、API 密钥；图像生成/视觉理解能力明确禁用。 |
@@ -45,7 +45,7 @@
 - `core/llm_client.py`：`complete_with_images` 的视觉能力白名单，DeepSeek 明确拒绝。
 - `core/studio_settings.py` / `api/routes.py`：视觉路由解析与封面评审、海报建议的降级。
 - `web/src/routes/Settings.tsx`：第三个能力开关、视觉审阅卡片、DeepSeek 说明与降级预览；`web/src/api/client.ts` 类型。
-- `core/usage_costs.py`：DeepSeek 参考价预设（`deepseek-chat` / `deepseek-reasoner`）。
+- `core/usage_costs.py`：DeepSeek 参考价预设（`deepseek-flash` / `deepseek-v4-pro`）。
 - 测试与文档：provider settings、model router、llm client、cover/poster 降级、pricing；README / API.md / MEMORY.md。
 
 ## 待审批
