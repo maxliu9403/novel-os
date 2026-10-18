@@ -664,6 +664,44 @@ def _apply_payoff_events(
         log.append(f"[{source}] payoff {payoff_id}: status={status}")
 
 
+_ARC_STAGE_RANK = {"beginning": 0, "middle": 1, "climax": 2, "resolution": 3}
+
+
+def _arc_rank(stage: str) -> int:
+    return _ARC_STAGE_RANK.get(str(stage or "").strip().lower(), 0)
+
+
+def _advance_arc_state(
+    current_stage: str,
+    current_progress: int,
+    incoming_stage: str,
+    incoming_progress: Optional[int],
+) -> tuple[str, int, str, Optional[int]]:
+    """Keep a character's lifecycle monotonic across chapter estimates."""
+    stage = str(current_stage or "beginning").strip().lower()
+    if stage not in _ARC_STAGE_RANK:
+        stage = "beginning"
+    progress = max(0, min(100, int(current_progress or 0)))
+    effective_stage = stage
+    effective_progress = progress
+    if incoming_stage and _arc_rank(incoming_stage) >= _arc_rank(effective_stage):
+        effective_stage = incoming_stage
+    if incoming_progress is not None:
+        effective_progress = max(effective_progress, incoming_progress)
+    if effective_progress >= 100:
+        effective_stage = "resolution"
+        effective_progress = 100
+    elif effective_stage == "resolution":
+        effective_progress = 100
+    reported_stage = ""
+    if incoming_stage and _arc_rank(incoming_stage) < _arc_rank(effective_stage):
+        reported_stage = incoming_stage
+    reported_progress = None
+    if incoming_progress is not None and incoming_progress < effective_progress:
+        reported_progress = incoming_progress
+    return effective_stage, effective_progress, reported_stage, reported_progress
+
+
 def _apply_arc_state_updates(
     state: "StoryState",
     chapter: Any,
@@ -691,10 +729,17 @@ def _apply_arc_state_updates(
                 progress = max(0, min(100, int(str(progress_text).strip())))
             except ValueError:
                 log.append(f"[{source}] ignored invalid arc progress for {cid}: {progress_text!r}")
-        if stage:
-            character.arc_stage = stage
-        if progress is not None:
-            character.arc_progress = progress
+        effective_stage, effective_progress, reported_stage, reported_progress = _advance_arc_state(
+            character.arc_stage, character.arc_progress, stage, progress,
+        )
+        character.arc_stage = effective_stage
+        character.arc_progress = effective_progress
+        if reported_stage or reported_progress is not None:
+            log.append(
+                f"[{source}] ignored regressed arc update for {character.full_name}: "
+                f"{stage or 'unchanged'}/{progress if progress is not None else 'unchanged'} "
+                f"-> {effective_stage}/{effective_progress}"
+            )
         outcome = str(
             fields.get("outcome") or fields.get("outcome_state") or ""
         ).strip().lower()
@@ -711,11 +756,17 @@ def _apply_arc_state_updates(
         event = {
             "character_id": cid,
             "chapter": chapter_number,
-            "stage": stage or character.arc_stage,
+            "stage": character.arc_stage,
             "progress": character.arc_progress,
             "outcome": outcome or character.outcome_state,
             "evidence": evidence,
         }
+        if reported_stage:
+            event["reported_stage"] = reported_stage
+        if reported_progress is not None:
+            event["reported_progress"] = reported_progress
+        if reported_stage or reported_progress is not None:
+            event["regression_ignored"] = True
         if event not in chapter.arc_state_updates:
             chapter.arc_state_updates.append(event)
         outcome_log = f", outcome={character.outcome_state}" if character.outcome_state else ""

@@ -146,8 +146,16 @@ def test_deepseek_reasoning_effort_is_sent_only_for_supported_levels(monkeypatch
 
     assert client.complete("role", "task") == "ok"
     assert captured["reasoning_effort"] == "max"
+    assert captured["max_tokens"] == 32768
 
     client.reasoning_effort = "medium"
     captured.clear()
     assert client.complete("role", "task") == "ok"
     assert "reasoning_effort" not in captured
+    assert captured["max_tokens"] == 128
+
+    client.reasoning_effort = ""
+    captured.clear()
+    assert client.complete("role", "task") == "ok"
+    assert "reasoning_effort" not in captured
+    assert captured["max_tokens"] == 16384

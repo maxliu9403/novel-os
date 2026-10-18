@@ -25,6 +25,7 @@ ENDING_CONTRACT_RELATIVE = "outputs/input/ending_contract.json"
 PAYOFF_LEDGER_RELATIVE = "outputs/state/payoff_ledger.json"
 ENDING_REPORT_RELATIVE = "outputs/feedback/book_completion_report.json"
 ARC_LIFECYCLE_STAGES = {"beginning", "middle", "climax", "resolution"}
+_ARC_STAGE_RANK = {"beginning": 0, "middle": 1, "climax": 2, "resolution": 3}
 OUTCOME_MATCH_MODES = {"auto", "exact", "normalized", "contains"}
 _CONTAINS_IGNORED_TERMS = ("以及", "并且", "同时", "此外", "的")
 
@@ -199,13 +200,43 @@ def _thread_status(state: StoryState, thread_id: str) -> Optional[str]:
     return thread.status if thread is not None else None
 
 
-def _arc_stage(state: StoryState, character_id: str) -> Optional[str]:
+def _arc_stage(state: StoryState, character_id: str, as_of_chapter: Optional[int] = None) -> Optional[str]:
+    """Read the highest supported arc stage, including chapter history.
+
+    A later chapter may report a lower stage because its local scene is not
+    the character's final state. Canonical promotion still records that
+    estimate, so the book-level gate must not let it erase an earlier
+    resolution. The parser prevents new regressions; this historical read
+    repairs existing books without rewriting immutable chapter records.
+    """
     character = state.characters.get(character_id)
     if character is None:
         return None
-    if character.arc_progress >= 100:
+    stage = str(character.arc_stage or "beginning").strip().lower()
+    if stage not in ARC_LIFECYCLE_STAGES:
+        stage = "beginning"
+    progress = max(0, min(100, int(character.arc_progress or 0)))
+    for chapter in state.chapters.values():
+        if as_of_chapter is not None and chapter.number > as_of_chapter:
+            continue
+        for update in _as_list(getattr(chapter, "arc_state_updates", [])):
+            if not isinstance(update, dict):
+                continue
+            if str(update.get("character_id") or "") != character_id:
+                continue
+            reported_stage = str(update.get("stage") or "").strip().lower()
+            if reported_stage in ARC_LIFECYCLE_STAGES:
+                if _ARC_STAGE_RANK[reported_stage] > _ARC_STAGE_RANK[stage]:
+                    stage = reported_stage
+            try:
+                reported_progress = int(update.get("progress"))
+            except (TypeError, ValueError):
+                reported_progress = None
+            if reported_progress is not None:
+                progress = max(progress, max(0, min(100, reported_progress)))
+    if progress >= 100 or stage == "resolution":
         return "resolution"
-    return str(character.arc_stage or "beginning").strip().lower()
+    return stage
 
 
 def _outcome_state(state: StoryState, character_id: str) -> Optional[str]:
@@ -413,7 +444,7 @@ def evaluate_ending(project: Path | str, as_of_chapter: Optional[int] = None) ->
                     required_outcome = legacy_state
 
             if required_stage:
-                actual_stage = reviewed_arc.get("arc_stage") or _arc_stage(state, character_id)
+                actual_stage = reviewed_arc.get("arc_stage") or _arc_stage(state, character_id, final_chapter)
                 if actual_stage != required_stage:
                     critical.append({"category": "character_arc_unclosed", "entity_id": character_id, "message": f"Character {character_id} arc stage is {actual_stage or 'missing'}, expected {required_stage}.", "evidence": arc_evidence})
 

@@ -65,6 +65,11 @@ IMAGE_INPUT_PROVIDERS = frozenset({"codex", "openai", "azure", "openai_compatibl
 # ``reasoning_effort`` field. Its default is high, so an empty route field
 # intentionally omits the parameter.
 DEEPSEEK_REASONING_EFFORTS = frozenset({"low", "high", "max"})
+# DeepSeek counts thinking tokens against max_tokens. A route's normal 8K
+# output budget can be entirely consumed by a max-effort reasoning pass,
+# leaving an empty content string. Keep a floor that leaves room for the
+# actual answer; the provider still bills only tokens it generates.
+DEEPSEEK_MIN_OUTPUT_TOKENS = {"low": 8192, "high": 16384, "max": 32768}
 
 DEFAULT_MAX_TOKENS = 8192
 DEFAULT_OPENAI_TIMEOUT_SECONDS = 1800.0
@@ -875,9 +880,14 @@ class LLMClient:
         return "".join(getattr(b, "text", "") or "" for b in resp.content)
 
     def _complete_openai_shape(self, system: str, user: str) -> str:
+        max_tokens = self.max_tokens
+        if self.provider_name == "deepseek":
+            floor = DEEPSEEK_MIN_OUTPUT_TOKENS.get(self.reasoning_effort or "high")
+            if floor:
+                max_tokens = max(max_tokens, floor)
         request = {
             "model": self.model,
-            "max_tokens": self.max_tokens,
+            "max_tokens": max_tokens,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},

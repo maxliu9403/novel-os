@@ -164,3 +164,29 @@ Characters_Present:
         ingest_agent_output(state, 15, "scribe", output)
     assert 15 not in state.chapters
     assert state.characters["L01"].arc_stage == "beginning"
+
+
+def test_arc_stage_cannot_regress_after_resolution(tmp_path):
+    state = StoryState(str(tmp_path / "project"))
+    state.add_character(Character(id="ruth_mercer", full_name="Ruth Mercer", role="supporting"))
+    state.create_chapter(22)
+    state.create_chapter(24)
+
+    ingest_agent_output(state, 22, "scribe", """[SCRIBE_STATE_UPDATE]
+Arc_State_Updates:
+  - ruth_mercer | stage=resolution | progress=100 | outcome=procedural_accountability | evidence=Delivers the independent review and restores fair assessment.
+[/SCRIBE_STATE_UPDATE]""")
+    ingest_agent_output(state, 24, "scribe", """[SCRIBE_STATE_UPDATE]
+Arc_State_Updates:
+  - ruth_mercer | stage=middle | progress=85 | evidence=Signed the return conditions.
+[/SCRIBE_STATE_UPDATE]""")
+
+    character = state.characters["ruth_mercer"]
+    assert character.arc_stage == "resolution"
+    assert character.arc_progress == 100
+    event = state.chapters[24].arc_state_updates[0]
+    assert event["stage"] == "resolution"
+    assert event["progress"] == 100
+    assert event["reported_stage"] == "middle"
+    assert event["reported_progress"] == 85
+    assert event["regression_ignored"] is True

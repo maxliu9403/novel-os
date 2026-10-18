@@ -1,5 +1,14 @@
 # Novel OS 项目记忆
 
+## 最新修复：2026-10-18 14:36 结局弧线回归与任务 3822f6ff360a
+
+《When the Lift Doors Open》任务 `3822f6ff360a` 在 ending.review 被 `Character ruth_mercer arc stage is middle, expected resolution` 阻断。根因确认：第22章 Scribe/Guardian 已写 `resolution/100`，第24章 Scribe 的局部场景估计又写 `middle/85`，旧解析器直接覆盖角色索引；结局门只读当前索引，故看不到已发生的 resolution。不是第22章剧情缺失。
+
+修复分两层：`state_parser` 新增 arc 单调保护，阶段/进度只能前进，回退尝试不覆盖索引并记录 `reported_stage`/`reported_progress`/`regression_ignored`；`ending_quality` 读取章节历史中的最高阶段，兼容已经回归的旧书而不改写章节记录。dry-run 于项目副本 pass。
+
+首次恢复通过 ending.review/book.check，但在 publication.copy 暴露第二个问题：DeepSeek `deepseek-flash` + effort max 的 Guardian 调用把 8192 全部输出预算耗在 reasoning_tokens，content 为空；三次尝试均空。新增 DeepSeek 输出预算下限（low 8192 / high 16384 / max 32768），仍只按实际生成计费。部署后再次恢复成功：ending.review、book.check、publication.copy、compile、delivery.package 全 done，run completed；报告 pass/critical 0，30章交付 MD/HTML/DOCX/EPUB/PDF + H5 包。
+
+交付 ZIP `outputs/deliverables/book-package.zip`，355581 bytes、43 members、CRC 通过，SHA256 `c6fe7f517a1819df09d515549fd8597f8922457fcfb8603c6b5f706ff29a1a5f`；报告 `book_completion_report.json` pass。全量后端回归通过（排除 3 个受限沙箱 `ps` 用例）；恢复前备份在 `/private/tmp/novelos-lift-arc-recovery-20261018T140641`。相关测试：弧线回归、历史 resolution 过门、LLM 输出下限。修复报告 `docs/reports/2026-10-18-ending-arc-regression-lift.md`；状态索引已从 `middle/85` 修正为 `resolution/100`（备份 `/private/tmp/when-the-lift-story_state-pre-arc-repair-20261018T143744.json`）。本次修复已提交并推送。
 ## 最新设计：2026-10-18 模型与服务商全页工作台（已实现并部署）
 
 Settings 从“上方标题 + 一条连接列表 + 大量空白”改为全页 Model Atelier：整页工作台铺满视口，左侧标题 + 右侧深色 System Status，四段编号标签页横贯全宽；主体为“主工作区 + Live Topology 侧栏”，连接页使用双列连接卡与可点击的服务商模板目录，图像/文本/计费页复用同一工作台框架。Inspector 实时展示 TEXT / VISION / IMAGE 三条链路与连接、路由、模型、模板数量。桌面 1440、宽屏 2560、390px 均已截图检查；页面宽度填满可用区域，390px 无横向溢出。设计截图见 `docs/design/settings-workbench-2026-10-18.png`。已提交 `8199aea` 并部署到 5174；前后端 healthy，桌面 1440 实机截图与设计一致。

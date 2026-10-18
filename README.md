@@ -297,7 +297,9 @@ IDs returned by its `/models` endpoint (currently `deepseek-flash` and
 `deepseek-v4-pro`), and keep image generation on a
 Codex/OpenAI/OpenAI-compatible image profile. Its thinking effort uses
 `low`/`high`/`max` (default `high`) and is exposed per route from the model
-metadata. Cover semantic review, blind reads
+metadata. Thinking tokens count toward `max_tokens`, so Studio reserves a
+larger output budget for `high`/`max` effort; without that reserve a long
+reasoning pass can consume the whole budget and return empty content. Cover semantic review, blind reads
 and poster advice use the separate **vision review** route on the Image tab;
 it must point to a connection that accepts image input. If no vision connection
 is configured, cover review degrades to human review and poster advice is marked

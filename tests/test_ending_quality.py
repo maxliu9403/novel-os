@@ -604,3 +604,45 @@ def test_multiple_paid_events_retain_first_completion_source(tmp_path: Path):
     assert evaluate_ending(project, as_of_chapter=4).status == "pass"
     ledger = json.loads((project / "outputs/state/payoff_ledger.json").read_text())
     assert ledger["items"][0]["payoff_evidence"][0]["chapter"] == 2
+
+
+def test_historical_resolution_survives_a_later_lower_arc_estimate(tmp_path):
+    project = _project(tmp_path, contract=_contract())
+    state = StoryState(str(project))
+    character = state.characters["char_001"]
+    character.arc_stage = "middle"
+    character.arc_progress = 85
+    state.chapters[4].arc_state_updates = [{
+        "character_id": "char_001",
+        "chapter": 4,
+        "stage": "resolution",
+        "progress": 100,
+        "outcome": "independence",
+        "evidence": "Mara signs the lease in her own name.",
+    }]
+    state.save_state()
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "pass"
+    assert not any(item["category"] == "character_arc_unclosed" for item in report.critical)
+
+
+def test_future_chapter_resolution_does_not_unlock_an_earlier_gate(tmp_path):
+    project = _project(tmp_path, chapters=5, contract=_contract())
+    state = StoryState(str(project))
+    state.characters["char_001"].arc_stage = "middle"
+    state.characters["char_001"].arc_progress = 85
+    state.chapters[5].arc_state_updates = [{
+        "character_id": "char_001",
+        "chapter": 5,
+        "stage": "resolution",
+        "progress": 100,
+        "evidence": "A future chapter resolves the arc.",
+    }]
+    state.save_state()
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "fail"
+    assert any(item["category"] == "character_arc_unclosed" for item in report.critical)
