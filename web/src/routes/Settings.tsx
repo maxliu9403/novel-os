@@ -13,6 +13,7 @@ import {
   type StudioModelConfiguration,
   type TextModelRoute,
   type TextTestResult,
+  type VisionRoute,
 } from "../api/client";
 import Scene from "../components/Scene";
 import Icon from "../components/Icon";
@@ -35,7 +36,7 @@ const ROUTE_LABELS: Record<string, { label: string; detail: string }> = {
   guardian: { label: "连续性守卫", detail: "事实、时间线与一致性" },
   style: { label: "风格策展", detail: "声音与文风校准" },
   judge: { label: "评审", detail: "商业质量评估" },
-  cover_director: { label: "封面指导", detail: "视觉概念规划" },
+  cover_director: { label: "封面指导", detail: "封面/海报策划（文本）；视觉审阅在图像生成页" },
 };
 
 const REASONING_EFFORT_LABELS: Record<string, string> = {
@@ -113,6 +114,7 @@ export default function Settings() {
 
   const textReady = configuration?.text_routes.find((route) => route.id === "default")?.configured ?? false;
   const imageReady = configuration?.image_profiles.cover.configured ?? false;
+  const visionReady = configuration?.vision_routes?.find((route) => route.id === "cover_review")?.configured ?? false;
 
   async function testConnection(connection: ProviderConnection) {
     setTestingId(connection.id);
@@ -162,6 +164,7 @@ export default function Settings() {
               <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-[12px] font-medium text-ink-muted">
                 <HealthLabel ready={textReady} label="文本模型" />
                 <HealthLabel ready={imageReady} label="图像模型" />
+                <HealthLabel ready={visionReady} label="视觉审阅" />
                 <span>{configuration?.connections.length ?? 0} 个连接</span>
               </div>
             </div>
@@ -223,12 +226,20 @@ export default function Settings() {
               />
             )}
             {tab === "images" && (
-              <ImageProfilePanel
-                key={`${configuration.image_profiles.cover.connection_id}:${configuration.image_profiles.cover.model}:${configuration.image_profiles.cover.size}:${configuration.image_profiles.cover.quality}:${configuration.image_profiles.cover.output_format}:${configuration.image_profiles.cover.count}`}
-                profile={configuration.image_profiles.cover}
-                connections={configuration.connections}
-                onSaved={load}
-              />
+              <>
+                <VisionReviewPanel
+                  key={(configuration.vision_routes ?? []).map((route) => `${route.id}:${route.connection_id}:${route.model}`).join("|")}
+                  route={(configuration.vision_routes ?? []).find((item) => item.id === "cover_review")}
+                  connections={configuration.connections}
+                  onSaved={load}
+                />
+                <ImageProfilePanel
+                  key={`${configuration.image_profiles.cover.connection_id}:${configuration.image_profiles.cover.model}:${configuration.image_profiles.cover.size}:${configuration.image_profiles.cover.quality}:${configuration.image_profiles.cover.output_format}:${configuration.image_profiles.cover.count}`}
+                  profile={configuration.image_profiles.cover}
+                  connections={configuration.connections}
+                  onSaved={load}
+                />
+              </>
             )}
             {tab === "pricing" && <PricingSettings />}
           </motion.div>
@@ -315,7 +326,7 @@ function ConnectionsPanel({ connections, testingId, onAdd, onEdit, onTest, onDel
                 <div className="flex flex-wrap gap-1.5">
                   {connection.capabilities.map((capability) => (
                     <span key={capability} className="rounded bg-[#f0f3fa] px-2 py-1 text-[10px] font-medium text-ink-muted">
-                      {capability === "text_generation" ? "文本" : "图像"}
+                      {capability === "text_generation" ? "文本" : capability === "image_generation" ? "图像" : "视觉"}
                     </span>
                   ))}
                 </div>
@@ -417,11 +428,17 @@ function ProviderEditor({ open, connection, templates, onClose, onSaved }: {
         )}
         <fieldset className="mb-5">
           <legend className="mb-2 text-[12px] font-medium text-ink-muted">功能</legend>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <CapabilityToggle active={capabilities.includes("text_generation")} disabled={!template?.capabilities.includes("text_generation")} label="文本生成" icon="bot" onClick={() => toggleCapability("text_generation")} />
             <CapabilityToggle active={capabilities.includes("image_generation")} disabled={!template?.capabilities.includes("image_generation")} label="图像生成" icon="image" onClick={() => toggleCapability("image_generation")} />
+            <CapabilityToggle active={capabilities.includes("image_input")} disabled={!template?.capabilities.includes("image_input")} label="视觉理解" icon="eye" onClick={() => toggleCapability("image_input")} />
           </div>
         </fieldset>
+        {provider === "deepseek" && (
+          <div className="mb-5 rounded-lg border border-[rgba(74,91,133,0.13)] bg-[#f7f9fd] px-3 py-3 text-[12px] leading-relaxed text-ink-muted">
+            DeepSeek 在当前连接中只声明文本生成。图像生成与视觉理解请使用 Codex、OpenAI 或其他支持对应能力的连接。
+          </div>
+        )}
         {capabilities.includes("image_generation") && provider !== "codex" && (
           <FormField label="图像 API 基础地址（可选覆盖）" htmlFor="provider-image-url">
             <input id="provider-image-url" className={controlClass} value={imageBaseUrl} onChange={(event) => setImageBaseUrl(event.target.value)} placeholder={baseUrl || "使用 API 基础地址"} />
@@ -456,7 +473,7 @@ function CapabilityToggle({ active, disabled, label, icon, onClick }: {
   active: boolean;
   disabled: boolean;
   label: string;
-  icon: "bot" | "image";
+  icon: "bot" | "image" | "eye";
   onClick: () => void;
 }) {
   return (
@@ -468,10 +485,13 @@ function CapabilityToggle({ active, disabled, label, icon, onClick }: {
 
 type ModelCatalog = { models: string[]; status: "cached" | "loading" | "ready" | "error"; error?: string };
 
-function effectiveConnectionId(route: TextModelRoute, defaultRoute?: TextModelRoute) {
-  return route.id !== "default" && route.inherits_default
-    ? defaultRoute?.connection_id ?? route.effective_connection_id
-    : route.connection_id;
+function effectiveConnectionId(
+  route: { id: string; inherits_default: boolean; connection_id: string; effective_connection_id?: string },
+  defaultRoute?: TextModelRoute,
+) {
+  return (route.id !== "default" && route.inherits_default
+    ? defaultRoute?.connection_id ?? route.effective_connection_id ?? ""
+    : route.connection_id ?? "");
 }
 
 function TextRoutesPanel({ routes, connections, onSaved }: {
@@ -497,7 +517,9 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
   const inFlight = useRef(new Set<string>());
   const live = useRef(true);
   const defaultRoute = draft.find((route) => route.id === "default");
-  const connectionIds = [...new Set(draft.map((route) => effectiveConnectionId(route, defaultRoute)).filter(Boolean))].sort();
+  const connectionIds = [...new Set(
+    draft.map((route) => effectiveConnectionId(route, defaultRoute)).filter((id): id is string => Boolean(id)),
+  )].sort();
   const connectionKey = JSON.stringify(connectionIds);
 
   useEffect(() => {
@@ -540,7 +562,16 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
     }
     setBusy(true);
     try {
-      const updated = await api.updateTextRoutes(draft.map(({ id, connection_id, model, max_tokens, reasoning_effort, inherits_default }) => ({ id, connection_id, model, max_tokens, reasoning_effort, inherits_default, ...(id === "workshop" && workshopTimeoutDirty ? { timeout_seconds: timeoutSeconds } : {}) })));
+      const updated = await api.updateTextRoutes(draft.map(({ id, connection_id, model, max_tokens, reasoning_effort, inherits_default }) => {
+        const effectiveId = effectiveConnectionId({ id, inherits_default, connection_id }, defaultRoute);
+        const provider = connections.find((connection) => connection.id === effectiveId)?.provider;
+        return {
+          id, connection_id, model, max_tokens,
+          reasoning_effort: provider === "deepseek" ? "" : reasoning_effort,
+          inherits_default,
+          ...(id === "workshop" && workshopTimeoutDirty ? { timeout_seconds: timeoutSeconds } : {}),
+        };
+      }));
       setDraft(updated);
       setWorkshopTimeoutDirty(false);
       setWorkshopTimeoutMinutes(String((updated.find((route) => route.id === "workshop")?.effective_timeout_seconds ?? 900) / 60));
@@ -596,6 +627,7 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
             const models = catalogs[connectionId]?.models ?? [];
             const currentModel = inherited ? defaultRoute?.model ?? route.effective_model : route.model;
             const manual = !inherited && manualModels[route.id];
+            const reasoningDisabled = selected?.provider === "deepseek";
             return (
               <div key={route.id} className={`grid gap-4 px-4 py-4 lg:grid-cols-[190px_minmax(160px,1fr)_minmax(160px,1fr)_145px_120px] lg:items-center lg:px-5 ${index ? "border-t border-[rgba(74,91,133,0.11)]" : ""}`}>
                 <div>
@@ -622,16 +654,20 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
                 <select
                   aria-label={`${meta.label}推理强度`}
                   className={controlClass}
-                  value={route.reasoning_effort}
+                  value={reasoningDisabled ? "" : route.reasoning_effort}
+                  disabled={reasoningDisabled}
+                  title={reasoningDisabled ? "DeepSeek 的推理强度由模型选择决定" : undefined}
                   onChange={(event) => update(route.id, { reasoning_effort: event.target.value as TextModelRoute["reasoning_effort"] })}
                 >
-                  <option value="">继承 / 默认{route.effective_reasoning_effort ? `（${REASONING_EFFORT_LABELS[route.effective_reasoning_effort] ?? route.effective_reasoning_effort}）` : ""}</option>
-                  <option value="low">低</option>
-                  <option value="medium">中</option>
-                  <option value="high">高</option>
-                  <option value="xhigh">很高</option>
-                  <option value="max">最大</option>
-                  <option value="ultra">极限</option>
+                  <option value="">{reasoningDisabled ? "—（由模型决定）" : `继承 / 默认${route.effective_reasoning_effort ? `（${REASONING_EFFORT_LABELS[route.effective_reasoning_effort] ?? route.effective_reasoning_effort}）` : ""}`}</option>
+                  {!reasoningDisabled && <>
+                    <option value="low">低</option>
+                    <option value="medium">中</option>
+                    <option value="high">高</option>
+                    <option value="xhigh">很高</option>
+                    <option value="max">最大</option>
+                    <option value="ultra">极限</option>
+                  </>}
                 </select>
                 {route.id === "default" ? (
                   <span className={`text-[11px] font-medium ${route.configured ? "text-[#267553]" : "text-[#9b651e]"}`}>{route.configured ? "已就绪" : "未完成"}</span>
@@ -674,6 +710,161 @@ function TextRoutesPanel({ routes, connections, onSaved }: {
           </div>
         </>
       )}
+    </section>
+  );
+}
+
+function VisionReviewPanel({ route, connections, onSaved }: {
+  route?: VisionRoute;
+  connections: ProviderConnection[];
+  onSaved: () => Promise<void>;
+}) {
+  const toast = useToast();
+  const visionConnections = connections.filter((item) =>
+    item.capabilities.includes("image_input") && item.capabilities.includes("text_generation"));
+  const [connectionId, setConnectionId] = useState(
+    route?.connection_id && visionConnections.some((item) => item.id === route.connection_id)
+      ? route.connection_id
+      : visionConnections[0]?.id ?? "",
+  );
+  const [model, setModel] = useState(route?.model ?? "");
+  const [manual, setManual] = useState(false);
+  const [catalog, setCatalog] = useState<{ models: string[]; status: "idle" | "loading" | "ready" | "error"; error?: string }>({
+    models: [], status: "idle",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const selected = visionConnections.find((item) => item.id === connectionId);
+  const codex = selected?.provider === "codex";
+  const configured = route?.configured ?? false;
+
+  const catalogRequest = useRef(0);
+  const loadVisionModels = useCallback(async (id: string) => {
+    const request = ++catalogRequest.current;
+    setCatalog({ models: [], status: "loading" });
+    try {
+      const models = await api.providerModels(id, true);
+      if (request === catalogRequest.current) setCatalog({ models: [...new Set(models)], status: "ready" });
+    } catch (nextError) {
+      if (request === catalogRequest.current) setCatalog({ models: [], status: "error", error: messageOf(nextError) });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!connectionId) {
+      catalogRequest.current += 1;
+      return;
+    }
+    const timer = window.setTimeout(() => { void loadVisionModels(connectionId); }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      catalogRequest.current += 1;
+    };
+  }, [connectionId, loadVisionModels]);
+
+  function changeConnection(nextId: string) {
+    setConnectionId(nextId);
+    setModel("");
+    setManual(false);
+    setError("");
+  }
+
+  async function save() {
+    setError("");
+    if (!connectionId) {
+      setError("请选择支持视觉理解的连接。");
+      return;
+    }
+    if (!model && !codex) {
+      setError("请选择或输入视觉模型。");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.updateVisionRoute("cover_review", {
+        connection_id: connectionId, model, max_tokens: route?.max_tokens || 8192,
+      });
+      toast("视觉审阅设置已保存", "success");
+      await onSaved();
+    } catch (nextError) {
+      setError(messageOf(nextError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!visionConnections.length) {
+    return (
+      <section aria-labelledby="vision-review-title" className="mb-8">
+        <SectionHeading
+          id="vision-review-title"
+          title="视觉审阅"
+          detail="封面语义评审、独立盲读与海报建议；连接必须支持图像输入。"
+        />
+        <div className="mt-4 flex min-h-[180px] flex-col items-center justify-center rounded-lg border border-dashed border-[rgba(74,91,133,0.2)] bg-white/50 px-6 text-center">
+          <Icon name="eye" className="h-6 w-6 text-ink-muted" />
+          <p className="mt-3 text-[13px] font-semibold text-ink-text">请先添加支持视觉理解的连接</p>
+          <p className="mt-1 max-w-[520px] text-[11.5px] leading-relaxed text-ink-muted">
+            Codex 默认提供视觉理解；OpenAI 或 OpenAI Compatible 连接可在「服务连接」中开启这项能力。DeepSeek 文本模型不会作为视觉审阅连接。
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section aria-labelledby="vision-review-title" className="mb-8">
+      <SectionHeading
+        id="vision-review-title"
+        title="视觉审阅"
+        detail="封面语义评审、独立盲读与海报建议；与文本路由、图像生成分开。"
+        action={<button type="button" className="btn-primary !rounded-full disabled:opacity-40" disabled={busy} onClick={() => void save()}>{busy ? "保存中…" : "保存视觉审阅"}</button>}
+      />
+      <div className="mt-4 rounded-lg border border-[rgba(74,91,133,0.14)] bg-white p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="rounded bg-[#f0f3fa] px-2 py-1 text-[10px] font-medium text-ink-muted">视觉理解</span>
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${configured ? "bg-[#eef8f2] text-[#267553]" : "bg-[#fff8ee] text-[#9b651e]"}`}>
+              <Icon name={configured ? "circle-check" : "circle-alert"} className="h-3 w-3" />{configured ? "已就绪" : "未配置"}
+            </span>
+          </div>
+          <span className="text-[11px] text-ink-muted">
+            {configured ? `${route?.connection_name || selected?.name || "已保存连接"}${route?.source === "fallback" ? " · 当前沿用封面指导连接" : ""}` : (route?.error || "选择连接并保存后启用")}
+          </span>
+        </div>
+        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(180px,.8fr)]">
+          <FormField label="视觉审阅连接" htmlFor="vision-connection">
+            <select id="vision-connection" className={controlClass} value={connectionId} onChange={(event) => changeConnection(event.target.value)}>
+              <option value="">选择连接</option>
+              {visionConnections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}
+            </select>
+          </FormField>
+          <FormField label="视觉审阅模型" htmlFor="vision-model">
+            <select id="vision-model" className={controlClass} value={manual ? "manual" : model} onChange={(event) => {
+              if (event.target.value === "manual") { setManual(true); return; }
+              setManual(false);
+              setModel(event.target.value);
+            }}>
+              <option value="">{codex ? "Codex 默认模型" : "选择模型"}</option>
+              {model && !catalog.models.includes(model) && <option value={model}>{model}（当前 / 自定义）</option>}
+              {catalog.models.map((item) => <option key={item} value={item}>{item}</option>)}
+              <option value="manual">手动输入…</option>
+            </select>
+            {manual && <input aria-label="视觉审阅自定义模型" className={`${controlClass} mt-2`} value={model} onChange={(event) => setModel(event.target.value)} placeholder="输入完整模型 ID" />}
+          </FormField>
+          <FormField label="状态" htmlFor="vision-status">
+            <div id="vision-status" className={`flex h-10 items-center gap-2 rounded-lg border px-3 text-[11.5px] font-medium ${configured ? "border-[rgba(38,117,83,0.16)] bg-[#eef8f2] text-[#267553]" : "border-[rgba(155,101,30,0.18)] bg-[#fff8ee] text-[#9b651e]"}`}>
+              <Icon name={configured ? "circle-check" : "circle-alert"} className="h-3.5 w-3.5" />
+              {configured ? "可用于封面与海报审阅" : "保存后启用"}
+            </div>
+          </FormField>
+        </div>
+        <p className="mt-3 text-[11.5px] leading-relaxed text-ink-muted">
+          DeepSeek 的默认文本模型不会出现在此列表；如启用其视觉模型，可作为独立视觉连接。视觉审阅未配置或调用失败时，封面保留候选并转人工审核，不会伪造通过；海报建议会明确标记为不可用。
+        </p>
+        {catalog.status === "error" && <p role="alert" className="mt-2 text-[11px] text-[#9b651e]">模型列表获取失败：{catalog.error}。可手动输入模型 ID。</p>}
+        {error && <p role="alert" className="mt-2 text-[11px] text-[#9d334c]">{error}</p>}
+      </div>
     </section>
   );
 }
@@ -785,6 +976,7 @@ function ImageProfilePanel({ profile, connections, onSaved }: {
         detail={profile.configured ? `${profile.connection_name} · ${savedCodexConnection ? "Codex 内置图片工具（自动选择）" : profile.model}` : profile.error}
         action={<div className="flex gap-2"><button type="button" className="btn-secondary !rounded-lg" disabled={!profile.configured || dirty || !!busy} title={dirty ? "请先保存图像设置，再测试已保存的配置" : undefined} onClick={() => void testImage()}>{busy === "test" ? "生成中…" : "测试图片"}</button><button type="button" className="btn-primary !rounded-lg" disabled={!selected || !draftModel || !!busy} onClick={() => void save()}>{busy === "save" ? "保存中…" : "保存设置"}</button></div>}
       />
+      <p className="mt-3 text-[11.5px] leading-relaxed text-ink-muted">DeepSeek 不提供图像生成；未配置图像连接时，封面/海报入口会禁用并提示，正文创作、编译与交付不受影响。</p>
       {dirty && <p className="mt-3 text-[12px] text-ink-muted">设置尚未保存。请先保存，再测试当前图像配置。</p>}
       {!imageConnections.length ? (
         <EmptyState icon="image" title="请先添加支持图像生成的连接" />

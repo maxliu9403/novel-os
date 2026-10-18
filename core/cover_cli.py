@@ -286,14 +286,14 @@ def _generation_service(settings) -> CoverService:
 def _visual_evaluator():
     from core.cover_quality import build_llm_visual_evaluator, unavailable_evaluator
     from core.llm_client import LLMClient, LLMError
-    from core.studio_settings import resolve_cover_director_settings
+    from core.provider_settings import ProviderSettingsError, resolve_vision_route
     try:
-        settings = resolve_cover_director_settings()
-        return build_llm_visual_evaluator(LLMClient(provider=settings.provider or None,
-            model=settings.model or None, base_url=settings.base_url or None,
-            api_key=settings.api_key or None, timeout_seconds=settings.timeout_seconds,
-            reasoning_effort=settings.reasoning_effort or None))
-    except (ValueError, LLMError) as exc:
+        route = resolve_vision_route("cover_review")
+        return build_llm_visual_evaluator(LLMClient(provider=route["provider"] or None,
+            model=route["model"] or None, base_url=route["base_url"] or None,
+            api_key=route["api_key"] or None, max_tokens=route["max_tokens"],
+            timeout_seconds=route["timeout_seconds"]))
+    except (ValueError, LLMError, ProviderSettingsError) as exc:
         return unavailable_evaluator(str(exc))
 
 

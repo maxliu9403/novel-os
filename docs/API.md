@@ -233,16 +233,23 @@ POST /api/studio/providers/{connection_id}/test
 GET  /api/studio/providers/{connection_id}/models
 PUT  /api/studio/model-routes
 POST /api/studio/model-routes/{route_id}/test
+PUT  /api/studio/vision-routes/{route_id}
 GET  /api/studio/image-profiles/cover
 PUT  /api/studio/image-profiles/cover
 POST /api/studio/image-profiles/cover/test
+GET  /api/studio/pricing/presets/deepseek
 GET  /api/jobs/{job_id}
 ```
 
 Provider metadata and task routes use schema version 2. API keys are write-only
 and live in an owner-readable secret file beside Studio settings. Codex
-connections keep authentication in the Codex credential store. The image test
-route performs one explicit, billable generation; provider connection tests do
+connections keep authentication in the Codex credential store. `vision_routes`
+is a separate route for image-input work (cover review, blind read, poster
+advice); it only accepts connections with the `image_input` capability. DeepSeek
+connections are text-only: they cannot be selected for image generation or
+vision review. The pricing preset endpoint returns editable DeepSeek reference
+rows without writing them. The image test route performs one explicit, billable
+generation; provider connection tests do
 not generate an image. Text-response and image tests return `202` immediately
 with a job id. Poll the job endpoint until `status` is `done` or `error`; the
 text reply or image preview is then available in `meta`.

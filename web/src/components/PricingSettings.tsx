@@ -16,6 +16,7 @@ export default function PricingSettings() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [presetBusy, setPresetBusy] = useState(false);
   const [reload, setReload] = useState(0);
   useEffect(() => {
     let active = true;
@@ -27,6 +28,24 @@ export default function PricingSettings() {
     setDraft(current => current && ({...current, models: current.models.map((row, i) => i === index ? {...row, ...patch} : row)}));
     setMessage("");
   };
+  const loadDeepSeekPreset = async () => {
+    setPresetBusy(true); setError(""); setMessage("");
+    try {
+      const preset = await api.studioPricingPreset("deepseek");
+      setDraft(current => {
+        if (!current) return current;
+        const identities = new Set(preset.models.map(row => `${row.provider}:${row.model}`));
+        const kept = current.models.filter(row => !identities.has(`${row.provider}:${row.model}`));
+        return {...current, models: [...kept, ...preset.models]};
+      });
+      setMessage("已载入 DeepSeek 两档参考价；保存后生效，可继续手动修改。");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "载入 DeepSeek 参考价失败，请重试。");
+    } finally {
+      setPresetBusy(false);
+    }
+  };
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!draft) return;
@@ -53,6 +72,16 @@ export default function PricingSettings() {
       <button type="submit" className="btn-primary" disabled={saving}>{saving ? "保存中…" : "保存计费设置"}</button></header>
     {error && <p role="alert" className="pricing-settings__error">{error}</p>}
     {message && <p role="status" className="pricing-settings__success">{message}</p>}
+    <div className="pricing-settings__preset">
+      <div className="pricing-settings__preset-left">
+        <span className="pricing-settings__preset-mark">DS</span>
+        <div>
+          <h3>DeepSeek 参考价</h3>
+          <p>一键填入 deepseek-reasoner 与 deepseek-chat 的输入、缓存输入和输出参考价；不会覆盖其它服务商的自定义价格。</p>
+        </div>
+      </div>
+      <button type="button" className="btn-secondary" disabled={saving || presetBusy} onClick={() => void loadDeepSeekPreset()}>{presetBusy ? "载入中…" : "载入 2 个模型参考价"}</button>
+    </div>
     <fieldset className="pricing-settings__exchange" disabled={saving}>
       <legend>人民币换算</legend>
       <label htmlFor="cost-exchange-rate">1 美元兑换人民币</label>

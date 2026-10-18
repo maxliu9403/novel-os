@@ -56,6 +56,12 @@ from pathlib import Path
 from typing import Callable, Optional, Tuple
 
 
+# Providers whose chat-completions transport accepts image input. Named
+# aliases without this capability must not receive image bytes merely because
+# they share the OpenAI shape. Arbitrary openai_compatible endpoints are
+# validated by the vision-route connection capability.
+IMAGE_INPUT_PROVIDERS = frozenset({"codex", "openai", "azure", "openai_compatible", "openrouter"})
+
 DEFAULT_MAX_TOKENS = 8192
 DEFAULT_OPENAI_TIMEOUT_SECONDS = 1800.0
 DEFAULT_OPENAI_SDK_MAX_RETRIES = 0
@@ -365,6 +371,10 @@ class LLMClient:
     def provider(self) -> str:
         return self.provider_name
 
+    @property
+    def supports_image_input(self) -> bool:
+        return self.provider_name in IMAGE_INPUT_PROVIDERS
+
     def complete(self, system: str, user: str) -> str:
         self._check_cancelled()
         with usage_request(self.provider_name, self.model):
@@ -500,15 +510,15 @@ class LLMClient:
         self._check_cancelled()
         if not payload:
             raise LLMError("Multimodal completion requires at least one image")
+        if self.provider_name not in IMAGE_INPUT_PROVIDERS:
+            raise LLMError(
+                f"Provider '{self.provider_name}' does not support image input. "
+                "Configure the vision route to Codex, OpenAI, OpenRouter, or a "
+                "vision-capable OpenAI-compatible connection."
+            )
         if self.provider_name == "codex":
             return self._complete_codex_cli(system, user, images=payload)
-        if self.provider_name in {
-            "openai", "azure", "openai_compatible", *OPENAI_COMPAT_ALIASES.keys(),
-        }:
-            return self._call_http(lambda: self._complete_openai_shape_with_images(system, user, payload))
-        raise LLMError(
-            f"Provider '{self.provider_name}' is not configured for cover image review"
-        )
+        return self._call_http(lambda: self._complete_openai_shape_with_images(system, user, payload))
 
     def run_agent(self, agent_name: str, user: str, agents_dir: Optional[Path] = None) -> str:
         base = agents_dir or (Path(__file__).resolve().parent.parent / "agents")

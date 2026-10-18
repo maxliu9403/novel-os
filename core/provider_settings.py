@@ -36,6 +36,12 @@ SCHEMA_VERSION = 2
 CONFIG_KEY = "model_configuration"
 TEXT_CAPABILITY = "text_generation"
 IMAGE_CAPABILITY = "image_generation"
+IMAGE_INPUT_CAPABILITY = "image_input"
+# Providers whose API accepts image input through the OpenAI-shaped
+# chat-completions path used by complete_with_images(). ``openai_compatible``
+# must opt in per connection; the named providers are vision-capable by default.
+IMAGE_INPUT_PROVIDERS = frozenset({"codex", "openai", "openrouter"})
+VISION_ROUTE_IDS = ("cover_review",)
 TEXT_ROUTE_IDS = (
     "default",
     "workshop",
@@ -56,7 +62,7 @@ PROVIDER_TEMPLATES: tuple[dict[str, Any], ...] = (
         "label": "Codex",
         "auth_type": "codex_session",
         "default_base_url": "",
-        "capabilities": [TEXT_CAPABILITY, IMAGE_CAPABILITY],
+        "capabilities": [TEXT_CAPABILITY, IMAGE_CAPABILITY, IMAGE_INPUT_CAPABILITY],
         "requires_api_key": False,
         "model_placeholder": "Use Codex default",
     },
@@ -65,7 +71,7 @@ PROVIDER_TEMPLATES: tuple[dict[str, Any], ...] = (
         "label": "OpenAI",
         "auth_type": "api_key",
         "default_base_url": "https://api.openai.com/v1",
-        "capabilities": [TEXT_CAPABILITY, IMAGE_CAPABILITY],
+        "capabilities": [TEXT_CAPABILITY, IMAGE_CAPABILITY, IMAGE_INPUT_CAPABILITY],
         "requires_api_key": True,
         "model_placeholder": "gpt-5.4",
     },
@@ -74,7 +80,7 @@ PROVIDER_TEMPLATES: tuple[dict[str, Any], ...] = (
         "label": "OpenAI Compatible",
         "auth_type": "api_key",
         "default_base_url": "",
-        "capabilities": [TEXT_CAPABILITY, IMAGE_CAPABILITY],
+        "capabilities": [TEXT_CAPABILITY, IMAGE_CAPABILITY, IMAGE_INPUT_CAPABILITY],
         "requires_api_key": True,
         "model_placeholder": "Model id",
     },
@@ -92,9 +98,18 @@ PROVIDER_TEMPLATES: tuple[dict[str, Any], ...] = (
         "label": "OpenRouter",
         "auth_type": "api_key",
         "default_base_url": "https://openrouter.ai/api/v1",
-        "capabilities": [TEXT_CAPABILITY],
+        "capabilities": [TEXT_CAPABILITY, IMAGE_INPUT_CAPABILITY],
         "requires_api_key": True,
         "model_placeholder": "Provider/model",
+    },
+    {
+        "id": "deepseek",
+        "label": "DeepSeek",
+        "auth_type": "api_key",
+        "default_base_url": "https://api.deepseek.com/v1",
+        "capabilities": [TEXT_CAPABILITY],
+        "requires_api_key": True,
+        "model_placeholder": "deepseek-reasoner",
     },
     {
         "id": "ollama",
@@ -346,6 +361,7 @@ def _legacy_configuration(values: Mapping[str, Any]) -> dict[str, Any]:
         "schema_version": SCHEMA_VERSION,
         "connections": connections,
         "text_routes": routes,
+        "vision_routes": {},
         "image_profiles": {
             "cover": {
                 "connection_id": cover_connection,
@@ -362,6 +378,7 @@ def load_configuration() -> dict[str, Any]:
     raw = settings.get(CONFIG_KEY)
     if isinstance(raw, dict) and raw.get("schema_version") == SCHEMA_VERSION:
         result = deepcopy(raw)
+        result.setdefault("vision_routes", {})
         result["source"] = "v2"
         return result
     values: dict[str, Any] = dict(os.environ)
@@ -433,6 +450,28 @@ def _requires_key(provider: str, auth_type: str) -> bool:
     return auth_type == "api_key" and bool(template is None or template["requires_api_key"])
 
 
+def _supports_image_input(connection: Mapping[str, Any]) -> bool:
+    """Whether this connection can receive reference images for review.
+
+    Named vision providers predate the explicit capability, so existing saved
+    configurations remain usable. Arbitrary OpenAI-compatible endpoints must
+    opt in with the ``image_input`` capability.
+    """
+    capabilities = set(connection.get("capabilities") or [])
+    if IMAGE_INPUT_CAPABILITY in capabilities:
+        return TEXT_CAPABILITY in capabilities
+    provider = str(connection.get("provider") or "")
+    return provider in IMAGE_INPUT_PROVIDERS and TEXT_CAPABILITY in capabilities
+
+
+def _effective_capabilities(connection: Mapping[str, Any]) -> list[str]:
+    capabilities = list(dict.fromkeys(connection.get("capabilities") or []))
+    if (IMAGE_INPUT_CAPABILITY not in capabilities
+            and _supports_image_input(connection)):
+        capabilities.append(IMAGE_INPUT_CAPABILITY)
+    return capabilities
+
+
 def _connection_status(connection: Mapping[str, Any]) -> tuple[str, str]:
     provider = str(connection.get("provider") or "")
     capabilities = set(connection.get("capabilities") or [])
@@ -458,7 +497,7 @@ def _public_connection(connection: Mapping[str, Any]) -> dict[str, Any]:
         "auth_type": connection.get("auth_type", "api_key"),
         "base_url": connection.get("base_url", ""),
         "image_base_url": connection.get("image_base_url", ""),
-        "capabilities": list(connection.get("capabilities") or []),
+        "capabilities": _effective_capabilities(connection),
         "has_api_key": bool(_connection_secret(connection)),
         "status": status,
         "error": error,
@@ -480,6 +519,7 @@ def configuration_status() -> dict[str, Any]:
         "templates": deepcopy(list(PROVIDER_TEMPLATES)),
         "connections": connections,
         "text_routes": routes,
+        "vision_routes": vision_routes_status(configuration),
         "image_profiles": {"cover": profile},
     }
 
@@ -512,6 +552,10 @@ def save_connection(payload: Mapping[str, Any], connection_id: str | None = None
         if unsupported or not capabilities:
             raise ProviderSettingsError(
                 f"Provider '{provider}' does not support the selected capabilities"
+            )
+        if IMAGE_INPUT_CAPABILITY in capabilities and TEXT_CAPABILITY not in capabilities:
+            raise ProviderSettingsError(
+                "Image input requires text generation on the same connection"
             )
         name = str(payload.get("name") or template["label"]).strip()
         if not name:
@@ -599,6 +643,9 @@ def delete_connection(connection_id: str) -> None:
         for profile_id, profile in configuration.get("image_profiles", {}).items():
             if profile.get("connection_id") == connection_id:
                 used_by.append(profile_id)
+        for route_id, route in _vision_configuration(configuration).items():
+            if isinstance(route, Mapping) and route.get("connection_id") == connection_id:
+                used_by.append(route_id)
         if used_by:
             raise ProviderSettingsError(
                 f"Connection is still used by: {', '.join(sorted(used_by))}"
@@ -755,6 +802,153 @@ def save_text_routes(routes: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]
         _persist_configuration(configuration)
         apply_default_route_to_environ(configuration)
         return text_routes_status(configuration)
+
+
+def _vision_configuration(configuration: Mapping[str, Any]) -> dict[str, Any]:
+    routes = configuration.get("vision_routes")
+    return dict(routes) if isinstance(routes, Mapping) else {}
+
+
+def _vision_route_fallback(configuration: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Existing installs used cover_director for visual review; keep that safe."""
+    routes = configuration.get("text_routes", {})
+    _, route = _route_effective("cover_director", routes)
+    connection_id = str(route.get("connection_id") or "")
+    if not connection_id:
+        return None
+    try:
+        connection = _connection(configuration, connection_id)
+    except ProviderSettingsError:
+        return None
+    if not _supports_image_input(connection):
+        return None
+    return {
+        "connection_id": connection_id,
+        "model": str(route.get("model") or ""),
+        "max_tokens": 8192,
+        "source": "fallback",
+    }
+
+
+def _vision_route_state(route_id: str, configuration: Mapping[str, Any]) -> dict[str, Any]:
+    saved = _vision_configuration(configuration).get(route_id)
+    if isinstance(saved, Mapping) and str(saved.get("connection_id") or "").strip():
+        candidate = dict(saved)
+        source = "configured"
+    else:
+        candidate = _vision_route_fallback(configuration)
+        source = "fallback" if candidate else "unavailable"
+
+    connection_id = str((candidate or {}).get("connection_id") or "")
+    model = str((candidate or {}).get("model") or "").strip()
+    try:
+        max_tokens = int((candidate or {}).get("max_tokens") or 8192)
+    except (TypeError, ValueError):
+        max_tokens = 8192
+    max_tokens = max(1, min(max_tokens, 32768))
+    name = ""
+    provider = ""
+    configured = False
+    error = ""
+
+    if not candidate:
+        error = "Select a connection that supports image input for visual review"
+    else:
+        try:
+            connection = _connection(configuration, connection_id)
+        except ProviderSettingsError as exc:
+            error = str(exc)
+        else:
+            name = str(connection.get("name") or "")
+            provider = str(connection.get("provider") or "")
+            status, status_error = _connection_status(connection)
+            if not _supports_image_input(connection):
+                error = "Selected connection does not support image input"
+            elif status != "ready":
+                error = status_error or "Selected vision connection is not ready"
+            elif not model and provider != "codex":
+                error = "A vision model is required for this connection"
+            else:
+                configured = True
+
+    return {
+        "id": route_id,
+        "connection_id": connection_id,
+        "model": model,
+        "max_tokens": max_tokens,
+        "connection_name": name,
+        "connection_provider": provider,
+        "configured": configured,
+        "error": error,
+        "source": source,
+        "effective_connection_id": connection_id,
+        "effective_model": model,
+    }
+
+
+def vision_routes_status(
+    configuration: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    config = configuration or load_configuration()
+    return [_vision_route_state(route_id, config) for route_id in VISION_ROUTE_IDS]
+
+
+def save_vision_route(route_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Persist one visual-review route without touching text or image routes."""
+    if route_id not in VISION_ROUTE_IDS:
+        raise ProviderSettingsError(f"Unknown vision route '{route_id}'")
+    with _LOCK:
+        configuration = load_configuration()
+        connection_id = str(payload.get("connection_id") or "").strip()
+        if not connection_id:
+            raise ProviderSettingsError("Select a vision connection")
+        connection = _connection(configuration, connection_id)
+        if not _supports_image_input(connection):
+            raise ProviderSettingsError(
+                "Selected connection does not support image input"
+            )
+        status, error = _connection_status(connection)
+        if status != "ready":
+            raise ProviderSettingsError(error or "Selected vision connection is not ready")
+        model = str(payload.get("model") or "").strip()
+        provider = str(connection.get("provider") or "")
+        if not model and provider != "codex":
+            raise ProviderSettingsError(
+                f"Model is required for vision route '{route_id}'"
+            )
+        raw_max_tokens = payload.get("max_tokens", 8192)
+        if type(raw_max_tokens) is not int or not 1 <= raw_max_tokens <= 32768:
+            raise ProviderSettingsError("Vision max tokens must be an integer from 1 to 32768")
+        routes = _vision_configuration(configuration)
+        routes[route_id] = {
+            "connection_id": connection_id,
+            "model": model,
+            "max_tokens": raw_max_tokens,
+        }
+        configuration["vision_routes"] = routes
+        configuration["source"] = "v2"
+        _persist_configuration(configuration)
+        return _vision_route_state(route_id, configuration)
+
+
+def resolve_vision_route(route_id: str = "cover_review") -> dict[str, Any]:
+    """Resolve the approved vision connection used for image-input reviews."""
+    if route_id not in VISION_ROUTE_IDS:
+        raise ProviderSettingsError(f"Unknown vision route '{route_id}'")
+    configuration = load_configuration()
+    route = _vision_route_state(route_id, configuration)
+    if not route["configured"]:
+        raise ProviderSettingsError(route["error"] or "Vision route is not configured")
+    connection = _connection(configuration, route["connection_id"])
+    return {
+        "connection_id": route["connection_id"],
+        "provider": str(connection.get("provider") or ""),
+        "model": route["model"],
+        "base_url": str(connection.get("base_url") or ""),
+        "api_key": _connection_secret(connection),
+        "max_tokens": route["max_tokens"],
+        "timeout_seconds": 900.0,
+    }
 
 
 def resolve_connection_credential(connection_id: str, provider: str, base_url: str) -> str:
@@ -1090,30 +1284,48 @@ def _discover_models(
         headers.update({"x-api-key": secret, "anthropic-version": "2023-06-01"})
     elif secret:
         headers["Authorization"] = f"Bearer {secret}"
-    request = urllib.request.Request(f"{base_url}/models", headers=headers, method="GET")
-    try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            raw = response.read(4 * 1024 * 1024 + 1)
-    except urllib.error.HTTPError as exc:
-        raise ProviderModelDiscoveryError(f"Provider model endpoint returned HTTP {exc.code}") from None
-    except TimeoutError:
-        raise ProviderModelDiscoveryTimeout("Provider model discovery timed out; retry the refresh") from None
-    except urllib.error.URLError as exc:
-        if isinstance(exc.reason, TimeoutError):
+    urls = [f"{base_url}/models"]
+    # DeepSeek documents both https://api.deepseek.com and /v1 as base URLs.
+    # Its model catalog lives at the root, so fall back once for /v1 configs.
+    if provider == "deepseek" and base_url.endswith("/v1"):
+        urls.append(f"{base_url[:-3].rstrip('/')}/models")
+
+    last_http_error: int | None = None
+    for index, url in enumerate(urls):
+        request = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                raw = response.read(4 * 1024 * 1024 + 1)
+        except urllib.error.HTTPError as exc:
+            last_http_error = exc.code
+            if exc.code == 404 and index + 1 < len(urls):
+                continue
+            raise ProviderModelDiscoveryError(
+                f"Provider model endpoint returned HTTP {exc.code}"
+            ) from None
+        except TimeoutError:
             raise ProviderModelDiscoveryTimeout("Provider model discovery timed out; retry the refresh") from None
-        raise ProviderModelDiscoveryError("Unable to reach the provider model endpoint") from None
-    except OSError:
-        raise ProviderModelDiscoveryError("Unable to reach the provider model endpoint") from None
-    if len(raw) > 4 * 1024 * 1024:
-        raise ProviderModelDiscoveryError("Provider model catalog exceeded the response limit")
-    try:
-        payload = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        raise ProviderModelDiscoveryError("Provider returned malformed model data") from None
-    items = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(items, list):
-        raise ProviderModelDiscoveryError("Provider returned an invalid model catalog")
-    return sorted({str(item.get("id")) for item in items if isinstance(item, dict) and item.get("id")})
+        except urllib.error.URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise ProviderModelDiscoveryTimeout("Provider model discovery timed out; retry the refresh") from None
+            raise ProviderModelDiscoveryError("Unable to reach the provider model endpoint") from None
+        except OSError:
+            raise ProviderModelDiscoveryError("Unable to reach the provider model endpoint") from None
+        if len(raw) > 4 * 1024 * 1024:
+            raise ProviderModelDiscoveryError("Provider model catalog exceeded the response limit")
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise ProviderModelDiscoveryError("Provider returned malformed model data") from None
+        items = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(items, list):
+            raise ProviderModelDiscoveryError("Provider returned an invalid model catalog")
+        return sorted({str(item.get("id")) for item in items if isinstance(item, dict) and item.get("id")})
+    raise ProviderModelDiscoveryError(
+        f"Provider model endpoint returned HTTP {last_http_error}"
+        if last_http_error is not None
+        else "Unable to reach the provider model endpoint"
+    )
 
 
 def refresh_connection_models(connection_id: str) -> list[str]:
@@ -1246,6 +1458,8 @@ def test_connection(connection_id: str) -> dict[str, Any]:
 
 __all__ = [
     "IMAGE_CAPABILITY",
+    "IMAGE_INPUT_CAPABILITY",
+    "IMAGE_INPUT_PROVIDERS",
     "PROVIDER_TEMPLATES",
     "ProviderSettingsError",
     "ProviderModelDiscoveryError",
@@ -1254,6 +1468,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "TEXT_CAPABILITY",
     "TEXT_ROUTE_IDS",
+    "VISION_ROUTE_IDS",
     "apply_default_route_to_environ",
     "configuration_status",
     "delete_connection",
@@ -1263,10 +1478,13 @@ __all__ = [
     "refresh_connection_models",
     "resolve_image_profile",
     "resolve_text_route",
+    "resolve_vision_route",
     "save_connection",
     "save_image_profile",
     "save_text_routes",
+    "save_vision_route",
     "test_connection",
     "text_routes_status",
+    "vision_routes_status",
     "workshop_timeout_seconds",
 ]

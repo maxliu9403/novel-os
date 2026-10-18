@@ -4,6 +4,11 @@
 .pricing-settings h3 { font-size: 16px; font-weight: 600; }
 .pricing-settings p { color: #687690; font-size: 12px; line-height: 1.8; margin-top: 5px; }
 .pricing-settings .pricing-settings__eyebrow { font-size: 10px; letter-spacing: .18em; color: #7770a7; }
+.pricing-settings__preset { display: flex; justify-content: space-between; gap: 18px; align-items: center; flex-wrap: wrap; margin: 22px 0 0; padding: 18px 20px; border: 1px solid rgba(104,103,234,.2); border-radius: 10px; background: linear-gradient(135deg, rgba(238,237,255,.9), rgba(255,255,255,.78)); }
+.pricing-settings__preset-left { display: flex; gap: 13px; align-items: flex-start; }
+.pricing-settings__preset-mark { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: #fff; border: 1px solid rgba(104,103,234,.2); color: #6867ea; font-size: 12px; font-weight: 700; letter-spacing: -.02em; flex: none; }
+.pricing-settings__preset h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.pricing-settings__preset p { margin: 4px 0 0; max-width: 680px; }
 .pricing-settings__exchange { margin: 24px 0; padding: 20px; border: 1px solid #dae0ec; border-radius: 10px; background: #fff; }
 .pricing-settings legend { font-size: 12px; font-weight: 600; padding-inline: 6px; }
 .pricing-settings label { font-size: 11px; color: #63718a; display: block; }

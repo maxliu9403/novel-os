@@ -1122,3 +1122,169 @@ def test_image_catalog_refresh_does_not_hold_settings_lock_over_request(monkeypa
         thread.join(2)
     assert results[0]['models'] == []
     assert provider_settings.image_profile_status()['model'] == 'custom-model'
+
+
+def test_deepseek_template_is_text_only_and_studio_ready(monkeypatch) -> None:
+    templates = {item["id"]: item for item in provider_settings.configuration_status()["templates"]}
+
+    assert templates["deepseek"]["capabilities"] == ["text_generation"]
+    assert templates["deepseek"]["default_base_url"] == "https://api.deepseek.com/v1"
+    assert templates["deepseek"]["requires_api_key"] is True
+
+    connection = _connection(
+        name="DeepSeek", provider="deepseek",
+        base_url="https://api.deepseek.com/v1",
+        capabilities=["text_generation"],
+    )
+    assert connection["status"] == "ready"
+    assert connection["capabilities"] == ["text_generation"]
+
+    with pytest.raises(provider_settings.ProviderSettingsError, match="capabilities"):
+        _connection(
+            name="DeepSeek image", provider="deepseek",
+            base_url="https://api.deepseek.com/v1",
+            capabilities=["text_generation", "image_generation", "image_input"],
+        )
+    with pytest.raises(provider_settings.ProviderSettingsError, match="image generation"):
+        provider_settings.save_image_profile("cover", {
+            "connection_id": connection["id"], "model": "gpt-image-2.5-sunburst",
+        })
+
+
+def test_image_input_is_effective_for_named_vision_providers_only() -> None:
+    assert provider_settings._supports_image_input({
+        "provider": "codex", "capabilities": ["text_generation"],
+    })
+    assert provider_settings._supports_image_input({
+        "provider": "openai", "capabilities": ["text_generation", "image_input"],
+    })
+    assert not provider_settings._supports_image_input({
+        "provider": "deepseek", "capabilities": ["text_generation"],
+    })
+    assert not provider_settings._supports_image_input({
+        "provider": "openai_compatible", "capabilities": ["text_generation"],
+    })
+    assert provider_settings._supports_image_input({
+        "provider": "openai_compatible",
+        "capabilities": ["text_generation", "image_input"],
+    })
+
+
+def test_vision_route_falls_back_to_cover_director_then_can_be_pinned() -> None:
+    connection = _connection(capabilities=["text_generation", "image_input"])
+    provider_settings.save_text_routes([{
+        "id": "default", "connection_id": connection["id"], "model": "story-model",
+        "max_tokens": 8192, "inherits_default": False,
+    }])
+
+    fallback = provider_settings.vision_routes_status()[0]
+    assert fallback["source"] == "fallback"
+    assert fallback["configured"] is True
+    assert fallback["connection_id"] == connection["id"]
+    assert provider_settings.resolve_vision_route()["model"] == "story-model"
+
+    saved = provider_settings.save_vision_route("cover_review", {
+        "connection_id": connection["id"], "model": "vision-model", "max_tokens": 4096,
+    })
+    assert saved["source"] == "configured"
+    assert saved["configured"] is True
+    resolved = provider_settings.resolve_vision_route()
+    assert resolved["model"] == "vision-model"
+    assert resolved["max_tokens"] == 4096
+    assert resolved["provider"] == "openai_compatible"
+    assert resolved["api_key"] == "provider-secret"
+
+    with pytest.raises(provider_settings.ProviderSettingsError, match="used by"):
+        provider_settings.delete_connection(connection["id"])
+
+
+def test_vision_route_rejects_text_only_connections_and_requires_model() -> None:
+    text_only = _connection(capabilities=["text_generation"])
+    with pytest.raises(provider_settings.ProviderSettingsError, match="image input"):
+        provider_settings.save_vision_route("cover_review", {
+            "connection_id": text_only["id"], "model": "vision-model",
+        })
+
+    vision = _connection(
+        name="Vision gateway", provider="openai_compatible",
+        base_url="https://vision.example/v1",
+        capabilities=["text_generation", "image_input"],
+    )
+    with pytest.raises(provider_settings.ProviderSettingsError, match="Model is required"):
+        provider_settings.save_vision_route("cover_review", {
+            "connection_id": vision["id"], "model": "",
+        })
+    with pytest.raises(provider_settings.ProviderSettingsError, match="max tokens"):
+        provider_settings.save_vision_route("cover_review", {
+            "connection_id": vision["id"], "model": "vision-model", "max_tokens": 0,
+        })
+
+
+def test_deepseek_model_discovery_falls_back_to_root_catalog(monkeypatch) -> None:
+    import urllib.error
+
+    class FakeResponse:
+        def __init__(self, payload: bytes) -> None:
+            self.payload = payload
+
+        def read(self, limit: int) -> bytes:
+            return self.payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    calls = []
+
+    def fake_urlopen(request, timeout):
+        calls.append(request.full_url)
+        if request.full_url.endswith("/v1/models"):
+            raise urllib.error.HTTPError(request.full_url, 404, "Not Found", None, None)
+        return FakeResponse(json.dumps({"data": [{"id": "deepseek-reasoner"}, {"id": "deepseek-chat"}]}).encode())
+
+    monkeypatch.setattr(provider_settings.urllib.request, "urlopen", fake_urlopen)
+    models = provider_settings._discover_models({
+        "provider": "deepseek", "base_url": "https://api.deepseek.com/v1",
+        "capabilities": ["text_generation"],
+    }, api_key="test-key")
+
+    assert models == ["deepseek-chat", "deepseek-reasoner"]
+    assert calls == [
+        "https://api.deepseek.com/v1/models",
+        "https://api.deepseek.com/models",
+    ]
+
+
+def test_vision_route_api_roundtrip_and_fallback(tmp_path) -> None:
+    from fastapi.testclient import TestClient
+    from api.main import create_app
+
+    connection = _connection(capabilities=["text_generation", "image_input"])
+    provider_settings.save_text_routes([{
+        "id": "default", "connection_id": connection["id"], "model": "story-model",
+        "max_tokens": 8192, "inherits_default": False,
+    }])
+    client = TestClient(create_app(
+        projects_root=tmp_path / "projects",
+        db_url=f"sqlite:///{tmp_path / 'vision.db'}",
+    ))
+
+    configuration = client.get("/api/studio/models").json()
+    assert configuration["vision_routes"][0]["source"] == "fallback"
+    assert configuration["vision_routes"][0]["configured"] is True
+
+    response = client.put("/api/studio/vision-routes/cover_review", json={
+        "connection_id": connection["id"], "model": "vision-model", "max_tokens": 4096,
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["configured"] is True
+    assert response.json()["model"] == "vision-model"
+    assert client.get("/api/studio/models").json()["vision_routes"][0]["source"] == "configured"
+
+    rejected = client.put("/api/studio/vision-routes/cover_review", json={
+        "connection_id": connection["id"], "model": "", "max_tokens": 4096,
+    })
+    assert rejected.status_code == 400
+    assert "Model is required" in rejected.json()["detail"]

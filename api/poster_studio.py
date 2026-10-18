@@ -37,7 +37,17 @@ def get_poster_planner():
     return LLMClient(provider=settings.provider or None, model=settings.model or None,
         base_url=settings.base_url or None, api_key=settings.api_key or None,
         timeout_seconds=settings.timeout_seconds, reasoning_effort=settings.reasoning_effort or None,
-        max_tokens=12000)
+        max_tokens=8192 if settings.provider == "deepseek" else 12000)
+
+
+def get_vision_reviewer():
+    """Image-input client for optional poster advice; independent from text routes."""
+    from core.llm_client import LLMClient
+    from core.provider_settings import resolve_vision_route
+    route = resolve_vision_route("cover_review")
+    return LLMClient(provider=route["provider"] or None, model=route["model"] or None,
+        base_url=route["base_url"] or None, api_key=route["api_key"] or None,
+        max_tokens=route["max_tokens"], timeout_seconds=route["timeout_seconds"])
 
 
 def get_poster_service_factory(store=Depends(get_media_store)):
@@ -317,7 +327,7 @@ def _schedule_advice(flow, current, images):
     try:
         from core.usage_tracking import usage_activity
         with usage_activity("advisory"):
-            poster_advisory.schedule(flow, runner, current, client_factory=get_poster_planner,
+            poster_advisory.schedule(flow, runner, current, client_factory=get_vision_reviewer,
                                     image_service=images.service)
     except (ValueError, OSError):
         # Optional advice cannot undo independently persisted image output.

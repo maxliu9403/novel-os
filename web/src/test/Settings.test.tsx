@@ -30,6 +30,11 @@ function configuration() {
         default_base_url: "", capabilities: ["text_generation", "image_generation"],
         requires_api_key: true, model_placeholder: "Model id",
       },
+      {
+        id: "deepseek", label: "DeepSeek", auth_type: "api_key",
+        default_base_url: "https://api.deepseek.com/v1", capabilities: ["text_generation"],
+        requires_api_key: true, model_placeholder: "deepseek-reasoner",
+      },
     ],
     connections: [
       {
@@ -592,3 +597,89 @@ describe("model provider settings", () => {
     expect(screen.getByText("服务商未返回实际图片型号")).toBeInTheDocument();
   });
 });
+
+
+  it("keeps DeepSeek text-only in the provider editor", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "添加连接" }));
+    await user.selectOptions(screen.getByLabelText("服务商"), "deepseek");
+
+    expect(screen.getByRole("button", { name: "文本生成" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "图像生成" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "视觉理解" })).toBeDisabled();
+    expect(screen.getByText(/DeepSeek 在当前连接中只声明文本生成/)).toBeInTheDocument();
+  });
+
+  it("saves an independent vision route without touching the text route", async () => {
+    const config = configuration();
+    config.connections[0].capabilities = ["text_generation", "image_generation", "image_input"];
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/api/studio/models")) return response(config);
+      if (path.endsWith("/providers/primary/models?refresh=true")) return response(["vision-model", "story-model"]);
+      if (path.endsWith("/api/studio/vision-routes/cover_review") && init?.method === "PUT") {
+        return response({
+          id: "cover_review", connection_id: "primary", model: "vision-model", max_tokens: 4096,
+          connection_name: "Primary models", connection_provider: "openai_compatible",
+          configured: true, error: "", source: "configured",
+          effective_connection_id: "primary", effective_model: "vision-model",
+        });
+      }
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "图像生成" }));
+
+    expect(await screen.findByRole("heading", { name: "视觉审阅" })).toBeInTheDocument();
+    const model = screen.getByLabelText("视觉审阅模型");
+    await within(model).findByRole("option", { name: "vision-model" });
+    await user.selectOptions(model, "vision-model");
+    await user.click(screen.getByRole("button", { name: "保存视觉审阅" }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith("/api/studio/vision-routes/cover_review") && item[1]?.method === "PUT");
+      expect(call).toBeTruthy();
+      expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+        connection_id: "primary", model: "vision-model", max_tokens: 8192,
+      });
+    });
+    expect(fetchMock.mock.calls.some((item) => String(item[0]).endsWith("/api/studio/model-routes") && item[1]?.method === "PUT")).toBe(false);
+  });
+
+
+  it("disables and clears reasoning effort for DeepSeek text routes", async () => {
+    const config = configuration();
+    config.connections.push({
+      ...config.connections[0], id: "deepseek", name: "DeepSeek", provider: "deepseek",
+      base_url: "https://api.deepseek.com/v1", capabilities: ["text_generation"],
+      discovered_models: ["deepseek-reasoner", "deepseek-chat"],
+    });
+    config.text_routes = config.text_routes.map((route) => route.id === "default"
+      ? { ...route, connection_id: "deepseek", model: "deepseek-reasoner", reasoning_effort: "high" }
+      : route);
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/studio/models")) return response(config);
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+
+    const reasoning = screen.getByLabelText("默认写作模型推理强度");
+    expect(reasoning).toBeDisabled();
+    expect(reasoning).toHaveValue("");
+    expect(screen.getByLabelText("头脑风暴推理强度")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "保存路由" }));
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith("/api/studio/model-routes") && item[1]?.method === "PUT");
+      const routes = JSON.parse(String(call?.[1]?.body)).routes;
+      expect(routes.find((route: { id: string }) => route.id === "default")).toMatchObject({
+        connection_id: "deepseek", model: "deepseek-reasoner", reasoning_effort: "",
+      });
+    });
+  });

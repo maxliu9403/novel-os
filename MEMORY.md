@@ -1,5 +1,15 @@
 # Novel OS 项目记忆
 
+## 最新开发：2026-10-18 DeepSeek 文本接入 + 独立视觉审阅（未部署）
+
+用户批准 Settings 设计稿后实施，Codex 登录与图像 profile 保持不变。Studio 新增 `deepseek` provider 模板，只声明 `text_generation`；密钥仍写入 `studio_settings.secrets.json`。文本路由可直接设 DeepSeek，推荐 `deepseek-reasoner`（可选 `deepseek-chat`）；DeepSeek 不进入 image profile，也不能被选为视觉审阅连接。DeepSeek 推理强度由模型选择决定，UI 不再显示无效的 effort 选项。
+
+新增 `image_input` 连接能力与 `vision_routes.cover_review`：封面语义评审、独立盲读和海报建议走独立视觉连接（Codex/OpenAI/OpenRouter，或显式开启能力的 OpenAI Compatible）；旧配置没有 vision_routes 时，仅在 `cover_director` 连接支持图像输入的情况下安全回退。`LLMClient.complete_with_images` 对 DeepSeek 及未声明视觉能力的 provider 明确报错，不会把图片发给纯文本连接。视觉审阅未配置或调用失败时，封面评审降级为人工审核，海报建议标记不可用；图像生成继续使用 Codex/OpenAI 图像连接，未配置图像连接时入口禁用并提示，正文、编译与交付不受影响。海报策划在 DeepSeek 下将 max_tokens 限制为 8192。
+
+费用估算新增 DeepSeek 两档参考价（`deepseek-reasoner` / `deepseek-chat`），默认价格表包含参考行，也可在旧安装中用「载入 2 个模型参考价」合并，不覆盖其它服务商；参考价仅作估算，实施时仍以官方价格页为准。
+
+验证：前端 `vitest run` 43 文件 509 通过，`tsc -b`、`vite build`、改动文件 eslint 通过；后端全量除 3 个依赖 `ps` 的沙箱环境用例外通过（`tests/test_llm_cancellation.py` 的 codex/claude_cli 取消用例与 stubborn helper 清理用例在受限沙箱中无法执行 `ps`），provider/vision/pricing/LLM/cover/poster 专项测试通过。未部署；启用前需在 Studio 添加 DeepSeek key、设置默认路由，并在「图像生成 → 视觉审阅」把 Codex 固定为独立视觉连接。
+
 ## 最新修复：2026-10-16 23:44 头脑风暴恢复多轮讨论，已部署
 
 用户只读排查 `102abfa791e6493ca363051d3e711f8a` 后授权按原设计修改。原任务仅选择主线/幸福结局/地点自定，22:58:51 即由模型 requests_delivery 自动切换交付；这是通用流程越界。现 `/turns` 新增 intent=discuss|deliver、默认 discuss，逐轮保存 turn_intent。普通发送输出阶段性提案/取舍/问题，不论已有骨架、完整brief或问题答完均不能切换交付或覆盖骨架。模型越界最多1次范围更正，仍越界则明确未完成、保留旧骨架/对话/问题；不保存擅自生成候选，不回填它续推，诊断 discussion_scope。

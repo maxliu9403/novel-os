@@ -382,3 +382,23 @@ def test_analysis_worker_scope_and_durable_attempt_ids_prevent_historical_double
     assert len(rows) == 3
     assert {row["request_id"] for row in rows} == {attempt["attempt_id"] for attempt in attempts}
     assert summarize(rows, default_pricing())["total_tokens"] == 15
+
+
+def test_deepseek_pricing_preset_is_available_and_defaulted(tmp_path, monkeypatch):
+    from api.main import create_app
+    monkeypatch.setenv("NOVEL_OS_PRICING_PATH", str(tmp_path / "pricing.json"))
+    client = TestClient(create_app(
+        projects_root=tmp_path / "projects",
+        db_url=f"sqlite:///{tmp_path / 'pricing-preset.db'}",
+    ))
+
+    preset = client.get("/api/studio/pricing/presets/deepseek")
+    assert preset.status_code == 200
+    assert preset.json()["preset"] == "deepseek"
+    rows = {item["model"]: item for item in preset.json()["models"]}
+    assert rows["deepseek-reasoner"]["input_usd_per_million"] == 0.55
+    assert rows["deepseek-chat"]["output_usd_per_million"] == 1.10
+    assert rows["deepseek-reasoner"]["source_url"].startswith("https://api-docs.deepseek.com/")
+
+    defaults = client.get("/api/studio/pricing").json()
+    assert {item["model"] for item in defaults["models"]} >= {"deepseek-reasoner", "deepseek-chat"}

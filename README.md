@@ -286,14 +286,23 @@ pip install -r requirements.txt   # install only the SDKs you need
 ### 0 Configure model providers
 
 Open **Studio Settings -> Models & providers** to add Codex, OpenAI,
-OpenAI-compatible, Anthropic, OpenRouter, or Ollama connections. Assign a
-default text route, optional agent-specific overrides, and a cover image model.
-One connection can provide both text and image generation; API keys are stored
-separately from normal Studio metadata and are never returned by the API.
+OpenAI-compatible, Anthropic, OpenRouter, DeepSeek, or Ollama connections.
+Assign a default text route, optional agent-specific overrides, an independent
+vision-review connection, and a cover image model. One connection can provide
+both text and image generation; API keys are stored separately from normal
+Studio metadata and are never returned by the API.
+
+DeepSeek is text-only. Add it as a **text** connection, set the default route to
+`deepseek-reasoner` (or `deepseek-chat`), and keep image generation on a
+Codex/OpenAI/OpenAI-compatible image profile. Cover semantic review, blind reads
+and poster advice use the separate **vision review** route on the Image tab;
+it must point to a connection that accepts image input. If no vision connection
+is configured, cover review degrades to human review and poster advice is marked
+unavailable; image bytes are never sent to a text-only provider.
 
 With Codex installed and `codex login` completed, the Codex connection uses the
-existing login for text generation and the `gpt-image-2` image tool without
-copying credentials into Novel OS.
+existing login for text generation, its image tool, and visual review
+without copying credentials into Novel OS.
 
 For headless setup, the existing wizard and environment variables remain
 available:
@@ -693,10 +702,16 @@ outputs/covers/
 
 #### 封面模型配置
 
-Web 用户可以在 **Studio Settings → Models & providers** 中分别配置图片模型和
-`cover_director` 文本路由。封面方向的推理强度独立于其他写作 Agent；Codex
-作为 Cover Director 时默认使用 `medium`，也可选择 `low`、`high`、`xhigh`、
-`max` 或 `ultra`。
+Web 用户可以在 **Studio Settings → Models & providers** 中分别配置图片模型、
+`cover_director` 文本路由和「视觉审阅」连接。`cover_director` 只负责封面/海报的
+文本策划；封面语义评审、独立盲读与海报建议使用独立的视觉审阅路由，连接必须
+支持图像输入。封面方向的推理强度独立于其他写作 Agent；Codex 作为 Cover
+Director 时默认使用 `medium`，也可选择 `low`、`high`、`xhigh`、`max` 或
+`ultra`。
+
+DeepSeek 不提供图像生成；其默认文本模型也不接收图片。使用 DeepSeek 写作时，
+图像出图与视觉审阅保持 Codex/OpenAI 连接即可，二者互不影响。费用估算页提供
+DeepSeek 两档参考价预设，载入后仍可编辑。
 
 无界面及旧配置可使用以下环境变量；已保存的 Studio 路由/图片配置按现有配置优先级
 生效，操作前应核对实际解析结果，不以示例值推定部署尺寸或供应商：
@@ -804,10 +819,16 @@ chmod +x ./deploy.sh
 #### 3. 配置模型提供商
 
 推荐在 **Studio Settings -> Models & providers** 中新增 Codex、OpenAI、
-OpenAI-compatible、Anthropic、OpenRouter 或 Ollama 连接，然后分别设置文本
-路由与封面图片模型。同一个连接可以同时承担文本和图片生成，API Key 与普通
-配置分开保存且不会通过 API 返回。Codex 连接直接复用 `codex login`，无需把
-登录凭据复制给 Novel OS。
+OpenAI-compatible、Anthropic、OpenRouter、DeepSeek 或 Ollama 连接，然后分别
+设置文本路由、视觉审阅与封面图片模型。同一个连接可以同时承担文本和图片生成，
+API Key 与普通配置分开保存且不会通过 API 返回。Codex 连接直接复用
+`codex login`，无需把登录凭据复制给 Novel OS。
+
+DeepSeek 只提供文本能力：把 DeepSeek 连接设为默认写作路由（推荐
+`deepseek-reasoner`，也可选 `deepseek-chat`），封面出图仍使用 Codex/OpenAI
+图像连接；封面评审与海报建议在「图像生成 → 视觉审阅」中单独选择支持图像输入的
+连接。未配置视觉审阅时，封面评审降级为人工审核，海报建议明确标记不可用，
+不会把图片发给纯文本模型。
 
 在新设备上创建独立配置：
 

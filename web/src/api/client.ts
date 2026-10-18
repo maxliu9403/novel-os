@@ -190,7 +190,7 @@ export interface StudioCoverStatus {
   model_capabilities?: ImageModelCapabilities | null;
 }
 
-export type ModelCapability = "text_generation" | "image_generation";
+export type ModelCapability = "text_generation" | "image_generation" | "image_input";
 
 export interface ProviderTemplate {
   id: string;
@@ -236,6 +236,20 @@ export interface TextModelRoute {
   configured: boolean;
 }
 
+export interface VisionRoute {
+  id: string;
+  connection_id: string;
+  model: string;
+  max_tokens: number;
+  connection_name: string;
+  connection_provider: string;
+  configured: boolean;
+  error: string;
+  source: "configured" | "fallback" | "unavailable";
+  effective_connection_id: string;
+  effective_model: string;
+}
+
 export interface ImageModelProfile {
   id: string;
   connection_id: string;
@@ -257,6 +271,7 @@ export interface StudioModelConfiguration {
   templates: ProviderTemplate[];
   connections: ProviderConnection[];
   text_routes: TextModelRoute[];
+  vision_routes?: VisionRoute[];
   image_profiles: { cover: ImageModelProfile };
 }
 
@@ -1035,11 +1050,17 @@ export interface StudioPricing {
   models: ModelPricing[];
 }
 
+export interface StudioPricingPreset {
+  preset: string;
+  models: ModelPricing[];
+}
+
 export const api = {
   generationCosts: (owner: string) => get<GenerationCosts>(owner.startsWith("workshop:")
     ? `/api/workshop/sessions/${encodeURIComponent(owner.slice(9))}/costs`
     : `/api/projects/${encodeURIComponent(owner)}/costs`),
   studioPricing: () => get<StudioPricing>("/api/studio/pricing"),
+  studioPricingPreset: (name: string) => get<StudioPricingPreset>(`/api/studio/pricing/presets/${encodeURIComponent(name)}`),
   updateStudioPricing: (pricing: StudioPricing) => send<StudioPricing>("/api/studio/pricing", "PUT", pricing),
   methodReviewSource: (id: string, reportId: string) =>
     get<{ revision_id: string; sha256: string; text: string }>(`/api/projects/${id}/method-reviews/${reportId}/source`),
@@ -1099,6 +1120,8 @@ export const api = {
     get<string[]>(`/api/studio/providers/${encodeURIComponent(id)}/models${refresh ? "?refresh=true" : ""}`),
   providerImageModels: (id: string, refresh = false) =>
     get<ImageModelCatalog>(`/api/studio/providers/${encodeURIComponent(id)}/image-models${refresh ? "?refresh=true" : ""}`),
+  updateVisionRoute: (routeId: string, body: {connection_id: string; model: string; max_tokens?: number}) =>
+    send<VisionRoute>(`/api/studio/vision-routes/${encodeURIComponent(routeId)}`, "PUT", body),
   updateTextRoutes: (routes: Array<Pick<TextModelRoute, "id" | "connection_id" | "model" | "max_tokens" | "reasoning_effort" | "inherits_default" | "timeout_seconds">>) =>
     send<TextModelRoute[]>("/api/studio/model-routes", "PUT", { routes }),
   testTextRoute: (routeId: string, prompt: string) =>

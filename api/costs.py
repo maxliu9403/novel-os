@@ -2,7 +2,13 @@
 import json
 from fastapi import APIRouter, Depends, HTTPException
 
-from core.usage_costs import costs_payload, load_pricing, owner_records, save_pricing
+from core.usage_costs import (
+    costs_payload,
+    deepseek_reference_pricing,
+    load_pricing,
+    owner_records,
+    save_pricing,
+)
 from .routes import get_service
 from .services import ProjectNotFound, ProjectService
 from .workshop import WorkshopService, get_workshop_service
@@ -23,6 +29,11 @@ def _session(svc, session_id):
         return value
     except (OSError, ValueError) as exc:
         raise HTTPException(404, "Workshop session not found") from exc
+
+
+@router.get("/studio/pricing/presets/deepseek")
+def get_deepseek_pricing_preset():
+    return {"preset": "deepseek", **deepseek_reference_pricing()}
 
 
 @router.get("/studio/pricing")

@@ -17,15 +17,49 @@ def pricing_path():
                 Path(os.environ.get("NOVEL_OS_SETTINGS_PATH", "./studio_settings.json")).with_name("pricing.json"))
 
 
+DEEPSEEK_REFERENCE_DATE = "2026-10-18"
+DEEPSEEK_REFERENCE_MODELS = (
+    {
+        "provider": "deepseek",
+        "model": "deepseek-reasoner",
+        "input_usd_per_million": 0.55,
+        "cached_input_usd_per_million": 0.14,
+        "output_usd_per_million": 2.19,
+        "image_usd_per_image": None,
+        "source_url": "https://api-docs.deepseek.com/quick_start/pricing",
+        "reference_date": DEEPSEEK_REFERENCE_DATE,
+        "note": "DeepSeek 官方参考价；缓存命中与未命中的口径不同，实际以账单为准。",
+    },
+    {
+        "provider": "deepseek",
+        "model": "deepseek-chat",
+        "input_usd_per_million": 0.27,
+        "cached_input_usd_per_million": 0.07,
+        "output_usd_per_million": 1.10,
+        "image_usd_per_image": None,
+        "source_url": "https://api-docs.deepseek.com/quick_start/pricing",
+        "reference_date": DEEPSEEK_REFERENCE_DATE,
+        "note": "DeepSeek 官方参考价；缓存命中与未命中的口径不同，实际以账单为准。",
+    },
+)
+
+
+def deepseek_reference_pricing():
+    """Editable reference rows offered by the DeepSeek pricing preset."""
+    return {"models": [dict(item) for item in DEEPSEEK_REFERENCE_MODELS]}
+
+
 def default_pricing():
+    models = [{"provider": provider, "model": "gpt-5.6-sol",
+               "input_usd_per_million": 4.0, "cached_input_usd_per_million": .4,
+               "output_usd_per_million": 20.0, "image_usd_per_image": None,
+               "source_url": "https://developers.openai.com/api/docs/pricing",
+               "reference_date": "2026-10-11",
+               "note": "标准短上下文参考价；长上下文与服务档位请按实际调整，不代表订阅扣款。"}
+              for provider in ("codex", "openai", "openai_compatible")]
+    models.extend(dict(item) for item in DEEPSEEK_REFERENCE_MODELS)
     return {"schema_version": 1, "usd_to_cny": 7.0, "exchange_rate_status": "assumed",
-            "models": [{"provider": provider, "model": "gpt-5.6-sol",
-                        "input_usd_per_million": 4.0, "cached_input_usd_per_million": .4,
-                        "output_usd_per_million": 20.0, "image_usd_per_image": None,
-                        "source_url": "https://developers.openai.com/api/docs/pricing",
-                        "reference_date": "2026-10-11",
-                        "note": "标准短上下文参考价；长上下文与服务档位请按实际调整，不代表订阅扣款。"}
-                       for provider in ("codex", "openai", "openai_compatible")]}
+            "models": models}
 
 
 def validate_pricing(value):

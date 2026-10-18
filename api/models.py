@@ -236,6 +236,23 @@ class TextModelTestRequest(BaseModel):
     prompt: str
 
 
+class VisionRouteInput(BaseModel):
+    connection_id: str
+    model: str = ""
+    max_tokens: int = Field(default=8192, ge=1, le=32768)
+
+
+class VisionRouteOut(VisionRouteInput):
+    id: str
+    connection_name: str
+    connection_provider: str
+    configured: bool
+    error: str
+    source: str
+    effective_connection_id: str
+    effective_model: str
+
+
 class ImageProfileUpdate(BaseModel):
     connection_id: str
     model: str
@@ -260,6 +277,7 @@ class StudioModelConfigurationOut(BaseModel):
     templates: list[ProviderTemplateOut]
     connections: list[ProviderConnectionOut]
     text_routes: list[TextRouteOut]
+    vision_routes: list[VisionRouteOut]
     image_profiles: dict[str, ImageProfileOut]
 
 

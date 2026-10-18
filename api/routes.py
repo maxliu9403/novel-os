@@ -33,6 +33,7 @@ from .models import (
     ImageProfileOut, ImageProfileUpdate, ImageModelCatalogOut,
     ProviderConnectionInput, ProviderConnectionOut, ProviderTestResult,
     StudioModelConfigurationOut, TextModelTestRequest, TextRouteOut, TextRoutesUpdate,
+    VisionRouteInput, VisionRouteOut,
 )
 from .version import __version__
 from .services import (
@@ -155,19 +156,19 @@ def get_cover_service(
 def _cover_visual_evaluator():
     from core.cover_quality import build_llm_visual_evaluator, unavailable_evaluator
     from core.llm_client import LLMClient, LLMError
-    from core.studio_settings import resolve_cover_director_settings
+    from core.provider_settings import ProviderSettingsError, resolve_vision_route
     try:
-        review_settings = resolve_cover_director_settings()
+        route = resolve_vision_route("cover_review")
         review_client = LLMClient(
-            provider=review_settings.provider or None,
-            model=review_settings.model or None,
-            base_url=review_settings.base_url or None,
-            api_key=review_settings.api_key or None,
-            timeout_seconds=review_settings.timeout_seconds,
-            reasoning_effort=review_settings.reasoning_effort or None,
+            provider=route["provider"] or None,
+            model=route["model"] or None,
+            base_url=route["base_url"] or None,
+            api_key=route["api_key"] or None,
+            max_tokens=route["max_tokens"],
+            timeout_seconds=route["timeout_seconds"],
         )
         return build_llm_visual_evaluator(review_client)
-    except (LLMError, ValueError) as exc:
+    except (LLMError, ProviderSettingsError, ValueError) as exc:
         return unavailable_evaluator(str(exc))
 
 
@@ -426,6 +427,16 @@ def put_studio_model_routes(body: TextRoutesUpdate):
         return provider_settings.save_text_routes(
             route.model_dump() for route in body.routes
         )
+    except provider_settings.ProviderSettingsError as exc:
+        raise _provider_settings_error(exc) from exc
+
+
+@router.put("/studio/vision-routes/{route_id}", response_model=VisionRouteOut)
+def put_studio_vision_route(route_id: str, body: VisionRouteInput):
+    from core import provider_settings
+
+    try:
+        return provider_settings.save_vision_route(route_id, body.model_dump())
     except provider_settings.ProviderSettingsError as exc:
         raise _provider_settings_error(exc) from exc
 
