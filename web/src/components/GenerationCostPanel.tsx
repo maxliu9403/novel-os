@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type CostStage, type CostTotals, type GenerationCosts } from "../api/client";
+import { api, type CostStage, type CoverCostActivity, type CostTotals, type GenerationCosts } from "../api/client";
 import "./generation-costs.css";
 
 const stages: Record<CostStage, {label: string; detail: string; number: string}> = {
   brainstorming: {label: "头脑风暴", detail: "构思、讨论与骨架", number: "01"},
   manuscript: {label: "正文创作", detail: "规划、写作与审校", number: "02"},
-  cover: {label: "封面设计", detail: "故事分析、出图与审核", number: "03"},
+  cover: {label: "封面设计", detail: "方向、出图、精修与建议", number: "03"},
+};
+const coverActivities: Record<CoverCostActivity, string> = {
+  plan: "设计方向", generate: "图片生成", refine: "原图精修", retry: "失败恢复", advisory: "画面建议", legacy: "历史未细分",
 };
 const integer = new Intl.NumberFormat("zh-CN");
 const money = (value: number | null) => value === null ? "待核算" : value > 0 && value < 0.0001 ? "< ¥0.0001" : `¥${value.toLocaleString("zh-CN", {
@@ -68,6 +71,12 @@ export default function GenerationCostPanel({owner, refreshKey = 0}: {owner: str
         <p>{tokens(stage)}</p><span className="generation-costs__description">{stages[stage.stage].detail}</span>
       </div>)}
     </div>
+    {!!data.cover_activities?.length && <div className="generation-costs__activities">
+      <div className="generation-costs__table-wrap"><table><caption>封面制作明细</caption><thead><tr><th>步骤</th><th>调用记录</th><th>Token</th><th>估算人民币</th></tr></thead><tbody>{data.cover_activities.map(row => <tr key={row.activity}>
+        <th scope="row">{coverActivities[row.activity] || row.activity}</th><td>{integer.format(row.request_count)} 次</td><td>{tokens(row)}{row.unknown_usage_requests > 0 && <small>用量不完整</small>}</td><td>{row.request_count ? money(row.estimated_cost_cny) : "—"}{!row.cost_complete && row.estimated_cost_cny !== null && <small>部分费用</small>}</td>
+      </tr>)}</tbody></table></div>
+      <p>仅列出已记录的模型调用；纯本地标题排版不调用模型。历史未细分的记录不推测所属步骤。</p>
+    </div>}
     <details className="generation-costs__details">
       <summary>用量明细与计费说明 <span>{integer.format(total.request_count)} 次调用记录</span></summary>
       <div className="generation-costs__breakdown">
@@ -77,7 +86,8 @@ export default function GenerationCostPanel({owner, refreshKey = 0}: {owner: str
           <div><dt>其中推理 Token</dt><dd>{recorded("reasoning_tokens")}</dd></div></dl>
         <p>总 Token 为已记录的输入与输出之和；缓存与推理属于其中的子项，不重复相加。未返回用量的调用和历史缺失记录不按 0 Token 计。</p>
         {total.unknown_usage_requests > 0 && <p className="generation-costs__partial">{total.unknown_usage_requests} 次调用缺少完整用量；显示的金额可能仅覆盖部分调用。</p>}
-        <p>{data.pricing.usd_to_cny === null ? "尚未设置美元兑人民币换算值。" : `换算值：1 USD = ${data.pricing.usd_to_cny} CNY${data.pricing.exchange_rate_status === "assumed" ? "（初始参考值，可在设置中调整）" : "（按当前设置）"}。`}费用按当前配置单价估算，不代表订阅实际扣款或供应商账单。</p>
+        <p>{data.pricing.usd_to_cny === null ? "尚未设置美元兑人民币换算值。" : `当前参考换算值：1 USD = ${data.pricing.usd_to_cny} CNY${data.pricing.exchange_rate_status === "assumed" ? "（初始参考值，可在设置中调整）" : "（按当前设置）"}。`}{data.pricing.request_snapshots_present ? "已有计价快照的调用按当次保存的单价与汇率估算；没有快照的历史记录按当前配置估算。" : "当前记录按配置单价与汇率估算；后续保存计价快照的调用将使用当次配置。"}不代表订阅实际扣款或供应商账单。</p>
+        {total.mixed_exchange_rates && <p>已记录调用采用了不同汇率，总人民币费用为各次调用估算金额之和。</p>}
         {data.models.length > 0 && <div className="generation-costs__table-wrap"><table><caption>模型与阶段明细</caption><thead><tr><th>阶段 / 模型</th><th>Token</th><th>估算人民币</th></tr></thead><tbody>{data.models.map((row, index) => <tr key={`${row.stage}:${row.provider}:${row.model}:${index}`}>
           <th scope="row"><span>{stages[row.stage].label}</span><b>{row.model || "模型未记录"}</b><small>{row.provider}</small></th><td>{(row.usage_coverage?.total_tokens ?? row.known_usage_requests) ? integer.format(row.total_tokens) : "未记录"}</td><td>{money(row.estimated_cost_cny)}{!row.cost_complete && row.estimated_cost_cny !== null && <small>部分费用</small>}</td>
         </tr>)}</tbody></table></div>}

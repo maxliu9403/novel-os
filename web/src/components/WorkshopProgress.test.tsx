@@ -72,6 +72,19 @@ test("details identify batched observations and preserve per-request counts with
   expect(within(details).getByText(/上游事件和后台检查/)).toHaveTextContent("不代表模型持续思考");
 });
 
+test("delivery distinguishes the bounded overall task from each model request", () => {
+  view(progress({ task_budget_seconds: 2700, request_timeout_seconds: 900, deadline_at: ago(-2100) }));
+  expect(screen.getByText(/^本轮总时限/)).toHaveTextContent("45 分钟");
+  expect(screen.getByText(/单次模型请求上限/)).toHaveTextContent("15 分钟；同时受本轮总时限约束");
+  expect(screen.queryByText(/本轮最长等待/)).not.toBeInTheDocument();
+});
+
+test("legacy request records keep their original total deadline", () => {
+  view(progress());
+  expect(screen.getByText(/本轮最长等待/)).toHaveTextContent("15 分钟");
+  expect(screen.queryByText(/单次模型请求上限/)).not.toBeInTheDocument();
+});
+
 test("checkpoint views show only durably saved artifacts and keep running content private", async () => {
   render(<WorkshopDeliveryCheckpoints progress={{ status: "running", completed_stages: ["story_design"], active_stage: "chapter_plan", source_revision: 3, resumable: false,
     stages: [{ stage: "story_design", status: "saved", content_md: "Saved story decisions" }, { stage: "chapter_plan", status: "running", content_md: "Partial unvalidated chapter data" }] }}
@@ -93,4 +106,47 @@ test("paused checkpoints identify the unfinished stage without pretending it rem
     running={false} renderContent={(text) => text} />);
   expect(screen.getByText("章节规划").closest("li")).toHaveTextContent("未完成");
   expect(screen.queryByText("进行中")).not.toBeInTheDocument();
+});
+
+test("assembly shows its current part and durable progress without treating parts as complete stages", async () => {
+  render(<WorkshopDeliveryCheckpoints progress={{ status: "running", completed_stages: ["story_design", "chapter_plan"], active_stage: "assembly", resumable: false,
+    assembly: { completed_parts: 1, total_parts: 3, active_part: "world", parts: [
+      { part: "people", label: "人物与关系", status: "saved", content_md: "Verified character relationships" },
+      { part: "world", label: "世界与线索", status: "running", content_md: "Unvalidated fragment" },
+      { part: "delivery", label: "交付规范", status: "pending" },
+    ] } }} running renderContent={(text) => <p>{text}</p>} />);
+  const assembly = screen.getByRole("region", { name: "交付整合进度" });
+  expect(screen.getByText("已保存 2/3 个阶段")).toBeInTheDocument();
+  expect(within(assembly).getByText("已保存 1/3 个部分")).toBeInTheDocument();
+  expect(within(assembly).getByText("正在补全：世界与线索")).toBeInTheDocument();
+  expect(screen.queryByText("Unvalidated fragment")).not.toBeInTheDocument();
+  const user = userEvent.setup();
+  const summary = within(assembly).getByText("查看补全部分");
+  expect(summary.parentElement).not.toHaveAttribute("open");
+  await user.click(summary);
+  expect(within(assembly).getByText("世界与线索").closest("li")).toHaveAttribute("aria-current", "step");
+  await user.click(within(assembly).getByText("查看已保存内容"));
+  expect(within(assembly).getByLabelText("人物与关系已保存内容")).toHaveTextContent("Verified character relationships");
+  expect(within(assembly).getByText("交付规范").closest("li")).toHaveTextContent("待开始");
+});
+
+test.each(["paused", "error"] as const)("%s assembly shows the retained part and explicit recovery without claiming active work", (status) => {
+  render(<WorkshopDeliveryCheckpoints progress={{ status, completed_stages: ["story_design", "chapter_plan"], active_stage: "assembly", resumable: true,
+    assembly: { completed_parts: 1, total_parts: 2, active_part: "world", parts: [
+      { part: "people", label: "人物与关系", status: "saved" },
+      { part: "world", label: "世界与线索", status: "running" },
+    ] } }} running={false} renderContent={(text) => text} />);
+  const assembly = screen.getByRole("region", { name: "交付整合进度" });
+  expect(within(assembly).getByText("待继续：世界与线索")).toBeInTheDocument();
+  expect(within(assembly).getByText(/继续时会复用已保存部分，只补全尚未完成的内容/)).toBeInTheDocument();
+  expect(within(assembly).queryByText(/正在补全|进行中/)).not.toBeInTheDocument();
+});
+
+test("saving every assembly part still waits for final integration and validation", () => {
+  render(<WorkshopDeliveryCheckpoints progress={{ status: "running", completed_stages: ["story_design", "chapter_plan"], active_stage: "assembly", resumable: false,
+    assembly: { completed_parts: 1, total_parts: 1, active_part: null, parts: [{ part: "people", label: "人物与关系", status: "saved" }] } }}
+    running renderContent={(text) => text} />);
+  expect(screen.getByText("已保存 2/3 个阶段")).toBeInTheDocument();
+  expect(screen.getByText("各部分已保存，正在整合与校验。")).toBeInTheDocument();
+  expect(screen.queryByText("已保存 3/3 个阶段")).not.toBeInTheDocument();
 });

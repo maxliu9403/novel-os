@@ -7,7 +7,7 @@ import pytest
 from api import workshop
 from api.workshop_contract_repair import normalize_workshop_contracts
 from test_workshop_api import client, complete_prompt, create, finish  # noqa: F401
-from test_workshop_contract_repair import response, stub_model, submit
+from test_workshop_contract_repair import response, stub_model, submit, _seed_legacy_candidate
 
 
 def with_assumptions(prompt, assumptions):
@@ -26,6 +26,7 @@ def test_complete_reply_with_visual_notes_finishes_without_another_model_call(cl
     raw = with_assumptions(complete_prompt(tmp_path), notes)
     calls = stub_model(monkeypatch, lambda *_: response(raw))
     data = create(client)
+    _seed_legacy_candidate(tmp_path, data, raw)
     submit(client, data, "生成完整骨架")
     current = finish(client, data["id"])
 
@@ -72,6 +73,7 @@ def test_safe_normalization_does_not_bypass_other_contract_failures(client, monk
     raw = with_assumptions(complete_prompt(tmp_path), ["Unconfirmed visual note.", 42])
     calls = stub_model(monkeypatch, lambda *_: response(raw))
     data = create(client)
+    _seed_legacy_candidate(tmp_path, data, raw)
     submit(client, data, "生成完整骨架")
     current = finish(client, data["id"])
     assert len(calls) == 3

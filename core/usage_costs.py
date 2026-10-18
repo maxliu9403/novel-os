@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import tempfile
 
-from .usage_tracking import STAGES, normalize_usage, read_records
+from .usage_tracking import STAGES, POSTER_ACTIVITIES, normalize_usage, read_records
 
 
 def pricing_path():
@@ -247,7 +247,9 @@ def summarize(records, pricing):
                             "request_count", "known_usage_requests", "unknown_usage_requests")}
     prices = {(p["provider"], p["model"]): p for p in pricing["models"]}
     coverage = {k: 0 for k in ("input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens", "total_tokens")}
-    amounts, complete = [], True
+    amounts, cny_amounts, complete = [], [], True
+    snapshot_count = 0
+    exchange_rates = set()
     for record in records:
         usage = record.get("usage", {})
         totals["request_count"] += 1
@@ -258,15 +260,31 @@ def summarize(records, pricing):
                  and not {"input_tokens", "output_tokens"}.intersection(record.get("usage_incomplete_fields", ())))
         totals["known_usage_requests" if known else "unknown_usage_requests"] += 1
         totals["images"] += record.get("image_count") or 0
-        amount, exact = _estimate(record, prices)
+        effective_prices = prices
+        fx = pricing.get("usd_to_cny")
+        if "pricing_snapshot" in record:
+            snapshot_count += 1
+            try:
+                snapshot = validate_pricing(record["pricing_snapshot"])
+            except (TypeError, ValueError):
+                # A damaged/unknown frozen record cannot be silently repriced.
+                snapshot = {"models": [], "usd_to_cny": None}
+            effective_prices = {(p["provider"], p["model"]): p for p in snapshot["models"]}
+            fx = snapshot.get("usd_to_cny")
+        exchange_rates.add(fx)
+        amount, exact = _estimate(record, effective_prices)
         if amount is not None:
             amounts.append(amount)
-        complete = complete and exact
+            if fx is not None:
+                cny_amounts.append(amount * fx)
+        complete = complete and exact and fx is not None
     usd = sum(amounts) if amounts else None
-    fx = pricing.get("usd_to_cny")
+    cny = sum(cny_amounts) if cny_amounts else None
     totals.update(usage_coverage=coverage, estimated_cost_usd=round(usd, 8) if usd is not None else None,
-                  estimated_cost_cny=round(usd * fx, 6) if usd is not None and fx is not None else None,
-                  cost_complete=bool(records) and complete and fx is not None)
+                  estimated_cost_cny=round(cny, 6) if cny is not None else None,
+                  cost_complete=bool(records) and complete,
+                  pricing_snapshot_requests=snapshot_count, current_pricing_requests=len(records) - snapshot_count,
+                  mixed_exchange_rates=len(exchange_rates) > 1)
     return totals
 
 
@@ -275,11 +293,16 @@ def costs_payload(records, pricing, **identity):
     for record in records:
         groups[(record["stage"], record.get("provider", ""), record.get("observed_model") or record.get("model", ""))].append(record)
     return {"schema_version": 1, **identity, "currency": "CNY", "estimate": True,
-        "pricing": {k: pricing[k] for k in ("usd_to_cny", "exchange_rate_status")},
+        "pricing": {**{k: pricing[k] for k in ("usd_to_cny", "exchange_rate_status")},
+                    "request_snapshots_present": any("pricing_snapshot" in r for r in records)},
         "totals": summarize(records, pricing),
         "stages": [{"stage": stage, **summarize([r for r in records if r["stage"] == stage], pricing)} for stage in STAGES],
+        "cover_activities": [{"activity": activity, **summarize([r for r in records
+            if r["stage"] == "cover" and r.get("activity", "legacy") == activity], pricing)}
+            for activity in (*POSTER_ACTIVITIES, "legacy")],
         "models": [{"stage": s, "provider": p, "model": m, **summarize(rows, pricing)} for (s, p, m), rows in sorted(groups.items())],
         "notes": ["仅统计服务商实际返回的 token；历史未保存的用量为未知，不按字数推算。",
                   "费用为可配置单价与汇率的参考估算，不是实际账单或订阅扣款；缺少用量或报价时仅显示可统计小计。",
                   "缓存 token 已包含在输入中，推理 token 已包含在输出中，不重复相加；图片仅按单独配置的每张参考价估算。",
+                  "新版封面任务冻结发起时的单价与汇率；后续修改不会重算这些历史费用。未保存价格快照的旧请求仍按当前配置估算。",
                   "历史未保存请求记录的调用、CLI 内部无法辨认的上游重试可能未覆盖；默认汇率是可修改换算值，非实时汇率。"]}

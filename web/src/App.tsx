@@ -15,7 +15,7 @@ const ChapterView = lazy(() => import("./routes/ChapterView"));
 const Settings = lazy(() => import("./routes/Settings"));
 const RelationshipChart = lazy(() => import("./routes/RelationshipChart"));
 const ResearchMoodboard = lazy(() => import("./routes/ResearchMoodboard"));
-const CoverStudio = lazy(() => import("./routes/CoverStudio"));
+const CoverStudio = lazy(() => import("./routes/CoverStudioRoute"));
 const WorkshopLibrary = lazy(() => import("./routes/WorkshopLibrary"));
 
 function AnimatedRoutes() {

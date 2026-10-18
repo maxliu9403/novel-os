@@ -34,7 +34,7 @@ def _failed_global(source, monkeypatch, *, mapping_response=False, legacy=False)
             result["characters"].append({"character_id": "char_leo", "name": "Leo",
                 "narrative_role": "secondary recipient", "evidence_refs": result["story"]["evidence_refs"]})
             if global_count == 1:
-                result["events"][0]["location"] = ""
+                result["events"][0]["location"] = None
         return result
 
     fixture.mutate = response

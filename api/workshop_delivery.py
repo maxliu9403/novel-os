@@ -1,8 +1,9 @@
-"""Coarse story delivery stages, retaining the full author context at every step.
+"""Story delivery stages and bounded assembly parts with the full author context.
 
 This is a business checkpoint, not a resumed remote inference. Only complete,
-validated stage artifacts are saved. Final publication remains WorkshopService's
-responsibility and still requires the existing complete skeleton validators.
+validated artifacts are saved; targeted part revisions preserve their originals.
+Final publication remains WorkshopService's responsibility and still requires
+the existing complete skeleton validators.
 """
 from __future__ import annotations
 
@@ -20,6 +21,8 @@ import uuid
 import weakref
 
 from .workshop_checkpoints import SCHEMA_VERSION, STAGES, make_fingerprint
+from .workshop_assembly import (ASSEMBLY_PARTS, ASSEMBLY_PART_LABELS, ASSEMBLY_PROTOCOL_VERSION,
+                                parse_part, render_part)
 
 MODES = frozenset({"short_novel", "standalone_long", "multi_volume", "series_installment"})
 LABELS = {"story_design": "全局故事设计", "chapter_plan": "完整章节规划", "assembly": "骨架交付整合"}
@@ -103,14 +106,16 @@ def _text(value) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def parse_stage(text: str, stage: str, mode: str, chapter_count: int | None = None) -> dict:
+def parse_stage(text: str, stage: str, mode: str | None, chapter_count: int | None = None) -> dict:
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE)
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
         raise DeliveryError("阶段结果不是完整 JSON，请保留故事内容并修复格式。") from None
-    if (not isinstance(data, dict) or data.get("narrative_mode") != mode
+    if (not isinstance(data, dict) or not isinstance(data.get("narrative_mode"), str)
+            or data["narrative_mode"] not in MODES
+            or (mode is not None and data["narrative_mode"] != mode)
             or type(data.get("total_chapters")) is not int or data["total_chapters"] < 1):
         raise DeliveryError("阶段结果缺少有效的组织形式或全书章节数。")
     if chapter_count is not None and data["total_chapters"] != chapter_count:
@@ -145,10 +150,10 @@ def _markdown(stage: str, data: dict) -> str:
 
 
 class DeliveryPlan:
-    """Validate, persist and reuse stages through one service-owned save seam."""
+    """Validate, persist and reuse artifacts through one service-owned save seam."""
 
-    def __init__(self, session: dict, mode: str):
-        if mode not in MODES:
+    def __init__(self, session: dict, mode: str | None):
+        if mode is not None and mode not in MODES:
             raise DeliveryError("骨架交付缺少有效的组织形式。")
         self.session = session
         self.mode = mode
@@ -166,6 +171,8 @@ class DeliveryPlan:
             if stage in self.record["completed"]:
                 parse_stage(json.dumps(self.record["completed"][stage]["content"], ensure_ascii=False),
                             stage, mode, self.chapter_count if stage == "chapter_plan" else None)
+        for part, data in self.saved_parts.items():
+            parse_part(json.dumps(data, ensure_ascii=False), part, mode, self.chapter_count)
 
     @property
     def chapter_count(self) -> int | None:
@@ -175,6 +182,84 @@ class DeliveryPlan:
     @property
     def stage(self) -> str:
         return next((stage for stage in STAGES if stage not in self.record["completed"]), "assembly")
+
+    @property
+    def saved_parts(self) -> dict:
+        parts = self.record.get("assembly_parts", {})
+        result = {part: artifact["content"] for part, artifact in parts.get("completed", {}).items()}
+        result.update({item["part"]: item["content"] for item in parts.get("revisions", [])})
+        return deepcopy(result)
+
+    @property
+    def active_part(self) -> str | None:
+        parts = self.record.get("assembly_parts", {})
+        return parts.get("active_part") or next((part for part in ASSEMBLY_PARTS
+                                                if part not in parts.get("completed", {})), None)
+
+    def part_event(self, action: str, part: str) -> dict:
+        if part not in ASSEMBLY_PARTS:
+            raise DeliveryError("未知的骨架整合小块。")
+        return {**self.event(action, "assembly"), "event": f"delivery.part.{action}",
+                "assembly_part": part, "assembly_part_label": ASSEMBLY_PART_LABELS[part],
+                "completed_parts": len(self.record.get("assembly_parts", {}).get("completed", {})),
+                "total_parts": len(ASSEMBLY_PARTS)}
+
+    def begin_part(self, part: str) -> None:
+        if self.stage != "assembly" or "assembly" in self.record["completed"]:
+            raise DeliveryError("整合小块必须在完整故事和章节规划保存后开始。")
+        parts = self.record.get("assembly_parts")
+        completed = parts["completed"] if parts is not None else {}
+        next_part = next((item for item in ASSEMBLY_PARTS if item not in completed), None)
+        if part not in ASSEMBLY_PARTS or (next_part is not None and part != next_part):
+            raise DeliveryError("不能跳过未完成的骨架整合小块。")
+        if parts is None:
+            parts = self.record["assembly_parts"] = {
+                "protocol_version": ASSEMBLY_PROTOCOL_VERSION, "active_part": None,
+                "completed": {}, "revisions": [],
+            }
+        parts["active_part"] = part
+        self.record["active_stage"] = "assembly"
+        self._save()
+
+    def _part_artifact(self, part: str, data: dict, content_md: str | None) -> dict:
+        parse_part(json.dumps(data, ensure_ascii=False), part, self.mode, self.chapter_count)
+        return {"content": deepcopy(data), "content_md": content_md if content_md is not None else render_part(part, data),
+                "saved_at": datetime.now(timezone.utc).isoformat()}
+
+    def finish_part(self, part: str, data: dict, content_md: str | None = None) -> None:
+        parts = self.record.get("assembly_parts")
+        if parts is None or "assembly" in self.record["completed"]:
+            raise DeliveryError("整合小块尚未开始或整合结果已保存。")
+        if part in parts["completed"]:
+            if self.saved_parts[part] != data:
+                raise DeliveryError("已保存的小块不可覆盖；修复必须追加修订。")
+            return
+        expected = next((item for item in ASSEMBLY_PARTS if item not in parts["completed"]), None)
+        if part != expected or parts["active_part"] != part:
+            raise DeliveryError("不能跳过未完成的骨架整合小块。")
+        parts["completed"][part] = self._part_artifact(part, data, content_md)
+        parts["active_part"] = next((item for item in ASSEMBLY_PARTS if item not in parts["completed"]), None)
+        self._save()
+
+    def revise_part(self, part: str, data: dict, content_md: str | None = None) -> None:
+        parts = self.record.get("assembly_parts")
+        if (parts is None or len(parts["completed"]) != len(ASSEMBLY_PARTS)
+                or parts["active_part"] != part or part not in ASSEMBLY_PARTS
+                or "assembly" in self.record["completed"]):
+            raise DeliveryError("小块修订须在全部小块保存后开始，且不能改写已发布整合。")
+        parts["revisions"].append({"part": part, **self._part_artifact(part, data, content_md)})
+        parts["active_part"] = None
+        self._save()
+
+    def clear_part_repair(self) -> None:
+        """A successful local recheck may close a previously interrupted repair."""
+        parts = self.record.get("assembly_parts")
+        if (parts is None or len(parts["completed"]) != len(ASSEMBLY_PARTS)
+                or "assembly" in self.record["completed"]):
+            raise DeliveryError("仅可清理完整小块尚未发布时的修订进度。")
+        if parts["active_part"] is not None:
+            parts["active_part"] = None
+            self._save()
 
     def event(self, action: str, stage: str | None = None) -> dict:
         stage = stage or self.stage
@@ -187,6 +272,11 @@ class DeliveryPlan:
             self._save()
 
     def _save(self):
+        # An explicitly requested fresh delivery may choose its mode in the
+        # first story-design response. Do not persist a mutable/null identity;
+        # per-turn intent already makes a pause before that result resumable.
+        if self.mode is None:
+            return
         callback = self.session.get("_save_delivery_checkpoint")
         if callback is not None:
             callback(deepcopy(self.record))
@@ -196,15 +286,26 @@ class DeliveryPlan:
             return
         if stage != self.stage:
             raise DeliveryError("不能跳过未完成的骨架交付阶段。")
+        if stage == "story_design" and self.mode is None:
+            parse_stage(json.dumps(data, ensure_ascii=False), stage, None)
+            self.mode = data["narrative_mode"]
+            self.record["narrative_mode"] = self.mode
+        if stage == "assembly" and "assembly_parts" in self.record:
+            parts = self.record["assembly_parts"]
+            if len(parts["completed"]) != len(ASSEMBLY_PARTS) or parts["active_part"] is not None:
+                raise DeliveryError("必须完成所有整合小块及修订，才能保存完整骨架。")
         self.record["completed"][stage] = {"content": deepcopy(data), "content_md": _markdown(stage, data),
                                             "saved_at": datetime.now(timezone.utc).isoformat()}
         self.record["active_stage"] = STAGES[len(self.record["completed"])] if len(self.record["completed"]) < 3 else None
         self._save()
 
     def context(self, base: dict) -> dict:
-        return {**base, "delivery_stage": self.stage, "delivery_mode": self.mode,
+        result = {**base, "delivery_stage": self.stage, "delivery_mode": self.mode,
                 "saved_story_stages": {stage: item["content"] for stage, item in self.record["completed"].items()
                                        if stage != "assembly"}}
+        if "assembly_parts" in self.record:
+            result["saved_assembly_parts"] = self.saved_parts
+        return result
 
     def rules(self) -> str:
         common = """
@@ -220,7 +321,16 @@ Publication contract serialization is deferred to assembly. The finished skeleto
 contain the whole design, not a summary that drops chapter events or established facts.
 """
         if self.stage == "story_design":
-            return common + """
+            mode_rule = (
+                "Choose narrative_mode from the FULL author context and latest decisions: "
+                "short_novel, standalone_long, multi_volume, or series_installment. "
+                "Preserve the author's chosen form, including choices made in discussion; "
+                "newly saved basic-setting changes take precedence over older discussion. "
+                "If genuinely unspecified, make and label a suitable recommendation in decisions. "
+                "Do not silently default to a short novel or require a separate handoff call.\n"
+                if self.mode is None else "Preserve the supplied delivery_mode.\n"
+            )
+            return common + mode_rule + """
 STAGE: story_design. Design the complete global story before mapping every chapter.
 Return ONLY JSON:
 {"narrative_mode":"the supplied delivery_mode","total_chapters":21,

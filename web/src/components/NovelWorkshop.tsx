@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, type JobStatus } from "../api/client";
-import { workshopApi, type NarrativeMode, type WorkshopInput, type WorkshopRuntimeProgress, type WorkshopSession } from "../api/workshop";
+import { workshopApi, type NarrativeMode, type WorkshopInput, type WorkshopRuntimeProgress, type WorkshopSession, type WorkshopTurnIntent } from "../api/workshop";
 import { GENRE_OPTIONS, genreLabel, mergeGenres } from "../lib/genres";
 import { Field, fieldClass, textareaClass } from "./Modal";
 import GenreChips from "./GenreChips";
@@ -22,6 +22,7 @@ const MODES: Array<[NarrativeMode, string]> = [
   ["multi_volume", "单本分卷 · 章号连续"], ["series_installment", "多本系列 · 当前分册"],
 ];
 const INITIAL_MESSAGE = "请基于我的基础提示开始头脑风暴。保留已明确的设定，先补问关键缺项，提出可选择的故事方向；持续完善人物心理、章节因果、伏笔和钩子。篇幅允许合理浮动。";
+const DELIVERY_MESSAGE = "请根据已确认的故事设计生成完整小说骨架。保留既有设定和决定。";
 const messageOf = (error: unknown) => error instanceof Error ? error.message : String(error);
 const titleOf = (session: WorkshopSession) => session.prompt_md.match(/^\s*(?:[-*]\s*)?(?:\*\*)?Title(?:\*\*)?\s*:[ \t]*(.+)$/im)?.[1].trim() || session.input.title || "未命名故事";
 
@@ -111,7 +112,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
           const label = route.configured
             ? `${route.effective_model}${route.inherits_default ? " · 继承默认，可单独更改" : " · 独立配置"}`
             : "尚未配置，请在模型设置中连接";
-          setModel(`${label} · 下一轮请求超时 ${(route.effective_timeout_seconds ?? 900) / 60} 分钟`);
+          setModel(`${label} · 配置的单次请求时限 ${(route.effective_timeout_seconds ?? 900) / 60} 分钟`);
         }
       }).catch(() => undefined);
     };
@@ -165,7 +166,8 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
   const deliveryProgress = !session?.restart_required && session?.active_operation !== "titles" ? session?.delivery_progress : null;
   const resumableDelivery = Boolean(deliveryProgress?.resumable && (paused || session?.status === "error"));
   const savedAssembly = deliveryProgress?.completed_stages.includes("assembly");
-  const deliveryResumeLabel = savedAssembly ? "完成骨架保存" : deliveryProgress?.completed_stages.length ? "从已保存阶段继续" : "继续骨架交付";
+  const savedAssemblyParts = (deliveryProgress?.assembly?.completed_parts ?? 0) > 0;
+  const deliveryResumeLabel = savedAssembly ? "完成骨架保存" : savedAssemblyParts ? "从已保存部分继续" : deliveryProgress?.completed_stages.length ? "从已保存阶段继续" : "继续骨架交付";
   const newTurn = acceptedTurn && acceptedTurn.sessionId === sessionId && acceptedTurn.jobId === jobId ? acceptedTurn : null;
   // The optimistic session after submit still has the previous round's logs.
   // Trust those logs only once a newly appended turn_started is present.
@@ -234,15 +236,18 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
     return () => { active = false; window.clearTimeout(timer); };
   }, [open, launched, jobId, pollingBlocked]);
 
-  async function submitTurn(current: WorkshopSession, message: string) {
+  async function submitTurn(current: WorkshopSession, message: string, intent: WorkshopTurnIntent) {
     setBusy("send");
     setError(null);
+    // Keep the chosen action locally until the durable session refreshes. If a
+    // response is lost, retry still follows the author's discussion/delivery choice.
+    setSession((value) => value?.id === current.id ? { ...value, turn_intent: intent } : value);
     try {
-      const job = await workshopApi.turn(current.id, message, current.revision);
+      const job = await workshopApi.turn(current.id, message, current.revision, intent);
       if (!mounted.current) return;
       setClock(Date.now());
       setAcceptedTurn({ sessionId: current.id, jobId: job.job_id, priorLogCount: current.logs.length, startedAt: timestamp(job.started_at) });
-      setSession({ ...current, status: "running", active_operation: "brainstorm", job_id: job.job_id, prepared: null, last_error: null,
+      setSession({ ...current, status: "running", active_operation: "brainstorm", turn_intent: intent, job_id: job.job_id, prepared: null, last_error: null,
         delivery_progress: null,
         naming: current.naming ? { ...current.naming, source_sha256: "", confirmed_title: null, candidates: [] } : null });
       setNamingDrafts((values) => ({ ...values, [current.id]: { title: "", hints: "" } }));
@@ -338,7 +343,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
       const current = await workshopApi.create({ ...input, genres: mergeGenres(input.genres, otherGenre), title: input.title.trim(), premise: input.premise.trim() });
       if (!mounted.current) return;
       remember(current.id); setSaved(null); setSession(current); setStep("discussion");
-      await submitTurn(current, INITIAL_MESSAGE);
+      await submitTurn(current, INITIAL_MESSAGE, "discuss");
       if (mounted.current) onSessionChange?.(current.id);
     } catch (failure) {
       if (mounted.current) { setError(messageOf(failure)); setBusy(null); }
@@ -455,6 +460,15 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
     if (session) setNamingDrafts((values) => ({ ...values, [session.id]: { ...namingDraft, ...patch } }));
   }
   const canPrepare = Boolean(session?.ready_for_confirmation && !session.questions.length);
+  const validBasics = Boolean(session?.input.premise.trim());
+  const canDeliver = Boolean(session && validBasics && !disabled && !session.restart_required);
+  const deliveryLabel = session?.prompt_md.trim() ? "更新完整骨架" : "生成完整骨架";
+  const requestDelivery = () => {
+    if (!session || !canDeliver) return;
+    const addition = draft.trim();
+    const message = addition ? `${DELIVERY_MESSAGE}\n\n请同时纳入这条尚未发送的补充：\n${addition}` : DELIVERY_MESSAGE;
+    void submitTurn(session, message, "deliver");
+  };
   const basicPhaseLabel = runtimeProgress ? PHASE_LABELS[runtimeProgress.phase] : "等待模型回复";
   const phaseLabel = runtimeProgress?.delivery_stage ? `${DELIVERY_STAGE_LABELS[runtimeProgress.delivery_stage]} · ${basicPhaseLabel}` : basicPhaseLabel;
   const progressAction = runtimeProgress?.repairing_response && ["preparing", "starting", "waiting", "receiving"].includes(runtimeProgress.phase)
@@ -514,7 +528,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
 
           {session && step !== "sessions" && (running || paused) && <section aria-label="本轮请求控制" className="mx-4 mb-2 flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-xl border border-violet/20 bg-white/65 px-4 py-3 sm:mx-8">
             <div className="min-w-0 flex-1 basis-full text-[12px] leading-relaxed text-ink-muted sm:basis-auto">
-              {paused ? <><p role="status" className="font-medium text-violet">{session.active_operation === "titles" ? "书名推荐已暂停" : "推导已暂停"}{elapsed !== null && ` · 本轮已运行 ${elapsed} 秒`}</p><p>{resumableDelivery ? savedAssembly ? "全部阶段成果已保存。继续时重新校验并保存正式骨架，无需再次调用模型。" : "已完成阶段已保存。继续时从未完成阶段发起新请求，保留已有正式骨架。" : "已有内容已保留。继续时会根据保存的完整上下文重新发起本轮请求，也可以先修改内容或基础设定。"}</p></>
+              {paused ? <><p role="status" className="font-medium text-violet">{session.active_operation === "titles" ? "书名推荐已暂停" : "推导已暂停"}{elapsed !== null && ` · 本轮已运行 ${elapsed} 秒`}</p><p>{resumableDelivery ? savedAssembly ? "全部阶段成果已保存。继续时重新校验并保存正式骨架，无需再次调用模型。" : savedAssemblyParts ? "已完成阶段和交付部分已保存。继续时复用这些成果，保留已有正式骨架。" : "已完成阶段已保存。继续时从未完成阶段发起新请求，保留已有正式骨架。" : "已有内容已保留。继续时会根据保存的完整上下文重新发起本轮请求，也可以先修改内容或基础设定。"}</p></>
                 : <WorkshopRuntimeStatus progress={runtimeProgress} label={progressLabel!} now={clock} startedAt={startedAt} />}
             </div>
             <button type="button" className="btn-secondary ml-auto !text-violet" disabled={Boolean(busy) || (running && !session.job_id)} onClick={() => void controlRequest(paused ? "resume" : "pause")}>{busy === "pause" ? "正在暂停…" : busy === "resume" ? "正在继续…" : paused ? resumableDelivery ? deliveryResumeLabel : session.active_operation === "titles" ? "继续推荐" : "继续推导" : session.active_operation === "titles" ? "暂停推荐" : "暂停推导"}</button>
@@ -527,7 +541,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
           {(error || (step !== "sessions" && (session?.last_error || connectionError || (session?.status === "error" && resumableDelivery)))) && (
             <div role="alert" className="mx-5 mb-3 shrink-0 rounded-2xl border border-violet/20 bg-violet-soft px-4 py-3 text-[13px] leading-relaxed text-ink-text sm:mx-8">
               {error || connectionError || session?.last_error}
-              {session?.last_error && <p className="mt-1 text-ink-muted">本轮未完成。{session.prompt_md ? "已有骨架仍保留。" : "基础设定和已提交的对话仍保留。"}{resumableDelivery ? savedAssembly ? "全部阶段成果已保存，可重新校验并保存正式骨架，无需再次调用模型。" : "可从未完成阶段继续，已保存阶段会复用，不会自动重试。" : "重试会使用已保存的完整上下文。"}</p>}
+              {session?.last_error && <p className="mt-1 text-ink-muted">本轮未完成。{session.prompt_md ? "已有骨架仍保留。" : "基础设定和已提交的对话仍保留。"}{resumableDelivery ? savedAssembly ? "全部阶段成果已保存，可重新校验并保存正式骨架，无需再次调用模型。" : savedAssemblyParts ? "可从未完成部分继续，已保存阶段和部分会复用，不会自动重试。" : "可从未完成阶段继续，已保存阶段会复用，不会自动重试。" : "重试会使用已保存的完整上下文。"}</p>}
               {session?.status === "error" && resumableDelivery && <button type="button" className="btn-secondary mt-2 !text-violet" disabled={Boolean(busy)} onClick={() => void controlRequest("resume")}>{busy === "resume" ? "正在继续…" : deliveryResumeLabel}</button>}
             </div>
           )}
@@ -659,13 +673,15 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
                   <SessionLog session={session} />
                 </div>
               </div>
-              <form onSubmit={(e) => { e.preventDefault(); if (draft.trim() && !disabled && !session.restart_required) void submitTurn(session, draft.trim()); }} className="max-h-[35dvh] shrink-0 overflow-y-auto border-t border-paper-line bg-white/70 px-5 py-3 sm:px-8">
+              <form onSubmit={(e) => { e.preventDefault(); if (draft.trim() && !disabled && !session.restart_required) void submitTurn(session, draft.trim(), "discuss"); }} className="max-h-[35dvh] shrink-0 overflow-y-auto border-t border-paper-line bg-white/70 px-5 py-3 sm:px-8">
                 <label htmlFor="workshop-message" className="mb-2 block text-[12px] font-medium text-ink-muted">补充、回答或修改设定 · 不限讨论次数</label>
                 <textarea id="workshop-message" className={`${textareaClass} !min-h-[72px] max-h-[22dvh] !text-[16px] !leading-[1.85]`} rows={2} disabled={restoring || controlling} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="例如：Nora 先保存证据，第六章前不要对质；把这个选择变成前三章的钩子。" />
+                <p id="workshop-turn-guidance" className="mt-2 text-[11px] leading-relaxed text-ink-muted">普通发送会继续讨论，分阶段推进当前提案、取舍和修订，不会自动生成完整骨架。没有固定讨论轮数；方向满意后可直接生成。</p>
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                   <button type="button" className="btn-secondary" disabled={Boolean(busy) || !session.prompt_md} onClick={() => setStep("preview")}>预览当前骨架</button>
                   <div className="flex flex-wrap gap-2">
-                    {!running && session.status === "error" && !resumableDelivery && <button type="button" disabled={disabled} className="btn-ghost" onClick={() => void submitTurn(session, "请基于已保存的全部对话继续完成上一轮尚未落实的要求，保留已确认的设定。")}>重试本轮</button>}
+                    {!running && session.status === "error" && !resumableDelivery && <button type="button" disabled={disabled} className="btn-ghost" onClick={() => void submitTurn(session, "请基于已保存的全部对话继续完成上一轮尚未落实的要求，保留已确认的设定。", session.turn_intent ?? "discuss")}>重试本轮</button>}
+                    <button type="button" aria-describedby="workshop-turn-guidance" disabled={!canDeliver} className="btn-secondary !text-violet" onClick={requestDelivery}>{busy === "send" && session.turn_intent === "deliver" ? "正在生成骨架…" : deliveryLabel}</button>
                     <button type="submit" disabled={disabled || Boolean(session.restart_required) || !draft.trim()} className={PRIMARY}>{busy === "send" ? "提交中…" : running ? "推导中…" : "发送并继续推导"}<Icon name="chevron-right" /></button>
                   </div>
                 </div>

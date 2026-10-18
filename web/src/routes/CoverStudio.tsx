@@ -192,6 +192,9 @@ function CoverStudioWorkspace() {
     && directions.some(direction => direction.direction_id === directionTask.task?.direction_id && direction.status === "approved");
   const generationCount = approvedDirection?.plans.length || settings?.count || 4;
   const generationAllowed = Boolean(settings?.configured && approvedDirection);
+  const retryingBatch = Boolean(approvedDirection && generationTask.task?.direction_id === approvedDirection.direction_id
+    && ["failed", "interrupted"].includes(generationTask.task.status));
+  const generationLabel = `${retryingBatch ? "重新生成" : "生成"} ${generationCount} 张封面`;
   const generationDisabledReason = generationTask.connectionError || generationTask.checking
     ? "正在同步封面生成状态，请稍候"
     : generationTask.busy
@@ -553,16 +556,21 @@ function CoverStudioWorkspace() {
                 className="btn-primary"
                 disabled={!generationAllowed || Boolean(busy)}
                 onClick={generate}
-                aria-label={`生成 ${generationCount} 张封面`}
+                aria-label={generationLabel}
                 aria-describedby={generationDisabledReason ? "cover-generation-requirement" : undefined}
                 title={generationDisabledReason || undefined}
               >
                 <Icon name="sparkles" className="h-4 w-4" />
-                {busy === "generate" ? "生成中" : `生成 ${generationCount} 张封面`}
+                {busy === "generate" ? "生成中" : generationLabel}
               </button>
               {generationDisabledReason && (
                 <span id="cover-generation-requirement" className="max-w-56 text-right text-[10.5px] text-ink-muted">
                   {generationDisabledReason}
+                </span>
+              )}
+              {retryingBatch && !generationDisabledReason && (
+                <span className="max-w-56 text-right text-[10.5px] text-ink-muted">
+                  沿用已批准方向，新建一批候选；已有结果保留。
                 </span>
               )}
             </div>

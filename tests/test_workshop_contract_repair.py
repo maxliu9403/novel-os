@@ -47,9 +47,9 @@ def stub_model(monkeypatch, responder):
     return calls
 
 
-def submit(client, data, message):
+def submit(client, data, message, *, intent="deliver"):
     result = client.post(f'/api/workshop/sessions/{data["id"]}/turns',
-                         json={"revision": data["revision"], "message": message})
+                         json={"revision": data["revision"], "message": message, "intent": intent})
     assert result.status_code == 202, result.text
     return result.json()
 
@@ -63,11 +63,28 @@ def contains_complete_text(container, text):
     return any(value in container for value in variants)
 
 
+def _seed_prior_prompt(tmp_path, data, prompt):
+    """Represent an already published skeleton without spending a model call."""
+    path = tmp_path / "workshop_v2" / data["id"] / "session.json"
+    saved = json.loads(path.read_text())
+    saved.update(prompt_md=prompt, ready_for_confirmation=True, status="ready")
+    path.write_text(json.dumps(saved, ensure_ascii=False, indent=2))
+    return saved
+
+
+def _seed_legacy_candidate(tmp_path, data, prompt):
+    """Make a prior unvalidated artifact select the direct repair profile."""
+    directory = tmp_path / "workshop_v2" / data["id"] / "candidates"
+    directory.mkdir()
+    (directory / f'{data["revision"]}.md').write_text(prompt)
+
+
 def test_aliased_structure_is_repaired_with_precise_error_and_complete_candidate(client, monkeypatch, tmp_path):
     valid = complete_prompt(tmp_path)
     bad = aliased_contract(valid)
     calls = stub_model(monkeypatch, lambda attempt, *_: response(bad if attempt == 1 else valid))
     data = create(client, premise="最早决定：第三章以前保留秘密。")
+    _seed_legacy_candidate(tmp_path, data, valid)
     submit(client, data, "基于全部决定生成完整骨架")
     current = finish(client, data["id"])
 
@@ -89,6 +106,7 @@ def test_later_invalid_transport_does_not_erase_complete_repair_candidate(client
     replies = [response(bad), "not valid JSON", response(valid)]
     calls = stub_model(monkeypatch, lambda attempt, *_: replies[attempt - 1])
     data = create(client)
+    _seed_legacy_candidate(tmp_path, data, valid)
     submit(client, data, "设计完整骨架")
     current = finish(client, data["id"])
 
@@ -102,12 +120,11 @@ def test_later_invalid_transport_does_not_erase_complete_repair_candidate(client
 @pytest.mark.parametrize("has_previous", [False, True])
 def test_contract_repair_stops_after_three_attempts_and_preserves_context(client, monkeypatch, tmp_path, has_previous):
     valid = complete_prompt(tmp_path)
-    stub_model(monkeypatch, lambda *_: response(valid))
     data = create(client, premise="保留原始完整故事提示。")
     if has_previous:
-        submit(client, data, "先完善初稿")
-        data = finish(client, data["id"])
-        assert data["status"] == "ready", data["last_error"]
+        data = _seed_prior_prompt(tmp_path, data, valid)
+    else:
+        _seed_legacy_candidate(tmp_path, data, valid)
 
     prior_prompt = data["prompt_md"]
     prior_messages = data["messages"]
@@ -136,11 +153,8 @@ def test_contract_repair_stops_after_three_attempts_and_preserves_context(client
 @pytest.mark.parametrize("late_valid", [False, True])
 def test_pause_during_contract_repair_fences_late_output_and_further_retries(client, monkeypatch, tmp_path, late_valid):
     valid = complete_prompt(tmp_path)
-    stub_model(monkeypatch, lambda *_: response(valid))
     data = create(client, premise="暂停后仍需保留的基础提示。")
-    submit(client, data, "生成初版")
-    data = finish(client, data["id"])
-    assert data["status"] == "ready", data["last_error"]
+    data = _seed_prior_prompt(tmp_path, data, valid)
 
     bad = aliased_contract(valid)
     entered, release, exited = threading.Event(), threading.Event(), threading.Event()
@@ -197,6 +211,7 @@ def test_contract_repair_shares_turn_deadline_and_does_not_start_after_budget(cl
 
     calls = stub_model(monkeypatch, respond)
     data = create(client, premise="超时后也保留完整基础设定。")
+    _seed_legacy_candidate(tmp_path, data, complete_prompt(tmp_path))
     submit(client, data, "完善骨架")
     current = finish(client, data["id"])
 
@@ -224,6 +239,7 @@ def test_each_repair_constructs_client_with_remaining_timeout(client, monkeypatc
     timeouts = []
     monkeypatch.setattr(LLMClient, "__init__", lambda self, **kwargs: timeouts.append(kwargs["timeout_seconds"]))
     data = create(client)
+    _seed_legacy_candidate(tmp_path, data, valid)
     submit(client, data, "生成完整骨架")
     current = finish(client, data["id"])
 
@@ -255,6 +271,7 @@ def test_resume_reuses_failed_candidate_as_unvalidated_context(client, monkeypat
 
     monkeypatch.setattr(workshop.WorkshopService, "_run_turn", observe_worker)
     data = create(client, premise="最初的故事要求持续有效。")
+    _seed_legacy_candidate(tmp_path, data, valid)
     job = submit(client, data, "完成完整骨架")
     url = f'/api/workshop/sessions/{data["id"]}'
     try:

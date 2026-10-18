@@ -1,4 +1,4 @@
-"""Lossless, readable transport for source-bound cover campaign requests.
+"""Readable transport and explicit projections for source-bound campaigns.
 
 This changes only an outgoing request. Complete source documents and the
 original analysis remain untouched; evidence identifiers never get aliases.
@@ -200,6 +200,29 @@ def serialize_campaign_request(user: str, story_analysis: Mapping | None) -> str
         packed["cover_evidence_registry"] = registry
         packed["evidence_encoding_contract"] = _ENCODING_CONTRACT
         serialized = _packed_json(packed)
+        # Keep the familiar direct text layout for small inputs. Large source
+        # bundles need sharing of full quotes and subset-repeated metadata too.
+        if len(serialized.encode("utf-8")) > 256000:
+            from .cover_campaign_source_transport import pack_source_request, unpack_source_request
+            compact = pack_source_request(packed, evidence)
+            if not _same(unpack_source_request(compact), packed):
+                raise CoverCampaignTransportError("Source transport failed lossless reconstruction")
+            candidate = _packed_json(compact)
+            if len(candidate.encode("utf-8")) < len(serialized.encode("utf-8")):
+                serialized = candidate
+            # Large sources leave too little room for generated designs and
+            # later repair findings. Prefer one explicit source-index contract
+            # across these stages, retaining complete originals locally and
+            # complete source text for the model. This is not v2 compression.
+            if len(candidate.encode("utf-8")) > 320000:
+                from .cover_campaign_source_index import (
+                    project_source_index, restore_source_index_projection,
+                )
+                projected = project_source_index(compact)
+                restore_source_index_projection(projected, compact)
+                candidate = _packed_json(projected)
+                if len(candidate.encode("utf-8")) < len(serialized.encode("utf-8")):
+                    serialized = candidate
         return serialized if len(serialized.encode("utf-8")) < len(user.encode("utf-8")) else user
     except CoverCampaignTransportError:
         raise

@@ -23,6 +23,9 @@
 .generation-costs__breakdown dd { color: #283654; font-variant-numeric: tabular-nums; }
 .generation-costs__breakdown p { margin-top: 8px; font-size: 11px; }
 .generation-costs__table-wrap { overflow-x: auto; margin-top: 16px; }
+.generation-costs__activities { padding-bottom: 18px; font-size: 12px; }
+.generation-costs__activities .generation-costs__table-wrap { margin-top: 0; }
+.generation-costs__activities > p { margin: 10px 0 0; font-size: 11px; line-height: 1.8; color: #76819a; }
 .generation-costs table { width: 100%; text-align: left; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .generation-costs caption { text-align: left; padding-bottom: 8px; color: #374261; font-weight: 500; }
 .generation-costs th,.generation-costs td { padding: 9px 10px 9px 0; border-bottom: 1px solid #edf0f6; font-weight: normal; }

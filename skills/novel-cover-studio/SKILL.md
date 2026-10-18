@@ -1,9 +1,67 @@
 ---
 name: novel-cover-studio
-description: Use when a novel skeleton or approved design needs source-bound cinematic cover concepts, image candidates, quality review, selection, or delivery verification.
+description: Design novel covers from a complete skeleton using promotional poster art, four concepts, direct image selection, single-image refinement, local typography and verified delivery; preserve legacy cover workflows.
 ---
 
 # Novel Cover Studio
+
+## Current project workflow: skeleton_poster
+
+For new **project Cover Studio** work, follow the approved
+[product specification](../../docs/design/2026-10-16-cover-studio-product-spec.md).
+The versioned `skeleton_poster` pipeline supersedes the legacy entry and review
+gates below. Historical V11 and workshop records keep their original protocol.
+
+1. Capture the complete skeleton and explicitly declared attachments with source
+   hashes. Do not automatically scan manuscript chapters or require a complete
+   legacy analysis. Send the full frozen source once in a compact joint request
+   for the shared story core, important relationships and four art directions.
+2. Use `poster_staging`: symbolic montage, promotional co-presence and static
+   poses may convey relationships without reproducing a literal scene. Keep
+   source identities, ages, core relationships, world and author hard limits.
+   Explore relevant main/supporting characters in relationship stories without
+   enforcing a headcount quota or forcing romance imagery onto other genres.
+3. Choose commercial retouched photography, cinematic montage, semi-realism or
+   illustration according to this book. No universal photographic-only rule.
+   Check executable JSON, exact title and request budgets locally. At most one
+   bounded format correction; no automatic aesthetic or semantic repair loop.
+4. The explicit generate action approves the exact immutable plan and reserves
+   a durable idempotent task. Generate each requested image once, sequentially,
+   and save/display each completed result immediately. At most one optional
+   background portfolio suggestion; it never blocks display, selection or edits.
+5. Any complete image is directly selectable without a reason or passing review.
+   Refresh/navigation only reconnects. Failed work can be explicitly retried in
+   a new version; unknown remote results are not silently replayed. If artwork
+   already exists, recover local composition instead of paying for another image.
+6. Refine a selected original with the user's prompt and verified image bytes in
+   one image edit, without replanning or a new analysis. Preserve originals,
+   siblings and the current formal selection. Save a child version and require
+   explicit selection to replace the formal cover.
+7. Compose the exact complete title locally from text-free artwork. Preview and
+   export use the same renderer, font hashes and ordered lines, including
+   per-line font/size/color hierarchy, spacing and optional backing. Local
+   typography makes no model call. Old native-title images honestly lack this
+   capability unless a verified text-free artwork exists.
+8. Record requested versus observed models honestly, real returned tokens and
+   event-frozen reference pricing/FX. Unknown model/usage is not zero or inferred.
+   Selected image, ZIP manifest and any existing EPUB must identify the same
+   final artifact and SHA-256. Preserve historical approvals and hashes.
+
+The current production adapters are `api/poster_studio.py`,
+`api/poster_image_service.py`, `core/cover_poster_planner.py` and
+`core/cover_poster_typography.py`. The project UI uses two main tabs: design and
+candidates. Legacy history stays available separately. Do not route a new
+poster request through `CoverWorkflow.generate()` or the V11 analysis gate.
+
+Real visual quality requires representative real output, not only fixture tests.
+Do not send private book sources or incur unapproved calls during development;
+use bounded synthetic acceptance data where authorized. Never restart active
+novel jobs to exercise this workflow.
+
+## Legacy V11 reference
+
+The remainder applies to the older scene/evidence pipeline and its historical
+records, not the new project poster workflow.
 
 Turn the complete novel skeleton into four distinct, truthful film-poster cover directions by default. The supported range remains 3–5 when explicitly configured or requested. Preserve the exact title, source-established character identities, central conflict, protagonist choices, and spoiler boundary. Read [references/cover-handoff.md](references/cover-handoff.md) for source and compatibility contracts and [references/commercial-direction.md](references/commercial-direction.md) for art direction.
 

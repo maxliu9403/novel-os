@@ -42,7 +42,7 @@ test("creates an asynchronous workshop with the explicit continuous mode and ori
   await user.click(screen.getByRole("button", { name: "开始头脑风暴" }));
   await screen.findByText("可以把记忆的代价作为人物的内心冲突。");
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ mode: "standalone_long", chapters: 80, words_per_chapter: 1000, method_mode: "off", premise: seed.premise }));
-  expect(turn).toHaveBeenCalledWith("session-1", expect.any(String), 0);
+  expect(turn).toHaveBeenCalledWith("session-1", expect.any(String), 0, "discuss");
   expect(screen.getByText(/不限讨论次数/)).toBeInTheDocument();
   expect(localStorage.getItem("novel-os.workshop.active-session")).toBe("session-1");
 });
@@ -120,6 +120,92 @@ test("failed turn retains both the previous skeleton and the unsent correction",
   expect(screen.getByRole("table")).toHaveTextContent("she/her");
 });
 
+test("ordinary sends continue discussion explicitly without requesting a skeleton", async () => {
+  const current = session({ prompt_md: "", ready_for_confirmation: false });
+  localStorage.setItem("novel-os.workshop.active-session", current.id);
+  vi.spyOn(workshopApi, "get").mockResolvedValue(current);
+  const turn = vi.spyOn(workshopApi, "turn").mockResolvedValue({ job_id: "discuss-job", kind: "workshop", status: "running", error: null });
+  vi.spyOn(api, "getJob").mockResolvedValue({ job_id: "discuss-job", kind: "workshop", status: "running", error: null });
+  const user = userEvent.setup();
+  view();
+  await user.click(await screen.findByRole("button", { name: "继续上次讨论" }));
+  expect(screen.getByText(/普通发送会继续讨论，分阶段推进当前提案、取舍和修订/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText(/补充、回答或修改设定/), { target: { value: "沿着第二个方向深化对手的选择" } });
+  await user.click(screen.getByRole("button", { name: "发送并继续推导" }));
+  expect(turn).toHaveBeenCalledExactlyOnceWith(current.id, "沿着第二个方向深化对手的选择", current.revision, "discuss");
+});
+
+test("direct delivery includes an unsent draft instead of discarding it", async () => {
+  const complete = session();
+  const current = session({ prompt_md: "", ready_for_confirmation: false,
+    input: { ...complete.input, audience: "", market: "" } });
+  localStorage.setItem("novel-os.workshop.active-session", current.id);
+  vi.spyOn(workshopApi, "get").mockResolvedValue(current);
+  const turn = vi.spyOn(workshopApi, "turn").mockResolvedValue({ job_id: "deliver-job", kind: "workshop", status: "running", error: null });
+  vi.spyOn(api, "getJob").mockResolvedValue({ job_id: "deliver-job", kind: "workshop", status: "running", error: null });
+  const user = userEvent.setup();
+  view();
+  await user.click(await screen.findByRole("button", { name: "继续上次讨论" }));
+  fireEvent.change(screen.getByLabelText(/补充、回答或修改设定/), { target: { value: "结局保留一次代价明确的和解" } });
+  await user.click(screen.getByRole("button", { name: "生成完整骨架" }));
+  expect(turn).toHaveBeenCalledExactlyOnceWith(current.id,
+    "请根据已确认的故事设计生成完整小说骨架。保留既有设定和决定。\n\n请同时纳入这条尚未发送的补充：\n结局保留一次代价明确的和解",
+    current.revision, "deliver");
+  expect(screen.getByLabelText(/补充、回答或修改设定/)).toHaveValue("");
+});
+
+test("a premise-only brief can request delivery before an assistant discussion reply exists", async () => {
+  const complete = session();
+  const current = session({ prompt_md: "", messages: [], ready_for_confirmation: false,
+    input: { ...complete.input, chapters: undefined, words_per_chapter: undefined, language: "", mode: "", audience: "", market: "" } });
+  localStorage.setItem("novel-os.workshop.active-session", current.id);
+  vi.spyOn(workshopApi, "get").mockResolvedValue(current);
+  const user = userEvent.setup();
+  view();
+  await user.click(await screen.findByRole("button", { name: "继续上次讨论" }));
+  expect(screen.getByRole("button", { name: "生成完整骨架" })).toBeEnabled();
+});
+
+test("delivery still requires a nonempty saved premise", async () => {
+  const complete = session();
+  const current = session({ prompt_md: "", messages: [], ready_for_confirmation: false,
+    input: { ...complete.input, premise: "", audience: "", market: "" } });
+  localStorage.setItem("novel-os.workshop.active-session", current.id);
+  vi.spyOn(workshopApi, "get").mockResolvedValue(current);
+  const user = userEvent.setup();
+  view();
+  await user.click(await screen.findByRole("button", { name: "继续上次讨论" }));
+  expect(screen.getByRole("button", { name: "生成完整骨架" })).toBeDisabled();
+});
+
+test.each([
+  { name: "a running request", patch: { status: "running" as const, restart_required: false } },
+  { name: "saved basics awaiting restart", patch: { status: "draft" as const, restart_required: true } },
+])("disables skeleton delivery during $name", async ({ patch }) => {
+  const current = session(patch);
+  localStorage.setItem("novel-os.workshop.active-session", current.id);
+  vi.spyOn(workshopApi, "get").mockResolvedValue(current);
+  if (current.status === "running") vi.spyOn(api, "getJob").mockResolvedValue({ job_id: current.job_id!, kind: "workshop", status: "running", error: null });
+  const user = userEvent.setup();
+  view();
+  await user.click(await screen.findByRole("button", { name: "继续上次讨论" }));
+  if (current.restart_required) await user.click(screen.getByRole("button", { name: /2\s*头脑风暴/ }));
+  expect(screen.getByRole("button", { name: "更新完整骨架" })).toBeDisabled();
+});
+
+test("an error retry reuses the persisted delivery intent", async () => {
+  const current = session({ status: "error", last_error: "完整骨架生成超时", prompt_md: "", ready_for_confirmation: false, turn_intent: "deliver" });
+  localStorage.setItem("novel-os.workshop.active-session", current.id);
+  vi.spyOn(workshopApi, "get").mockResolvedValue(current);
+  const turn = vi.spyOn(workshopApi, "turn").mockResolvedValue({ job_id: "retry-delivery", kind: "workshop", status: "running", error: null });
+  vi.spyOn(api, "getJob").mockResolvedValue({ job_id: "retry-delivery", kind: "workshop", status: "running", error: null });
+  const user = userEvent.setup();
+  view();
+  await user.click(await screen.findByRole("button", { name: "继续上次讨论" }));
+  await user.click(screen.getByRole("button", { name: "重试本轮" }));
+  expect(turn).toHaveBeenCalledExactlyOnceWith(current.id, expect.stringContaining("继续完成上一轮"), current.revision, "deliver");
+});
+
 test("successive corrections use the latest revision and invalidate the previous command", async () => {
   let current = prepared(session());
   localStorage.setItem("novel-os.workshop.active-session", current.id);
@@ -138,7 +224,7 @@ test("successive corrections use the latest revision and invalidate the previous
     fireEvent.change(screen.getByLabelText(/补充、回答或修改设定/), { target: { value: `修改伏笔 ${round}` } });
     await user.click(screen.getByRole("button", { name: "发送并继续推导" }));
     await waitFor(() => expect(screen.getAllByText("已更新当前设计")).toHaveLength(round + 1));
-    expect(turn).toHaveBeenLastCalledWith(current.id, `修改伏笔 ${round}`, revision);
+    expect(turn).toHaveBeenLastCalledWith(current.id, `修改伏笔 ${round}`, revision, "discuss");
   }
   await user.click(screen.getByRole("button", { name: "预览当前骨架" }));
   expect(screen.queryByRole("button", { name: "一键启动全书创作" })).not.toBeInTheDocument();
@@ -752,6 +838,37 @@ test("refreshing a running delivery restores stage and native activity without r
   await screen.findByText("完整章节规划 · 等待模型回复 · 已用时 300 秒");
   expect(screen.getByText("最近观测到推理摘要").parentElement).toHaveTextContent("4 秒前");
   expect(turn).not.toHaveBeenCalled(); expect(resume).not.toHaveBeenCalled();
+});
+
+test.each(["error", "paused"] as const)("%s assembly restores saved parts across refresh and resumes only on request", async (status) => {
+  const current = session({ status, last_error: status === "error" ? "交付部分请求超时" : null, active_operation: "brainstorm", delivery_progress: {
+    status, completed_stages: ["story_design", "chapter_plan"], active_stage: "assembly", resumable: true,
+    assembly: { completed_parts: 1, total_parts: 2, active_part: "world", parts: [
+      { part: "people", label: "人物与关系", status: "saved", content_md: "已保存的人物关系。" },
+      { part: "world", label: "世界与线索", status: "running" },
+    ] },
+  } });
+  vi.spyOn(workshopApi, "get").mockResolvedValue(current);
+  const resume = vi.spyOn(workshopApi, "resume").mockResolvedValue({ job_id: "resume-part", kind: "workshop", status: "running", error: null });
+  const turn = vi.spyOn(workshopApi, "turn");
+  const user = userEvent.setup();
+  const props = { open: true, seed, onClose: vi.fn(), onBack: vi.fn(), initialSessionId: current.id };
+  const first = render(<MemoryRouter><NovelWorkshop {...props} /></MemoryRouter>);
+  await screen.findByText("已保存 1/2 个部分");
+  expect(screen.getByRole("button", { name: "从已保存部分继续" })).toBeEnabled();
+  expect(screen.getByText("待继续：世界与线索")).toBeInTheDocument();
+  expect(resume).not.toHaveBeenCalled(); expect(turn).not.toHaveBeenCalled();
+  first.unmount();
+  render(<MemoryRouter><NovelWorkshop {...props} /></MemoryRouter>);
+  await screen.findByText("已保存 1/2 个部分");
+  expect(resume).not.toHaveBeenCalled(); expect(turn).not.toHaveBeenCalled();
+  vi.mocked(workshopApi.get).mockResolvedValue({ ...current, status: "running", job_id: "resume-part", last_error: null,
+    delivery_progress: { ...current.delivery_progress!, status: "running", resumable: false } });
+  vi.spyOn(api, "getJob").mockResolvedValue({ job_id: "resume-part", kind: "workshop", status: "running", error: null });
+  await user.click(screen.getByRole("button", { name: "从已保存部分继续" }));
+  await waitFor(() => expect(resume).toHaveBeenCalledExactlyOnceWith(current.id, current.revision));
+  expect(turn).not.toHaveBeenCalled();
+  expect(await screen.findByText("正在补全：世界与线索")).toBeInTheDocument();
 });
 
 test("an invalid checkpoint explains why recovery is unavailable and cannot invoke resume", async () => {

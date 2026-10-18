@@ -241,6 +241,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  sessionStorage.clear();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -717,7 +718,7 @@ test("generates the configured candidate count from the persisted story handoff"
   await waitFor(() => expect(generate).toHaveBeenCalledWith(project.id, 4, {
     direction_id: approved.direction_id,
     approved_direction_sha256: approved.direction_sha256,
-  }));
+  }, expect.any(String)));
   expect(await screen.findByText("已生成 2/4 张")).toBeInTheDocument();
 });
 
@@ -774,7 +775,7 @@ test.each(["project", "workshop"] as const)("%s keeps an approved three-cover ba
   await user.click(await screen.findByRole("button", {name: "生成 3 张封面"}));
   await waitFor(() => expect(generate).toHaveBeenCalledWith(owner, 3, {
     direction_id: approved.direction_id, approved_direction_sha256: approved.direction_sha256,
-  }));
+  }, expect.any(String)));
   expect(await screen.findByText("已生成 3/3 张")).toBeInTheDocument();
   await user.click(screen.getByRole("tab", {name: /故事分析/}));
   await user.selectOptions(await screen.findByLabelText("已保存的骨架分析"), "analysis-complete");
@@ -885,6 +886,38 @@ test("keeps a generation failure visible in the cover workspace", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Legacy cover story data is incomplete",
   );
+});
+
+test("offers a new manual batch on the same approved direction after all four images failed", async () => {
+  const approved = coverDirection("approved");
+  const failed = coverSet("failed");
+  failed.candidates = failed.candidates.map(candidate => ({...candidate, status: "failed", url: null,
+    relative_path: "", media_id: "", sha256: "", width: 0, height: 0, content_type: "", error: "Provider timeout"}));
+  const savedTask = {...generationTask("failed", failed.cover_set_id), direction_id: approved.direction_id,
+    error: "四张图片生成失败", progress: {...generationTask().progress!, phase: "saving" as const,
+      completed: 4, ready: 0, failed: 4}};
+  vi.spyOn(api, "project").mockResolvedValue(project);
+  vi.spyOn(api, "studioCover").mockResolvedValue(coverStatus);
+  vi.spyOn(api, "covers").mockResolvedValue([failed]);
+  vi.spyOn(api, "coverDirections").mockResolvedValue([approved]);
+  vi.mocked(api.coverGenerationTask).mockResolvedValue(savedTask);
+  const generate = vi.spyOn(api, "generateCovers").mockImplementation(async () => {
+    vi.mocked(api.coverGenerationTask).mockResolvedValue({...generationTask(), task_id: "generation-new", cover_set_id: null});
+    return {job_id: "job-new", task_id: "generation-new", kind: "cover.generate", status: "running", error: null};
+  });
+  const user = userEvent.setup();
+  renderStudio();
+  const retry = await screen.findByRole("button", {name: "重新生成 4 张封面"});
+  await waitFor(() => expect(retry).toBeEnabled());
+  expect(generate).not.toHaveBeenCalled();
+  expect(screen.getByText("沿用已批准方向，新建一批候选；已有结果保留。")).toBeVisible();
+  await user.click(retry);
+  expect(generate).toHaveBeenCalledWith(project.id, 4, {
+    direction_id: approved.direction_id, approved_direction_sha256: approved.direction_sha256,
+  }, expect.any(String));
+  await waitFor(() => expect(screen.getByRole("button", {name: "生成 4 张封面"})).toBeDisabled());
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(screen.getByText("已生成 0/4 张")).toBeInTheDocument();
 });
 
 test("requires confirmation before rejecting a ready candidate", async () => {
@@ -1316,7 +1349,7 @@ test("hides the completed direction notice after exact approval and after reopen
   expect(await screen.findByText("美术方向已生成")).toBeVisible();
   await user.click(await screen.findByRole("button", {name: "批准美术方向"}));
   await waitFor(() => expect(screen.queryByText("美术方向已生成")).not.toBeInTheDocument());
-  expect(screen.getByRole("tab", {name: /候选封面/})).toHaveAttribute("aria-selected", "true");
+  await waitFor(() => expect(screen.getByRole("tab", {name: /候选封面/})).toHaveAttribute("aria-selected", "true"));
   expect(screen.getByRole("tab", {name: /候选封面/})).toHaveFocus();
   directions.mockResolvedValue([coverDirection("approved")]);
   visit.unmount();

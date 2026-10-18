@@ -68,6 +68,27 @@ test("shows RMB by production stage and actual tokens without adding cached or r
   expect(screen.getByRole("link", {name: /单价与汇率/})).toHaveAttribute("href", "/settings?tab=pricing");
   expect(screen.getByText(/1 USD = 7.2 CNY/)).toBeVisible();
   expect(screen.getByText("历史记录可能不完整。")).toBeVisible();
+  expect(screen.queryByRole("table", {name: "封面制作明细"})).not.toBeInTheDocument();
+});
+
+test("cover activities distinguish recorded costs from unknown usage and frozen pricing from current settings", async () => {
+  vi.spyOn(api, "generationCosts").mockResolvedValue(costs({
+    pricing: {usd_to_cny: 7.2, exchange_rate_status: "configured", request_snapshots_present: true},
+    totals: totals({mixed_exchange_rates: true}),
+    cover_activities: [
+      {...totals(), activity: "plan"},
+      {...totals({total_tokens: 0, known_usage_requests: 0, unknown_usage_requests: 1, estimated_cost_cny: null, estimated_cost_usd: null, cost_complete: false}), activity: "refine"},
+    ],
+  }));
+  const user = userEvent.setup(); mount();
+  const table = await screen.findByRole("table", {name: "封面制作明细"});
+  expect(within(table).getByRole("row", {name: /设计方向/})).toHaveTextContent("1,500 tokens");
+  const refine = within(table).getByRole("row", {name: /原图精修/});
+  expect(refine).toHaveTextContent("Token 未记录"); expect(refine).toHaveTextContent("待核算");
+  expect(refine).not.toHaveTextContent("0 tokens"); expect(refine).not.toHaveTextContent("¥0.00");
+  await user.click(screen.getByText("用量明细与计费说明"));
+  expect(screen.getByText(/按当次保存的单价与汇率估算/)).toBeVisible();
+  expect(screen.getByText(/总人民币费用为各次调用估算金额之和/)).toBeVisible();
 });
 
 test("partial totals remain labelled as a subtotal while missing stage costs are never zero", async () => {

@@ -20,6 +20,8 @@ _PHASES = {"preparing", "generating", "composing", "reviewing", "comparing", "sa
 _LOCKS = weakref.WeakValueDictionary()
 _LOCKS_GUARD = threading.Lock()
 _PROGRESS_SINK = ContextVar("cover_generation_progress_sink", default=None)
+_GENERATION_BATCH_ID = ContextVar("cover_generation_batch_id", default="")
+_REQUEST_ID = re.compile(r"^(?:[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$")
 
 
 class GenerationProgressError(RuntimeError):
@@ -28,6 +30,19 @@ class GenerationProgressError(RuntimeError):
 
 def current_progress_sink():
     return _PROGRESS_SINK.get()
+
+
+def current_generation_batch_id():
+    return _GENERATION_BATCH_ID.get()
+
+
+@contextmanager
+def _batch_scope(task_id):
+    token = _GENERATION_BATCH_ID.set(task_id)
+    try:
+        yield
+    finally:
+        _GENERATION_BATCH_ID.reset(token)
 
 
 @contextmanager
@@ -145,12 +160,35 @@ def _progress_fields(event, count):
                                             "current_candidate_id", "current_candidate_index")}
 
 
-def start(workflow, runner, *, operation, preflight, count, direction_id="", project_id="", session_id=""):
+def start(workflow, runner, *, operation, preflight, count, direction_id="", project_id="", session_id="",
+          request_id="", approved_direction_sha256=""):
+    if not isinstance(request_id, str) or (request_id and not _REQUEST_ID.fullmatch(request_id)):
+        raise ValueError("Invalid cover generation request id")
     with _task_lock(workflow), workflow.store.mutation_lock():
-        for previous in _records(workflow):
+        records = _records(workflow)
+        def same_intent(previous):
+            return (previous["direction_id"] == direction_id and previous["count"] == count
+                    and previous.get("approved_direction_sha256", "") == approved_direction_sha256)
+        if request_id:
+            for previous in records:
+                if request_id == previous.get("request_id") or request_id in previous.get("request_aliases", []):
+                    if not same_intent(previous):
+                        raise ValueError("Generation request id is already bound to different approved inputs")
+                    return _project(previous, runner)
+        for previous in records:
             if previous["status"] in _ACTIVE:
                 projected = _project(previous, runner)
                 if projected["status"] in _ACTIVE:
+                    if request_id:
+                        if not same_intent(previous):
+                            from core.cover_store import CoverConflict
+                            raise CoverConflict("已有不同的封面出图任务正在运行，请等待本批结束。")
+                        # A double click in another tab is the same active work.
+                        # Remember its key so a delayed replay after completion
+                        # cannot silently create another paid batch.
+                        previous["request_aliases"] = [*previous.get("request_aliases", []), request_id]
+                        _write(workflow, previous)
+                        projected = _project(previous, runner)
                     return projected
                 previous.update(status="interrupted", error=projected["error"], updated_at=_now())
                 _write(workflow, previous)
@@ -158,11 +196,15 @@ def start(workflow, runner, *, operation, preflight, count, direction_id="", pro
             raise ValueError("Cover generation requires a positive candidate count")
         from .cover_repair_tasks import assert_idle
         assert_idle(workflow, runner)
-        preflight()
+        task_id = f"generation-task-{uuid.uuid4().hex}"
+        with _batch_scope(task_id):
+            preflight()
         now = _now()
-        payload = {"schema_version": 1, "task_id": f"generation-task-{uuid.uuid4().hex}",
+        payload = {"schema_version": 1, "task_id": task_id,
             "owner_scope": workflow.context.owner_scope, "process_id": _PROCESS_ID,
             "job_id": "", "status": "queued", "direction_id": direction_id,
+            "request_id": request_id, "request_aliases": [],
+            "approved_direction_sha256": approved_direction_sha256,
             "cover_set_id": None, "count": count, "progress": None, "result_status": None,
             "error": None, "created_at": now, "started_at": None, "updated_at": now, "finished_at": None}
         _write(workflow, payload)
@@ -229,6 +271,7 @@ def start(workflow, runner, *, operation, preflight, count, direction_id="", pro
                 running.update(status="running", started_at=now, updated_at=now)
                 _write(workflow, running)
             token = _PROGRESS_SINK.set(progress)
+            batch_token = _GENERATION_BATCH_ID.set(payload["task_id"])
             try:
                 preflight()
                 result = operation()
@@ -268,6 +311,7 @@ def start(workflow, runner, *, operation, preflight, count, direction_id="", pro
             finally:
                 operation_finished = True
                 _PROGRESS_SINK.reset(token)
+                _GENERATION_BATCH_ID.reset(batch_token)
 
         try:
             payload["job_id"] = runner.submit("cover.generate", execute,

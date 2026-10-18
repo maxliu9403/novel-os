@@ -1771,14 +1771,45 @@ def download_delivery_package(
     project_id: str,
     svc: ProjectService = Depends(get_service),
 ):
-    path = _cover_project(svc, project_id) / "outputs/deliverables/book-package.zip"
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="Delivery package not found")
+    from core.cover_delivery import DeliveryUnavailable, read_current_package
+    from core.delivery_package import delivery_lock
+    project = _cover_project(svc, project_id)
+    try:
+        with delivery_lock(project):
+            payload = read_current_package(project)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Delivery package not found") from exc
+    except DeliveryUnavailable as exc:
+        raise HTTPException(status_code=409, detail={"code": "delivery_not_current", "delivery": exc.status}) from exc
     return Response(
-        content=path.read_bytes(),
+        content=payload,
         media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="book-package.zip"'},
+        headers={"Content-Disposition": 'attachment; filename="book-package.zip"', "Cache-Control": "no-store"},
     )
+
+
+@router.post("/projects/{project_id}/deliverables/package/rebuild")
+def rebuild_delivery_package(
+    project_id: str,
+    svc: ProjectService = Depends(get_service),
+    covers: CoverService = Depends(get_cover_mutation_service),
+):
+    """Explicit local-only retry; no model or image-generation call is made."""
+    from core.cover_delivery import delivery_selection, delivery_status
+    from core.delivery_package import build_delivery_package, delivery_lock
+    project = _cover_project(svc, project_id)
+    try:
+        with delivery_lock(project):
+            selected = delivery_selection(project)
+            if selected is not None:
+                covers._rebuild_delivery(project, selected)
+            else:
+                build_delivery_package(project)
+            status = delivery_status(project)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail={"code": "delivery_rebuild_failed",
+            "delivery": delivery_status(project), "message": str(exc)[:1200]}) from exc
+    return {"delivery": status}
 
 
 @router.get("/projects/{project_id}", response_model=ProjectDetail)

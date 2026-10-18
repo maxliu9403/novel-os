@@ -11,23 +11,25 @@ from api.workshop_delivery import DeliveryError, DeliveryPlan, checkpoint_finger
 from core.llm_client import LLMClient, LLMCancelledError
 from test_workshop_api import client, complete_prompt, create, finish  # noqa: F401
 from test_workshop_contract_repair import response, stub_model, submit
-from test_workshop_prompt_profiles import handoff, snapshot
+from test_workshop_prompt_profiles import snapshot
 from workshop_delivery_fixtures import chapter_plan, stage_response, story_design
+from workshop_assembly_fixtures import parts_from_prompt
+from api.workshop_assembly import ASSEMBLY_PARTS, AssemblyError
 
 
 def test_stage_timeout_retains_story_and_explicit_resume_skips_saved_work(client, monkeypatch, tmp_path):
     valid = complete_prompt(tmp_path)
 
     def initial(attempt, *_):
-        if attempt == 3:
+        if attempt == 2:
             raise TimeoutError("native request timed out")
-        return handoff() if attempt == 1 else stage_response("story_design")
+        return stage_response("story_design")
 
     calls = stub_model(monkeypatch, initial)
     data = create(client, premise="保留最初故事事实和完整历史，不得在恢复时删减。")
     submit(client, data, "接受推荐，完成骨架")
     failed = finish(client, data["id"])
-    assert failed["status"] == "error" and len(calls) == 3
+    assert failed["status"] == "error" and len(calls) == 2
     assert failed["prompt_md"] == "" and len(failed["messages"]) == 1
     assert failed["delivery_progress"]["completed_stages"] == ["story_design"]
     assert failed["delivery_progress"]["resumable"]
@@ -35,15 +37,17 @@ def test_stage_timeout_retains_story_and_explicit_resume_skips_saved_work(client
     before = load_checkpoint(saved_path, failed["delivery_run_id"])
     for _ in range(3):
         assert client.get(f'/api/workshop/sessions/{data["id"]}').status_code == 200
-    assert len(calls) == 3
+    assert len(calls) == 2
 
-    resumed_calls = stub_model(monkeypatch, lambda attempt, *_: stage_response("chapter_plan") if attempt == 1 else response(valid))
+    parts = parts_from_prompt(valid)
+    resumed_calls = stub_model(monkeypatch, lambda attempt, system, user: stage_response("chapter_plan")
+                               if attempt == 1 else json.dumps(parts[json.loads(user)["assembly_part"]]))
     res = client.post(f'/api/workshop/sessions/{data["id"]}/resume', json={"revision": failed["revision"]})
     assert res.status_code == 202, res.text
     current = finish(client, data["id"])
     assert current["status"] == "ready", current["last_error"]
-    assert len(resumed_calls) == 2
-    assert [json.loads(user)["delivery_stage"] for _, user in resumed_calls] == ["chapter_plan", "assembly"]
+    assert len(resumed_calls) == 1 + len(ASSEMBLY_PARTS)
+    assert [json.loads(user)["delivery_stage"] for _, user in resumed_calls] == ["chapter_plan"] + ["assembly"] * len(ASSEMBLY_PARTS)
     assert current["delivery_run_id"] == failed["delivery_run_id"]
     assert current["messages"][:-1] == failed["messages"]
     after = load_checkpoint(saved_path, failed["delivery_run_id"])
@@ -56,17 +60,17 @@ def test_stage_timeout_retains_story_and_explicit_resume_skips_saved_work(client
 
 
 def test_stage_repairs_share_one_global_allowance_and_cannot_publish_partial(client, monkeypatch):
-    replies = [handoff(), "bad stage", stage_response("story_design"), "bad chapters", "still bad"]
+    replies = ["bad stage", stage_response("story_design"), "bad chapters", "still bad"]
     calls = stub_model(monkeypatch, lambda attempt, *_: replies[attempt - 1])
     data = create(client)
     submit(client, data, "完整交付")
     failed = finish(client, data["id"])
     assert failed["status"] == "error"
-    assert len(calls) == 5  # two total format repairs, not two extra per stage
+    assert len(calls) == 4  # two total format repairs, not two extra per stage
     assert failed["prompt_md"] == ""
     assert failed["delivery_progress"]["completed_stages"] == ["story_design"]
     assert "阶段结果" in failed["last_error"]
-    assert "previous_model_response" not in json.loads(calls[3][1])
+    assert "previous_model_response" not in json.loads(calls[2][1])
 
 
 def test_cancellation_after_model_return_does_not_save_partial_stage(monkeypatch):
@@ -74,22 +78,20 @@ def test_cancellation_after_model_return_does_not_save_partial_stage(monkeypatch
     cancel = threading.Event()
     writes = []
 
-    def respond(attempt, *_):
-        if attempt == 2:
-            cancel.set()
-            return stage_response("story_design")
-        return handoff()
+    def respond(*_):
+        cancel.set()
+        return stage_response("story_design")
 
     calls = stub_model(monkeypatch, respond)
     current = snapshot(_cancellation_event=cancel, _save_delivery_checkpoint=lambda record: writes.append(deepcopy(record)))
     with pytest.raises(LLMCancelledError):
         workshop._complete(current, workshop._skill_bundle()[0])
-    assert len(calls) == 2
-    assert writes and all(not item["completed"] for item in writes)
+    assert len(calls) == 1
+    assert writes == []
 
 
 def test_stage_save_failure_never_triggers_another_model_call(monkeypatch):
-    calls = stub_model(monkeypatch, lambda attempt, *_: handoff() if attempt == 1 else stage_response("story_design"))
+    calls = stub_model(monkeypatch, lambda *_: stage_response("story_design"))
 
     def fail_after_story(record):
         if record["completed"]:
@@ -97,16 +99,16 @@ def test_stage_save_failure_never_triggers_another_model_call(monkeypatch):
 
     with pytest.raises(OSError):
         workshop._complete(snapshot(_save_delivery_checkpoint=fail_after_story), workshop._skill_bundle()[0])
-    assert len(calls) == 2
+    assert len(calls) == 1
 
 
 def test_checkpoint_io_cannot_extend_deadline_before_next_model_call(monkeypatch):
     now = [100.0]
     monkeypatch.setattr(workshop, "time", SimpleNamespace(monotonic=lambda: now[0]))
-    calls = stub_model(monkeypatch, lambda *_: handoff())
+    calls = stub_model(monkeypatch, lambda *_: stage_response("story_design"))
 
     def slow_save(_):
-        now[0] += 901
+        now[0] += 2701
 
     with pytest.raises(TimeoutError):
         workshop._complete(snapshot(_save_delivery_checkpoint=slow_save), workshop._skill_bundle()[0])
@@ -160,11 +162,12 @@ def test_fingerprint_covers_author_input_and_ignores_transient_runtime():
 
 def test_final_assembly_cannot_change_saved_mode_or_chapter_count(monkeypatch, tmp_path):
     valid = complete_prompt(tmp_path)
-    replies = [handoff(), stage_response("story_design", 20), stage_response("chapter_plan", 20),
-               response(valid), response(valid), response(valid)]
+    part = json.dumps(parts_from_prompt(valid)["publication"])
+    replies = [stage_response("story_design", 20), stage_response("chapter_plan", 20),
+               part, part, part]
     calls = stub_model(monkeypatch, lambda attempt, *_: replies[attempt - 1])
     writes = []
-    with pytest.raises(DeliveryError, match="章节数"):
+    with pytest.raises(AssemblyError, match="章节数"):
         workshop._complete(snapshot(_save_delivery_checkpoint=lambda record: writes.append(deepcopy(record))), workshop._skill_bundle()[0])
-    assert len(calls) == 6
+    assert len(calls) == 5
     assert set(writes[-1]["completed"]) == {"story_design", "chapter_plan"}

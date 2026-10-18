@@ -1,10 +1,18 @@
 import type { JobStatus } from "./client";
+import { API_BASE as BASE } from "./base";
 
-const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 const ROOT = "/api/workshop/sessions";
 
 export type NarrativeMode = "short_novel" | "standalone_long" | "multi_volume" | "series_installment";
 export type WorkshopDeliveryStage = "story_design" | "chapter_plan" | "assembly";
+export type WorkshopTurnIntent = "discuss" | "deliver";
+
+export interface WorkshopAssemblyProgress {
+  completed_parts: number;
+  total_parts: number;
+  active_part: string | null;
+  parts: Array<{ part: string; label: string; status: "pending" | "running" | "saved"; content_md?: string }>;
+}
 
 export interface WorkshopDeliveryProgress {
   status: "running" | "paused" | "error" | "complete";
@@ -14,6 +22,7 @@ export interface WorkshopDeliveryProgress {
   resumable: boolean;
   invalid_reason?: string;
   stages?: Array<{ stage: WorkshopDeliveryStage; status: "pending" | "running" | "saved"; content_md?: string }>;
+  assembly?: WorkshopAssemblyProgress;
 }
 
 export interface WorkshopInput {
@@ -39,6 +48,8 @@ export interface WorkshopRuntimeProgress {
   request_id: string | null;
   started_at: string | null;
   deadline_at: string | null;
+  task_budget_seconds?: number | null;
+  request_timeout_seconds?: number | null;
   phase: "preparing" | "starting" | "waiting" | "receiving" | "parsing" | "validating" | "repairing" | "delivery" | "completed" | "failed" | "cancelled";
   request_started_at?: string | null;
   last_reasoning_observed_at?: string | null;
@@ -94,6 +105,7 @@ export interface WorkshopSession {
   project_id: string | null;
   logs: Array<{ time: string; event: string; message: string }>;
   active_operation?: "brainstorm" | "titles";
+  turn_intent?: WorkshopTurnIntent;
   runtime_progress?: WorkshopRuntimeProgress | null;
   delivery_progress?: WorkshopDeliveryProgress | null;
   paused_at?: string | null;
@@ -146,8 +158,8 @@ export const workshopApi = {
   ),
   create: (input: WorkshopInput) => request<WorkshopSession>(ROOT, input),
   get: (id: string) => request<WorkshopSession>(sessionPath(id)),
-  turn: (id: string, message: string, revision: number) =>
-    request<JobStatus>(`${sessionPath(id)}/turns`, { message, revision }),
+  turn: (id: string, message: string, revision: number, intent: WorkshopTurnIntent = "discuss") =>
+    request<JobStatus>(`${sessionPath(id)}/turns`, { message, revision, intent }),
   pause: (id: string, revision: number, job_id: string) =>
     request<WorkshopSession>(`${sessionPath(id)}/pause`, { revision, job_id }),
   resume: (id: string, revision: number) =>

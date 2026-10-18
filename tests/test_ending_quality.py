@@ -466,8 +466,10 @@ def test_pre_finale_prompts_share_payoff_directory_without_full_ending_contract(
             assert "`recalled`" in prompt
             assert "is not `paid`" in prompt
 
-        assert "semantic outcome is required only in the finale window" in prompts["scribe"]
-        assert "semantic outcome is required only in the finale window" in prompts["guardian"]
+        assert "Character Outcome Tracking Directory" in prompts["scribe"]
+        assert "Character Outcome Tracking Directory" in prompts["guardian"]
+        assert "Do not perform a future choice early" in prompts["scribe"]
+        assert "Do not perform a future choice early" in prompts["guardian"]
 
 
 def test_pipeline_ending_stages_gate_before_compile(tmp_path: Path):

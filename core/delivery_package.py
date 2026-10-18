@@ -105,12 +105,28 @@ def build_delivery_package(
     h5_root: Path | None | object = _AUTO,
 ) -> PackageResult:
     with delivery_lock(project_path):
-        return _build_delivery_package(
-            project_path, cover_set=cover_set,
-            publication_copy_path=publication_copy_path,
-            classification_path=classification_path,
-            serialization_path=serialization_path, h5_root=h5_root,
-        )
+        try:
+            from .cover_delivery import delivery_selection, tracks_delivery, record_delivery
+        except ImportError:
+            from cover_delivery import delivery_selection, tracks_delivery, record_delivery
+        selected = delivery_selection(project_path, cover_set)
+        tracked = tracks_delivery(selected)
+        if tracked:
+            record_delivery(project_path, selected, "pending")
+        try:
+            result = _build_delivery_package(
+                project_path, cover_set=cover_set,
+                publication_copy_path=publication_copy_path,
+                classification_path=classification_path,
+                serialization_path=serialization_path, h5_root=h5_root,
+            )
+        except Exception as exc:
+            if tracked:
+                record_delivery(project_path, selected, "failed", error=exc)
+            raise
+        if tracked:
+            record_delivery(project_path, selected, "ready", archive_sha256=result.archive_sha256)
+        return result
 
 
 def _build_delivery_package(
@@ -165,6 +181,21 @@ def _build_delivery_package(
             except ImportError:  # Legacy top-level CLI import.
                 from cover_repair_lineage import validate_lineage
             validate_lineage(store, cover_set)
+        # A later manuscript recompile must retain the explicitly selected new
+        # poster cover before EPUB/outer-package hashes are derived.
+        if cover_set.selected_candidate_id and (
+                cover_set.compiler_version.startswith("skeleton-poster")
+                or any(c.scene_plan.get("_poster_recipe") for c in cover_set.concepts)):
+            try:
+                from .cover_epub import sync_selected_epub
+            except ImportError:  # Legacy compiler imports modules at top level.
+                from cover_epub import sync_selected_epub
+            selected = next(c for c in cover_set.candidates if c.candidate_id == cover_set.selected_candidate_id)
+            candidate_path = project / selected.relative_path
+            if candidate_path.is_symlink() or not candidate_path.resolve().is_relative_to(project):
+                raise ValueError("Selected cover path escapes its project")
+            sync_selected_epub(project, candidate_path.read_bytes(), title=cover_set.brief.title,
+                               expected_sha256=selected.sha256)
         _atomic_write_json(
             deliverables / "covers" / "cover-set.json",
             cover_set.to_dict(),

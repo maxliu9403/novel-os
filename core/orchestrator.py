@@ -1902,7 +1902,7 @@ certifies delivery after the candidate is reviewed.
 """
 
     def _ending_contract_context(self, chapter_number: int) -> str:
-        """Inject payoff tracking early and the full ending contract in the finale."""
+        """Track obligations when they occur; expose the full contract in the finale."""
         contract_path = self.outputs_dir / "input" / "ending_contract.json"
         if not contract_path.is_file():
             return ""
@@ -1919,6 +1919,34 @@ certifies delivery after the candidate is reviewed.
         except (TypeError, ValueError):
             return ""
         in_finale = bool(start and end and start <= chapter_number <= end)
+        identities = []
+        outcome_directory = []
+        for raw in contract.get("character_arcs") or []:
+            if not isinstance(raw, dict):
+                continue
+            character_id = str(raw.get("character_id") or "").strip()
+            if not character_id:
+                continue
+            character = self.state.characters.get(character_id)
+            identities.append({
+                "character_id": character_id,
+                "full_name": character.full_name if character else "[identity unavailable]",
+                "role": character.role if character else "[role unavailable]",
+            })
+            outcome_directory.append({
+                key: value for key, value in raw.items()
+                if key in {
+                    "character_id", "required_arc_stage", "required_end_state",
+                    "required_outcome", "required_outcome_aliases", "required_choice",
+                    "outcome_match_mode", "match_mode",
+                }
+            })
+        identity_context = (
+            "## Ending Character Identity Directory\n"
+            "These IDs identify obligations; inclusion does not imply physical presence.\n"
+            "```json\n" + json.dumps(identities, ensure_ascii=False, sort_keys=True, indent=2)
+            + "\n```\n"
+        )
         if not in_finale:
             directory = []
             for raw in contract.get("plot_payoffs") or []:
@@ -1946,13 +1974,11 @@ certifies delivery after the candidate is reviewed.
                         "deadline": raw.get("deadline"),
                     }
                 )
-            if not directory:
-                return ""
             return (
                 "## Payoff Tracking Directory (authoritative IDs)\n"
                 "This pre-finale directory is tracking metadata only. It does not\n"
-                "require paying a payoff in this chapter and does not supply the\n"
-                "full ending contract or character outcomes. Emit a Payoff_Events\n"
+                "require paying a payoff in this chapter or supply the full ending\n"
+                "contract. Emit a Payoff_Events\n"
                 "entry only when the chapter contains direct evidence; `recalled`\n"
                 "is not `paid`.\n\n"
                 "```json\n"
@@ -1962,6 +1988,14 @@ certifies delivery after the candidate is reviewed.
                     sort_keys=True,
                     indent=2,
                 )
+                + "\n```\n"
+                + identity_context
+                + "## Character Outcome Tracking Directory\n"
+                + "Record a canonical outcome only if its observable duty or choice has\n"
+                + "already occurred in this chapter, including a supporting character's\n"
+                + "completed role before the finale. Do not perform a future choice early,\n"
+                + "disclose a future result in prose, or treat this plan as proof of completion.\n"
+                + "```json\n" + json.dumps(outcome_directory, ensure_ascii=False, sort_keys=True, indent=2)
                 + "\n```\n"
             )
         return (
@@ -1973,26 +2007,108 @@ certifies delivery after the candidate is reviewed.
             "```json\n"
             + json.dumps(contract, ensure_ascii=False, sort_keys=True, indent=2)
             + "\n```\n"
+            + identity_context
+            + self._committed_ending_evidence_context(chapter_number, contract)
+        )
+
+    def _committed_ending_evidence_context(self, chapter_number: int, contract: dict) -> str:
+        """Index relevant committed proposal records without re-reading book prose for an LLM."""
+        from canon_ledger import CanonCorruptionError
+        from ending_evidence import EndingEvidenceError, EndingEvidenceStore
+
+        payoff_ids = {str(item.get("id")) for item in contract.get("plot_payoffs") or [] if isinstance(item, dict) and item.get("id")}
+        character_ids = {str(item.get("character_id")) for item in contract.get("character_arcs") or [] if isinstance(item, dict) and item.get("character_id")}
+        character_tokens = character_ids | {
+            character.full_name for key, character in self.state.characters.items() if key in character_ids
+        }
+        artifacts = ArtifactStore(self.project_path)
+        proposals = ProposalStore(self.project_path)
+        records = []
+        try:
+            entries = CanonLedger(self.project_path).history()
+            for entry in entries:
+                if not isinstance(entry, CanonLedgerEntry) or entry.chapter >= chapter_number:
+                    continue
+                chapter = self.state.chapters.get(entry.chapter)
+                if chapter is None or chapter.status != "complete" or not chapter.canonical_revision_id:
+                    continue
+                revision = artifacts.get_revision(chapter.canonical_revision_id)
+                head = artifacts.get_head(entry.chapter, "final")
+                if (revision.chapter != entry.chapter or revision.kind != "final"
+                        or revision.sha256 != entry.source_artifact_sha or head is None
+                        or head.revision_id != revision.revision_id):
+                    continue
+                proposal = proposals.load(entry.proposal_id, expected_source_artifact_sha=revision.sha256)
+                if proposal.chapter != entry.chapter:
+                    raise ValueError("committed proposal chapter does not match its ledger entry")
+                delta = proposal.to_dict()["delta"]
+                deltas = [item["delta"] for item in delta.get("proposal_chain", [])] if "proposal_chain" in delta else [delta]
+                selected = {"payoff_events": [], "arc_state_updates": []}
+                for nested in deltas:
+                    for field, allowed in (("payoff_events", payoff_ids), ("arc_state_updates", character_tokens)):
+                        for value in nested.get(field) or []:
+                            if isinstance(value, str) and value.split("|", 1)[0].strip() in allowed:
+                                if value not in selected[field]:
+                                    selected[field].append(value)
+                if not any(selected.values()):
+                    continue
+                # Verify only the artifact bytes behind relevant records. The
+                # prompt receives indexed metadata, never a full-book text dump.
+                artifacts.read_text(revision.revision_id)
+                records.append({
+                    "chapter": entry.chapter, "artifact_revision_id": revision.revision_id,
+                    "artifact_sha256": revision.sha256, "proposal_id": entry.proposal_id,
+                    "canon_entry_id": entry.entry_id, "receipt_id": entry.receipt_id,
+                    **{key: values for key, values in selected.items() if values},
+                })
+        except (ArtifactError, CanonCorruptionError, OSError, KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"Ending evidence index integrity check failed: {exc}") from exc
+        # Reviewed corrections have their own immutable provenance and never
+        # masquerade as original canon proposals. A review crossing the current
+        # chapter boundary is unavailable in full, not partially truncated.
+        supplemental = "No reviewed supplemental evidence is available before this chapter.\n"
+        if chapter_number > 1:
+            try:
+                reviews = EndingEvidenceStore(self.project_path).load_validated(
+                    contract, self.state, chapter_number - 1,
+                )
+                if reviews:
+                    supplemental = (
+                        "```json\n" + json.dumps(reviews, ensure_ascii=False, sort_keys=True, indent=2)
+                        + "\n```\n"
+                    )
+            except EndingEvidenceError as exc:
+                supplemental = (
+                    "Supplemental evidence unavailable for this chapter: " + str(exc) + "\n"
+                    "Do not infer completion from the unavailable review. Final ending validation remains required.\n"
+                )
+        return (
+            "## Committed Ending Evidence Index\n"
+            "Only earlier complete chapters with matching current final artifacts and\n"
+            "committed canon proposals are included. These are historical records,\n"
+            "not new events in this chapter. Preserve their chapter and provenance.\n"
+            "Do not replay an already completed duty just to close the finale. Missing\n"
+            "records mean unverified evidence, not proof that the story event is absent.\n"
+            "Do not infer completion from the contract or turn recalled into paid.\n"
+            + ("```json\n" + json.dumps(records, ensure_ascii=False, sort_keys=True, indent=2) + "\n```\n"
+               if records else "No committed records are available for these obligations.\n")
+            + "## Reviewed Supplemental Ending Evidence\n"
+            + "These source-bound reviews supplement missing historical records; they\n"
+            + "are not original canon proposals or new events in this chapter. Retain\n"
+            + "the reviewer, source chapters, exact quotations and artifact hashes.\n"
+            + supplemental
         )
 
     def _arc_state_update_instruction(self, chapter_number: int) -> str:
-        """Keep semantic ending outcomes scoped to the finale contract."""
+        """Allow an achieved role outcome to be recorded at its actual chapter."""
         contract_path = self.outputs_dir / "input" / "ending_contract.json"
-        in_finale = False
+        contract = {}
         if contract_path.is_file():
             try:
                 contract = json.loads(contract_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 contract = {}
-            if isinstance(contract, dict) and contract.get("enforce"):
-                window = contract.get("finale_window") or {}
-                try:
-                    start = int(window.get("start_chapter") or 0)
-                    end = int(window.get("end_chapter") or 0)
-                except (TypeError, ValueError):
-                    start = end = 0
-                in_finale = bool(start and end and start <= chapter_number <= end)
-        if in_finale:
+        if isinstance(contract, dict) and contract.get("enforce"):
             return (
                 "`<character_id or full name> | "
                 "stage=<beginning|middle|climax|resolution> | progress=<0-100> | "
@@ -2000,7 +2116,9 @@ certifies delivery after the candidate is reviewed.
                 "evidence=<choice or observable state>`; `stage` is lifecycle "
                 "position, while `outcome` is the contract result such as "
                 "independence or accountability. Keep narrative explanation in "
-                "`evidence`."
+                "`evidence`. Record an outcome only after its observable choice or "
+                "duty has occurred; pre-finale tracking never authorizes a future "
+                "choice or disclosure early."
             )
         return (
             "`<character_id or full name> | "
@@ -3005,8 +3123,8 @@ Return `[EDITOR_ANALYSIS]`, the complete replacement inside
 - [ ] No dropped plot threads (unless intentional)
 - [ ] Cause-effect chains intact
 
-### Book Ending (when this chapter is inside the finale window)
-- [ ] Apply the authoritative ending contract and record each payoff as recalled or paid
+### Book Ending Tracking (every chapter; full closure in the finale window)
+- [ ] Record only the payoff events that actually occurred in this chapter as recalled or paid
 - [ ] Record lifecycle `stage` and semantic `outcome` separately, with observable evidence
 - [ ] In the final chapter, record `Ending_Evidence` for irreversible change and emotional payoff
 
@@ -3019,6 +3137,10 @@ Status: [PASS / WARNING / FAIL]
 
 Critical_Issues: [List with suggested fixes]
 Warnings: [List with suggested fixes]
+[/CONTINUITY_REPORT]
+
+[CONTINUITY_STATE_UPDATE]
+Updated_Character_Positions: [List of verified position changes, or None]
 New_Facts_Established: [List]
 Plot_Thread_Updates:
   - <thread_id> | status=<active|resolved|abandoned|foreshadowed> | milestone=<what changed> | chapter=<number>
@@ -3029,11 +3151,11 @@ Foreshadowing_Resolved:
 Payoff_Events:
   - <payoff_id> | status=<recalled|paid|intentional_open> | evidence=<what changed> | chapter=<number>
 Arc_State_Updates:
-  - Arc_State_Updates: {arc_state_update_instruction}
+  - {arc_state_update_instruction}
 Ending_Evidence:
   - irreversible_change=<observable final state>
   - emotional_payoff=<reader-facing closure>
-[CONTINUITY_REPORT]
+[/CONTINUITY_STATE_UPDATE]
 ```
 
 ---

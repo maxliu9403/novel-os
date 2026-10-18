@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { WorkshopDeliveryProgress, WorkshopDeliveryStage, WorkshopRuntimeProgress } from "../api/workshop";
+import type { WorkshopAssemblyProgress, WorkshopDeliveryProgress, WorkshopDeliveryStage, WorkshopRuntimeProgress } from "../api/workshop";
 import { DELIVERY_STAGE_LABELS } from "../lib/workshopProgress";
 
 const DELIVERY_STAGES: WorkshopDeliveryStage[] = ["story_design", "chapter_plan", "assembly"];
@@ -18,6 +18,38 @@ function activityAge(value: string | null | undefined, now: number, missing: str
 }
 
 const eventCount = (count: number | undefined) => Number.isFinite(count) ? Math.max(0, Math.floor(count!)) : 0;
+
+function AssemblyCheckpoints({ progress, running, complete, resumable, renderContent }: {
+  progress: WorkshopAssemblyProgress; running: boolean; complete: boolean; resumable: boolean;
+  renderContent: (markdown: string) => ReactNode;
+}) {
+  const active = progress.parts.find((part) => part.part === progress.active_part && part.status !== "saved");
+  const allSaved = progress.total_parts > 0 && progress.completed_parts === progress.total_parts;
+  return <section aria-label="交付整合进度" className="mt-2 rounded-lg border border-violet/15 bg-white/55 px-2.5 py-2 text-[12px]">
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+      <p className="font-medium text-ink-text">分步补全交付内容</p>
+      <p className="tabular-nums text-violet">已保存 {progress.completed_parts}/{progress.total_parts} 个部分</p>
+    </div>
+    {active && <p className="mt-1 break-words text-violet">{running ? "正在补全" : "待继续"}：{active.label}</p>}
+    {allSaved && !complete && <p className="mt-1 text-ink-muted">{running ? "各部分已保存，正在整合与校验。" : "各部分已保存，尚待完成整合与校验。"}</p>}
+    {!running && resumable && !allSaved && <p className="mt-1 text-ink-muted">继续时会复用已保存部分，只补全尚未完成的内容；不会自动重试。</p>}
+    <details className="mt-1.5">
+      <summary className="w-fit cursor-pointer text-violet">查看补全部分</summary>
+      <ol className="mt-2 space-y-2">
+        {progress.parts.map((part) => {
+          const current = active?.part === part.part;
+          return <li key={part.part} aria-current={current ? "step" : undefined} className="rounded-lg bg-white/65 px-2.5 py-2">
+            <div className="flex items-start justify-between gap-3"><span className="min-w-0 break-words text-ink-text">{part.label}</span><span className="shrink-0 text-ink-muted">{part.status === "saved" ? "已保存" : current ? running ? "进行中" : "未完成" : "待开始"}</span></div>
+            {part.status === "saved" && part.content_md && <details className="mt-1.5">
+              <summary className="w-fit cursor-pointer text-violet">查看已保存内容</summary>
+              <div className="mt-2 max-h-[24dvh] overflow-auto break-words pr-2" aria-label={`${part.label}已保存内容`}>{renderContent(part.content_md)}</div>
+            </details>}
+          </li>;
+        })}
+      </ol>
+    </details>
+  </section>;
+}
 
 export function WorkshopDeliveryCheckpoints({ progress, running, renderContent }: {
   progress: WorkshopDeliveryProgress; running: boolean; renderContent: (markdown: string) => ReactNode;
@@ -39,6 +71,8 @@ export function WorkshopDeliveryCheckpoints({ progress, running, renderContent }
         </li>;
       })}
     </ol>
+    {progress.assembly && <AssemblyCheckpoints progress={progress.assembly} running={running}
+      complete={progress.completed_stages.includes("assembly")} resumable={progress.resumable} renderContent={renderContent} />}
     <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">阶段成果保存后才标记完成；最终整合与校验通过后才更新正式骨架。</p>
     {progress.stages?.filter((stage) => stage.status === "saved" && stage.content_md && progress.completed_stages.includes(stage.stage)).map((stage) =>
       <details key={stage.stage} className="mt-2 border-t border-paper-line pt-2">
@@ -67,8 +101,12 @@ export function WorkshopRuntimeStatus({ progress, label, now, startedAt }: {
     ? Math.floor((now - silenceSince) / 60_000) : null;
   const deadline = timestamp(progress?.deadline_at);
   const roundStart = timestamp(progress?.started_at);
-  const timeoutMinutes = deadline !== null && roundStart !== null && deadline > roundStart
-    ? Math.round((deadline - roundStart) / 60_000 * 10) / 10 : null;
+  const taskMinutes = progress?.task_budget_seconds && progress.task_budget_seconds > 0
+    ? Math.round(progress.task_budget_seconds / 60 * 10) / 10 : null;
+  const requestMinutes = progress?.request_timeout_seconds && progress.request_timeout_seconds > 0
+    ? Math.round(progress.request_timeout_seconds / 60 * 10) / 10 : null;
+  const timeoutMinutes = taskMinutes ?? (deadline !== null && roundStart !== null && deadline > roundStart
+    ? Math.round((deadline - roundStart) / 60_000 * 10) / 10 : null);
   const chars = Math.max(0, Math.floor(progress?.content_chars ?? 0));
   const totalChars = Math.max(chars, Math.floor(progress?.cumulative_content_chars ?? chars));
   const nativeActivity = progress?.activity_time_basis === "batch_observed";
@@ -93,7 +131,8 @@ export function WorkshopRuntimeStatus({ progress, label, now, startedAt }: {
     <details className="mt-2">
       <summary className="w-fit cursor-pointer text-[12px] text-violet">运行详情</summary>
       <div className="mt-2 max-h-36 space-y-1 overflow-y-auto break-words rounded-lg bg-white/60 p-3 text-[12px]">
-        <p>本轮最长等待：{timeoutMinutes !== null ? `${timeoutMinutes} 分钟` : "暂不可用"}{deadline !== null && progress?.deadline_at && <> · 预计截止时间 <time dateTime={progress.deadline_at}>{new Date(deadline).toLocaleString()}</time></>}</p>
+        <p>{taskMinutes !== null ? "本轮总时限" : "本轮最长等待"}：{timeoutMinutes !== null ? `${timeoutMinutes} 分钟` : "暂不可用"}{deadline !== null && progress?.deadline_at && <> · 预计截止时间 <time dateTime={progress.deadline_at}>{new Date(deadline).toLocaleString()}</time></>}</p>
+        {requestMinutes !== null && <p>单次模型请求上限：{requestMinutes} 分钟；同时受本轮总时限约束。内容进展不会无限延长截止时间。</p>}
         <p>请求尝试：{progress?.attempt ? `第 ${progress.attempt} 次` : progress ? "尚未开始" : "暂不可用"}{progress?.request_id && <> · 请求 ID <code>{progress.request_id}</code></>}</p>
         <p>本次请求内容：{chars > 0 ? `已收到 ${chars} 字符 · ${activityAge(progress?.last_content_at, now, "时间未记录")}` : "尚未收到"}</p>
         {nativeActivity && <>

@@ -2,12 +2,12 @@ import { useEffect } from "react";
 import Icon from "./Icon";
 import "../styles/cover-studio.css";
 import { useCoverAnalysis } from "./useCoverAnalysis";
-import type { CoverStoryAnalysis } from "../api/client";
+import type { CoverAnalysisRecovery, CoverStoryAnalysis } from "../api/client";
 
 type AnalysisExecution = ReturnType<typeof useCoverAnalysis>["execution"];
 const stageLabels = ["分段提取", "骨架全局整合", "原文逐段核查", "全局因果核查"];
 
-function analysisProgress(analysis: CoverStoryAnalysis, execution: AnalysisExecution) {
+function analysisProgress(analysis: CoverStoryAnalysis, execution: AnalysisExecution, recovery?: CoverAnalysisRecovery) {
   const expected = new Set(analysis.coverage?.expected_segment_ids || []);
   const countExpected = (ids: string[]) => new Set(ids.filter(id => expected.has(id))).size;
   const total = expected.size;
@@ -39,6 +39,9 @@ function analysisProgress(analysis: CoverStoryAnalysis, execution: AnalysisExecu
   const finished = [complete || (total > 0 && extracted === total), complete || (verificationStarted && stage !== 1), complete || (total > 0 && verified === total), complete];
   const currentLabel = stage === null ? "正在解析完整骨架" : `第 ${stage + 1}/4 阶段：${stageLabels[stage]}`;
   const stateLabel = execution === "running" ? "进行中"
+    : recovery?.kind === "amendment_pending" ? "待核查"
+    : recovery?.kind === "amendment_available" ? "已有修订，待查看"
+    : recovery?.can_resume === false ? "需要更正分析"
     : execution === "failed" ? "未通过，进度已保存"
     : execution === "paused" ? "已暂停"
     : execution === "interrupted" ? "已中断，等待继续"
@@ -85,18 +88,19 @@ export default function CoverSkeletonPanel({ owner, onAnalysis, onStatus }: {
   onStatus?: (notice: CoverAnalysisNotice) => void;
 }) {
   const discussion = owner.startsWith("workshop:");
-  const {source, analysis, execution, busy, error, connectionError, sourceMatches, cancelRequested,
+  const {source, analysis, execution, busy, error, connectionError, sourceMatches, cancelRequested, recovery,
     analyze, resume, selectSaved, cancel, preview} = useCoverAnalysis(owner, onAnalysis);
   const loading = busy || execution === "running";
-  const progress = analysis ? analysisProgress(analysis, execution) : null;
+  const progress = analysis ? analysisProgress(analysis, execution, recovery) : null;
   const currentPhase = progress?.currentLabel || "正在解析完整骨架";
   const status = execution === "running" ? `${cancelRequested ? "正在暂停" : "后台分析中"} · ${currentPhase}`
     : execution === "complete" ? "骨架分析完成；可查看人物、冲突和原文依据后创建方向。"
+    : recovery ? recovery.message
     : execution === "failed" ? `${currentPhase} · 分析失败，进度已保存，可继续分析。`
     : execution === "paused" ? `${currentPhase} · 已暂停，已完成的分段会保留。`
     : execution === "interrupted" ? `${currentPhase} · 任务已中断，进度已保存，可继续分析。`
     : execution === "unknown" ? `${currentPhase} · 运行状态待确认，正在同步已保存进度。` : "";
-  const noticeMessage = connectionError ? `分析进度暂时无法同步：${connectionError}` : error || status;
+  const noticeMessage = connectionError ? `分析进度暂时无法同步：${connectionError}` : recovery && execution !== "running" ? status : error || status;
   const noticeActive = loading;
   const noticeAttention = Boolean(connectionError || error || ["failed", "paused", "interrupted", "unknown"].includes(execution || ""));
   useEffect(() => {
@@ -152,12 +156,19 @@ export default function CoverSkeletonPanel({ owner, onAnalysis, onStatus }: {
     </div>}
     {connectionError && <p className="cover-source__notice">暂时无法同步进度，正在自动重连。{connectionError}</p>}
     {analysis && !sourceMatches && <p className="cover-source__notice">此分析采用的骨架与当前来源不同，可以查看记录；创建新方向前请分析当前骨架。</p>}
-    {error && <p role="alert" className="cover-source__error">{error}</p>}
+    {error && (recovery && ["source_correction_required", "amendment_available"].includes(recovery.kind)
+      ? <details className="cover-source__error"><summary>查看此前核查问题</summary><p role="alert">{error}</p></details>
+      : <p role="alert" className="cover-source__error">{error}</p>)}
     {analysis && <div className="cover-source__understanding">
       <div className="cover-source__completion">
-        <p>{analysis.coverage_status === "complete" ? "已完成全段分析与全局核查" : "分析尚未完整，暂不能用于新版方向"}</p>
+        <p>{analysis.coverage_status === "complete" ? "已完成全段分析与全局核查"
+          : recovery?.kind === "amendment_pending" && execution !== "running" ? "局部修订已保存，待核查"
+          : "分析尚未完整，暂不能用于新版方向"}</p>
         {execution === "running" && <button type="button" className="btn-ghost" disabled={cancelRequested} onClick={cancel}>{cancelRequested ? "正在暂停" : "暂停分析"}</button>}
-        {!loading && execution !== "unknown" && analysis.coverage_status !== "complete" && <button type="button" className="btn-secondary" onClick={resume}>继续未完成分析</button>}
+        {!loading && execution !== "unknown" && recovery?.kind === "amendment_available" && recovery.analysis_id
+          && <button type="button" className="btn-secondary" onClick={() => selectSaved(recovery.analysis_id!)}>查看修订结果</button>}
+        {!loading && execution !== "unknown" && analysis.coverage_status !== "complete" && recovery?.can_resume !== false
+          && <button type="button" className="btn-secondary" onClick={resume}>{recovery?.kind === "amendment_pending" ? "继续核查修订结果" : "继续未完成分析"}</button>}
       </div>
       <div className="cover-fact-folders">
         {([["故事主线", analysis.story], ["人物与关系", {characters: analysis.characters, relationships: analysis.relationships}], ["冲突事件与悬念", {events: analysis.events, suspense: analysis.suspense}], ["原文证据", analysis.evidence], ["待解决问题", analysis.unresolved]] as Array<[string, unknown]>).map(([label, value]) => Boolean(value) && <details key={label}>

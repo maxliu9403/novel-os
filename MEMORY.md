@@ -1,5 +1,191 @@
 # Novel OS 项目记忆
 
+## 最新修复：2026-10-16 23:44 头脑风暴恢复多轮讨论，已部署
+
+用户只读排查 `102abfa791e6493ca363051d3e711f8a` 后授权按原设计修改。原任务仅选择主线/幸福结局/地点自定，22:58:51 即由模型 requests_delivery 自动切换交付；这是通用流程越界。现 `/turns` 新增 intent=discuss|deliver、默认 discuss，逐轮保存 turn_intent。普通发送输出阶段性提案/取舍/问题，不论已有骨架、完整brief或问题答完均不能切换交付或覆盖骨架。模型越界最多1次范围更正，仍越界则明确未完成、保留旧骨架/对话/问题；不保存擅自生成候选，不回填它续推，诊断 discussion_scope。
+
+UI增加生成/更新完整骨架直接动作，包含尚未发送补充，无二次审批、最低轮数或可选字段填满要求。普通输入里写定稿要求也需用此动作提交，页面已说明区别；不以关键词/额外意图模型调用判断授权。新骨架明确交付直接story_design同次选择有效组织形式并在保存前冻结，省掉自动handoff调用；已有骨架/旧失败完整候选的显式修订保留原路径。暂停/重试持久意图；验证过的旧检查点可显式恢复，无意图/无检查点旧暂停默认讨论，候选不能授权。新讨论不复用旧交付run。原Skill文件未改，旧检查点skillhash兼容。
+
+后端workshop全336通过；最终诊断类别边界/诊断/进度36通过；前端全505/43文件通过，build/tsc/lint/diff-check通过，独立审查的问题“降级清空未答问题”已修复回归。全部测试使用替身，未新增真实小说/模型调用。
+
+旧 `102` 轮次23:43:01自然到45分钟上限error，未被中断；保存story_design+chapter_plan和publication/relationships_world/secrets_payoffs三个assembly部分，正式prompt仍空，3条对话/revision3，可显式恢复。23:44双次确认15作品+讨论空闲/无Codex子进程后部署，全部讨论+SQLite/config备份，23275既有业务文件不变，3后端文件/69前端资源SHA一致；healthy。浏览器正式页已验证两个操作及提示，未提交/恢复。
+
+backend `sha256:569975b6031ab34bb0e1303b89f35a370cf622e308b8ece3e171af90263338c2`，frontend `sha256:39a64495b5de7730bc293608471f44396fb16a5bbf3d2f658c4aa61c3288444a`。审计 `/private/tmp/novelos-workshop-discussion-20261016/`，回滚 `novel-os-{backend,frontend}:pre-workshop-discussion-20261016`。报告 `docs/reports/2026-10-16-workshop-discussion-boundary.md`。未Git提交/推送，保留之前全部工作树改动。
+
+## 最新处理：2026-10-16 21:15 旧 H5 高负载进程已清理
+
+用户在下节诊断后明确授权“请帮我处理掉吧”。重新核对PID/启动时间/cwd/端口/完整进程组，仅对已确认9组（每组pnpm+next dev+next-server）发送SIGTERM；21:15:45共27进程全部正常退出，无SIGKILL，其余9个Next实例身份保留，目标9端口全部释放。清理脚本 `cleanup.py` 有精确白名单、身份复验、无活动TCP检查和防重放标记，不可盲重用旧PID。
+
+8.155秒清理后测量：Next合计CPU618.47%→1.10%，压缩器13.97→5.72GiB、swap27.61→22.61GiB、压缩页速率1842→0MiB/s。未清零swap/删目录/改配置；其他浏览器与系统进程仍有独立负载。独立核验Novel OS前后端容器ID及StartedAt不变、running/healthy、5174/api/health=200，Docker/Novel OS无重启。21:16:53容器总CPU3.33%，Novel OS后端0.23%、前端0%。即时清理完成，统一开发服务生命周期/持久日志仍是预防性建议，未跨项目实施。报告 `docs/reports/2026-10-16-host-high-load.md` 已追加结果；审计 `/private/tmp/novelos-load-diagnosis-20261016/cleanup-*.json`。下节“未停止”仅为之前诊断阶段。
+
+## 最新诊断：2026-10-16 21:02–21:12 宿主高负载（未停止服务）
+
+用户要求排查旧H5 Next实例负载。只读实测18个next-server中9个高占用；8.202秒累计CPU50.73秒，约618%/6.18核心，本机10核心。三组：ai-novel-h5-meta-minimal-ui 70763/70764/80859/80860，meta-event-reliability-20261008 58625/58626/74404/74405，fix-zip-plan-version-validation 80060。九条pnpm根进程PPID1、存活5–9天，同临时项目有重复admin/storefront实例；两个临时项目package.json缺失、部分Next软链断开。三个代表PID的2秒样本100%主线程在TriggerUncaughtException→console，非普通编译热点。
+
+相同Node26.7.0/真实Next15.5.21 logger隔离实验复现断日志socket+直接stderr.write→EPIPE→uncaughtException日志→再次EPIPE，30/67ms达硬上限100次；正常socket或独立流error监听不循环。真实九个输出fd为无对端unix socket，但低CPU兄弟也如此；**未取得实际异常code/message，EPIPE是有复现支撑的强候选机制，不能宣称线上第一触发器已证明**。明确运维问题是开发服务没有随任务/目录清理回收。
+
+Docker可读：两次12容器合计3.94%/28.56%；Novel OS后端0.19%/25.03%、前端0.02%/0.01%，后端无Codex/Node子进程，非此轮数百%主因。32GiB机器swap已用27.61GiB，5秒窗有swap-in5.65MiB/s和高压缩/解压；不能归因全给Next。无停止/重启/业务代码配置修改/模型调用，合成实验均有界结束，现场负载未消除。后续若授权清理，先核对PID启动时间/cwd/任务，精确停进程组，勿盲杀node或重启Novel OS。报告 `docs/reports/2026-10-16-host-high-load.md`；审计 `/private/tmp/novelos-load-diagnosis-20261016/`。
+
+## 最新交付：2026-10-16 封面工作室 v2 已实现并部署
+
+用户批准 `docs/design/prototypes/cover-studio-v2/index.html` 方案并要求执行。现已实现作品入口默认 `skeleton_poster`；下节“尚未实现”是之前设计阶段记录，已由本节取代。完整报告 `docs/reports/2026-10-16-cover-studio-v2.md`，产品规格同步标记已实施。
+
+新流程：完整骨架及明确附件冻结 hash，一次联合规划故事核心、主配角关系、四方向、标题配方；最多一次格式更正，无旧逐段分析/证据语义审核前置。`poster_staging` 允许宣传同框、姿态与象征合成，保持核心身份年龄关系/世界/作者禁项，人数按题材需要；不强制静止画面证明整章因果。四图串行逐张保存，完整图直接选择，无理由或审核门槛；最多一次组合后台建议，不自动返工。原图+用户提示精修一个 child；单图/失败批次显式重试，已存画稿只续本地排版；不自动重放未知远端结果。
+
+已接通持久任务和幂等 alias、精确批准/版本保护、真实模型身份与未知用量、冻结单价汇率/费用活动分类、标题逐行字体大小颜色/描边阴影渐变/字体 SHA/预览导出同字节、选择与交付分别记录、新选图同步 EPUB 和 ZIP/H5 哈希。本地排版不调用模型。旧原生带字图不能假装无损去字。新前端两 Tab 蓝紫全宽，来源/历史/费用抽屉；方向可改人物/构图，新结构字段优先旧执行文本。旧 V11 图、分析、批准、记录不迁移；头脑风暴内部旧封面入口仍保留旧协议，不宣称已改版。
+
+关键代码：`api/poster_{studio,tasks,image_service,advisory}.py`、`core/cover_poster_{planner,store,typography}.py`、`core/cover_{epub,delivery}.py`、`web/src/routes/{CoverStudioRoute,PosterStudio}.tsx`，费用与编译/交付挂钩一并更新。仓库封面 Skill 已区分新默认与 legacy；用户已批准新方案，旧 Skill 的逐段来源绑定要求不应重新套回新流程。
+
+真实验收均使用隔离虚构骨架，未发送正式小说数据：8 题材规划各 1 次成功，95.86–122.39 秒；家庭样本 4/4 图片成功，首张 95.34 秒、整批 369.06 秒，1 次原图精修约101.88秒成功且父/兄弟SHA保持。最新标题合同另 1 次规划147.06秒，真实组合建议1次56.41秒；后者两调用45492报告tokens，费用null，未知推理用量不当作零。4个本地排版版本预览与导出SHA相同，0额外图。限制：短虚构骨架非长篇SLA；8题材只验规划，图只验家庭一本；第四案插画视觉仍偏摄影，原首轮排版暴露对比弱随后本地改进，不承诺所有小说质量保证。
+
+验证：较早后端相关1649通过、前端全量494/42文件通过；最终后端专项234、前端竞态/人物专项26通过，范围重叠勿相加；lint/tsc/build通过。浏览器正式双Tab/来源/费用/历史四图和直接选择入口通过，独立审查已修复两项竞态与描述覆盖问题。
+
+20:16上海完成前后端部署healthy。两次15作品无运行任务/无Codex子进程、作品+SQLite+配置备份；23214既有业务文件不变，19后端/69前端资源SHA一致。backend `sha256:628ed8973a271191d132338a02b4ecd22f64bd99ef888118969c170d3e4348e2`，frontend `sha256:02fc6574fc52ef4c93ea71c2b8c2dcee95f10680a7099daeadcfe648f100795a`。审计 `/private/tmp/novelos-poster-v2-20261016/`，rollback `novel-os-{backend,frontend}:pre-poster-v2-20261016`。未Git提交/推送，保留大量之前未提交改动。
+
+正式 She Still Loved… 的原批次 `cover-54d9ef6eb59d4584bf192f571920ed01`、候选02 `candidate-42bd40c94bca4de09ca142317ebce113` 仍选中；新任务/方案0。ZIP 11045019字节完整有效，selected-cover SHA一致；**旧EPUB未回填精确选图字节，本轮未改旧交付包**，后续新选图或本地交付重建才应用新同步。不能声称历史全部EPUB已迁移。刷新封面页点“设计4个封面方向”即可测试新流程，无需再跑旧骨架分析。旧方案可在历史工作室看，“未设计”指新协议尚无方案。
+
+## 最新设计交付：2026-10-16 封面工作室详细规格与交互稿（未接生产）
+
+用户要求开始提供详细设计方案与设计稿。本轮新增 `docs/design/2026-10-16-cover-studio-product-spec.md`，以及隔离 HTML/CSS/JS 原型 `docs/design/prototypes/cover-studio-v2/`（README、8 张设计截图、4 张原创无字样图及完整提示词）。本机静态预览端口 5186；只绑定127.0.0.1，不连接正式API。沿用现有蓝紫/深蓝/白卡/全宽、仓库logo与Lucide图标，两个主Tab设计方案/候选封面，精修和标题排版独立工作面，费用/历史辅助。
+
+新流程仍是待实施提案：完整骨架一次联合设计，正常1规划+4图+最多1后台组合建议；艺术化人物关系海报，无逐幕证明/人数配额，完整图直接可选。详细规格补齐版本保护、幂等、服务重启未知结果、图片已存后只续排版、费用/模型缺失、旧V11轻量适配、发布门槛和跨题材验收。
+
+四次内置 imagegen 只用于虚构设计示例《After Thirty Years, I Choose Me》（人物/作者均为演示），没有把正式小说资料发送出去，也没有修改正式骨架或封面。第四张请求绘画、结果更像精修摄影，文档与UI诚实标注实际视觉，未宣称美术控制已验收。原图保存在原型assets/cover-1..4.png；书名由HTML/CSS独立叠加，提示词见IMAGE-PROMPTS.md。
+
+原型已浏览器验证选图、改排版不覆盖已选版本、精修失败保留提示与重试、部分成功可选、全部失败可逐张恢复、刷新恢复、桌面/窄屏无横向溢出。生成/精修是明确标注的本地状态演示；精修成功不假装生成新图。费用虚构示例，下载仅演示JSON清单，不是假ZIP。真实异步后端、图片编辑、字体导出、历史存储和真实验收未实现。正式前后端未重启/部署、未Git提交推送。下一步若用户要求实施，应按详细规格全链路开发，不把本次原型当成生产已完成。
+
+## 最新方案补充：2026-10-16 GoodNovel商业封面参考（尚未实施）
+
+用户指定 goodnovel.com 作为设计参考，希望达到同类效果。本轮真实浏览首页、四本详情封面（Barren Luna's Secret、Jilted Alpha、Too Late To Love Me Mr Billionaire、Your Uncle's My Husband Now Back Off Ex）和Emotional Realism分类；只读视觉分析及代码复核，无模型/业务代码/部署变更。报告 `docs/design/2026-10-16-goodnovel-cover-reference.md`，原主方案同步修正。
+
+关键调整：不以“至少三张多人”作为通用质量配额；双人/三角静态宣传姿态同样可由角色关系＋题材符号＋标题传递故事承诺，不能又强制动作/逐幕证明。关系型小说仍应充分探索主配角表达，避免泛化单人和无关联分格头像。美术按题材/受众选择：电影摄影、商业精修、半写实或插画可选，不将狼人年轻情侣风格套到成熟家庭故事；保留年龄身份但允许造型与商业布光。
+
+当前真正技术差距：render_policy摄影硬锁/no beautification/禁插画；编译/验证阻断非摄影；默认保守造型；标题仅3字体ID、每行同字号/字体/色、固定相对行距。需贯通美术配方/规划合同/编译/评价和标题引擎（保序文字段、字号/字体/颜色层级、可发布字体、局部底衬等），不是prompt加“GoodNovel style”。未固定顶部标题或强制分格，不能误报。基础排版先行，复杂蒙版可后续；全流程仍一次联合规划，不新增美术审核链。仅抽样视觉判断，未证明站点设计工具或点击率；真实成图质量需跨题材验收。
+
+## 最新审阅提案：2026-10-16 完整骨架直接设计故事海报（尚未实施）
+
+用户要求完整审阅封面工作室并给优化方案：步骤多/慢、单人过多，希望完整骨架直接设计电影海报式主配角故事场景，允许艺术化而不逐场景复刻。本轮只读代码/Skill/真实任务用量并看四张图；前后端healthy，无业务代码变更、重启或真实模型调用。方案见 `docs/design/2026-10-16-skeleton-poster-studio.md`，是提案而非已部署实现。
+
+最新正式状态已变化：用户10/16 12:40–12:54生成 `generation-task-9db782de885948d58baa17a230a20885` / `cover-54d9ef6eb59d4584bf192f571920ed01`，4/4成功，16:05选中候选02。旧4失败批次仍保留，勿再称最新批失败。批准方向1e176…人数1/3/1/1，成图分别读文件单人、三人分格肖像、被子+单人、木屋+单人；问题从规划层已产生，非图片漏画。
+
+实测该批845.40秒，4图片调用411.83秒、8次A/B文本审核397.83秒(164095报告tokens)，代码逐图生图→A→B串行。方向329e9…14分26秒/4调用/450880报告tokens，前两轮因缺focal_character_id与同一事件epoch字符串不完全相等修订。首次8段骨架无失败参考路径20分析+2方向+4图+8审核=34应用调用，已完成分析可复用，不能说每批34。当前V11放松表达但仍继承复杂V9字段/完整分析门槛，物理互动严格事件绑定使艺术自由偏向肖像/物件。
+
+建议新增版本化skeleton_poster流程：完整骨架一次联合设计紧凑故事核心/关键角色关系/四方向；关系型小说充分探索有意义的主配角构图，人物数随故事需要，不设多人配额；poster_staging允许非字面场景，不逐动作证据审查，守核心身份关系/世界/明确作者约束。默认1规划+4图+最多1独立后台组合建议，协议问题最多1定点更正，无默认前置分段/语义审核；评价不阻断可见/选择。精修原图+用户提示直接单张编辑，纯标题本地调整。完整原文不裁切，预算预检，不承诺固定速度/模型同脸/任意长度均适配。
+
+保留蓝紫全宽，2主tab设计方案/候选，来源/费用/历史辅助；一键按方案生成整合批准与幂等调度。旧analysis/批准/图/费用不改，新增协议验证分派，不伪造complete分析。候选级版本保护允许生成中选已有图；评价按批次终态成功子集和图片hash幂等，旧V11图轻量精修适配。新全链路打通再feature-flag开放，不能半交付。后续需用户指示实施；本轮仅方案文档和此记忆变更，未Git提交/推送。
+
+## 最新交付：2026-10-16 整批出图失败后可显式重新生成
+
+用户报告四图失败后再次点击被“本方向的整批出图额度已使用”阻断。真实方向 `direction-1e1760ee0e4f499ab96bee5a1bfd7e91` 已批准；任务 `generation-task-e45e3d36d03648c28dbfc6c0ed9558da` / 批次 `cover-99868a4e44f545d78c4aa1191812a9e5` 于10/15 19:00–19:04上海4/4失败、0成品。四次错误含rmcp Transport channel closed / HTTP429，stderr截断不足以归属具体远端；宿主文本调用完成、图片实际模型未观测。骨架/分析/批准hash有效，前一轮方向已完成；不用重分析或重规划。
+
+根因是approval.batch_reserved对方向永久锁定。修复core/cover_workflow增加显式generation_batch_id的逐批reservation，不清零旧预算，每批仅一次；新候选验证receipt。API/前端每次主动点击request_id，持久绑定方向/hash/count，同key终态/重启均只返回原task；活动任务合并保存alias，避免延迟重复POST再次收费。未带key旧调用仍oneshot，CLI未扩张，单张修复批准不能整批生成。前端sessionStorage按owner/direction/hash/count保留未确认intent，刷新只读，canonical或alias确认后清理；不同显式方向各自保留key，避免无限锁住。失败/中断显示“重新生成4张封面”，系统样式保持。HTTP局域网无randomUUID时使用getRandomValues安全fallback。
+
+先红测精确旧错误，再后端239回归、前端全量462通过；最终RNG变更专项19通过，lint/tsc/build通过。首次前端默认并发一个旧workshop测试超时，2workers全量通过、未放宽断言。独立审查发现alias恢复与HTTP RNG兼容已修复。真实作品副本及禁网只读新镜像两次离线验证连续2新批次、8本地图片替身，重复POST无额外任务，旧批次及正式1005文件SHA保持；真实模型0。
+
+12:35上海前后端部署healthy；双次15作品空闲检查/无Codex子进程、target+SQLite/config备份；23174既有业务文件SHA保持，4后端模块+65前端资源SHA一致。backend `sha256:c6dbe97bcbc0133249915b6d4f626ffba8f4cb34ee6f4ee916b1589a4932c178`，frontend `sha256:5b4b5642ef0161f1ce12adaa49cfd97867f502ebcff8cabee9a4af89d5865c53`。源镜像使用部署前当前运行实例（10/15 20:15启动），非盲按上一节旧image。正常GET最新仍原失败task/failed4，未自动重试/规划/出图。用户刷新后可基于已批准方向显式再生成；远端429本身未宣称已修复。
+
+报告 `docs/reports/2026-10-16-cover-batch-retry.md`；审计 `/private/tmp/novelos-cover-batch-retry-20261016/`；rollback `novel-os-{backend,frontend}:pre-cover-batch-retry-20261016`。未Git提交/推送。
+
+## 最新交付：2026-10-15 真实语义修订请求超限二次修复
+
+用户反馈“没有修复”，实际 `direction-task-8921dc256ff74d0fa354aa5361856a36` 于08:23–08:28上海失败。上一轮377906仅余6094字节；真实第一轮返回含空 `interaction_edges[].affected_character_ids`，加入完整回复和修订合同后精确422108，第二次模型调用前失败，completed_model_calls=1。不是审核太严格或刷新问题；上次修复没有覆盖真实后续体积。诊断目录 `3fbe0917aec548078b9588a4fb83a00c`。
+
+新增 `core/cover_campaign_source_index.py`：v2无损请求仍大于320000时尝试明确v3模型投影，只取更小表示；完整167912字节冻结原文、431证据ID/原文范围/所有其他元数据、全局故事和方案保持。重复证据statement注释不逐轮传输，原分析记录保持；现有ledger需要的摘要单独保留，自定义条目/patch哈希保持。合同诚实区分模型投影与无损压缩；本地补回声明省略字段后逐字段比对。源片段不裁切，字节/token上限和模型次数保持。
+
+真实已保存首轮回复离线重放：创建300869、语义修订345071（原422108）、独立审核324013、格式修复353357，均低于384000。审核阶段使用只在内存补齐人物数组与事件时间/地点的协议夹具，未批准设计/事实、未保存更正。335既有回归+21 v3专项=356通过，独立审查无阻塞。真正更大的未来唯一内容仍受限，未承诺任意长度不超限。
+
+14:43上海后端部署healthy，image `sha256:6bde01378d3610d235405650c06071b712454ebcf962c1d0ed54ffb786d72083`，3源码SHA一致。两次15作品无活动任务/无Codex子进程后备份target项目+SQLite；23135既有业务文件SHA保持。前端未更新。部署后容器实际代码四阶段重放，字节与本地一致、完整来源/431证据及历史方案回解验证通过。真实模型调用0，没有自动规划/核查/出图；旧失败历史保留。用户可刷新后“重新创建方向”，无需重做已完成骨架分析。
+
+报告 `docs/reports/2026-10-15-cover-semantic-repair-budget.md`；审计 `/private/tmp/novelos-semantic-budget-20261015/`；回滚镜像 `novel-os-backend:pre-campaign-source-index-20261015`。未Git提交/推送。下节旧377906及仅6KB余量已由本节取代。
+
+## 最新交付：2026-10-14 美术方向请求超限无损修复
+
+用户报告 `create_campaign actual_bytes=573516 limit_bytes=384000`。实际任务 `direction-task-9d3131593b814507a8a73da6a5e7c00b` 于15:54上海在调用前失败，completed_model_calls=0。只读检查确认上轮正式child `analysis-10d91a69e14270ba76ed564870bab73d` 此时已complete；上节“待核查”是旧状态，不应回退。使用相同167912字节来源、431证据、brief/ledger/v11/4候选参数，精确离线复现573516。
+
+通病为请求表示重复：完整原文外仍复制完整quotes和重复元数据。新增 `core/cover_campaign_source_transport.py`，完整可读原文片段共享、原证据ID不变、列字典与精确ledger视图复用，发送前完整回解逐字段比对；未知/不同ledger记录保留字面值。大于256000字节的v1请求才尝试，新表示仅更小时采用，最终384000字节/token上限保持。没有删故事/限定/引用，没有放宽审核或增加自动模型次数。创建实测 **573516→377906**（−34.1%），完整source/evidence/brief/ledger一致。
+
+335相关测试通过，真实schema/semantic repair和commercial review构造器均覆盖；独立复核无阻塞。源断言与历史预算断言支持v2回解，保留旧失败证明。当前体积余量约6KB，不能保证任意更长的新回复或后续独有内容都装入上限；真正超限仍调用前停，不自动截断。
+
+16:54上海仅后端部署，image `sha256:8a52e065c104446b3aa4d255444f340c82c806d331eced70dade03216ae93ac3`，2源码SHA匹配，两次15作品无运行任务/无Codex子进程，项目+SQLite备份，23127既有业务文件SHA保持。前端未更新。作品库汇总GET /api/projects检查较慢而超时，未据此重启；改为本地项目清单+每个作品只读deletion-preview取得正常任务状态后部署。汇总性能尚未在本次修改。
+
+部署后容器实际代码离线重放377906/384000，完整167912字节来源和431证据回解一致，analysis SHA `f11f55fcfbd7f4f965e84aa9b9aa0985ee3648b10fefb6b09f6d20ebbde659b2`。真实模型调用0、未重做分析/规划/出图，旧失败任务历史保留。用户可刷新后明确“重新创建方向”，无需重新分析骨架。仅验证预算与信息完整，未宣称真实模型规划已通过。
+
+审计 `/private/tmp/novelos-campaign-budget-20261014/`，报告 `docs/reports/2026-10-14-cover-campaign-source-budget.md`。rollback `novel-os-backend:pre-campaign-source-transport-20261014`。未Git提交/推送。
+
+## 最新交付：2026-10-14 封面修订恢复入口已接通
+
+用户反馈“仍报一样错误”并要求继续。确认上一轮仅部署底层局部修订能力，未登记正式child，也未接通页面。正常“继续未完成分析”仍POST耗尽父ID，core仅更新updated_at后重抛旧错误；真实副本重放0模型、31次历史attempts不变。正式父01:05→04:45 UTC只改updated_at，其余完全相同。
+
+本轮API/core在入队/写前拦截同策略耗尽父，list/detail增加只读recovery。UI隐藏无效继续、父→child“查看修订结果”只读；child显示“局部修订已保存，待核查”，用户明确点击“继续核查修订结果”才调用。网络失败可恢复、语义失败不重开额度；旧policy升级保留，前端明确null与字段缺失分开，避免旧backend兼容误拦升级。没有增加通用修订编辑表单，运维登记接口仍需具名审定依据。
+
+后端233相关回归、前端全量451通过；最后null修正后专项103通过，tsc/eslint/build及独立审核通过。真实副本8段/431证据/3更正，922原文件保持，模型0。审计 `/private/tmp/novelos-cover-recovery-ui-20261014/`，报告 `docs/reports/2026-10-14-cover-recovery-entry.md`。
+
+13:46上海前后端部署healthy，双次15作品空闲检查，target项目/SQLite/config备份。backend image `sha256:d08ac842935983220719c18fc9959fb2cba282112f894349778b5ebb105b771b`，frontend `sha256:cbfdd132c3f485b02003546d0f3359c390066eafaf62f8b94423942a16423463`，3源码/65前端资源SHA核验一致，23096既有业务文件保持。rollback `novel-os-{backend,frontend}:pre-cover-recovery-ui-20261014`。
+
+**已仅本地登记正式child `analysis-10d91a69e14270ba76ed564870bab73d`，仍未启动真实核查。** 保持用户“暂不启动真实核查”的决定。父 `analysis-b983bffa76874269a8fbd5255c3172f2` 保持failed，最新完整SHA `e1b19f8bdee674010d1cf7d8865c7678b6c1732e8f21a07c6c0938b7b32cee28` 经独立具名复核重新绑定；原922文件SHA保持、child partial/verify、0attempts。API显示parent amendment_available/child amendment_pending，默认最新child。浏览器实测刷新、选择旧父、查看修订及再刷新均无写请求，旧盲重试不可见、待核查文案正确。截图 `.playwright-mcp/cover-recovery-ready-20261014.png`。
+
+后续不要再执行上轮 `resume_production.py` 或按上轮旧父SHA登记重复修订；已有正式child。只有用户决定启动真实核查时才通过正常API恢复该child，仍需完整原文/全局核查通过才能用于美术方向。未生成图片、未修改正文、未Git提交/推送。下节“尚未登记child”是旧交付时状态，已被本节取代。
+
+## 最新修复：2026-10-14 封面来源限定与审定局部恢复
+
+同书分析 `analysis-b983bffa76874269a8fbd5255c3172f2` 已在09:05上海失败，结束下节所述08:56恢复。首次语义审核只要求修正虚构town；修正后新增发现资金/住房的来源假设身份在全局经济信号和EV15遗漏。冻结骨架978行明确资金与居住可行性仍为设计假设；分段提取/global_facts保留。核查有依据，但不等于实际资金不足或必须先做现实财务核验才能做封面。
+
+新增 `core/cover_analysis_corrections.py::prepare_source_amendment`，具名agent/human审核、父完整SHA/来源/配置/提取绑定，已有叙述字段和追加证据的局部修订生成独立child。父历史及耗尽额度不改；复用8段/431证据，仅重新verify，不重新global或segment。无效/超限修订不得回落生成，配置升级或来源换绑写前拒绝；失败停止、不额外自动修正。同内容缓存继承旧修正历史。每parent仅一个修订、同参数幂等；暂无前端修订编辑表单。框架并非保证所有模型将来不再遗漏限定。
+
+226项相关回归通过（含新增专项26项），独立审查通过。真实数据副本只更正经济信号、EV15后果及其证据3项，原922文件保持，模型0；正式922文件保持。报告 `docs/reports/2026-10-14-cover-source-qualification.md`，审计 `/private/tmp/novelos-cover-qualification-20261014/`，审定参数 `proposed-amendment.json`。
+
+09:41上海完成后端3模块部署，image `sha256:f9851cec71fe74ef0f46f91306b75b2c565ed9a63c318d8d1ea0fb255b2f4fc6`，双次15项目空闲检查、target/SQLite/config备份；23096既有文件保持，前端容器未换，两服务healthy。rollback `novel-os-backend:pre-cover-qualification-20261014`。
+
+**用户已明确选择“保留已部署修复，暂不启动真实核查”。** 不再等待本次授权，不启动模型核查、后台重试或自动恢复。此前自动审批拒绝 `resume_production.py`：仅发现另一部小说的明确授权，未覆盖本书。只读确认provider=codex、base_url空、effort=high。未登记正式child、未发请求，旧分析保持失败；922原文件SHA一致。恢复材料保留，只有用户后续明确授权本书数据和核查后才能重新检查运行状态并使用审计目录 `resume_production.py`（本地登记+正常API一次dispatch），随后 `check_production.py` 核查真实完成结果。预期child `analysis-262b8c90450592260a4a3607fb23d5bd`；勿复制临时副本，勿重置父修正额度。未Git提交/推送。
+
+## 最新修复：2026-10-14 封面分析空地点与原任务恢复
+
+用户报告同书 CoverAnalysisError: Event requires location。目标 she-still-loved-them-but-the-choice-was-hers-4cc8bbb8 的分析 analysis-b983bffa76874269a8fbd5255c3172f2，原8/8段与431条证据已完成，全局格式修复回复15events中EV04/EV10 location为空。共享提示要求可选未知留空，校验却非空，属框架冲突。原文含『家中独自核账』『木屋餐桌与必要的付款联络』，勿声称原文完全无地点；两个复合/远程事件未断言共同地点。不要把participants当同场，不补默认地点。
+
+core/cover_analysis.py允许显式string空地点，missing/null/非string仍拒绝，其余必需字段/证据约束保持；未改global/verify请求或配置身份。严格旧请求+修复链重验证复用原raw，不改原attempt。core/cover_campaign.py明确literal引用空地点错误并指导选择有地点事件或editorial portrait/object；空值不证明same_moment。363相关测试通过，独立review通过。真实副本模型0，复用全量结果后在verify真实模型边界停止，正式888文件保持。
+
+08:55上海部署，仅2模块；backend sha256:aa93e10d40a7c5ca4983a51a73192917887fdc8bef2de7f88f1b702dfb2b9768。两次确认15作品无任务后备份，23062既有文件SHA保持、frontend未换、健康通过。08:56正常API恢复同analysis，job a140eb983a6545bf895f91c0da76568c，配置gpt-6-astra/high未改。已确认phase=verify、last_error=null、8segments/431evidence/15events，新增3个verify请求，global/segment调用0；335既有正文/交付/源快照/历史回复文件SHA保持，book run c97e8ae5aef6仍completed。
+
+**上述恢复随后于09:05上海失败，详见最新“封面来源限定”记录。** 审计 /private/tmp/novelos-cover-location-20261014/，报告 docs/reports/2026-10-14-cover-event-location.md；未生成图、未修改正文/正式选择、未Git提交/推送。顺便修正旧结局部署记忆的时区笔误：实际05:55上海，非06:55。
+
+## 最新修复：2026-10-14 结局证据协议与正式恢复
+
+用户“修复吧”授权。已统一Scribe/Guardian/TASK结局字段，修复重复Arc前缀/错误闭合标签；显式错位标记可归位，多块合并不覆盖，非法机器声明报ending_protocol，普通事实/备注不冒充完成。提前提供完整义务身份目录；终局按相关已批准Final+canon/proposal提供跨章索引。纠正旧诊断：context_pack已有ID输出，L01是未入选当章角色包。
+
+新增EndingEvidenceStore：具名agent/human审核、项目/合同hash、Final版本、receipt/ledger、原文精确offset绑定，追加式contentaddressed记录和显式supersedes。只补gate投影，不写canon/旧proposal；过期/损坏明确阻断。检查点追踪review成员/来源，移除自生成ledger输入。早期intentional_open不阻止后来完成补证，同/更晚矛盾仍阻断。无自动全文扫描/模型补判/额外重试。
+
+451相关测试通过。真实全书副本原6条→pass，真实PipelineRunner.retry复用15章、ending/book.check完成，在publication.copy前停下；262不可变文件/正式836文件保持，模型0。审计 `/private/tmp/novelos-ending-fix-20261014/`；[修复报告](docs/reports/2026-10-14-ending-evidence-recovery.md)。
+
+05:55上海时间后端修复部署healthy，7源码SHA一致、23012既有文件保持；双重确认15作品无任务后备份target项目/SQLite与rollback镜像。backend `sha256:ba0226c6a309ced57c79f546e4cb11b852908de92de774dca24d64e2ae4684b9`，frontend容器与镜像保持`d3981757…`。正式目标追加审核`ending-review-84b4777452dfa39360c9d475faafe21e5e4c471cac3fb2a6a32c2daac3a2d9b3`，5claims。正常API恢复同run `c97e8ae5aef6`，job `f6cf163ae1114558810502c43058bde5`，现已completed。15章全复用，正式ending.review/book.check/publication.copy/compile/delivery.package全done，报告pass/critical0，262正文及历史证据文件SHA保持。
+
+真实出版文案和审核已执行通过，MD/HTML/DOCX/EPUB/PDF及ZIP已生成。ZIP 186898字节、28成员/27清单文件逐项size/SHA与磁盘一致、CRC通过，SHA `9db8ce5424b687137023be199d39b79a1f8339a578c964fd0dfddc2083a09155`。5174任务API completed/无失败阶段/不可再恢复；下载application/zip+正确filename且bytes一致。核验`production-delivery-result.json`。没有测试外部H5导入，不代表解决此前H5分类字典兼容问题。未Git提交/推送。
+
+## 最新诊断：2026-10-14 c97e8ae5aef6 结局证据漏记
+
+用户要求排查结局检查6条报错。项目 `she-still-loved-them-but-the-choice-was-hers-4cc8bbb8` 已批准15章，05:03上海时间于ending.review本地约0.16s阻断，paused。L01律师职责（3/7/9章）及payoff004/007/008/009（8/12/13/14章）在已批准正文完整出现，相关正文SHA与committed receipt吻合。失败是结构证据漏记，不是这5项剧情未写。第8章paid仅自由文字，12/13/14 paid在New_Facts_Established，Guardian原解析/提案就没有payoff_events；末章recalled不等于paid。L01=Marian Reed已在canon，但Scribe把完成状态放Character_References.note，Guardian因缺身份映射和早期场景未确认，实际arc/outcome空。
+
+框架原因：Guardian ROLE强制旧字段/禁止增字段与TASK新增ending字段冲突；TASK Arc条目重复字段前缀、结束标签错误；解析缺字段静默保存并获批；终局前不提供角色outcome合同，终局又缺退场配角的早期证据。Codex实际拼ROLE/TASK同一消息，勿声称协议层system优先级已证。7个运行源码/模板SHA匹配。只在tmp副本补已读正式正文的证据，原gate 6→2→pass；正式836文件SHA不变、模型0、无重启/部署/正式状态修改。非已完成生产修复，直接重试不补证据；不可裸改state（重试可恢复快照）、修改旧proposal或全体recalled升级paid。需统一协议+漏记校验+跨章证据+审计协调恢复。报告 `docs/reports/2026-10-14-ending-gate-c97e8ae5aef6.md`，证据 `/private/tmp/novelos-ending-c97e8ae5aef6-20261014/`。
+
+## 最新修复与部署：2026-10-13 20:12 第三阶段分块交付
+
+用户“开始修复”授权修复第三阶段重复900s超时。已保留原生Codex/model/effort，将assembly改6个独立补全部分（规格/关系世界/秘密伏笔/阅读文风/封面交接/复核），程序组装17节，既有故事和全部章节无需再次模型转写。每部分全上下文、局部合同校验后保存；最终仍旧完整验证。局部final错误定点修订、append journal保留旧版本，global2格式修复不扩张；timeout无自动调用。
+
+v1 checkpoint/Skill fingerprint原样兼容，optional parts哈希链接旧两阶段与最终artifact，identity/revision/job/cancel/native退出锁保持。新部分失败显式resume仅缺失部分；final修订失败可再次本地定位并继续。遗留额外facts完整JSON保留，嵌套章节标题只降Markdown层级、POV等正文metadata加引用前缀、多行章标题保留原值，原记录不改。普通正文原样保留。
+
+普通讨论/已有骨架编辑原整轮timeout不变；分阶段交付单次请求沿配置900s，整轮最多3倍即2700s，从原轮起点包含等待/IO，活动不续期。UI显示单次/总期限和当前部分/已保存x/6，失败暂停继续入口明确，系统视觉保持。
+
+最终后端workshop+metric327、前端439、独立review58、桌面手机14项通过。真实4cc8bbb89ae74a509b9d4341f50df7a9旧run676b6f62ee7e490ca86452ecf2c12637隔离验收仅6mockparts、15章与5story字段原文保留，17节真实验证通过，原32文件SHA不变；无真实LLM。模拟输出量最大4031B/合计8105B vs同文整文response62036B，非实际速度/成本/语义质量承诺。
+
+20:12同步5174前后端healthy，部署前两次空闲检查、数据tar+SQLite备份及rollback镜像。194源码与65前端资源SHA一致；14作品/4讨论保持，14封面媒体可读，22303业务文件SHA与16表记录数保持。目标线上仍error/rev12、前两阶段saved/resumable，无自动续跑。用户现在可刷新点“从已保存阶段继续”。CLI0.153.0，模型配置未改，Git未提交推送。backend0bca886c…、frontend8f1aa8c9…，rollback `pre-workshop-parts-20261013`；证据 `/private/tmp/novelos-workshop-parts-deploy-20261013/`。详见[修复交付](docs/reports/2026-10-13-workshop-partial-assembly.md)，原始诊断保留在下节。
+
+## 最新诊断：2026-10-13 第三阶段仍超时
+
+用户要求查最新头脑风暴LLM日志。本轮仅只读排查，无重启/模型重放/配置或业务代码修改。最新4cc8bbb89ae74a509b9d4341f50df7a9 rev12为error；检查时无Codex子进程。rev11(10/12 17:49–18:04)交接33.21s、story414.12s、chapters398.36s，assembly仅剩54.06s。rev12(10/13 09:59:14–10:14:14)正确复用前两步，只执行assembly且有899.92s；10:03:00–10:14:10共135个非重叠DELTA批次、20760正文事件，每批约5s直到截止前，之后本地900s强制timeout。此为真实正文活动证据，不能把事件数当token；旧部署前900s静默仍不能倒推。
+
+CLI只返回101B启动事件，完整消息0/final文件不存在，未进入本轮validation、更无格式重试。第三步仍为一次性17节骨架+全合同/逐章转写，checkpoint只保存完整阶段，导致活动中的未完成整合被截断。实际请求构建离线复现127866B系统+58201B用户，完整作者上下文和两阶段成果相同，15章，fingerprint/Skill/hashchain正确；运行关键源码SHA一致。前两阶段安全保存，并非恢复失效。8192在CLI中不生效，model/effort保持gpt-6-astra/xhigh。
+
+建议后续改第三步为有界补充生成+确定性本地组装及更细完整检查点，区分请求/静默/总任务期限；不能只重试或靠增加超时保证成功。尚未实施。真实方法最小离线deadline复现0.55s预算在0.553s终止，指标投影5项通过、独立审查一致。证据 `/private/tmp/novelos-workshop-timeout-20261013/`；[诊断与优化方向](docs/reports/2026-10-13-workshop-assembly-timeout.md)。
+
 ## 最新部署：2026-10-12 15:57 原生观测与阶段保存上线
 
 用户明确“当前没有任务请重新部署”，解除此前暂不重启限制。本轮确认14作品无活动任务、4条讨论均非running、容器无Codex子进程后，保留原生Codex CLI 0.153.0与模型配置，重建并切换5174前后端。两服务healthy；193运行源码/Skill文件和65前端资源与已验证工作区构建逐项SHA一致。

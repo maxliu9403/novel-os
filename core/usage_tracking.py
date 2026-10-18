@@ -30,6 +30,9 @@ STAGES = ("brainstorming", "manuscript", "cover")
 _scope = ContextVar("novel_usage_scope", default=None)
 _request = ContextVar("novel_usage_request", default=None)
 _request_identity = ContextVar("novel_usage_request_identity", default=None)
+_pricing = ContextVar("novel_usage_pricing_snapshot", default=None)
+_activity = ContextVar("novel_usage_activity", default=None)
+POSTER_ACTIVITIES = ("plan", "generate", "refine", "retry", "advisory")
 
 
 def _integer(value):
@@ -84,6 +87,37 @@ def usage_scope(owner_root: str | Path, stage: str):
         _scope.reset(token)
 
 
+@contextmanager
+def pricing_scope(snapshot):
+    """Freeze configured reference prices for explicitly opted-in new jobs.
+
+    Existing callers remain unpriced-at-capture and keep their legacy projection.
+    Validation builds a private copy so later settings or caller mutations cannot
+    change a running job's estimate. This is not an observation of actual billing.
+    """
+    try:
+        from .usage_costs import validate_pricing
+    except ImportError:  # Top-level legacy core imports share these ContextVars.
+        from core.usage_costs import validate_pricing
+    frozen = validate_pricing(snapshot) if snapshot is not None else None
+    token = _pricing.set(frozen)
+    try:
+        yield
+    finally:
+        _pricing.reset(token)
+
+
+@contextmanager
+def usage_activity(activity):
+    if activity not in (*POSTER_ACTIVITIES, "typography"):
+        raise ValueError("Unknown cover activity")
+    token = _activity.set(activity)
+    try:
+        yield
+    finally:
+        _activity.reset(token)
+
+
 def scoped_usage(stage, owner):
     """Bind a concrete owner at a service boundary, including CLI callers."""
     def decorate(fn):
@@ -125,6 +159,17 @@ def _write_record(root, record, *, replace_usage=False):
             return
         if not replace_usage:
             record["usage"] = {**old.get("usage", {}), **record["usage"]}
+        if old:
+            # A late provider delta may arrive outside the original job context.
+            # Preserve both the original frozen value and legacy absence.
+            if "pricing_snapshot" in old:
+                record["pricing_snapshot"] = old["pricing_snapshot"]
+            else:
+                record.pop("pricing_snapshot", None)
+            if "activity" in old:
+                record["activity"] = old["activity"]
+            else:
+                record.pop("activity", None)
         record["first_observed_at"] = old.get("first_observed_at") or record["recorded_at"]
         fd, temp = tempfile.mkstemp(prefix=".usage-", dir=directory)
         try:
@@ -155,6 +200,10 @@ def record_usage(*, provider: str, model: str, usage=None, request_id: str,
             "image_count": _integer(image_count), "recorded_at": datetime.now(timezone.utc).isoformat(),
             "usage_incomplete_fields": sorted(usage_incomplete_fields or []),
         }
+        if _pricing.get() is not None:
+            record["pricing_snapshot"] = _pricing.get()
+        if stage == "cover" and _activity.get() in POSTER_ACTIVITIES:
+            record["activity"] = _activity.get()
         _write_record(root, record, replace_usage=replace_usage)
     except Exception:
         LOG.warning("Could not persist model usage observation", exc_info=False)

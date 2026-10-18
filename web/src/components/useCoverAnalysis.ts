@@ -1,10 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type CoverAnalysisRuntime, type CoverSourcePreview, type CoverStoryAnalysis, type JobStatus } from "../api/client";
+import { api, type CoverAnalysisRecovery, type CoverAnalysisRuntime, type CoverSourcePreview, type CoverStoryAnalysis, type JobStatus } from "../api/client";
 
 const POLICY = "require_current_head";
 type Execution = NonNullable<CoverAnalysisRuntime["execution_status"]> | "unknown";
 const messageOf = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 const jobAnalysisId = (job: JobStatus) => String(job.meta?.analysis_id || "");
+
+function recoveryOf(value: CoverStoryAnalysis): CoverAnalysisRecovery | undefined {
+  // Explicit null is an authoritative backend decision, including a supported
+  // legacy verification-policy upgrade. Only an absent field needs fallback.
+  if (value.recovery !== undefined) return value.recovery ?? undefined;
+  // Older backends still expose the durable failure and spent correction
+  // budget. Never offer a same-ID retry that can only repeat that failure.
+  const revision = value.semantic_revision;
+  if (value.last_error?.code === "analysis_semantic_repair_exhausted"
+    || (revision && typeof revision === "object" && "status" in revision && revision.status === "exhausted")) {
+    return {kind: "source_correction_required", can_resume: false,
+      message: "本次自动修正已用尽，需要先更正分析；直接继续会重复同一错误。已完成的提取和原文证据均已保留。"};
+  }
+  if (value.last_error?.code === "analysis_amendment_verification_failed") {
+    return {kind: "amendment_failed", can_resume: false,
+      message: "修订结果尚未通过核查，请先处理指出的问题；不会自动重试。"};
+  }
+}
 
 function matchesSource(value: CoverAnalysisRuntime, source: CoverSourcePreview) {
   const selector = value.source_selector;
@@ -162,6 +180,7 @@ export function useCoverAnalysis(owner: string, onAnalysis: (id: string, policy:
 
   const start = async (resume = false) => {
     if (!source || busy || execution === "running" || execution === "unknown") return;
+    if (resume && analysis && recoveryOf(analysis)?.can_resume === false) return;
     const selected = epoch.current;
     setBusy(true); setError(""); setConnectionError(""); onAnalysis("", POLICY);
     try {
@@ -214,6 +233,7 @@ export function useCoverAnalysis(owner: string, onAnalysis: (id: string, policy:
   };
 
   return {source, analysis, execution, busy, error, connectionError, cancelRequested,
+    recovery: analysis ? recoveryOf(analysis) : undefined,
     sourceMatches: Boolean(source && analysis && matchesSource(analysis, source)),
     analyze: () => start(), resume: () => start(true), selectSaved, cancel,
     preview: () => setReload(value => value + 1)};

@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { api, type CoverGenerationTask, type CoverSet, type JobStatus } from "../api/client";
+import { api, ApiError, type CoverGenerationTask, type CoverSet, type JobStatus } from "../api/client";
 import { useCoverGenerationTask } from "./useCoverGenerationTask";
 
 const direction = {direction_id: "direction-a", approved_direction_sha256: "approved-hash"};
@@ -14,7 +14,7 @@ const set: CoverSet = {cover_set_id: "set-a", project_id: "book", revision: 1, a
   status: "ready", requested_count: 4, brief: {title: "Fixture"}, candidates: [], concepts: [], selected_candidate_id: "",
   source_prompt_sha256: "source", foundation_sha256: "foundation",
   created_at: "2026-10-11T10:00:00Z", updated_at: "2026-10-11T10:01:00Z"};
-afterEach(() => {cleanup(); vi.useRealTimers(); vi.restoreAllMocks();});
+afterEach(() => {cleanup(); sessionStorage.clear(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals();});
 
 test("recovers an active job and polls its exact task without resubmitting", async () => {
   vi.useFakeTimers();
@@ -104,6 +104,20 @@ test("coalesces double submissions and binds the POST task id", async () => {
   expect(result.current.busy).toBe(true);
 });
 
+test("uses cryptographic random bytes when randomUUID is unavailable on a LAN HTTP origin", async () => {
+  const originalCrypto = globalThis.crypto;
+  const getRandomValues = vi.fn((values: Uint8Array) => originalCrypto.getRandomValues(values));
+  vi.stubGlobal("crypto", {getRandomValues});
+  const read = vi.spyOn(api, "coverGenerationTask").mockResolvedValue(null);
+  const post = vi.spyOn(api, "generateCovers").mockImplementation(async () => {read.mockResolvedValue(task()); return job;});
+  const onSets = vi.fn();
+  const {result} = renderHook(() => useCoverGenerationTask("book", onSets));
+  await waitFor(() => expect(result.current.busy).toBe(false));
+  await act(async () => {await result.current.start(4, direction);});
+  expect(getRandomValues).toHaveBeenCalledTimes(1);
+  expect(post.mock.calls[0][3]).toMatch(/^[a-f0-9]{32}$/);
+});
+
 test("recovers an accepted POST with a lost response through GET only", async () => {
   const read = vi.spyOn(api, "coverGenerationTask").mockResolvedValue(null);
   const post = vi.spyOn(api, "generateCovers").mockImplementation(async () => {read.mockResolvedValue(task()); throw new Error("connection lost");});
@@ -114,6 +128,94 @@ test("recovers an accepted POST with a lost response through GET only", async ()
   await waitFor(() => expect(result.current.task?.status).toBe("running"));
   expect(result.current.busy).toBe(true);
   expect(post).toHaveBeenCalledTimes(1);
+});
+
+test("a manually requested batch after failure gets a fresh intent and coalesces rapid clicks", async () => {
+  const read = vi.spyOn(api, "coverGenerationTask").mockResolvedValue(task("failed"));
+  const post = vi.spyOn(api, "generateCovers").mockImplementation(async (_owner, _count, _direction, requestId) => {
+    read.mockResolvedValue({...task("failed"), task_id: `task-${post.mock.calls.length}`, request_id: requestId});
+    return {...job, task_id: `task-${post.mock.calls.length}`};
+  });
+  const onSets = vi.fn();
+  const {result} = renderHook(() => useCoverGenerationTask("book", onSets));
+  await waitFor(() => expect(result.current.busy).toBe(false));
+  expect(post).not.toHaveBeenCalled();
+  await act(async () => {await Promise.all([result.current.start(4, direction), result.current.start(4, direction)]);});
+  await waitFor(() => expect(result.current.busy).toBe(false));
+  const first = post.mock.calls[0][3];
+  expect(first).toMatch(/^[\da-f-]{36}$/);
+  expect(post).toHaveBeenCalledTimes(1);
+  await act(async () => {await result.current.start(4, direction);});
+  expect(post).toHaveBeenCalledTimes(2);
+  expect(post.mock.calls[1][3]).not.toBe(first);
+});
+
+test("keeps an ambiguous intent across remount and an unrelated latest result until an explicit retry", async () => {
+  const read = vi.spyOn(api, "coverGenerationTask").mockResolvedValue(task("failed"));
+  const post = vi.spyOn(api, "generateCovers").mockRejectedValue(new Error("connection lost"));
+  const onSets = vi.fn();
+  const first = renderHook(() => useCoverGenerationTask("book", onSets));
+  await waitFor(() => expect(first.result.current.busy).toBe(false));
+  await act(async () => {await expect(first.result.current.start(4, direction)).rejects.toThrow("connection lost");});
+  await waitFor(() => expect(first.result.current.busy).toBe(false));
+  const requestId = post.mock.calls[0][3];
+  first.unmount();
+  const second = renderHook(() => useCoverGenerationTask("book", onSets));
+  await waitFor(() => expect(second.result.current.busy).toBe(false));
+  expect(post).toHaveBeenCalledTimes(1);
+  post.mockImplementation(async () => {read.mockResolvedValue({...task(), request_id: requestId}); return job;});
+  await act(async () => {await second.result.current.start(4, direction);});
+  expect(post).toHaveBeenLastCalledWith("book", 4, direction, requestId);
+  expect(second.result.current.busy).toBe(true);
+});
+
+test("a confirmed validation rejection does not pin a stale direction intent", async () => {
+  vi.spyOn(api, "coverGenerationTask").mockResolvedValue(null);
+  const post = vi.spyOn(api, "generateCovers").mockRejectedValue(new ApiError("Direction expired", 409));
+  const onSets = vi.fn();
+  const {result} = renderHook(() => useCoverGenerationTask("book", onSets));
+  await waitFor(() => expect(result.current.busy).toBe(false));
+  await act(async () => {await expect(result.current.start(4, direction)).rejects.toThrow("Direction expired");});
+  await waitFor(() => expect(result.current.busy).toBe(false));
+  const requestId = post.mock.calls[0][3];
+  post.mockResolvedValue(job);
+  await act(async () => {await result.current.start(4, {...direction, direction_id: "direction-b"});});
+  expect(post.mock.calls[1][3]).not.toBe(requestId);
+});
+
+test.each(["request_id", "request_aliases"] as const)("a saved task with matching %s resolves lost acceptance before the next paid batch", async field => {
+  const read = vi.spyOn(api, "coverGenerationTask").mockResolvedValue(null);
+  const post = vi.spyOn(api, "generateCovers").mockImplementation(async (_owner, _count, _direction, requestId) => {
+    read.mockResolvedValue({...task("failed"), ...(field === "request_id" ? {request_id: requestId}
+      : {request_id: "another-tab-original-intent", request_aliases: [requestId!]})});
+    throw new Error("response lost after acceptance");
+  });
+  const onSets = vi.fn();
+  const {result} = renderHook(() => useCoverGenerationTask("book", onSets));
+  await waitFor(() => expect(result.current.busy).toBe(false));
+  await act(async () => {await expect(result.current.start(4, direction)).rejects.toThrow("response lost");});
+  await waitFor(() => expect(result.current.task?.status).toBe("failed"));
+  const requestId = post.mock.calls[0][3];
+  post.mockResolvedValue(job);
+  await act(async () => {await result.current.start(4, direction);});
+  expect(post.mock.calls[1][3]).not.toBe(requestId);
+});
+
+test("keeps unresolved intents separate when explicitly switching approved direction", async () => {
+  vi.spyOn(api, "coverGenerationTask").mockResolvedValue(null);
+  const post = vi.spyOn(api, "generateCovers").mockRejectedValue(new Error("offline"));
+  const onSets = vi.fn();
+  const {result} = renderHook(() => useCoverGenerationTask("book", onSets));
+  await waitFor(() => expect(result.current.busy).toBe(false));
+  await act(async () => {await expect(result.current.start(4, direction)).rejects.toThrow("offline");});
+  await waitFor(() => expect(result.current.busy).toBe(false));
+  const firstId = post.mock.calls[0][3];
+  await act(async () => {await expect(result.current.start(4, {...direction, direction_id: "direction-b"})).rejects.toThrow("offline");});
+  await waitFor(() => expect(result.current.busy).toBe(false));
+  expect(post.mock.calls[1][3]).not.toBe(firstId);
+  expect(post).toHaveBeenCalledTimes(2);
+  await act(async () => {await expect(result.current.start(4, direction)).rejects.toThrow("offline");});
+  expect(post.mock.calls[2][3]).toBe(firstId);
 });
 
 test("ignores an old owner's pending POST and clears its local submission lock", async () => {

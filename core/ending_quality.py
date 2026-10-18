@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from state_manager import StoryState
+from ending_evidence import EndingEvidenceError, EndingEvidenceStore
 
 
 ENDING_CONTRACT_RELATIVE = "outputs/input/ending_contract.json"
@@ -354,6 +355,30 @@ def evaluate_ending(project: Path | str, as_of_chapter: Optional[int] = None) ->
     if not contract.get("enforce", False):
         info.append({"category": "ending_contract_disabled", "message": "No enforced ending contract was supplied."})
     else:
+        # Adjudicated omissions are a separate, source-bound review layer.
+        # Never rewrite canon or historical proposals to satisfy the gate.
+        reviewed_arcs: Dict[str, Dict[str, Any]] = {}
+        reviewed_payoffs: Dict[str, Dict[str, Any]] = {}
+        try:
+            reviews = EndingEvidenceStore(root).load_validated(contract, state, final_chapter)
+        except EndingEvidenceError as exc:
+            reviews = []
+            critical.append({"category": "ending_evidence_invalid", "message": str(exc)})
+        for review in reviews:
+            info.append({
+                "category": "ending_evidence_review", "review_id": review["review_id"],
+                "reviewer": review["reviewer"], "reviewed_at": review["reviewed_at"],
+                "supersedes": review["supersedes"], "claims": review["claims"],
+                "message": "Source-bound reviewed evidence supplements missing records; canonical state is unchanged.",
+            })
+            for claim in review["claims"]:
+                evidence = {**claim, "review_id": review["review_id"]}
+                if claim["kind"] == "arc":
+                    reviewed_arcs[claim["character_id"]] = evidence
+                else:
+                    reviewed_payoffs[claim["payoff_id"]] = {
+                        **evidence, "chapter": max(source["chapter"] for source in claim["sources"]),
+                    }
         main = contract.get("main_conflict") or {}
         thread_id = str(main.get("thread_id") or "").strip()
         required_status = str(main.get("required_status") or "resolved").strip().lower()
@@ -371,6 +396,11 @@ def evaluate_ending(project: Path | str, as_of_chapter: Optional[int] = None) ->
                 critical.append({"category": "character_arc_missing", "entity_id": character_id, "message": f"Character arc {character_id or '[missing]'} is not present in canon."})
                 continue
 
+            reviewed_arc = reviewed_arcs.get(character_id, {})
+            arc_evidence = _evidence_for_arc(state, character_id)
+            if reviewed_arc:
+                arc_evidence.append(f"review {reviewed_arc['review_id']}: {reviewed_arc['evidence']}")
+
             required_stage = str(raw.get("required_arc_stage") or "").strip().lower()
             required_outcome = str(raw.get("required_outcome") or "").strip().lower()
             if not required_stage and not required_outcome:
@@ -383,12 +413,12 @@ def evaluate_ending(project: Path | str, as_of_chapter: Optional[int] = None) ->
                     required_outcome = legacy_state
 
             if required_stage:
-                actual_stage = _arc_stage(state, character_id)
+                actual_stage = reviewed_arc.get("arc_stage") or _arc_stage(state, character_id)
                 if actual_stage != required_stage:
-                    critical.append({"category": "character_arc_unclosed", "entity_id": character_id, "message": f"Character {character_id} arc stage is {actual_stage or 'missing'}, expected {required_stage}.", "evidence": _evidence_for_arc(state, character_id)})
+                    critical.append({"category": "character_arc_unclosed", "entity_id": character_id, "message": f"Character {character_id} arc stage is {actual_stage or 'missing'}, expected {required_stage}.", "evidence": arc_evidence})
 
             if required_outcome:
-                actual_outcome = _outcome_state(state, character_id)
+                actual_outcome = reviewed_arc.get("outcome_state") or _outcome_state(state, character_id)
                 match_mode = _outcome_match_mode(contract, raw)
                 if match_mode not in OUTCOME_MATCH_MODES:
                     critical.append({
@@ -413,9 +443,9 @@ def evaluate_ending(project: Path | str, as_of_chapter: Optional[int] = None) ->
                             f"(match_mode={match_mode})."
                         ),
                         "match_mode": match_mode,
-                        "evidence": _evidence_for_arc(state, character_id),
+                        "evidence": arc_evidence,
                     })
-                elif not _evidence_for_arc(state, character_id):
+                elif not arc_evidence:
                     critical.append({"category": "character_outcome_evidence_missing", "entity_id": character_id, "message": f"Character {character_id} reaches semantic outcome {required_outcome} without observable evidence."})
 
         resolved = _resolved_foreshadowing(state)
@@ -431,6 +461,8 @@ def evaluate_ending(project: Path | str, as_of_chapter: Optional[int] = None) ->
             event = payoff_events.get(item_id)
             if event and event.get("status") == "paid":
                 matches.append(event)
+            if item_id in reviewed_payoffs:
+                matches.append(reviewed_payoffs[item_id])
             verified = _verified_payoff_evidence(root, item, final_chapter)
             if verified:
                 matches.extend(verified)

@@ -89,6 +89,8 @@ def create_app(projects_root: Optional[Path] = None, db_url: Optional[str] = Non
     app.include_router(cover_workbench_router)
     from .cover_workbench_assets import router as cover_workbench_assets_router
     app.include_router(cover_workbench_assets_router)
+    from .poster_studio import router as poster_studio_router
+    app.include_router(poster_studio_router)
     app.include_router(router)
     app.include_router(workshop_router)
     from .costs import router as costs_router

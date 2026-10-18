@@ -114,6 +114,122 @@ def extract_manuscript_block(text: str, tag: str = "REVISED_CHAPTER") -> Optiona
 
 _FIELD_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_ ]*?)\s*:\s*(.*)$")
 _BULLET_RE = re.compile(r"^\s*[-*•]\s+(.+)$")
+_ENDING_FIELDS = {"payoff_events", "arc_state_updates", "ending_evidence"}
+
+
+class EndingProtocolError(ValueError):
+    """An explicit ending declaration would otherwise be silently discarded."""
+
+
+def _append_ending_values(out: Dict[str, Any], key: str, values: List[str]) -> None:
+    existing = out.setdefault(key, [])
+    for value in values:
+        if value not in existing:
+            existing.append(value)
+
+
+def _validate_ending_declaration(key: str, value: str) -> None:
+    if key == "ending_evidence":
+        return  # This field intentionally accepts literal evidence text.
+    common = {"id", "thread_id", "chapter", "evidence"}
+    allowed = common | (
+        {"status", "note", "payoff"} if key == "payoff_events" else
+        {"stage", "arc_stage", "progress", "arc_progress", "outcome", "outcome_state", "choice", "state"}
+    )
+
+    def invalid(reason: str) -> None:
+        raise EndingProtocolError(f"ending_protocol: {key}: {reason}; declaration={value!r}")
+
+    parts = [part.strip() for part in value.split("|")]
+    seen: Dict[str, str] = {}
+    for index, part in enumerate(parts):
+        if index == 0 and "=" not in part:
+            continue
+        name, separator, content = part.partition("=")
+        name, content = _normalize_key(name), content.strip()
+        if not separator or name not in allowed or not content:
+            invalid("expected an entity and supported nonempty key=value fields")
+        if name in seen and seen[name] != content:
+            invalid(f"conflicting duplicate {name}")
+        seen[name] = content
+    entity, fields = _parse_pipe_update(value)
+    if not entity or entity.lower() in _PLACEHOLDER or len(parts) < 2:
+        invalid("missing entity or structured fields")
+    identities = [seen[name] for name in ("id", "thread_id") if name in seen]
+    if parts[0] and "=" not in parts[0]:
+        identities.append(parts[0])
+    if len(set(identities)) > 1:
+        invalid("conflicting entity identifiers")
+    if "chapter" in fields and not re.fullmatch(r"[1-9]\d*", fields["chapter"]):
+        invalid("chapter must be a positive integer")
+    if key == "payoff_events":
+        if fields.get("status", "").lower() not in {"planted", "recalled", "paid", "intentional_open", "blocked"}:
+            invalid("status must be planted, recalled, paid, intentional_open or blocked")
+        evidence = fields.get("evidence") or fields.get("note") or fields.get("payoff")
+    else:
+        for name, alias in (("stage", "arc_stage"), ("progress", "arc_progress"), ("outcome", "outcome_state")):
+            if name in fields and alias in fields and fields[name] != fields[alias]:
+                invalid(f"conflicting {name} aliases")
+        stage = fields.get("stage") or fields.get("arc_stage")
+        if stage and stage.lower() not in {"beginning", "middle", "climax", "resolution"}:
+            invalid("unrecognized arc stage")
+        progress = fields.get("progress") or fields.get("arc_progress")
+        if progress and (not re.fullmatch(r"\d{1,3}", progress) or int(progress) > 100):
+            invalid("progress must be an integer from 0 to 100")
+        if not (stage or progress or fields.get("outcome") or fields.get("outcome_state")):
+            invalid("missing stage, progress or outcome")
+        evidence = fields.get("evidence") or fields.get("choice") or fields.get("state")
+    if not evidence or evidence.lower() in _PLACEHOLDER:
+        invalid("missing observable evidence")
+
+
+def _store_parsed_field(out: Dict[str, Any], key: str, value: Any) -> None:
+    """Route only explicit ending labels; never infer state from a fact or note."""
+    retained: List[str] = []
+    routed = False
+    for item in _as_list(value):
+        target = key
+        normalized = item.strip()
+        while (prefix := _FIELD_RE.match(normalized)):
+            field = _normalize_key(prefix.group(1))
+            if field not in _ENDING_FIELDS:
+                break
+            target = field
+            normalized = prefix.group(2).strip()
+        if target in _ENDING_FIELDS:
+            routed = True
+            for declaration in _as_list(normalized):
+                _validate_ending_declaration(target, declaration)
+                _append_ending_values(out, target, [declaration])
+            continue
+        # A bare, machine-shaped declaration under general facts is ambiguous.
+        # Expose the lost field instead of promoting a fact into canon. Ordinary
+        # prose mentioning a payoff, and text inside Character_References.note,
+        # remain untouched.
+        if key == "new_facts_established" and "|" in item:
+            entity, fields = _parse_pipe_update(item)
+            misplaced = (
+                re.fullmatch(r"payoff_[A-Za-z0-9_-]+", entity) and "status" in fields
+            ) or (
+                re.fullmatch(r"(?:char_[A-Za-z0-9_-]+|[A-Z][A-Za-z]*\d+)", entity)
+                and ("stage" in fields or "arc_stage" in fields)
+                and "evidence" in fields
+            )
+            if misplaced:
+                raise EndingProtocolError(
+                    "ending_protocol: structured declaration in new_facts_established "
+                    "requires an explicit Payoff_Events or Arc_State_Updates field; "
+                    f"declaration={item!r}"
+                )
+        retained.append(item)
+    if key in _ENDING_FIELDS:
+        out.setdefault(key, [])
+    else:
+        # Preserve the legacy scalar/list shapes for unrelated fields.
+        if not routed:
+            out[key] = value
+        else:
+            out[key] = retained if isinstance(value, list) else (retained[0] if retained else "")
 
 
 def parse_fields(block: str) -> Dict[str, Any]:
@@ -132,6 +248,10 @@ def parse_fields(block: str) -> Dict[str, Any]:
             continue
         m = _FIELD_RE.match(line.lstrip())
         if not m:
+            bullet = _BULLET_RE.match(line)
+            prefixed = _FIELD_RE.match(bullet.group(1)) if bullet else None
+            if prefixed and _normalize_key(prefixed.group(1)) in _ENDING_FIELDS:
+                _store_parsed_field(out, _normalize_key(prefixed.group(1)), prefixed.group(2))
             continue
         key = _normalize_key(m.group(1))
         rest = m.group(2).strip()
@@ -148,19 +268,30 @@ def parse_fields(block: str) -> Dict[str, Any]:
             if peek.strip() == "" and i + 1 < len(lines) and _BULLET_RE.match(lines[i + 1]):
                 i += 1
                 continue
+            if key in _ENDING_FIELDS and not peek.strip():
+                i += 1
+                continue
+            if key in _ENDING_FIELDS and peek.strip() and not _FIELD_RE.match(peek.lstrip()):
+                # A malformed explicit declaration must not vanish merely
+                # because its list marker is missing. Valid unbulleted pipe
+                # records remain accepted by the same validation below.
+                bullets.append(peek.strip())
+                i += 1
+                continue
             break
 
         if bullets:
             # If 'rest' was empty, bullets ARE the value; otherwise prepend rest.
-            out[key] = bullets if not rest else [rest] + bullets
+            value = bullets if not rest else [rest] + bullets
         elif rest.startswith("[") and rest.endswith("]"):
             inner = rest[1:-1].strip()
             if not inner or inner.lower() in ("list", "count", "none"):
-                out[key] = []
+                value = []
             else:
-                out[key] = [s.strip() for s in inner.split(",") if s.strip()]
+                value = [s.strip() for s in inner.split(",") if s.strip()]
         else:
-            out[key] = rest
+            value = rest
+        _store_parsed_field(out, key, value)
     return out
 
 
@@ -251,7 +382,11 @@ def parse_continuity(text: str) -> Dict[str, Any]:
     for tag in ("CONTINUITY_REPORT", "CONTINUITY_STATE_UPDATE"):
         block = extract_block(text, tag)
         if block:
-            out.update(parse_fields(block))
+            for key, value in parse_fields(block).items():
+                if key in _ENDING_FIELDS:
+                    _append_ending_values(out, key, value)
+                else:
+                    out[key] = value
     return out
 
 

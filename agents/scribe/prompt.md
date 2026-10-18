@@ -253,6 +253,14 @@ Inside the block, use **only** these field names. Spelling and underscores matte
 - `Foreshadowing_Resolved` bulleted list of prior seeds paid off this chapter. Prefer the ledger id form `id=chN:fsM | note=<payoff>` (use `[None]` if none)
 - `Plot_Thread_Updates` bulleted list using the exact thread id from the context pack and pipe-separated fields: `<thread_id> | status=<active|resolved|abandoned|foreshadowed> | milestone=<what changed> | chapter=<number>`. Resolved or abandoned threads are terminal; use `reopen=true` only when the author explicitly intends to reopen one.
 - `Character_References` bulleted list using `<character_id or full name> | chapter=<number> | note=<on-page reference or documented off-page absence>`; do not list a referenced/off-page character as physically present
+- `Payoff_Events` bulleted list of `<payoff_id> | status=<recalled|paid|intentional_open> | evidence=<observable event> | chapter=<number>` using the supplied directory. A reminder is `recalled`, not `paid`.
+- `Arc_State_Updates` bulleted list of `<character_id or full name> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<canonical contract value, when achieved> | evidence=<observable choice or state>`. A supporting character's completed duty can be recorded before the finale, only after it occurs on-page. Do not invent or accelerate a future outcome.
+- `Ending_Evidence` bulleted list of `irreversible_change=<observable final state>` and `emotional_payoff=<reader-facing closure>` when delivered in the finale; use `[None]` otherwise.
+
+Write each field as its own heading, followed by its entries. Never nest these
+fields under `Key_Events`, `Character_References` or other prose fields, and do
+not repeat the field name inside its entries. Past committed evidence is
+continuity context, not a new event to re-emit in the current chapter.
 
 ## Concrete example (copy this structure exactly)
 
@@ -280,6 +288,12 @@ Plot_Thread_Updates:
   - [None]
 Character_References:
   - [None]
+Payoff_Events:
+  - [None]
+Arc_State_Updates:
+  - [None]
+Ending_Evidence:
+  - [None]
 [/SCRIBE_STATE_UPDATE]
 ```
 
@@ -288,6 +302,6 @@ Character_References:
 - The block tag `[SCRIBE_STATE_UPDATE]` and closing `[/SCRIBE_STATE_UPDATE]` must appear literally, square brackets included.
 - Use bulleted lists (`  - item`) when there is more than one entry.
 - Use `[None]` for fields that legitimately have no entries never omit a field.
-- Use the character's FULL name as listed in the story bible, not nicknames.
+- Use the character's FULL name as listed in the story bible, not nicknames; fields explicitly accepting a character ID may use that canonical ID instead.
 - Do NOT wrap the block in code fences (no triple backticks around it).
 - The block must be the FINAL content in your response. Nothing after `[/SCRIBE_STATE_UPDATE]`.

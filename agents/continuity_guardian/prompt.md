@@ -268,6 +268,18 @@ In `[CONTINUITY_STATE_UPDATE]`:
 - `Plot_Thread_Updates` bulleted list using exact thread ids: `<thread_id> | status=<active|resolved|abandoned|foreshadowed> | milestone=<what changed> | chapter=<number>`. Resolved or abandoned threads are terminal; add `reopen=true` only for an explicit author decision to reopen one.
 - `Character_References` bulleted list using `<character_id or full name> | chapter=<number> | note=<reference or documented off-page absence>`; a reference is not a physical appearance
 - `Foreshadowing_Resolved` may use the ledger id form `id=chN:fsM | note=<payoff>` so semantic payoffs are recorded without copying setup text
+- `Payoff_Events` bulleted list of `<payoff_id> | status=<recalled|paid|intentional_open> | evidence=<observable event> | chapter=<number>` using the supplied directory. A reminder is `recalled`, not `paid`.
+- `Arc_State_Updates` bulleted list of `<character_id or full name> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<canonical contract value, when achieved> | evidence=<observable choice or state>`. A supporting character's completed duty can be recorded before the finale, only after it occurs on-page. Do not invent or accelerate a future outcome.
+- `Ending_Evidence` bulleted list of `irreversible_change=<observable final state>` and `emotional_payoff=<reader-facing closure>` when delivered in the finale; use `[None]` otherwise.
+
+All state fields belong in `[CONTINUITY_STATE_UPDATE]`, each with its own
+heading; never bury payoff or arc records in `New_Facts_Established`, prose
+analysis, or `Character_References`. Do not repeat the field name in its list
+entries. If analysis says a tracked payoff is paid or an outcome achieved,
+record its ID and evidence in the matching state field, or explicitly report
+that it could not be verified. A contract requirement is not evidence.
+Past committed records preserve their original chapter; do not re-emit them
+as current-chapter events or infer that off-page characters are present.
 
 ## Status rubric
 
@@ -295,6 +307,18 @@ Updated_Character_Positions:
 New_Facts_Established:
   - The Theta-7 signal predates the colony by 200 years
   - Observatory is located on the eastern ridge
+Plot_Thread_Updates:
+  - [None]
+Character_References:
+  - [None]
+Foreshadowing_Resolved:
+  - [None]
+Payoff_Events:
+  - [None]
+Arc_State_Updates:
+  - [None]
+Ending_Evidence:
+  - [None]
 [/CONTINUITY_STATE_UPDATE]
 ```
 
@@ -302,6 +326,7 @@ New_Facts_Established:
 
 - `Status` MUST be exactly `PASS`, `WARNING`, or `FAIL`. No other values, no extra adjectives.
 - If a character's location did not change, do NOT invent one. List only verified changes.
-- Use the character's FULL name as stored in the story bible.
+- Use the character's FULL name as stored in the story bible; fields explicitly accepting a character ID may use that canonical ID instead.
 - The `[CONTINUITY_STATE_UPDATE]` block must be the LAST content in your response.
 - Do NOT wrap any of the bracketed blocks in code fences.
+- Use `[None]` for fields with no verified changes; never omit a required state field.

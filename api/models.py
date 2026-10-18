@@ -781,6 +781,7 @@ class CoverGenerateRequest(BaseModel):
     count: int | None = None
     direction_id: str = ""
     approved_direction_sha256: str = ""
+    request_id: str = Field(default="", pattern=r"^(?:[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})?$")
 
 
 class CoverDirectionCreate(BaseModel):

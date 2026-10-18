@@ -340,20 +340,43 @@ class CoverWorkflow:
             })
             return approved
 
-    def generation_arguments(self, direction_id: str, approved_hash: str, *, reserve: bool = True, single_candidate: str = ""):
+    def generation_arguments(self, direction_id: str, approved_hash: str, *, reserve: bool = True,
+                             single_candidate: str = "", generation_batch_id: str = ""):
+        """Reserve one explicit batch without replenishing an older batch's calls.
+
+        Identified callers supply a fresh durable batch ID and own active-job
+        exclusion and request replay. Web tasks use their persisted task ID.
+        Re-entering a consumed batch is never authority for another model call.
+        Unidentified legacy calls and single-candidate approvals stay one-shot.
+        """
         from .cover_models import CoverConcept
+        if not isinstance(generation_batch_id, str) or (generation_batch_id and re.fullmatch(
+                r"(?:generation-task|cli-batch)-[0-9a-f]{32}", generation_batch_id) is None):
+            raise ValueError("Invalid cover generation batch id")
+        if generation_batch_id and single_candidate:
+            raise CoverConflict("单张修复批准不能用于新的整批生成。")
         with self._lock():
             direction, brief = self.validate(direction_id, approved_hash=approved_hash,
                                               require_approval=True)
             approval = self.approval(direction_id)
             if approval.get("single_candidate", "") != single_candidate:
                 raise CoverConflict("单张修复批准不能用于整批生成或其它候选。")
+            reservations = approval.get("batch_reservations", {})
+            if not isinstance(reservations, dict):
+                raise CoverConflict("Cover generation batch reservations are invalid")
+            if generation_batch_id:
+                if generation_batch_id in reservations:
+                    raise CoverConflict("本批出图额度已使用；请查看该批结果，需要再生成时请新建一批。")
+            elif approval.get("batch_reserved"):
+                raise CoverConflict("本批出图额度已使用；请显式创建新的生成批次。")
             concepts = []
             for plan in direction.plans:
                 # Approval freezes executable bytes. Re-entering
                 # scene_to_cover_concept would run today's compiler and could
                 # alter or reject a previously approved image recipe.
                 scene_payload = plan.to_dict()
+                if generation_batch_id:
+                    scene_payload["_generation_batch_id"] = generation_batch_id
                 if direction.visual_identity is not None:
                     scene_payload["_visual_identity"] = direction.visual_identity.to_dict()
                 if direction.evidence_ledger is not None:
@@ -368,10 +391,15 @@ class CoverWorkflow:
                     generation_prompt=direction.compiled_recipes[plan.concept_id]["image_prompt"],
                     scene_plan=scene_payload,
                 ))
-            if approval.get("batch_reserved"):
-                raise CoverConflict("本方向的整批出图额度已使用；请查看候选或创建新的方向。")
             if reserve:
                 approval["batch_reserved"] = True
+                if generation_batch_id:
+                    approval["batch_reservations"] = {**reservations, generation_batch_id: {
+                        "reserved_at": datetime.now(timezone.utc).isoformat(),
+                        "direction_sha256": direction.direction_sha256,
+                        "initial_image_calls": len(concepts),
+                        "extra_image_attempts": approval["extra_image_attempts"],
+                    }}
                 self.store._write_json(self._approval_path(direction_id), approval)
             return brief, concepts, {
                 "compiler_version": next(iter(direction.compiled_recipes.values()))["compiler_version"],
@@ -424,6 +452,19 @@ class CoverWorkflow:
         recipe = (direction.compiled_recipes or {}).get(concept.concept_id)
         if not recipe or digest(scene.get("_compiled_recipe")) != digest(recipe):
             raise CoverConflict("Candidate recipe does not match its approved direction")
+        if "_generation_batch_id" in scene:
+            batch_id = scene["_generation_batch_id"]
+            approval = self.approval(direction.direction_id)
+            reservations = approval.get("batch_reservations")
+            reservation = (reservations.get(batch_id) if isinstance(batch_id, str)
+                           and isinstance(reservations, dict) else None)
+            if (not isinstance(reservation, dict)
+                    or reservation.get("direction_sha256") != direction.direction_sha256
+                    or type(reservation.get("initial_image_calls")) is not int
+                    or reservation["initial_image_calls"] != len(direction.plans)
+                    or type(reservation.get("extra_image_attempts")) is not int
+                    or reservation["extra_image_attempts"] != approval.get("extra_image_attempts")):
+                raise CoverConflict("Candidate generation batch does not match its recorded allowance")
         if for_generation:
             authorization = scene.get("_generation_authorization") or {}
             granted = self.approval(direction.direction_id).get("extra_image_attempts")

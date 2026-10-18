@@ -117,6 +117,7 @@ def _analysis_runtime(workflow, payload):
     No runtime field is saved or included in the completed analysis digest.
     """
     from core.cover_sources import load_snapshot
+    from core.cover_analysis_corrections import source_amendment_recovery
 
     snapshot = load_snapshot(workflow.context, payload["snapshot_id"])
     analysis_id = payload["analysis_id"]
@@ -152,6 +153,7 @@ def _analysis_runtime(workflow, payload):
     return {"job_id": job_id, "job_status": job_status, "job_error": job_error,
             "cancel_requested": bool(job and job.get("cancel_requested")),
             "execution_status": execution_status,
+            "recovery": source_amendment_recovery(workflow.context, payload),
             "source_selector": snapshot.selector.to_dict(),
             "source_bundle_sha256": snapshot.source_bundle_sha256}
 
@@ -174,6 +176,7 @@ def workshop_source(session_id: str, source_type: str = "workshop_current",
 def _start_analysis(workflow, body, director, *, project_id="", session_id=""):
     from core.cover_sources import capture_source, load_snapshot
     from core.cover_analysis import CoverStoryAnalyzer, reserve_analysis, load_analysis, record_dispatch_failure
+    from core.cover_analysis_corrections import assert_source_amendment_usable
     from core.cover_workflow import digest
     try:
         if sum(bool(x) for x in (body.snapshot_id, body.source_selector, body.analysis_id)) > 1:
@@ -187,6 +190,11 @@ def _start_analysis(workflow, body, director, *, project_id="", session_id=""):
                                                                project_id=project_id, session_id=session_id)))
         analyzer = CoverStoryAnalyzer(complete=director._complete, model=director.model,
                                       **getattr(director, "analysis_configuration", {}))
+        if previous:
+            # A same-policy exhausted parent cannot be recovered by dispatching
+            # the same identity. Refuse before queue allocation or durable writes.
+            assert_source_amendment_usable(workflow.context, previous.to_dict(),
+                                           configuration=analyzer.configuration)
         dispatch_key = digest([str(workflow.context.cover_root.resolve()), workflow.context.owner_scope,
                                snapshot.source_bundle_sha256, analyzer.configuration, body.analysis_id])
         # Coalesce before allocating the durable ID. JobRunner.submit's own
@@ -403,17 +411,21 @@ def generate_bound_covers(workflow, body, covers, *, project_id="", session_id="
         raise HTTPException(400, "Bound directions cannot be combined with replacement facts or concepts")
     try:
         count = len(workflow.store.load_direction(body.direction_id).plans)
+        def arguments(*, reserve):
+            return workflow.generation_arguments(body.direction_id, body.approved_direction_sha256,
+                reserve=reserve, generation_batch_id=(cover_generation_tasks.current_generation_batch_id()
+                                                      if body.request_id else ""))
         def generate():
-            brief, concepts, kwargs = workflow.generation_arguments(body.direction_id, body.approved_direction_sha256)
+            brief, concepts, kwargs = arguments(reserve=True)
             if session_id:
                 kwargs["cover_root"] = workflow.store.root
             return covers.generate(project_id or f"workshop-{session_id}", workflow.store.project_path,
                                    brief, concepts, **kwargs)
-        # An active owner task is returned before checking an already-reserved
-        # approval. The worker rechecks source/approval before reserving budget.
+        # The request key recovers the same task, including terminal failures.
+        # A new explicit intent gets its own one-shot batch reservation.
         task = cover_generation_tasks.start(workflow, runner, operation=generate,
-            preflight=lambda: workflow.generation_arguments(
-                body.direction_id, body.approved_direction_sha256, reserve=False),
+            preflight=lambda: arguments(reserve=False), request_id=body.request_id,
+            approved_direction_sha256=body.approved_direction_sha256,
             count=count, direction_id=body.direction_id, project_id=project_id, session_id=session_id)
         return cover_generation_tasks.as_job(task, runner)
     except (ValueError, FileNotFoundError) as exc:

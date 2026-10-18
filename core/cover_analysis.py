@@ -181,6 +181,9 @@ def load_analysis(context: CoverSourceContext, analysis_id: str) -> CoverStoryAn
         from .cover_analysis_reviews import validate_review_child
         validate_review_child(context, payload, completed=payload["coverage_status"] == "complete",
                               allow_pending_reservation=True)
+        from .cover_analysis_corrections import validate_source_amendment
+        validate_source_amendment(context, payload, completed=payload["coverage_status"] == "complete",
+                                  allow_pending_reservation=True)
         return CoverStoryAnalysis(payload)
     except FileNotFoundError as exc:
         raise CoverAnalysisError("analysis_missing", "Analysis does not exist", analysis_id=analysis_id) from exc
@@ -385,9 +388,15 @@ def _validate_global(raw: Mapping[str, Any], snapshot: CoverSkeletonSnapshot,
     event_ids: set[str] = set()
     for event in data["events"]:
         _refs(event, known)
-        for field in ("event_id", "epoch", "location", "action", "reaction", "consequence"):
+        for field in ("event_id", "epoch", "action", "reaction", "consequence"):
             if not isinstance(event.get(field), str) or not event[field].strip():
                 raise ValueError(f"Event requires {field}")
+        # The analysis contract allows unspecified optional facts to stay empty.
+        # Remote or multi-location events need not assert a single physical
+        # setting. Preserve the model's string (and historical payload hashes);
+        # never turn missing location evidence into an invented meeting place.
+        if not isinstance(event.get("location"), str):
+            raise ValueError("Event requires location as a string; use an empty string when unspecified")
         participants = event.get("participants")
         if (not isinstance(participants, list) or not participants
                 or any(x not in character_ids for x in participants) or event["event_id"] in event_ids):
@@ -1021,11 +1030,13 @@ class CoverStoryAnalyzer:
     def analyze(self, context: CoverSourceContext, snapshot: CoverSkeletonSnapshot, *, force: bool = False,
                 analysis_id: str | None = None, cancel_event: Any = None) -> CoverStoryAnalysis:
         from .cover_analysis_reviews import assert_analysis_usable, validate_review_child
+        from .cover_analysis_corrections import assert_source_amendment_usable, validate_source_amendment
         snapshot = load_snapshot(context, snapshot.snapshot_id)
         if analysis_id is not None:
             previous = load_analysis(context, analysis_id)
             assert_analysis_usable(context, analysis_id, previous.to_dict())
-            if previous.to_dict().get("external_review_revision"):
+            assert_source_amendment_usable(context, previous.to_dict(), configuration=self.configuration)
+            if previous.to_dict().get("external_review_revision") or previous.to_dict().get("reviewed_source_amendment"):
                 force = True  # Never replace an allocated correction with a cached projection.
             previous_version = previous.configuration.get("segmenter_version")
             if (previous_version == LEGACY_SEGMENTER_VERSION
@@ -1038,6 +1049,10 @@ class CoverStoryAnalyzer:
                 resumed.configuration = {**self.configuration, "segmenter_version": previous_version}
                 return resumed.analyze(context, snapshot, force=force, analysis_id=analysis_id,
                                        cancel_event=cancel_event)
+            if (previous.to_dict().get("reviewed_source_amendment")
+                    and previous.configuration != self.configuration):
+                raise CoverAnalysisError("analysis_conflict",
+                    "Reviewed source amendment must retain the exact parent configuration", analysis_id=analysis_id)
         expected_source_constraints = source_constraints_payload(snapshot)
         cache_key = canonical_hash({"scope": context.owner_scope, "bundle": snapshot.source_bundle_sha256,
                                     "configuration": self.configuration})
@@ -1070,6 +1085,7 @@ class CoverStoryAnalyzer:
         with _analysis_lock(context, analysis_id):
             payload = load_analysis(context, analysis_id).to_dict()
             assert_analysis_usable(context, analysis_id, payload)
+            assert_source_amendment_usable(context, payload, configuration=self.configuration)
             if payload["snapshot_id"] != snapshot.snapshot_id:
                 raise CoverAnalysisError("analysis_conflict", "Reserved analysis belongs to another snapshot", analysis_id=analysis_id)
             if payload["coverage_status"] == "complete":
@@ -1186,7 +1202,7 @@ class CoverStoryAnalyzer:
                     for key in ("coverage", "segment_results", "evidence", "story", "characters", "relationships", "events",
                                 "suspense", "visual_assets", "critical_claims", "unresolved", "brief_payload", "verification",
                                 "verification_progress", "aggregation_progress", "global_facts", "global_checkpoint", "semantic_revision",
-                                "source_constraints_payload", "source_constraint_sources"):
+                                "source_constraints_payload", "source_constraint_sources", "inherited_semantic_revision"):
                         if key not in reused:
                             continue
                         payload[key] = reused[key]
@@ -1202,6 +1218,14 @@ class CoverStoryAnalyzer:
                             self._run(context, snapshot, segments, payload, cancel_event)
                             break
                         except CoverVerificationFailure as rejection:
+                            if payload.get("reviewed_source_amendment"):
+                                summary = ("The reviewed source amendment failed independent verification; "
+                                           "no automatic generation or semantic correction was scheduled. "
+                                           + "; ".join(issue["problem"] for issue in rejection.report["issues"][:2])[:900])
+                                payload["source_amendment_failure"] = {
+                                    "message": summary, "report": copy.deepcopy(rejection.report), "recorded_at": _now()}
+                                _save(context, payload)
+                                raise CoverAnalysisError("analysis_amendment_verification_failed", summary)
                             if payload.get("semantic_revision"):
                                 payload["semantic_revision"]["status"] = "exhausted"
                                 payload["semantic_revision"]["verification_policy_version"] = self.configuration.get("verification_policy_version")
@@ -1219,6 +1243,7 @@ class CoverStoryAnalyzer:
                                 raise
                 _validate_completed(payload, snapshot)
                 validate_review_child(context, payload, completed=True)
+                validate_source_amendment(context, payload, completed=True)
                 payload.update(coverage_status="complete", phase="complete", last_error=None, updated_at=_now())
                 digest_payload = dict(payload)
                 digest_payload.pop("analysis_sha256", None)
@@ -1394,6 +1419,10 @@ class CoverStoryAnalyzer:
 
     def _schedule_semantic_revision(self, context, snapshot, segments, payload):
         """Recover only fail reports bound to the exact verified synthesis request."""
+        if payload.get("reviewed_source_amendment"):
+            # Manual source repair has its own immutable provenance; it never
+            # replenishes or impersonates the exhausted automatic correction.
+            return False
         existing = payload.get("semantic_revision")
         if existing:
             identity = {key: existing[key] for key in ("round", "snapshot_sha256", "configuration_sha256",
@@ -1611,7 +1640,7 @@ class CoverStoryAnalyzer:
         segment = SkeletonSegment(first["segment_id"], first["document_id"], first["document_sha256"],
             first["byte_start"], first["byte_end"], (), first["text"])
         request = self._source_verification_call(segment, synthesis, payload, publication,
-            revised=bool(payload.get("semantic_revision"))).request
+            revised=bool(payload.get("semantic_revision") or payload.get("inherited_semantic_revision"))).request
         member_ids = {item["segment_id"] for item in unit["members"]}
         local = [item for item in payload["evidence"] if item["segment_id"] in member_ids]
         request["source_unit"] = {"version": REVIEW_UNIT_VERSION, "plan_sha256": plan_hash,
@@ -1720,7 +1749,8 @@ class CoverStoryAnalyzer:
             raise CoverAnalysisError("analysis_incomplete", "No verified narrative evidence was extracted")
         payload["phase"] = "global"
         _save(context, payload)
-        evidence_payload = self._bounded_facts(context, payload, _compact_evidence(payload["evidence"]), cancel_event)
+        evidence_payload = (copy.deepcopy(payload["global_facts"]) if payload.get("reviewed_source_amendment")
+                            else self._bounded_facts(context, payload, _compact_evidence(payload["evidence"]), cancel_event))
         payload["global_facts"] = evidence_payload
         def validate_synthesis(raw):
             synthesis = _validate_global(apply_publication_metadata(raw, publication), snapshot, payload["evidence"])
@@ -1762,6 +1792,12 @@ class CoverStoryAnalyzer:
             "configuration": self._synthesis_configuration(), "snapshot_sha256": snapshot.snapshot_sha256,
             "evidence": payload["evidence"],
         })
+        if payload.get("reviewed_source_amendment"):
+            from .cover_analysis_corrections import validate_source_amendment
+            validate_source_amendment(context, payload)
+            # This identity attests an application-owned reviewed amendment,
+            # not a model request or a fabricated provider attempt.
+            checkpoint_identity = payload["global_checkpoint"]["input_sha256"]
         checkpoint = payload.get("global_checkpoint") or {}
         synthesis = None
         if checkpoint.get("input_sha256") == checkpoint_identity:
@@ -1804,6 +1840,9 @@ class CoverStoryAnalyzer:
             upgrade["status"] = "reverification_started"
             _save(context, payload)
         if synthesis is None:
+            if payload.get("reviewed_source_amendment"):
+                raise CoverAnalysisError("analysis_amendment_invalid",
+                    "The reviewed source amendment checkpoint is invalid or exceeds the synthesis budget; no generation was dispatched")
             if revision:
                 if revision["status"] != "pending":
                     raise CoverAnalysisError("analysis_semantic_repair_exhausted",
@@ -1855,7 +1894,7 @@ class CoverStoryAnalyzer:
                             "supported": True, "evidence_refs": []}], "mechanical": "whitespace only"}
             else:
                 calls.append(self._source_verification_call(segment, synthesis, payload, publication,
-                                                              revised=bool(payload.get("semantic_revision"))))
+                                                              revised=bool(payload.get("semantic_revision") or payload.get("inherited_semantic_revision"))))
                 continue
             progress["segments"][segment.segment_id] = checked
             _save(context, payload)

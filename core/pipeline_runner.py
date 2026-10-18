@@ -1782,7 +1782,6 @@ class PipelineRunner:
             ],
             "ending.review": [
                 ENDING_CONTRACT_RELATIVE,
-                PAYOFF_LEDGER_RELATIVE,
                 "outputs/state/story_state.json",
             ],
         }
@@ -1797,6 +1796,12 @@ class PipelineRunner:
             for relative in inputs.get(phase, [])
             if (project / relative).is_file()
         }
+        if phase == "ending.review":
+            from ending_evidence import EndingEvidenceStore
+
+            # The payoff ledger is an output of this check. Bind the review
+            # records and their approved sources, including deletion, instead.
+            file_hashes.update(EndingEvidenceStore(project).input_hashes())
         if manifest is None or phase not in {
             "commercial.free_trial_review",
             "commercial.book_review",

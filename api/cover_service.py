@@ -701,11 +701,12 @@ class CoverService:
         current = store.load(cover_set_id)
         if current.revision != expected_revision:
             raise CoverConflict("Cover set revision changed")
-        from core.cover_repair_lineage import validate_lineage
+        from core.cover_repair_lineage import validate_lineage, resolve_candidate_origin
         validate_lineage(store, current, candidate_id=candidate_id)
         selected = self._candidate(current, candidate_id)
         concept = next(item for item in current.concepts if item.concept_id == selected.concept_id)
-        typography_amendments.validate_candidate_amendment(store.root, current, selected, concept)
+        origin_set, origin_candidate, origin_concept = resolve_candidate_origin(store, current, candidate_id)
+        typography_amendments.validate_candidate_amendment(store.root, origin_set, origin_candidate, origin_concept)
         active = store.active()
         if current.selected_candidate_id == candidate_id:
             selected = self._candidate(current, candidate_id)
@@ -714,13 +715,21 @@ class CoverService:
                     cover_set_id, expected_revision=expected_active_revision
                 )
             if cover_root is None:
-                self._rebuild_delivery(project_path, current)
+                self._rebuild_selected_delivery(project_path, current)
             return current
         if current.status == "stale" and not confirm_stale:
             raise CoverServiceError("The cover set is stale; explicit confirmation is required")
         selected = self._candidate(current, candidate_id)
         if selected.status not in {"ready", "rejected"}:
             raise CoverServiceError("Only a completed cover candidate can be selected")
+        if current.compiler_version.startswith("skeleton-poster") or any(
+                item.scene_plan.get("_poster_recipe") for item in current.concepts):
+            # A package failure must not invalidate a real user's selection, but
+            # a missing/corrupt candidate is not a completed selectable image.
+            image = self._stored_asset(Path(project_path).resolve(), current.project_id,
+                selected.sha256, selected.content_type, selected.relative_path)
+            if not aspect_ratio_matches(*dimensions(image)):
+                raise CoverServiceError("Selected cover media failed portrait 2:3 provenance validation")
         concept = next(item for item in current.concepts if item.concept_id == selected.concept_id)
         # Quality review informs the user's choice; it never requires a written
         # justification. Keep optional notes from older API/CLI clients without
@@ -760,7 +769,7 @@ class CoverService:
                 ) from rollback_error
             raise
         if cover_root is None:
-            self._rebuild_delivery(project_path, saved)
+            self._rebuild_selected_delivery(project_path, saved)
         return saved
 
     def mark_stale(
@@ -1507,7 +1516,28 @@ class CoverService:
 
     def _rebuild_delivery(self, project_path: str | Path, cover_set: CoverSet) -> None:
         with delivery_lock(project_path):
-            self._rebuild_delivery_locked(project_path, cover_set)
+            from core.cover_delivery import delivery_selection, tracks_delivery, record_delivery
+            selected = delivery_selection(project_path, cover_set)
+            tracked = tracks_delivery(selected)
+            if tracked:
+                record_delivery(project_path, selected, "pending")
+            try:
+                self._rebuild_delivery_locked(project_path, cover_set)
+            except Exception as exc:
+                if tracked:
+                    record_delivery(project_path, selected, "failed", error=exc)
+                raise
+
+    def _rebuild_selected_delivery(self, project_path: str | Path, cover_set: CoverSet) -> None:
+        from core.cover_delivery import tracks_delivery
+        try:
+            self._rebuild_delivery(project_path, cover_set)
+        except Exception:
+            # Human selection is already committed. A failed local export is a
+            # separate durable status; it must not turn selection into a false
+            # failure or expose the old ZIP as the newly selected cover.
+            if not tracks_delivery(cover_set):
+                raise
 
     def _rebuild_delivery_locked(self, project_path: str | Path, cover_set: CoverSet) -> None:
         project = Path(project_path).resolve()
@@ -1535,6 +1565,13 @@ class CoverService:
         if delivery_set.selected_candidate_id:
             self._project_selected(project, delivery_set,
                 self._candidate(delivery_set, delivery_set.selected_candidate_id))
+            if delivery_set.compiler_version.startswith("skeleton-poster") or any(
+                    concept.scene_plan.get("_poster_recipe") for concept in delivery_set.concepts):
+                from core.cover_epub import sync_selected_epub
+                chosen = self._candidate(delivery_set, delivery_set.selected_candidate_id)
+                sync_selected_epub(project, self._stored_asset(project, delivery_set.project_id,
+                    chosen.sha256, chosen.content_type, chosen.relative_path),
+                    title=delivery_set.brief.title, expected_sha256=chosen.sha256)
         build_delivery_package(project, cover_set=delivery_set)
 
     def _require_generation_dependencies(self) -> None:

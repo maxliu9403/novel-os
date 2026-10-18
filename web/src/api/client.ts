@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+import { API_BASE as BASE } from "./base";
 const coverBase = (id: string) => id.startsWith("workshop:")
   ? `/api/workshop/sessions/${encodeURIComponent(id.slice(9))}/covers`
   : `/api/projects/${encodeURIComponent(id)}/covers`;
@@ -7,6 +7,13 @@ export interface CoverSourceSelector {
   source_type: "project_input" | "workshop_current" | "workshop_prepared" | "workshop_archived";
   project_id?: string; session_id?: string; archive_revision?: number | null;
   expected_content_sha256?: string;
+}
+export interface CoverAnalysisRecovery {
+  kind: "source_correction_required" | "amendment_available" | "amendment_pending" | "amendment_failed";
+  can_resume: boolean;
+  message: string;
+  analysis_id?: string;
+  parent_analysis_id?: string;
 }
 export interface CoverAnalysisRuntime {
   cancel_requested?: boolean;
@@ -17,6 +24,7 @@ export interface CoverAnalysisRuntime {
   source_selector?: CoverSourceSelector;
   source_bundle_sha256?: string;
   updated_at?: string;
+  recovery?: CoverAnalysisRecovery | null;
 }
 export interface CoverSourcePreview {
   selector: CoverSourceSelector;
@@ -491,6 +499,8 @@ export interface CoverStoryFactsConfirmation {
 
 export interface CoverGenerationTask {
   task_id: string;
+  request_id?: string;
+  request_aliases?: string[];
   job_id: string;
   status: "queued" | "running" | "completed" | "failed" | "interrupted";
   direction_id: string;
@@ -1001,14 +1011,17 @@ export interface CostTotals {
   usage_coverage?: Partial<Record<"input_tokens" | "output_tokens" | "cached_input_tokens" | "reasoning_tokens" | "total_tokens", number>>;
   known_usage_requests: number; unknown_usage_requests: number;
   estimated_cost_usd: number | null; estimated_cost_cny: number | null; cost_complete: boolean;
+  pricing_snapshot_requests?: number; current_pricing_requests?: number; mixed_exchange_rates?: boolean;
 }
 export type CostStage = "brainstorming" | "manuscript" | "cover";
+export type CoverCostActivity = "plan" | "generate" | "refine" | "retry" | "advisory" | "legacy";
 export interface GenerationCosts {
   schema_version: number; project_id?: string; session_id?: string; currency: "CNY"; estimate: true;
-  pricing: {usd_to_cny: number | null; exchange_rate_status: "unset" | "configured" | "assumed"};
+  pricing: {usd_to_cny: number | null; exchange_rate_status: "unset" | "configured" | "assumed"; request_snapshots_present?: boolean};
   totals: CostTotals;
   stages: Array<CostTotals & {stage: CostStage}>;
   models: Array<CostTotals & {provider: string; model: string; stage: CostStage}>;
+  cover_activities?: Array<CostTotals & {activity: CoverCostActivity}>;
   notes: string[];
 }
 export interface ModelPricing {
@@ -1122,10 +1135,10 @@ export const api = {
   generateCovers: (id: string, count?: number, direction?: {
     direction_id: string;
     approved_direction_sha256: string;
-  }) =>
+  }, requestId?: string) =>
     send<JobStatus>(`${coverBase(id)}/generate`, "POST", direction
-      ? { count, ...direction }
-      : { count }),
+      ? { count, ...direction, ...(requestId ? {request_id: requestId} : {}) }
+      : { count, ...(requestId ? {request_id: requestId} : {}) }),
   coverDirections: (id: string) =>
     get<CoverDirection[]>(`${coverBase(id)}/directions`),
   coverStoryFacts: (id: string) =>

@@ -27,6 +27,7 @@ from .workshop_progress import persist_progress, runtime_progress  # noqa: F401
 MAX_FILE_BYTES = 5 * 1024 * 1024
 TERMINAL_RESERVE_BYTES = 64 * 1024
 MAX_RECORD_BYTES = 4096
+MAX_WORKSHOP_ATTEMPTS = 32
 _LOCKS = weakref.WeakValueDictionary()
 _LOCKS_GUARD = threading.Lock()
 
@@ -39,6 +40,7 @@ _EVENTS = frozenset({
     "cli.model_output", "upstream.observer_started", "upstream.observer_unavailable",
     "upstream.observer_stopped", "upstream.event", "upstream.activity",
     "delivery.stage.started", "delivery.stage.completed", "delivery.stage.reused",
+    "delivery.part.started", "delivery.part.completed", "delivery.part.reused",
 })
 _TERMINALS = frozenset(event for event in _EVENTS if event.endswith(
     (".completed", ".failed", ".cancelled", ".timeout")))
@@ -57,7 +59,7 @@ _ERROR_CATEGORIES = frozenset({
     "response_schema", "skeleton_contract", "input_revision", "titles_schema", "authentication",
     "authorization", "rate_limit", "server_error", "network", "connection", "http_error",
     "process_error", "process_exit", "empty_output", "invalid_output", "cli_error", "unknown",
-    "transport", "upstream", "http_client_error",
+    "transport", "upstream", "http_client_error", "discussion_scope",
 })
 _PHASES = frozenset({"initialization", "completion", "response_parse", "skeleton_validation",
                     "input_revision_validation", "titles_parse", "titles_validation", "startup",
@@ -69,7 +71,7 @@ _NUMERIC_FIELDS = frozenset({
     "http_status", "final_output_bytes", "dropped_events", "discarded_stdout_lines", "discarded_stderr_lines",
     "input_sent_seconds", "output_chars", "output_bytes",
     "configured_max_tokens", "effective_max_tokens", "model_output_chars", "first_model_output_seconds",
-    "last_model_output_seconds",
+    "last_model_output_seconds", "task_budget_seconds", "request_timeout_seconds",
     "duration_ms", "ttft_ms", "observed_seconds", "upstream_attempt", "input_token_count",
     "output_token_count", "cached_token_count", "reasoning_token_count", "tool_token_count",
     "cache_write_token_count", "normalized_fields", "dropped_event_count",
@@ -123,13 +125,22 @@ def _safe_event(event: dict) -> dict:
         if request_id:
             safe["request_id"] = request_id
         return safe
-    if event["event"].startswith("delivery.stage."):
+    if event["event"].startswith(("delivery.stage.", "delivery.part.")):
         stage, index, completed = event.get("delivery_stage"), event.get("stage_index"), event.get("completed_stages")
         if (not isinstance(stage, str) or stage not in _DELIVERY_STAGES
                 or type(index) is not int or index != _DELIVERY_STAGES[stage]
                 or type(completed) is not int or not 0 <= completed <= 3):
             return {}
         safe.update(delivery_stage=stage, stage_index=index, completed_stages=completed)
+        if event["event"].startswith("delivery.part."):
+            from .workshop_assembly import ASSEMBLY_PARTS, ASSEMBLY_PART_LABELS
+            part, count = event.get("assembly_part"), event.get("completed_parts")
+            if (stage != "assembly" or not isinstance(part, str) or part not in ASSEMBLY_PARTS
+                    or type(count) is not int or not 0 <= count <= len(ASSEMBLY_PARTS)
+                    or event.get("total_parts") != len(ASSEMBLY_PARTS)):
+                return {}
+            safe.update(assembly_part=part, assembly_part_label=ASSEMBLY_PART_LABELS[part],
+                        completed_parts=count, total_parts=len(ASSEMBLY_PARTS))
         return safe
     for key in _NUMERIC_FIELDS:
         value = event.get(key)
@@ -220,7 +231,7 @@ def make_diagnostic_callback(session: dict, *, attempt: int, operation: str,
     revision = session.get("revision")
     if type(revision) is not int or revision < 0 or operation not in {"brainstorm", "titles"}:
         return None
-    if type(attempt) is not int or not 1 <= attempt <= 12:
+    if type(attempt) is not int or not 1 <= attempt <= MAX_WORKSHOP_ATTEMPTS:
         return None
     directory = Path(directory)
     path = directory / f"{revision}-{operation}.jsonl"

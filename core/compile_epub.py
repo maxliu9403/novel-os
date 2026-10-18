@@ -275,7 +275,8 @@ def _write_member(
     archive.writestr(info, data)
 
 
-def render_epub(book: CompiledBook, sheet: StyleSheet) -> bytes:
+def render_epub(book: CompiledBook, sheet: StyleSheet, *, cover_image: bytes | None = None,
+                cover_sha256: str = "") -> bytes:
     """An EPUB 3 of the compiled manuscript."""
     chapters = _chapter_files(book, sheet)
     names = list(chapters)
@@ -328,4 +329,11 @@ def render_epub(book: CompiledBook, sheet: StyleSheet) -> bytes:
             _write_member(z, "OEBPS/intro.xhtml", intro)
         for name, body in chapters.items():
             _write_member(z, f"OEBPS/{name}", body)
-    return buffer.getvalue()
+    result = buffer.getvalue()
+    if cover_image is not None:
+        try:
+            from .cover_epub import embed_cover
+        except ImportError:
+            from cover_epub import embed_cover
+        result = embed_cover(result, cover_image, title=book.title, expected_sha256=cover_sha256)
+    return result

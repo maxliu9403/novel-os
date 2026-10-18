@@ -106,6 +106,9 @@ def _repair_base(direction, parent):
 
 
 def _assert_complete(request, snapshot, analysis):
+    if request["cover_evidence_registry"]["schema_version"] == "cover-evidence-source-table.v2":
+        from core.cover_campaign_source_transport import unpack_source_request
+        request = unpack_source_request(request)
     context = request["frozen_source_context"]
     assert context["documents"][0]["text"].encode() == snapshot.primary_bytes
     assert context["source_content_sha256"] == snapshot.source_content_sha256
@@ -161,9 +164,16 @@ def test_persisted_single_repair_fits_all_requests_without_losing_source_or_sibl
             assert "NOT supplied" in extra["rule"]
             assert "not authority" in extra["rule"]
         if len(drafts) == 1:
-            # The unnormalized persisted ledger is sufficient to reproduce the
-            # production failure, even after the existing lossless serializer.
-            assert size + _json_size(base["evidence_ledger"]) > 384000
+            # Pin the original failure to the pre-v2 layout, not the improved
+            # outgoing size. Both ledger normalization and source sharing may
+            # now reduce it while preserving every original value.
+            original_layout = request
+            if request["cover_evidence_registry"]["schema_version"] == "cover-evidence-source-table.v2":
+                from core.cover_campaign_source_transport import unpack_source_request
+                original_layout = unpack_source_request(request)
+            from core.cover_campaign_transport import _packed_json
+            original_size = len((system + "\n" + _packed_json(original_layout)).encode())
+            assert original_size + _json_size(base["evidence_ledger"]) > 384000
             assert current == {key: value for key, value in base.items() if key != "evidence_ledger"}
             if repair_round == "schema":
                 return "not valid JSON"

@@ -216,6 +216,7 @@ def validate_campaign(
         left, right = layer_map[link["from_layer"]], layer_map[link["to_layer"]]
         if link["temporal_relationship"] == "same_moment" and (
             left["epoch"] != right["epoch"] or left["location"] != right["location"]
+            or not left["location"].strip() or not right["location"].strip()
         ):
             fail("campaign_false_simultaneity", "Same-moment layers require matching time and location", json.dumps({
                 "path": f"campaign.layer_relationships[{link_index}]", "temporal_relationship": link["temporal_relationship"],
@@ -272,7 +273,19 @@ def validate_campaign(
             event = events[layer["event_id"]]
             if not set(layer["cast"]).issubset(set(event.get("participants", ()))):
                 fail("campaign_invented_encounter", "Layer cannot combine people absent from the cited event", layer["layer_id"])
-            if layer["epoch"] != event.get("epoch") or layer["location"] != event.get("location"):
+            source_location = event.get("location")
+            location_unspecified = not isinstance(source_location, str) or not source_location.strip()
+            if location_unspecified:
+                fail("campaign_event_location_unspecified",
+                     "The analyzed event has no established single location for a literal story moment; choose an event with a source location or use an editorial portrait/object without claiming this encounter",
+                     json.dumps({
+                         "path": f"campaign.layers[{layer_index}].location",
+                         "layer_id": layer["layer_id"], "event_id": layer["event_id"],
+                         "source_location": source_location, "proposed_location": layer["location"],
+                         "required": "Do not invent a source location. Event participants may be remote, absent or affected later; they do not establish co-presence. Choose a located source event for a story_moment, or an editorial portrait/object with source-supported meaning and no invented encounter.",
+                     }, ensure_ascii=False, sort_keys=True))
+            if (layer["epoch"] != event.get("epoch")
+                    or (not location_unspecified and layer["location"] != source_location)):
                 fail("campaign_event_time_place", "Event layer must preserve the source event's epoch and location", layer["layer_id"])
             claim_path = f"campaign.layers[{layer_index}]"
             if (not set(layer["evidence_refs"]).intersection(event.get("evidence_refs", ()))
@@ -388,4 +401,7 @@ def campaign_response_contract(*, profile_version: str = CAMPAIGN_PROFILE) -> di
             *result["rules"][6:8],  # Deterministic title layout and source/title text integrity.
             "Every layer has a declared purpose, real evidence and readable hierarchy. Composite layers use truthful links; promotional juxtaposition does not assert physical co-presence.",
         ]
+    result["rules"].append(
+        "An empty source event location means the analysis does not establish one source-supported place for the whole event; the source may describe separate locations or remote actions. Do not fill it with an invented common location or turn remote communication into a meeting. A story_moment requires a nonempty source location, including inside an editorial campaign. Choose an event with a source location, or use an editorial character_portrait/story_object (when the profile supports editorial) without claiming a literal encounter. Event participants can be remote senders, absent people or people affected later and do not establish co-presence. Two empty locations never prove same_moment."
+    )
     return result

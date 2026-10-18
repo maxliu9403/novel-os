@@ -118,6 +118,18 @@ def project_cover_summary(project: Path, project_id: str, *, workspace_id: str) 
 
     workflow = CoverWorkflow(CoverSourceContext(root, f"{workspace_id}:project:{project_id}"), store)
     events = []
+    from . import poster_tasks
+    from core.cover_poster_store import list_plans
+    try:
+        for task in poster_tasks.list_tasks(workflow, runner):
+            if task.get("status") in {"queued", "running"}:
+                return result("processing", "封面任务正在后台处理，已完成的图片可直接选择。")
+            if task.get("status") in {"failed", "interrupted"}:
+                events.append((_timestamp(task.get("finished_at") or task.get("updated_at")), "task", task))
+        for plan in list_plans(workflow):
+            events.append((_timestamp(plan.get("created_at")), "poster_plan", plan))
+    except (OSError, ValueError, TypeError, KeyError):
+        damaged = True
     latest_repair = None
     for module in (cover_direction_tasks, cover_generation_tasks, cover_repair_tasks):
         try:
@@ -150,6 +162,8 @@ def project_cover_summary(project: Path, project_id: str, *, workspace_id: str) 
     events.sort(key=lambda event: event[0], reverse=True)
     if events:
         _, kind, value = events[0]
+        if kind == "poster_plan" and (not latest or _timestamp(value.get("created_at")) > _timestamp(latest.created_at)):
+            return result("awaiting_review", "封面方案已保存，可按方案生成候选图。")
         if kind == "repair_proposal":
             direction_id = value.get("direction_id")
             problem = _direction_problem(directions.get(direction_id) if isinstance(direction_id, str) else None)
@@ -191,7 +205,7 @@ def project_cover_summary(project: Path, project_id: str, *, workspace_id: str) 
                                  for item in latest.candidates)
         if damaged_candidates or not usable:
             return result("needs_attention", "候选中存在待修复、失败或未完成的封面。")
-        return result("awaiting_review", "候选已保存，等待人工审核并选定；出图完成不等于质量通过。")
+        return result("awaiting_review", "候选已保存，可直接选择喜欢的封面。")
     if damaged:
         return result("needs_attention", "部分封面资料无法读取，请在封面工作室检查。")
     return result("not_started", "尚未设计封面。")

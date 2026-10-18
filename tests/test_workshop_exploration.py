@@ -22,7 +22,7 @@ def test_sparse_brief_can_explore_without_questions_or_complete_export(client, m
     calls = stub_model(monkeypatch, respond)
     data = create(client, premise="一个总替家人收拾残局的母亲决定停止牺牲。")
     for message in ("帮我开拓故事", "继续"):
-        submit(client, data, message)
+        submit(client, data, message, intent="discuss")
         data = finish(client, data["id"])
         assert data["status"] == "draft", data["last_error"]
         assert data["questions"] == []
@@ -56,7 +56,7 @@ def test_exploration_keeps_last_export_until_selected_revision_is_complete(clien
         return json.dumps(model_result(revised)[0], ensure_ascii=False)
 
     calls = stub_model(monkeypatch, respond)
-    submit(client, data, "先探索一个不同的中段走线，不急着重写整份骨架")
+    submit(client, data, "先探索一个不同的中段走线，不急着重写整份骨架", intent="discuss")
     exploring = finish(client, data["id"])
     assert exploring["status"] == "draft"
     assert exploring["prompt_md"] == previous

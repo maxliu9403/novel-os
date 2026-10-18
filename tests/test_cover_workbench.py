@@ -120,6 +120,94 @@ def test_dispatch_rejection_is_recorded_in_allocated_analysis(workflow, monkeypa
     assert len(failed) == 1 and "queue unavailable" in str(failed[0].last_error)
 
 
+def test_exhausted_source_recovery_http_is_read_only_and_rejects_before_job(tmp_path, monkeypatch, source):
+    from core.cover_workflow import CoverWorkflow
+    from tests.test_cover_analysis_corrections import failed_parent, prepare
+    from tests.test_cover_analysis_snapshot import ModelFixture
+
+    context, _, project = source
+    parent = failed_parent(source)
+    flow = CoverWorkflow(context, CoverStore(project, cover_root=context.cover_root))
+    model = ModelFixture()
+    director = SimpleNamespace(_complete=model, model='fixture-analyzer',
+                               analysis_configuration={'max_repair_attempts': 0})
+    deferred = DeferredRunner()
+    deferred.get = lambda job_id: ({key: value for key, value in deferred.jobs[job_id].items()
+                                   if key not in {'fn', 'cancel_event'}} if job_id in deferred.jobs else None)
+    monkeypatch.setattr(cover_workbench, 'runner', deferred)
+    monkeypatch.setattr(cover_workbench, '_ANALYSIS_DISPATCHES', {})
+    monkeypatch.setattr(cover_workbench, '_ANALYSIS_JOBS', {})
+    monkeypatch.setattr(cover_workbench, 'project_workflow', lambda svc, project_id: flow)
+    client, _ = _client(tmp_path, monkeypatch, director=director)
+    base = '/api/projects/book/covers'
+
+    def files():
+        return {p.relative_to(context.cover_root): p.read_bytes()
+                for p in context.cover_root.rglob('*') if p.is_file()}
+
+    original = files()
+    response = client.get(base + '/analyses/' + parent.analysis_id)
+    assert response.status_code == 200, response.text
+    assert response.json()['recovery']['kind'] == 'source_correction_required'
+    preview = client.get(base + '/source')
+    assert preview.status_code == 200, preview.text
+    assert preview.json()['analyses'][0]['recovery'] == response.json()['recovery']
+    blocked = client.post(base + '/analyses', json={'analysis_id': parent.analysis_id})
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()['detail']['code'] == 'analysis_semantic_repair_exhausted'
+    assert blocked.json()['detail']['recovery']['can_resume'] is False
+    assert not deferred.jobs and not model.calls
+    assert files() == original
+
+    child = prepare(context, parent)
+    original = files()
+    parent_response = client.get(base + '/analyses/' + parent.analysis_id)
+    assert parent_response.json()['recovery']['kind'] == 'amendment_available'
+    assert parent_response.json()['recovery']['analysis_id'] == child.analysis_id
+    child_response = client.get(base + '/analyses/' + child.analysis_id)
+    assert child_response.json()['recovery']['kind'] == 'amendment_pending'
+    assert child_response.json()['recovery']['can_resume'] is True
+    assert child_response.json()['coverage_status'] == 'partial'
+    blocked = client.post(base + '/analyses', json={'analysis_id': parent.analysis_id})
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()['detail']['code'] == 'analysis_amendment_required'
+    assert not deferred.jobs and not model.calls
+    assert files() == original
+
+    started = client.post(base + '/analyses', json={'analysis_id': child.analysis_id})
+    assert started.status_code == 202, started.text
+    assert started.json()['analysis_id'] == child.analysis_id
+    assert len(deferred.jobs) == 1 and not model.calls
+    result = deferred.jobs[started.json()['job_id']]['fn']()
+    assert result.coverage_status == 'complete'
+    assert all(request['phase'] == 'verify' for request in model.calls)
+
+
+def test_exhausted_legacy_policy_can_still_explicitly_upgrade_via_api(source, monkeypatch):
+    from core.cover_workflow import CoverWorkflow
+    from tests.test_cover_analysis_corrections import failed_parent
+    from tests.test_cover_analysis_snapshot import ModelFixture
+
+    context, _, project = source
+    parent = failed_parent(source, policy='cover-story-verification.v2')
+    flow = CoverWorkflow(context, CoverStore(project, cover_root=context.cover_root))
+    model = ModelFixture()
+    director = SimpleNamespace(_complete=model, model='fixture-analyzer',
+                               analysis_configuration={'max_repair_attempts': 0})
+    deferred = DeferredRunner()
+    monkeypatch.setattr(cover_workbench, 'runner', deferred)
+    monkeypatch.setattr(cover_workbench, '_ANALYSIS_DISPATCHES', {})
+    monkeypatch.setattr(cover_workbench, '_ANALYSIS_JOBS', {})
+    assert cover_workbench._analysis_runtime(flow, parent.to_dict())['recovery'] is None
+    started = cover_workbench._start_analysis(flow, AnalysisRequest(analysis_id=parent.analysis_id),
+                                              director, project_id='book')
+    result = started['fn']()
+    assert result.coverage_status == 'complete'
+    assert result.semantic_revision['round'] == 1
+    assert result.semantic_revision['first_attempt_id'] == parent.semantic_revision['first_attempt_id']
+    assert model.calls and all(request['phase'] == 'verify' for request in model.calls)
+
+
 def test_workshop_artwork_and_attempt_urls_are_scoped(workflow):
     flow, analysis, director, _ = workflow
     direction = approve(flow, flow.plan(analysis.analysis_id, director))

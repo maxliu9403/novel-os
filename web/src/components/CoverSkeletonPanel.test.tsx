@@ -1,7 +1,8 @@
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import CoverSkeletonPanel from "./CoverSkeletonPanel";
+import { useCoverAnalysis } from "./useCoverAnalysis";
 import { api, type CoverSourcePreview, type CoverStoryAnalysis, type JobStatus } from "../api/client";
 
 afterEach(() => {
@@ -597,5 +598,115 @@ test("source details are compact and disclose the frozen input without model sub
   expect(summary.closest("details")).toHaveAttribute("open");
   expect(screen.getByText("outputs/input/prompt.md")).toBeVisible();
   expect(screen.getByText("Mara withdraws the key.")).toBeVisible();
+  expectNoSubmissions(guards);
+});
+
+test.each([
+  {last_error: {code: "analysis_semantic_repair_exhausted", message: "The single source-bound correction failed"}},
+  {semantic_revision: {status: "exhausted"}, last_error: {message: "Prior verification failed"}},
+])("legacy exhausted analyses do not offer a futile resume: %o", async failure => {
+  const guards = readOnlyGuards();
+  const current = partial(4, {phase: "failed", execution_status: "failed", job_id: null, job_status: null, ...failure});
+  vi.spyOn(api, "coverSource").mockResolvedValue(savedSource(current));
+  vi.spyOn(api, "coverAnalysis").mockResolvedValue(current);
+  render(<CoverSkeletonPanel owner="book" onAnalysis={vi.fn()} />);
+  expect(await screen.findByRole("status")).toHaveTextContent("本次自动修正已用尽");
+  expect(screen.queryByRole("button", {name: "继续未完成分析"})).not.toBeInTheDocument();
+  expect(screen.getByText("查看此前核查问题").closest("details")).not.toHaveAttribute("open");
+  expectNoSubmissions(guards);
+});
+
+test("the analysis hook also blocks direct same-ID resume for an exhausted parent", async () => {
+  const guards = readOnlyGuards();
+  const current = partial(4, {phase: "failed", execution_status: "failed",
+    recovery: {kind: "source_correction_required", can_resume: false, message: "需要先更正分析"}});
+  vi.spyOn(api, "coverSource").mockResolvedValue(savedSource(current));
+  vi.spyOn(api, "coverAnalysis").mockResolvedValue(current);
+  const chosen = vi.fn();
+  const {result} = renderHook(() => useCoverAnalysis("book", chosen));
+  await waitFor(() => expect(result.current.busy).toBe(false));
+  await act(async () => result.current.resume());
+  expect(result.current.execution).toBe("failed");
+  expectNoSubmissions(guards);
+});
+
+test.each([null, undefined])("an explicit backend recovery %s controls legacy exhausted-state fallback", async recovery => {
+  const guards = readOnlyGuards();
+  const current = partial(4, {phase: "failed", execution_status: "failed", job_id: null, job_status: null,
+    last_error: {code: "analysis_semantic_repair_exhausted", message: "Saved old-policy review failed"},
+    semantic_revision: {status: "exhausted"}, recovery});
+  vi.spyOn(api, "coverSource").mockResolvedValue(savedSource(current));
+  vi.spyOn(api, "coverAnalysis").mockResolvedValue(current);
+  const user = userEvent.setup();
+  render(<CoverSkeletonPanel owner="book" onAnalysis={vi.fn()} />);
+  await screen.findByRole("status");
+  expectNoSubmissions(guards);
+  if (recovery === null) {
+    const resume = screen.getByRole("button", {name: "继续未完成分析"});
+    guards.resume.mockRejectedValue(new Error("Explicit upgrade request reached the API"));
+    await user.click(resume);
+    expect(guards.resume).toHaveBeenCalledExactlyOnceWith("book", current.analysis_id);
+  } else {
+    expect(screen.queryByRole("button", {name: "继续未完成分析"})).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("本次自动修正已用尽");
+    expectNoSubmissions(guards);
+  }
+});
+
+test("viewing an available amendment only reads it; verification requires a separate explicit click", async () => {
+  const guards = readOnlyGuards();
+  const parent = partial(4, {phase: "failed", execution_status: "failed", job_id: null, job_status: null,
+    last_error: {code: "analysis_semantic_repair_exhausted", message: "Earlier source qualification failure"},
+    recovery: {kind: "amendment_available", can_resume: false, analysis_id: "analysis-child", message: "已有局部修订，可查看修订结果。"}});
+  const child = partial(4, {analysis_id: "analysis-child", phase: "verify", execution_status: "interrupted", job_id: null, job_status: null,
+    recovery: {kind: "amendment_pending", can_resume: true, parent_analysis_id: parent.analysis_id,
+      message: "局部修订已保存；核查尚未启动，继续核查会调用模型。"}});
+  vi.spyOn(api, "coverSource").mockResolvedValue(savedSource(parent, child));
+  const read = vi.spyOn(api, "coverAnalysis").mockImplementation(async (_owner, id) => id === child.analysis_id ? child : parent);
+  const chosen = vi.fn(); const user = userEvent.setup();
+  render(<CoverSkeletonPanel owner="book" onAnalysis={chosen} />);
+  await user.click(await screen.findByRole("button", {name: "查看修订结果"}));
+  expect(await screen.findByText("局部修订已保存，待核查")).toBeInTheDocument();
+  expect(read).toHaveBeenLastCalledWith("book", child.analysis_id);
+  expect(screen.queryByRole("button", {name: "继续未完成分析"})).not.toBeInTheDocument();
+  expect(chosen).not.toHaveBeenCalledWith(child.analysis_id, expect.anything());
+  expectNoSubmissions(guards);
+  guards.resume.mockRejectedValue(new Error("本次请求尚未发送，服务暂不可用"));
+  await user.click(screen.getByRole("button", {name: "继续核查修订结果"}));
+  expect(guards.resume).toHaveBeenCalledExactlyOnceWith("book", child.analysis_id);
+  expect(guards.analyze).not.toHaveBeenCalled();
+  expect(await screen.findByRole("alert")).toHaveTextContent("服务暂不可用");
+});
+
+test("a saved amendment remains pending across remounts without starting verification", async () => {
+  const guards = readOnlyGuards();
+  const child = partial(4, {analysis_id: "analysis-child", phase: "verify", execution_status: "interrupted", job_id: null, job_status: null,
+    recovery: {kind: "amendment_pending", can_resume: true, message: "局部修订已保存；等待手动核查。"}});
+  vi.spyOn(api, "coverSource").mockResolvedValue(savedSource(child));
+  vi.spyOn(api, "coverAnalysis").mockResolvedValue(child);
+  const first = render(<CoverSkeletonPanel owner="book" onAnalysis={vi.fn()} />);
+  expect(await screen.findByRole("button", {name: "继续核查修订结果"})).toBeEnabled();
+  first.unmount();
+  render(<CoverSkeletonPanel owner="book" onAnalysis={vi.fn()} />);
+  expect(await screen.findByRole("button", {name: "继续核查修订结果"})).toBeEnabled();
+  expect(screen.getByRole("status")).toHaveTextContent("等待手动核查");
+  expectNoSubmissions(guards);
+});
+
+test("semantic amendment failure stops retries while transport recovery remains available", async () => {
+  const guards = readOnlyGuards();
+  let current = partial(4, {phase: "failed", execution_status: "failed", job_id: null, job_status: null,
+    last_error: {code: "analysis_amendment_verification_failed", message: "A material source claim still conflicts"},
+    recovery: {kind: "amendment_failed", can_resume: false, message: "修订结果未通过，请处理核查问题。"}});
+  vi.spyOn(api, "coverSource").mockImplementation(async () => savedSource(current));
+  vi.spyOn(api, "coverAnalysis").mockImplementation(async () => current);
+  const user = userEvent.setup();
+  render(<CoverSkeletonPanel owner="book" onAnalysis={vi.fn()} />);
+  expect(await screen.findByRole("status")).toHaveTextContent("修订结果未通过");
+  expect(screen.queryByRole("button", {name: /继续.*分析|继续核查/})).not.toBeInTheDocument();
+  current = {...current, last_error: {code: "analysis_failed", message: "Provider connection interrupted"},
+    recovery: {kind: "amendment_pending", can_resume: true, message: "核查连接中断，已保存的结果保留，可继续核查。"}};
+  await user.click(screen.getByRole("button", {name: "重新读取骨架"}));
+  expect(await screen.findByRole("button", {name: "继续核查修订结果"})).toBeEnabled();
   expectNoSubmissions(guards);
 });

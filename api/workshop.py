@@ -64,6 +64,15 @@ class ModelResponseError(ValueError):
     """Safe, authored format error suitable for displaying without provider payloads."""
 
 
+class DeliveryTimeoutError(TimeoutError):
+    """A bounded delivery stopped; previously completed pieces remain resumable."""
+
+    def __init__(self, request_seconds: float, *, task_expired: bool = False):
+        self.request_seconds = request_seconds
+        self.task_expired = task_expired
+        super().__init__("Workshop delivery task timeout" if task_expired else "Workshop delivery request timeout")
+
+
 class SessionInput(BaseModel):
     title: str = ""
     author: str = ""
@@ -85,6 +94,7 @@ class RevisionInput(BaseModel):
 
 class TurnInput(RevisionInput):
     message: str = Field(min_length=1)
+    intent: Literal["discuss", "deliver"] = "discuss"
 
 
 class PauseInput(RevisionInput):
@@ -140,8 +150,7 @@ def _skill_bundle(phase: str = "design") -> tuple[str, str]:
     files.insert(-1, "references/commercial-story-design.md")
     parts = {name: f"\n--- {name} ---\n{(SKILL / name).read_text(encoding='utf-8')}" for name in files}
     version = hashlib.sha256("\n".join(parts.values()).encode()).hexdigest()[:16]
-    # Legacy bundle names retain their full export capability. Runtime profiles
-    # use an internal, same-turn handoff so a prose brief needs no extra approval.
+    # Runtime profiles follow the author's operation, never a model's handoff.
     if phase == "exploration":
         selected = ["SKILL.md", "references/interaction.md", "references/creation-path.md",
                     "references/story-exploration.md", "references/character-and-emotion.md",
@@ -276,6 +285,7 @@ def _complete_impl(session: dict, skill: str) -> tuple[dict, dict]:
     from core import provider_settings
     from core.llm_client import LLMClient, LLMCancelledError
     from .workshop_delivery import DeliveryError, DeliveryPlan, author_context, parse_stage
+    from .workshop_assembly import AssemblyError, AssemblyPlan, parse_part, repair_part
 
     route = provider_settings.resolve_text_route("workshop")
     # Accepting a turn freezes its timeout. Settings changed during inference apply next turn.
@@ -315,9 +325,10 @@ unresolved questions that are needed now; zero questions is valid, even during e
 During exploration, put proposed story directions and the current causal storyline in
 reply. Return prompt_md null and ready_for_confirmation false to retain any prior complete
 skeleton without publishing tentative alternatives. This discussion is saved in conversation;
-it need not regenerate all 17 export sections after each idea. If the author supplied a
-complete brief and requests a finished skeleton, deliver it directly without forcing an
-extra exploration stage. Export schemas are delivery references, not the conversation agenda.
+it need not regenerate all 17 export sections after each idea. The selected operation controls
+whether this turn discusses proposals or delivers a skeleton; a complete brief alone does not
+change that operation. An explicit delivery operation uses the full brief directly without
+requiring more discussion rounds. Export schemas are delivery references, not the conversation agenda.
 The initial_brief contains the latest saved basic settings. Explicit later changes to these
 settings supersede older discussion decisions; update affected chapters and contracts.
 The title is provisional during story design. Do not require final naming before the
@@ -345,7 +356,7 @@ the stored reply to a UI preview. Include decisions and rationale, not private c
 Never return a patch, ellipsis, partial outline, command-only response, or generic template
 as prompt_md. If a complete skeleton cannot yet be designed, develop the story in reply and
 keep prompt_md null; missing publication parameters do not prevent proposing story directions.
-When the chosen design is ready, fill every template section with actual story
+Only for an explicit delivery operation, fill every template section with actual story
 content, preserve the template's numbered ## 1. through ## 17. sections and use
 ### Chapter N headings for every chapter inside section 12. Use valid existing
 classification and narrative-format JSON, and set
@@ -357,7 +368,11 @@ Do not output a launch command yourself: the server generates it from this exact
 Do not claim parser/design/prose validation was executed or creation started. The transport
 JSON and current draft are not an additional mandatory user confirmation round.
 """
-    profile = "delivery" if session.get("prompt_md") or session.get("_previous_candidate") else "exploration"
+    # A complete brief, old candidate, or model response is not authorization
+    # to stop discussing. A verified legacy checkpoint is reusable only through
+    # its explicit resume operation, which sets turn_intent below.
+    delivering = session.get("turn_intent") == "deliver"
+    profile = "delivery" if delivering else "exploration"
     narrative_mode = session["input"].get("mode")
     if "mode" not in session.get("pending_input_fields", []):
         # A later discussion may have revised the form's original mode. Only a
@@ -374,31 +389,31 @@ JSON and current draft are not an additional mandatory user confirmation round.
                     + _commercial_contract_reference())
         return rules + transport + """
 
-CURRENT REQUEST PROFILE: EXPLORATION WITH AUTOMATIC DELIVERY HANDOFF.
+CURRENT REQUEST PROFILE: AUTHOR-GUIDED EXPLORATION.
 This request carries creative guidance and the FULL author context, but intentionally
 omits detailed export schemas. Do not attempt all 17 sections or invent their fields here.
 For story exploration, return the four public response fields above, prompt_md null and
 ready_for_confirmation false. Develop useful concrete ideas now; missing export metadata
 does not block brainstorming. Do not read files or invoke tools to obtain omitted references.
-When the author already supplied a complete brief, asks for delivery, accepts the chosen
-design, or delegates settling remaining choices and a complete skeleton is now appropriate,
-request the full delivery references internally: add requests_delivery: true and
-delivery_mode: one of short_novel, standalone_long, multi_volume, series_installment.
-Choose that mode from the full brief and conversation, not just the optional form fields.
-Keep reply concise, questions empty, prompt_md null, ready_for_confirmation false for this
-internal handoff. The server immediately continues this SAME turn with all delivery schemas;
-the handoff reply is not published and does not require another author message or approval.
-Request that handoff as soon as delivery intent and mode are established; do not first
-compose the chapter map, complete skeleton, or serialized contracts in this lightweight call.
-Do not ask the author to confirm this technical handoff, provide the references, or say a
-complete skeleton cannot be delivered because they are omitted. A complete brief may be in
-free-form prose or an earlier message. If essential author decisions genuinely remain open,
-instead advance the story and ask only those questions in the usual public response.
+The author's selected operation is CONTINUE DISCUSSION. This operation controls scope even
+when there is a complete brief, an existing skeleton, no unanswered questions, or a selected
+direction. Choosing a route, answering intake questions, saying continue, or delegating a
+city or other detail does NOT approve the whole story or authorize skeleton delivery.
+After route selection, develop that route with concrete character conflicts, motivated
+choices, major turns and consequences. Offer a manageable, coherent next design proposal
+for the author to guide and revise; do not finish all later stages in the same response.
+Distinguish confirmed decisions, this round's proposals, and unresolved meaningful choices.
+Do not ask routine questions just to fill a round quota or repeat accepted choices.
+Discuss changes to an existing skeleton in reply; preserve its saved version with prompt_md
+null. Never emit requests_delivery or delivery_mode, and never silently start chapter mapping
+or final assembly. The separate Generate/Update Complete Skeleton action authorizes delivery.
+If the message asks for a complete artifact in this discussion operation, explain that action
+briefly and still give a useful current design proposal. Do not claim to have generated it.
 """
 
     system = build_system()
     context = author_context(session)
-    if session.get("_previous_candidate"):
+    if delivering and session.get("_previous_candidate"):
         context["previous_unvalidated_skeleton"] = session["_previous_candidate"]
         context["candidate_instruction"] = (
             "This earlier candidate failed validation and is NOT an approved skeleton. "
@@ -407,20 +422,54 @@ instead advance the story and ask only those questions in the usual public respo
     user = json.dumps(context, ensure_ascii=False)
     LOG.info("workshop.model.start session=%s route=workshop provider=%s model=%s timeout=%s revision=%s",
              session["id"], route["provider"], route["model"], timeout, session["revision"])
-    deadline = session.get("_turn_deadline") or time.monotonic() + timeout
+    discussion_deadline = session.get("_turn_deadline") or time.monotonic() + timeout
+    # Delivery is several bounded requests, not one request spending whatever
+    # the first two stages left. The whole job is still capped at three request
+    # allowances, measured from the original start (including gate and IO).
+    deadline = discussion_deadline
+    task_budget = timeout
     attempt = 0
     repair_count = 0
+    scope_repairs = 0
     session.setdefault("skill_version", _skill_bundle()[1])
     plan = None
-    if session.get("_delivery_record"):
+    assembly = None
+    assembly_part = None
+    assembly_repair_part = None
+    if delivering and session.get("_delivery_record"):
         narrative_mode = session["_delivery_record"]["narrative_mode"]
         profile = "delivery"
         plan = DeliveryPlan(session, narrative_mode)
+        deadline = discussion_deadline + timeout * 2
+        task_budget = timeout * 3
+    elif delivering and not (session.get("prompt_md") or session.get("_previous_candidate")):
+        # The first real design call selects the narrative mode from the full
+        # author context. No separate intent/handoff model call is needed.
+        plan = DeliveryPlan(session, None)
+        narrative_mode = None
+        deadline = discussion_deadline + timeout * 2
+        task_budget = timeout * 3
 
     def stage_request():
+        nonlocal assembly, assembly_part
         assert plan is not None
         if plan.stage == "assembly":
-            return build_system() + plan.rules(), json.dumps(plan.context(context), ensure_ascii=False)
+            if "assembly" in plan.record["completed"]:
+                return "", ""  # Saved final artifacts are verified locally.
+            assembly = AssemblyPlan(plan.record["completed"]["story_design"]["content"],
+                                    plan.record["completed"]["chapter_plan"]["content"], plan.saved_parts)
+            assembly_part = assembly_repair_part or assembly.part
+            if assembly_part is None:
+                return "", ""  # All pieces are saved; do not ask the model to copy them.
+            rules = _skill_bundle("delivery")[0] if "--- SKILL.md ---" in skill else skill
+            part_context = assembly.context(plan.context(context), assembly_part)
+            part_context["delivery_instruction"] = (
+                "Complete only assembly_part using its dedicated JSON schema. The application assembles "
+                "the final skeleton from saved parts and unchanged story/chapter text. Do not return "
+                "the full skeleton or the four public response fields in this part request.")
+            return (rules + _narrative_contract_reference(narrative_mode)
+                    + _commercial_contract_reference() + assembly.rules(assembly_part),
+                    json.dumps(part_context, ensure_ascii=False))
         # Early stages have creative guidance but no 17-section schema burden.
         rules = _skill_bundle("exploration")[0] if "--- SKILL.md ---" in skill else skill
         return rules + plan.rules(), json.dumps(plan.context(context), ensure_ascii=False)
@@ -432,8 +481,10 @@ instead advance the story and ask only those questions in the usual public respo
         cancellation = session.get("_cancellation_event")
         if cancellation is not None and cancellation.is_set():
             raise LLMCancelledError("Workshop inference was paused")
-        remaining = deadline - time.monotonic()
+        remaining = min(timeout, deadline - time.monotonic())
         if remaining <= 0:
+            if plan is not None:
+                raise DeliveryTimeoutError(timeout, task_expired=True)
             raise TimeoutError("Workshop format repair exhausted the turn timeout")
         # SDKs freeze timeout when constructed; a fresh client also gives HTTP
         # repairs the remaining budget instead of another full turn timeout.
@@ -447,8 +498,13 @@ instead advance the story and ask only those questions in the usual public respo
             plan.begin()
             if diagnostic is not None:
                 diagnostic(plan.event("started"))
+            if stage == "assembly" and assembly_part is not None:
+                plan.begin_part(assembly_part)
+                if diagnostic is not None:
+                    diagnostic(plan.part_event("started", assembly_part))
         if diagnostic is not None:
             diagnostic({"event": "attempt.start", "timeout_seconds": remaining,
+                        "task_budget_seconds": task_budget, "request_timeout_seconds": timeout,
                         "prompt_profile": profile, "narrative_mode": narrative_mode,
                         "system_bytes": len(system.encode("utf-8"))})
         try:
@@ -456,20 +512,26 @@ instead advance the story and ask only those questions in the usual public respo
                 # Crash after stage save and before session publication: revalidate
                 # locally rather than paying for the same completed result again.
                 text = json.dumps(plan.record["completed"]["assembly"]["content"], ensure_ascii=False)
+            elif stage == "assembly" and assembly_part is None:
+                text = json.dumps(assembly.assemble(), ensure_ascii=False)
             else:
                 # Saving a checkpoint and diagnostic fsyncs also spend this turn's
                 # budget. Never give the child an earlier, stale time allowance.
-                remaining = deadline - time.monotonic()
+                remaining = min(timeout, deadline - time.monotonic())
                 if remaining <= 0:
+                    if plan is not None:
+                        raise DeliveryTimeoutError(timeout, task_expired=True)
                     raise TimeoutError("Workshop delivery exhausted the turn timeout")
                 client = LLMClient(**client_options, timeout_seconds=remaining,
                                    **({"diagnostic_callback": diagnostic} if diagnostic is not None else {}))
                 text = client.complete(system, user).strip()
         except Exception as exc:
+            category = diagnostic_error_category(exc)
             if diagnostic is not None:
-                category = diagnostic_error_category(exc)
                 diagnostic({"event": f"attempt.{category}" if category in {"timeout", "cancelled"} else "attempt.failed",
                             "error_category": category})
+            if plan is not None and category == "timeout" and not isinstance(exc, DeliveryTimeoutError):
+                raise DeliveryTimeoutError(timeout, task_expired=time.monotonic() >= deadline) from exc
             raise
         if cancellation is not None and cancellation.is_set():
             if diagnostic is not None:
@@ -480,10 +542,26 @@ instead advance the story and ask only those questions in the usual public respo
         try:
             if diagnostic is not None:
                 diagnostic({"event": "validation.start", "phase": validation_phase})
+            if stage == "assembly" and assembly_part is not None:
+                part_data = parse_part(text, assembly_part, narrative_mode, plan.chapter_count)
+                assembly.accept(assembly_part, part_data)
+                if assembly_repair_part is not None:
+                    plan.revise_part(assembly_part, part_data)
+                else:
+                    plan.finish_part(assembly_part, part_data)
+                if diagnostic is not None:
+                    diagnostic({"event": "attempt.completed"})
+                    diagnostic(plan.part_event("completed", assembly_part))
+                assembly_repair_part = None
+                for key in ("previous_model_response", "validation_error", "repair_instruction", "repair_requires_skeleton"):
+                    context.pop(key, None)
+                system, user = stage_request()
+                continue
             if plan is not None and stage != "assembly":
                 data = parse_stage(text, stage, narrative_mode,
                                    plan.chapter_count if stage == "chapter_plan" else None)
                 plan.finish(stage, data)
+                narrative_mode = plan.mode
                 if diagnostic is not None:
                     diagnostic({"event": "attempt.completed"})
                     diagnostic(plan.event("completed", stage))
@@ -492,33 +570,39 @@ instead advance the story and ask only those questions in the usual public respo
                     context.pop(key, None)
                 system, user = stage_request()
                 continue
-            data = _parse_response(text, session["prompt_md"])
-            requests_delivery = data.pop("requests_delivery", False)
-            delivery_mode = data.pop("delivery_mode", None)
-            if type(requests_delivery) is not bool:
-                raise ModelResponseError("模型的内部交付标记需要为布尔值。")
-            if requests_delivery:
-                if profile != "exploration" or delivery_mode not in _NARRATIVE_MODES:
-                    raise ModelResponseError("模型的内部交付请求缺少有效的故事组织形式，或重复请求交付参考。")
-                if data.get("prompt_md") is not None or data["ready_for_confirmation"]:
-                    raise ModelResponseError("内部交付请求不能替代完整小说骨架。")
-                profile, narrative_mode = "delivery", delivery_mode
-                for key in ("previous_model_response", "validation_error", "repair_instruction", "repair_requires_skeleton"):
-                    context.pop(key, None)
-                context["delivery_instruction"] = (
-                    "The author context has been reviewed and delivery is appropriate. Complete only "
-                    "delivery_stage using its required JSON schema and saved_story_stages. Story design "
-                    "and chapter planning precede assembly; only assembly returns the complete skeleton "
-                    "and four public response fields. Do not ask for a new confirmation.")
-                context["delivery_mode"] = delivery_mode
-                plan = DeliveryPlan(session, narrative_mode)
-                plan.begin()
-                system, user = stage_request()
+            data = _parse_response(text, session["prompt_md"], discussion=not delivering)
+            if not delivering and (data.get("prompt_md") is not None or data["ready_for_confirmation"]
+                                   or "requests_delivery" in data or "delivery_mode" in data):
                 if diagnostic is not None:
-                    diagnostic({"event": "attempt.completed"})
-                    diagnostic({"event": "profile.switch", "prompt_profile": profile,
-                                "narrative_mode": narrative_mode, "system_bytes": len(system.encode("utf-8"))})
+                    diagnostic({"event": "validation.failure", "phase": "response_parse",
+                                "error_category": "discussion_scope"})
+                    diagnostic({"event": "attempt.failed", "phase": "response_parse",
+                                "error_category": "discussion_scope"})
+                if scope_repairs:
+                    data = {"reply": "本轮模型未按讨论方式返回可用方案，已阻止自动生成或覆盖骨架。"
+                            "全部对话与已有骨架均保留。你可以继续讨论；方案成熟后可点击“生成完整骨架”或“更新完整骨架”。",
+                            "questions": list(session.get("questions", [])),
+                            "prompt_md": None, "ready_for_confirmation": False}
+                    if diagnostic is not None:
+                        diagnostic({"event": "attempt.completed"})
+                    break
+                scope_repairs += 1
+                if diagnostic is not None:
+                    diagnostic({"event": "format_retry", "retry_count": scope_repairs,
+                                "error_category": "discussion_scope"})
+                # Do not recycle an unsolicited skeleton into the correction,
+                # write it as a candidate, or add another delivery budget.
+                for key in ("previous_model_response", "validation_error", "repair_requires_skeleton"):
+                    context.pop(key, None)
+                context["repair_instruction"] = (
+                    "The selected operation is discussion, not delivery. Return a substantive next "
+                    "story proposal in reply and only necessary questions; prompt_md MUST be null, "
+                    "ready_for_confirmation MUST be false. Omit requests_delivery and delivery_mode. "
+                    "Do not regenerate the whole skeleton or claim the author approved all design choices.")
+                user = json.dumps(context, ensure_ascii=False)
                 continue
+            if "requests_delivery" in data or "delivery_mode" in data:
+                raise ModelResponseError("请返回本次请求的完整内容，不能用内部交付标记代替。")
             if data.get("prompt_md") is not None:
                 validation_phase = "skeleton_validation"
                 if diagnostic is not None:
@@ -552,13 +636,15 @@ instead advance the story and ask only those questions in the usual public respo
                 raise ModelResponseError("本轮需要返回修复后的完整骨架，不能以空骨架或旧版本代替。")
             if plan is not None:
                 plan.validate_assembly(data, _skeleton_mode(data.get("prompt_md") or ""))
+                if "assembly" not in plan.record["completed"] and plan.saved_parts:
+                    plan.clear_part_repair()
                 plan.finish("assembly", data)
             if diagnostic is not None:
                 diagnostic({"event": "attempt.completed"})
                 if plan is not None:
                     diagnostic(plan.event("completed", "assembly"))
             break
-        except (json.JSONDecodeError, ModelResponseError, DeliveryError) as exc:
+        except (json.JSONDecodeError, ModelResponseError, DeliveryError, AssemblyError) as exc:
             if diagnostic is not None:
                 category = "json_decode" if isinstance(exc, json.JSONDecodeError) else {
                     "response_parse": "response_schema", "skeleton_validation": "skeleton_contract",
@@ -581,6 +667,21 @@ instead advance the story and ask only those questions in the usual public respo
                 # Immutable saved output failing a changed validator must not be
                 # silently regenerated during an explicit local publication retry.
                 raise ModelResponseError("已保存整合结果未通过当前骨架校验，请重新发起修改；阶段成果仍保留。") from exc
+            if plan is not None and stage == "assembly":
+                target = assembly_part or repair_part(str(exc))
+                if target is None:
+                    raise ModelResponseError("本地整合校验未通过，已保存各部分；需要调整对应内容：" + str(exc)) from exc
+                if assembly_part is None:
+                    assembly_repair_part = target
+                context.update(
+                    previous_model_response=(text if assembly_part is not None else
+                                             json.dumps(plan.saved_parts[target], ensure_ascii=False)),
+                    validation_error=("Response is not valid JSON." if isinstance(exc, json.JSONDecodeError) else str(exc)),
+                    repair_instruction=("Repair ONLY the requested assembly part. Preserve all saved story and chapter "
+                                        "content and compatible parts. Return the part JSON, never the complete skeleton."),
+                )
+                system, user = stage_request()
+                continue
             if data is not None and data.get("prompt_md") is not None:
                 # Keep the last complete candidate even if the next attempt
                 # fails to produce parseable transport JSON at all.
@@ -599,8 +700,8 @@ instead advance the story and ask only those questions in the usual public respo
                     "Do not replace the story with the schema example or an earlier approved version."
                     if profile == "delivery" else
                     "Repair the reported response format. Retain the full author context and return the "
-                    "discussion with prompt_md null, or request the automatic delivery handoff when a "
-                    "complete skeleton is appropriate. Do not invent missing export schemas."),
+                    "discussion with prompt_md null and ready_for_confirmation false. Never emit "
+                    "delivery fields or switch scope. Do not invent missing export schemas."),
                 repair_requires_skeleton=context.get("repair_requires_skeleton", False) or (
                     data is not None and data.get("prompt_md") is not None),
             )
@@ -611,7 +712,7 @@ instead advance the story and ask only those questions in the usual public respo
     return data, {"provider": route["provider"], "model": route["model"], "timeout_seconds": timeout}
 
 
-def _parse_response(text: str, previous_prompt: str) -> dict:
+def _parse_response(text: str, previous_prompt: str, *, discussion: bool = False) -> dict:
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE)
     data = json.loads(text)
@@ -623,7 +724,7 @@ def _parse_response(text: str, previous_prompt: str) -> dict:
         raise ModelResponseError("模型未返回完整的讨论响应格式，请重试；上一版骨架已保留。")
     if data.get("prompt_md") is not None and not data["prompt_md"].strip():
         raise ModelResponseError("模型返回空骨架；上一版骨架已保留。")
-    if data["ready_for_confirmation"] and not (data.get("prompt_md") or previous_prompt):
+    if not discussion and data["ready_for_confirmation"] and not (data.get("prompt_md") or previous_prompt):
         raise ModelResponseError("模型没有返回小说骨架，不能标记为可启动。")
     # Models sometimes fence their entire Markdown answer as code. Unwrap only
     # that outer presentation fence; preserve internal code blocks and full text.
@@ -651,13 +752,18 @@ def _preserved_context(has_prompt: bool) -> str:
 
 def _failure(exc: Exception, *, timeout_seconds: float, has_prompt: bool) -> str:
     from .workshop_delivery import DeliveryError
+    from .workshop_assembly import AssemblyError
     from .workshop_checkpoints import CheckpointError
     retained = _preserved_context(has_prompt)
+    if isinstance(exc, DeliveryTimeoutError):
+        scope = (f"整轮交付上限 {exc.request_seconds * 3:g} 秒" if exc.task_expired
+                 else f"单次请求上限 {exc.request_seconds:g} 秒")
+        return f"骨架交付超时（{scope}）。已完成的阶段和补全部分已保存，可继续未完成部分；不会自动重试模型调用。{retained}"
     if isinstance(exc, (TimeoutError,)) or any(word in str(exc).lower() for word in ("timeout", "timed out")):
         return f"模型响应超时（本轮上限 {timeout_seconds:g} 秒）。{retained}可以携带完整上下文重试。"
     if isinstance(exc, json.JSONDecodeError):
         return f"模型响应不完整或不是有效 JSON。{retained}可以重试。"
-    if isinstance(exc, (ModelResponseError, DeliveryError)):
+    if isinstance(exc, (ModelResponseError, DeliveryError, AssemblyError)):
         detail = str(exc).replace("上一版完整骨架已保留", "").replace("上一版骨架已保留", "").strip("；，。 ")
         return f"{detail[:400]}。{retained}"
     if isinstance(exc, CheckpointError):
@@ -969,6 +1075,7 @@ class WorkshopService:
             data["revision"] += 1
             data["messages"].append({"role": "user", "content": body.message.strip()})
             data.update(status="running", last_error=None, prepared=None, skill_version=version,
+                        turn_intent=body.intent,
                         turn_timeout_seconds=timeout, active_operation="brainstorm", ready_for_confirmation=False,
                         paused_at=None, resumed_from_revision=None, delivery_run_id=uuid.uuid4().hex,
                         delivery_source_revision=data["revision"], delivery_published_run_id=None)
@@ -1015,6 +1122,7 @@ class WorkshopService:
                             "title": archived["input"].get("title") or "未命名讨论"})
             data["revision"] += 1
             data.update(messages=[{"role": "user", "content": "请只依据当前基础设定，从头开始头脑风暴；提出有因果差异的故事方向并完善人物、冲突与结局。"}],
+                        turn_intent="discuss",
                         prompt_md="", questions=[], naming=None, prepared=None, logs=[], history=history,
                         initial_input=json.loads(json.dumps(data["input"])), status="running", last_error=None,
                         skill_version=version, turn_timeout_seconds=_timeout(), active_operation="brainstorm",
@@ -1100,6 +1208,7 @@ class WorkshopService:
             if data["status"] == "error" and (not checkpoint or not checkpoint["completed"]):
                 raise HTTPException(409, "本轮尚未保存可恢复的阶段，请重新提交讨论要求。")
             data["revision"] += 1
+            data["turn_intent"] = "deliver" if checkpoint else data.get("turn_intent", "discuss")
             data.update(status="running", last_error=None, paused_at=None, prepared=None,
                         turn_timeout_seconds=_timeout(), skill_version=version, resumed_from_revision=body.revision)
             if data.get("active_operation") != "titles" and not data.get("delivery_run_id"):
@@ -1132,7 +1241,7 @@ class WorkshopService:
                      if path.stem.isdigit() and int(snapshot.get("context_start_revision", 0)) <= int(path.stem) < revision),
                     key=lambda path: int(path.stem), reverse=True,
                 )
-                if earlier and not snapshot["_delivery_record"]:
+                if snapshot.get("turn_intent") == "deliver" and earlier and not snapshot["_delivery_record"]:
                     previous_candidate = earlier[0].read_text(encoding="utf-8")
                     if previous_candidate != snapshot["prompt_md"]:
                         snapshot["_previous_candidate"] = previous_candidate

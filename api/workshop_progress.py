@@ -20,6 +20,7 @@ _PHASES = {"preparing", "starting", "waiting", "receiving", "parsing", "validati
 _IDENTITY = ("session_id", "revision", "job_id", "operation")
 _TERMINAL = {"completed", "failed", "cancelled"}
 _STAGE_FIELDS = ("delivery_stage", "stage_index", "completed_stages", "current_stage_status")
+_BUDGET_FIELDS = ("task_budget_seconds", "request_timeout_seconds")
 _ACTIVITY_PREFIXES = {"reasoning_summary": "reasoning", "text": "text", "transport": "transport"}
 _REQUEST_FIELDS = ("request_id", "request_started_at", "last_cli_event_at", "last_content_at",
                    "last_upstream_event_at", "upstream_event", "upstream_endpoint_category",
@@ -94,6 +95,7 @@ def persist_progress(directory_fd: int, name: str, record: dict) -> None:
                     "last_completed_attempt": previous.get("last_completed_attempt"),
                     "repairing_response": previous.get("repairing_response") is True,
                     **{key: previous.get(key) for key in _STAGE_FIELDS},
+                    **{key: previous.get(key) for key in _BUDGET_FIELDS},
                 }
             previous = {key: record.get(key) for key in _IDENTITY}
             previous.update(attempt=record["attempt"], phase="preparing", content_chars=0,
@@ -111,6 +113,11 @@ def persist_progress(directory_fd: int, name: str, record: dict) -> None:
                 previous.pop(key, None)
             previous.update(content_chars=0, phase="preparing")
         p = previous
+        if event == "attempt.start":
+            for key in _BUDGET_FIELDS:
+                value = _number(record.get(key))
+                if value is not None and 0 < value <= 7 * 86400:
+                    p[key] = value
         # Read legacy sidecars without losing their already observed content.
         if "cumulative_content_chars" not in p:
             p["cumulative_content_chars"] = _number(p.get("content_chars")) or 0
@@ -141,7 +148,7 @@ def persist_progress(directory_fd: int, name: str, record: dict) -> None:
         if "configured_max_tokens" not in p and "max_tokens" in record:
             p["configured_max_tokens"] = record["max_tokens"]
         phase = p.get("phase", "preparing")
-        if event.startswith("delivery.stage."):
+        if event.startswith(("delivery.stage.", "delivery.part.")):
             # Completion means the worker saved and checked its checkpoint, so
             # it legitimately follows the model attempt's terminal event.
             p.update({key: record[key] for key in ("delivery_stage", "stage_index")})
@@ -248,6 +255,12 @@ def runtime_progress(session: dict, directory: Path) -> dict | None:
                   if row.get("event") in {"turn_started", "titles_started"}), None)
     deadline = None
     timeout = _number(session.get("turn_timeout_seconds"))
+    task_budget = _number(p.get("task_budget_seconds"))
+    request_budget = _number(p.get("request_timeout_seconds"))
+    # Only the running worker announces a larger staged budget. Merely having
+    # an old checkpoint must not change the deadline of a fresh discussion.
+    if task_budget is not None and timeout is not None and task_budget in (timeout, timeout * 3):
+        timeout = task_budget
     if start and timeout is not None and timeout <= 7 * 86400:
         deadline = (datetime.fromisoformat(start.replace("Z", "+00:00")) + timedelta(seconds=timeout)).isoformat()
     phase = p.get("phase") if isinstance(p.get("phase"), str) and p["phase"] in _PHASES else "preparing"
@@ -258,12 +271,14 @@ def runtime_progress(session: dict, directory: Path) -> dict | None:
     elif phase == "completed":
         phase = "validating"
     result = {**expected, "started_at": start, "deadline_at": deadline, "phase": phase,
-              "attempt": p.get("attempt") if type(p.get("attempt")) is int and 1 <= p["attempt"] <= 12 else None,
+              "task_budget_seconds": timeout,
+              "request_timeout_seconds": request_budget if request_budget == _number(session.get("turn_timeout_seconds")) else _number(session.get("turn_timeout_seconds")),
+              "attempt": p.get("attempt") if type(p.get("attempt")) is int and 1 <= p["attempt"] <= 32 else None,
               "request_id": None, "content_chars": _number(p.get("content_chars")) or 0,
               "cumulative_content_chars": (_number(p.get("cumulative_content_chars")) or 0)
                   if "cumulative_content_chars" in p else _number(p.get("content_chars")) or 0,
               "last_completed_attempt": p.get("last_completed_attempt")
-                  if type(p.get("last_completed_attempt")) is int and 1 <= p["last_completed_attempt"] <= 12 else None,
+                  if type(p.get("last_completed_attempt")) is int and 1 <= p["last_completed_attempt"] <= 32 else None,
               "repairing_response": p.get("repairing_response") is True,
               "upstream_event": None, "configured_max_tokens": _number(p.get("configured_max_tokens")),
               "effective_max_tokens": _number(p.get("effective_max_tokens")),

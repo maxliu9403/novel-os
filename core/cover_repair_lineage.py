@@ -57,10 +57,20 @@ def validate_lineage(store, cover_set, *, candidate_id=None, for_generation=Fals
     target = lineage["target_concept_id"]
     if candidates.get(lineage["parent_candidate_id"], {}).get("concept_id") != target:
         raise CoverConflict("Cover repair target does not match its parent")
+    targets = {target}
+    if lineage.get("operation") == "poster_retry":
+        parent_ids = lineage.get("parent_candidate_ids")
+        concept_ids = lineage.get("target_concept_ids")
+        if (not isinstance(parent_ids, list) or not parent_ids or len(set(parent_ids)) != len(parent_ids)
+                or parent_ids[0] != lineage["parent_candidate_id"]
+                or concept_ids != [candidates.get(key, {}).get("concept_id") for key in parent_ids]
+                or any(candidates.get(key, {}).get("status") not in {"failed", "pending"} for key in parent_ids)):
+            raise CoverConflict("Poster retry targets do not match failed parent slots")
+        targets = set(concept_ids)
     if [item.concept_id for item in cover_set.candidates] != [item["concept_id"] for item in parent["candidates"]]:
         raise CoverConflict("Cover repair changed portfolio slot identities or order")
     for item in cover_set.candidates:
-        if item.concept_id == target:
+        if item.concept_id in targets:
             if lineage.get("operation") == "image_repair":
                 concept = next(x for x in cover_set.concepts if x.concept_id == target)
                 repair = (concept.scene_plan.get("_source_binding") or {}).get("single_candidate_repair") or {}
@@ -69,6 +79,10 @@ def validate_lineage(store, cover_set, *, candidate_id=None, for_generation=Fals
                         or repair.get("candidate_id") != lineage["parent_candidate_id"]
                         or repair.get("concept_id") != target):
                     raise CoverConflict("Repaired candidate does not match its approved parent binding")
+            elif lineage.get("operation") == "poster_retry":
+                concept = next(x for x in cover_set.concepts if x.concept_id == item.concept_id)
+                if concept.to_dict() != concepts[item.concept_id]:
+                    raise CoverConflict("Poster retry changed the original direction")
             elif lineage.get("operation") not in {"evaluation", "typography"}:
                 raise CoverConflict("Unknown cover repair lineage operation")
             continue
@@ -79,3 +93,34 @@ def validate_lineage(store, cover_set, *, candidate_id=None, for_generation=Fals
             raise CoverConflict("Retained repair candidate changed its original image or recipe provenance")
         if for_generation and item.candidate_id == candidate_id:
             raise CoverConflict("Retained repair candidates do not receive new image allowance")
+
+
+def resolve_candidate_origin(store, cover_set, candidate_id):
+    """Resolve retained siblings to the frozen owner of their typography receipt.
+
+    Old amendments bind their original set id. Cloning a different slot never
+    grants permission to rewrite that binding or discard its integrity check.
+    """
+    try:
+        from .cover_models import CoverSet
+    except ImportError:  # Legacy CLI import.
+        from cover_models import CoverSet
+    seen = set()
+    current = cover_set
+    while True:
+        validate_lineage(store, current, candidate_id=candidate_id)
+        candidate = next((item for item in current.candidates if item.candidate_id == candidate_id), None)
+        if candidate is None:
+            raise CoverConflict("Retained cover candidate is absent from its source")
+        concept = next(item for item in current.concepts if item.concept_id == candidate.concept_id)
+        lineage = current.repair_lineage
+        targets = (set(lineage.get("target_concept_ids", ())) if lineage and lineage.get("operation") == "poster_retry"
+                   else {lineage.get("target_concept_id")} if lineage else set())
+        if not lineage or candidate.concept_id in targets:
+            return current, candidate, concept
+        checksum = lineage["parent_snapshot_sha256"]
+        if checksum in seen or len(seen) >= 100:
+            raise CoverConflict("Retained cover lineage contains a cycle")
+        seen.add(checksum)
+        path = store.root / "repair_sources" / f"{checksum}.json"
+        current = CoverSet.from_dict(json.loads(path.read_text("utf-8")))

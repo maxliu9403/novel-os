@@ -314,7 +314,8 @@ def _assert_budget(context, parent):
         if analysis_id in seen:
             raise _error('Analysis ancestry contains a cycle')
         seen.add(analysis_id)
-        if parent.get('semantic_revision') or parent.get('external_review_revision'):
+        if (parent.get('semantic_revision') or parent.get('external_review_revision')
+                or parent.get('reviewed_source_amendment') or parent.get('inherited_semantic_revision')):
             raise _error('The single source-bound semantic correction is already allocated',
                          code='analysis_semantic_repair_exhausted', analysis_id=analysis_id)
         ancestor = parent.get('reused_from_analysis_id')

@@ -10,13 +10,16 @@ import threading
 import pytest
 
 from api import workshop, workshop_checkpoints, workshop_delivery
+from api.workshop_assembly import ASSEMBLY_PARTS
 from core import provider_settings
 from core.llm_client import LLMClient
-from test_workshop_api import client, complete_prompt, create, finish, model_result  # noqa: F401
+from test_workshop_api import client, complete_prompt, create, finish  # noqa: F401
+from workshop_assembly_fixtures import parts_from_prompt
 from workshop_delivery_fixtures import stage_response
 
 
 def fake_native_transport(monkeypatch, prompt):
+    assembly_parts = parts_from_prompt(prompt)
     entered = threading.Event()
     release = threading.Event()
     drained = threading.Event()
@@ -60,10 +63,8 @@ def fake_native_transport(monkeypatch, prompt):
             if stage in {"story_design", "chapter_plan"}:
                 return stage_response(stage)
             if stage == "assembly":
-                return json.dumps(model_result(prompt)[0], ensure_ascii=False)
-            return json.dumps({"reply": "开始完整骨架交付", "questions": [], "prompt_md": None,
-                               "ready_for_confirmation": False, "requests_delivery": True,
-                               "delivery_mode": "short_novel"}, ensure_ascii=False)
+                return json.dumps(assembly_parts[context["assembly_part"]], ensure_ascii=False)
+            raise AssertionError(f"Explicit delivery made a non-stage model call: {context}")
         finally:
             with lock:
                 active[title] -= 1
@@ -100,7 +101,9 @@ def test_resume_waits_for_old_native_call_then_uses_saved_stage(client, monkeypa
     waiting, waiter_exited = observe_resumed_gate(monkeypatch)
     data = create(client, title="Primary")
     url = f'/api/workshop/sessions/{data["id"]}'
-    first = client.post(url + "/turns", json={"revision": 0, "message": "采用完整方案并交付骨架"}).json()
+    first = client.post(url + "/turns", json={
+        "revision": 0, "message": "采用完整方案并交付骨架", "intent": "deliver",
+    }).json()
     try:
         assert transport["entered"].wait(3)
         paused = client.post(url + "/pause", json={"revision": 1, "job_id": first["job_id"]}).json()
@@ -115,7 +118,7 @@ def test_resume_waits_for_old_native_call_then_uses_saved_stage(client, monkeypa
         assert waiting.wait(3), "Resumed worker must reach the real gate"
         assert not transport["resumed"].wait(0.15), "New LLM request overlapped undrained native call"
         assert not transport["drained"].is_set()
-        assert [call["stage"] for call in transport["calls"]] == [None, "story_design", "chapter_plan"]
+        assert [call["stage"] for call in transport["calls"]] == ["story_design", "chapter_plan"]
 
         if cancel_waiter:
             waiting_state = client.get(url).json()
@@ -138,9 +141,10 @@ def test_resume_waits_for_old_native_call_then_uses_saved_stage(client, monkeypa
         assert transport["drained"].is_set()
         assert transport["maximum_active"]["Primary"] == 1
         assert [call["stage"] for call in transport["calls"]] == [
-            None, "story_design", "chapter_plan", "chapter_plan", "assembly",
+            "story_design", "chapter_plan", "chapter_plan", *(["assembly"] * len(ASSEMBLY_PARTS)),
         ]
-        retry = transport["calls"][3]
+        assert [call["context"]["assembly_part"] for call in transport["calls"] if call["stage"] == "assembly"] == list(ASSEMBLY_PARTS)
+        retry = transport["calls"][2]
         assert retry["context"]["saved_story_stages"]["story_design"] == before["completed"]["story_design"]["content"]
         after = workshop_checkpoints.load_checkpoint(checkpoint_dir, paused["delivery_run_id"])
         assert after["completed"]["story_design"] == before["completed"]["story_design"]
@@ -156,16 +160,20 @@ def test_independent_discussions_do_not_share_the_native_inference_gate(client, 
     independent = create(client, title="Independent")
     primary_url = f'/api/workshop/sessions/{primary["id"]}'
     independent_url = f'/api/workshop/sessions/{independent["id"]}'
-    assert client.post(primary_url + "/turns", json={"revision": 0, "message": "完整交付"}).status_code == 202
+    assert client.post(primary_url + "/turns", json={
+        "revision": 0, "message": "完整交付", "intent": "deliver",
+    }).status_code == 202
     try:
         assert transport["entered"].wait(3)
-        assert client.post(independent_url + "/turns", json={"revision": 0, "message": "独立作品完整交付"}).status_code == 202
+        assert client.post(independent_url + "/turns", json={
+            "revision": 0, "message": "独立作品完整交付", "intent": "deliver",
+        }).status_code == 202
         other = finish(client, independent["id"])
         assert other["status"] == "ready", other.get("last_error")
         assert not transport["release"].is_set() and not transport["drained"].is_set()
         assert client.get(primary_url).json()["status"] == "running"
         assert [call["stage"] for call in transport["calls"] if call["title"] == "Independent"] == [
-            None, "story_design", "chapter_plan", "assembly",
+            "story_design", "chapter_plan", *(["assembly"] * len(ASSEMBLY_PARTS)),
         ]
         transport["release"].set()
         assert finish(client, primary["id"])["status"] == "ready"
