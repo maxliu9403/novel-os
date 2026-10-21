@@ -1,0 +1,301 @@
+{
+  "schema_version": 1,
+  "artifact_type": "production_prompt_validation",
+  "status": "pass",
+  "validated_at": "2026-10-04T08:09:12.445638+00:00",
+  "prompt_path": "/Users/max/OpenSource/Novel-OS/prompt/The Hours I Kept.md",
+  "prompt_sha256": "5803aca6fc08076516033e0ebef9245bed67fcdf504e2d06f9c164e7dba9a6b2",
+  "prompt_characters": 111077,
+  "native_intake_project": "/private/tmp/the-hours-i-kept-intake-28_qedhx",
+  "generate_author": false,
+  "model_run_started": false,
+  "manuscript_chapters_written": 0,
+  "checks": [
+    {
+      "name": "single_NOVEL_CLASSIFICATION_JSON",
+      "status": "pass",
+      "detail": "Exactly one opening and closing marker"
+    },
+    {
+      "name": "valid_json_NOVEL_CLASSIFICATION_JSON",
+      "status": "pass",
+      "detail": "Strict JSON object"
+    },
+    {
+      "name": "single_NARRATIVE_FORMAT_JSON",
+      "status": "pass",
+      "detail": "Exactly one opening and closing marker"
+    },
+    {
+      "name": "valid_json_NARRATIVE_FORMAT_JSON",
+      "status": "pass",
+      "detail": "Strict JSON object"
+    },
+    {
+      "name": "single_COMMERCIAL_STORY_JSON",
+      "status": "pass",
+      "detail": "Exactly one opening and closing marker"
+    },
+    {
+      "name": "valid_json_COMMERCIAL_STORY_JSON",
+      "status": "pass",
+      "detail": "Strict JSON object"
+    },
+    {
+      "name": "single_APPROVED_STORY_CONTRACT_JSON",
+      "status": "pass",
+      "detail": "Exactly one opening and closing marker"
+    },
+    {
+      "name": "valid_json_APPROVED_STORY_CONTRACT_JSON",
+      "status": "pass",
+      "detail": "Strict JSON object"
+    },
+    {
+      "name": "single_cover",
+      "status": "pass",
+      "detail": "Exactly one cover handoff"
+    },
+    {
+      "name": "native_classification_roundtrip",
+      "status": "pass",
+      "detail": "classification:785d7d12d0528af4e5972034e07f46d7dc50f7a571bcfc14fffb3e7febdd7777"
+    },
+    {
+      "name": "native_narrative_roundtrip",
+      "status": "pass",
+      "detail": "narrative-format:7d7610007b7c47470440df639d84d088f0b94560e8a2b102478260fd7356fa6e"
+    },
+    {
+      "name": "native_commercial_parser",
+      "status": "pass",
+      "detail": "commercial-story:620e109a9757991c59f260397674d77a5513e520ad2affb11f6952c5975e8bac"
+    },
+    {
+      "name": "native_cover_v2_parser",
+      "status": "pass",
+      "detail": {
+        "title": "The Hours I Kept",
+        "principal_characters": 3
+      }
+    },
+    {
+      "name": "cover_age_and_protagonist",
+      "status": "pass",
+      "detail": "Helen 58 is sole mandatory cover character"
+    },
+    {
+      "name": "top_fields_no_late_override",
+      "status": "pass",
+      "detail": {
+        "title": "The Hours I Kept",
+        "genre": "Women's Fiction",
+        "audience": "US women aged 50–65; marital betrayal, reclaimed dignity, and later-life rebuilding",
+        "language": "English",
+        "tone": "Intimate, emotionally realistic, restrained angst, dry humor, earned hope",
+        "pov": "Helen Mercer — first person, past tense, strictly limited",
+        "chapters": "24",
+        "words": "28800"
+      }
+    },
+    {
+      "name": "complete_chapter_map",
+      "status": "pass",
+      "detail": "Chapters 1–24, no gaps or duplicates"
+    },
+    {
+      "name": "chapter_scene_and_word_targets",
+      "status": "pass",
+      "detail": "48 planned scenes; 24 × 1,200 = 28,800"
+    },
+    {
+      "name": "four_acts_cover_book",
+      "status": "pass",
+      "detail": "Four consecutive six-chapter acts"
+    },
+    {
+      "name": "narrative_confirmed",
+      "status": "pass",
+      "detail": "User-selected standalone short novel"
+    },
+    {
+      "name": "source_free_selected_trace",
+      "status": "pass",
+      "detail": "Only selected original approach"
+    },
+    {
+      "name": "audience_and_setting",
+      "status": "pass",
+      "detail": "Confirmed market retained as metadata; invented story places"
+    },
+    {
+      "name": "character_identity_and_relationship_refs",
+      "status": "pass",
+      "detail": "Six stable character IDs and valid relationships"
+    },
+    {
+      "name": "ending_schema",
+      "status": "pass",
+      "detail": "Engine-compatible ending field shape; not an ending-quality run"
+    },
+    {
+      "name": "character_outcome_refs",
+      "status": "pass",
+      "detail": "Six distinct semantic outcomes with planned observable evidence"
+    },
+    {
+      "name": "ending_thread_refs",
+      "status": "pass",
+      "detail": "Main and accountability thread IDs resolve"
+    },
+    {
+      "name": "payoff_ids",
+      "status": "pass",
+      "detail": "Seven stable required payoff IDs"
+    },
+    {
+      "name": "setup_ids",
+      "status": "pass",
+      "detail": [
+        "ch1:fs1",
+        "ch2:fs1",
+        "ch3:fs1",
+        "ch9:fs1",
+        "ch5:fs1",
+        "ch7:fs1",
+        "ch2:fs2",
+        "ch6:fs1",
+        "ch1:fs2",
+        "ch6:fs2",
+        "ch8:fs1",
+        "ch2:fs3",
+        "ch3:fs2"
+      ]
+    },
+    {
+      "name": "payoff_deadlines",
+      "status": "pass",
+      "detail": "No intentionally open core promises; deadlines no later than chapter 24"
+    },
+    {
+      "name": "future_events_not_canon",
+      "status": "pass",
+      "detail": "Planned events and terminal outcomes have not been promoted"
+    },
+    {
+      "name": "subplot_intervals",
+      "status": "pass",
+      "detail": "Active daughter, staff and friendship touches have gaps of at most three chapters"
+    },
+    {
+      "name": "preclose_budget_arithmetic",
+      "status": "pass",
+      "detail": "$8,400 - $6,800 = $1,600 before training pay"
+    },
+    {
+      "name": "training_budget_arithmetic",
+      "status": "pass",
+      "detail": "$40 × at most 40 hours; $800 advance reconciled against actual total"
+    },
+    {
+      "name": "epilogue_budget_arithmetic",
+      "status": "pass",
+      "detail": "$12,500 - $9,200 - $400 = $2,900; $2,900 - $2,550 = $350"
+    },
+    {
+      "name": "story_lead_contract",
+      "status": "pass",
+      "detail": "Required English 120–180-word lead with compiler boundary; prose not yet written"
+    },
+    {
+      "name": "free_arc_contract",
+      "status": "pass",
+      "detail": "Three-chapter micro-arc; actual platform not selected"
+    },
+    {
+      "name": "no_trailing_whitespace",
+      "status": "pass",
+      "detail": "Includes this ignored/untracked prompt file"
+    },
+    {
+      "name": "disposable_intake_fields",
+      "status": "pass",
+      "detail": "Native ingest_prompt in new disposable project, generate_author=False"
+    },
+    {
+      "name": "raw_prompt_roundtrip",
+      "status": "pass",
+      "detail": "Full custom contract and lead requirements preserved verbatim"
+    },
+    {
+      "name": "native_brief_canonical_metadata",
+      "status": "pass",
+      "detail": "Intake preserves locked native contracts"
+    },
+    {
+      "name": "correct_premise_extraction",
+      "status": "pass",
+      "detail": "Helen Mercer, a 58-year-old catering co-owner, discovers that her husband has offered six months of her unpaid work to support the price of their business sale. With eight weeks before the old kitchen lease ends, she must fulfill existing commitments, negotiate an exit that no longer depends on her unlimited availability, and test a small livelihood of her own—even when keeping her time costs her retirement money and the future she thought they shared."
+    },
+    {
+      "name": "launch_project_unused",
+      "status": "pass",
+      "detail": "Suggested new project directory is not in use"
+    }
+  ],
+  "review_scope": {
+    "design_review": "pass_after_targeted_repairs",
+    "parser_validation": "pass",
+    "custom_contract_validation": "JSON and references checked separately; raw prompt round-trip verified",
+    "custom_contract_native_parsing": "not supported by prompt_intake; Architect propagation explicitly instructed",
+    "cover_handoff": "native v2 parser pass; no cover image requested or generated",
+    "draft_review": "not_run",
+    "ending_quality_gate": "not_run: no manuscript or final canonical state exists",
+    "independent_final_prompt_reviews": "pass"
+  },
+  "author_approval": {
+    "date": "2026-10-04",
+    "reply": "同意",
+    "scope": "Selected original approach A and complete Sections A–E; no further design confirmation required"
+  },
+  "independent_reviews": [
+    {
+      "reviewer": "reference_logic_audit",
+      "status": "pass",
+      "scope": "Entire assembled prompt: material isolation, independent causal sequence, 24 chapters, seven payoff references, six character outcomes",
+      "prose_review": "not_run"
+    },
+    {
+      "reviewer": "domestic_alternative",
+      "status": "pass",
+      "scope": "Final prompt: timeline, three pilots, resource separation, training payment, budget arithmetic and engine ending-contract field compatibility",
+      "prose_review": "not_run"
+    },
+    {
+      "reviewer": "original_story_options",
+      "status": "pass",
+      "scope": "Final prompt and illustrative voice fragments: emotional causality, character voice, 24-chapter capacity and earned ending",
+      "prose_review": "not_run"
+    }
+  ],
+  "final_repair": {
+    "location": "chapter_map chapter 5 scene 1",
+    "change": "D6 Tuesday conversation explicitly schedules the next Sunday's two-hour help window.",
+    "impact": "Clarifies the approved timeline without moving events or changing the story.",
+    "revalidation": "All 41 checks rerun on the final prompt after this change"
+  },
+  "launcher_validation": {
+    "command": "./deploy.sh novel --help",
+    "exit_code": 0,
+    "full_generation_command_executed": false,
+    "handoff": "handoff.md",
+    "project_name": "the-hours-i-kept",
+    "expected_outputs": "docker-data/projects/the-hours-i-kept/outputs/",
+    "runtime_credentials_or_container_health_checked": false
+  },
+  "limitations": [
+    "No model generation or publication was started.",
+    "Prompt instructions do not prove future model adherence or backend enforcement.",
+    "No claim of word-count, prose-quality or ending-quality approval for an unwritten book."
+  ]
+}

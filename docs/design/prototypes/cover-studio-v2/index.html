@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Novel OS · 封面工作室设计稿</title>
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="studio.css">
+</head>
+<body>
+  <aside class="sidebar" aria-label="主导航">
+    <a class="brand" href="#gallery" aria-label="Novel OS 封面工作室"><img src="assets/logo.svg" alt="Novel OS"></a>
+    <div class="nav-caption">创作空间</div>
+    <button class="nav-item" data-action="library" aria-label="作品库"><i data-icon="library"></i><span>作品库</span><small>全部作品</small></button>
+    <button class="nav-item" data-action="brainstorm" aria-label="头脑风暴"><i data-icon="brain"></i><span>头脑风暴</span><small>讨论档案</small></button>
+    <div class="nav-separator"></div>
+    <div class="nav-caption">当前作品</div>
+    <button class="nav-item" data-action="overview" aria-label="作品概览"><i data-icon="layout-dashboard"></i><span>作品概览</span></button>
+    <button class="nav-item active" data-action="home" aria-label="封面工作室" aria-current="page"><i data-icon="image"></i><span>封面工作室</span><span class="nav-dot"></span></button>
+    <div class="sidebar-bottom"><div class="demo-note"><span class="status-dot"></span>交互设计稿 <span>V2</span></div><p>虚构示例 · 操作仅保存在本机<br>不会启动正式创作任务</p><button class="text-button" data-action="reset">重置演示</button></div>
+  </aside>
+
+  <main class="workspace">
+    <div class="topline"><button class="text-button" data-action="library"><i data-icon="arrow-left"></i>返回作品库</button><span class="demo-top">设计预览 <span>·</span> <a href="artboard.html" style="text-decoration:none">原创封面示例 ↗</a></span></div>
+    <header class="studio-header">
+      <div><div class="eyebrow">NOVEL OS / COVER STUDIO</div><h1>封面工作室</h1><p class="book-title">After Thirty Years, I Choose Me</p></div>
+      <div class="header-actions"><button class="button quiet" data-action="history"><i data-icon="history"></i>版本历史</button><button class="button quiet" data-action="cost"><i data-icon="layers"></i>费用与模型</button><button class="button" data-action="delivery"><i data-icon="download"></i>交付包</button></div>
+    </header>
+    <div class="context-strip"><span><i data-icon="file-text"></i>完整骨架已载入 <span class="context-dot">·</span> 示例书稿</span><span>北美 · 40–60 岁女性</span><span>家庭关系 / 自我选择</span><button class="text-button" data-action="source">查看来源与设定 <i data-icon="chevron-right"></i></button></div>
+    <div class="workspace-toolbar"><div class="tabs" role="tablist" aria-label="封面工作区"><button id="tab-plan" role="tab" aria-controls="panel-plan" data-tab="plan">设计方案 <span>4 个方向</span></button><button id="tab-gallery" role="tab" aria-controls="panel-gallery" data-tab="gallery">候选封面 <span id="gallery-count">4/4</span></button></div><div class="scenario-control"><label for="scenario">演示状态</label><select id="scenario"><option value="ready">全部完成</option><option value="partial">部分生成中</option><option value="failed">单张失败</option><option value="all_failed">整批失败</option></select></div></div>
+    <section id="panel-plan" class="tab-panel" role="tabpanel" aria-labelledby="tab-plan" hidden></section>
+    <section id="panel-gallery" class="tab-panel" role="tabpanel" aria-labelledby="tab-gallery"></section>
+    <footer class="page-foot"><span>完整骨架 → 联合设计 → 4 张候选 → 选择或精修</span><span>所有画面与人物均为原创虚构设计示例</span></footer>
+  </main>
+
+  <dialog id="editor-dialog" class="studio-dialog"><div id="dialog-body"></div></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="studio.js"></script>
+</body>
+</html>

@@ -864,28 +864,64 @@ def _load_story_contract_for_review(project: Path) -> tuple[CommercialStoryContr
     return contract, story_head.revision_id
 
 
-def _promotion_receipt_for_revision(project: Path, revision_id: str, sha256: str) -> Any:
-    from promotion import PromotionService
+class _PromotionReceiptLookup:
+    """Index ledger candidates, then validate matches through PromotionService.
 
-    service = PromotionService(project)
-    for path in sorted(service.receipt_dir.glob("*.json"), key=lambda item: item.name):
+    The ledger narrows the search by chapter and artifact SHA. Receipt authority
+    still comes from ``load_receipt`` with historical-tail validation semantics.
+    """
+
+    def __init__(self, project: Path) -> None:
+        from promotion import PromotionService
+
+        self._service = PromotionService(project)
+        self._candidates = self._candidate_keys()
+        self._validated: dict[tuple[int, str, str], Any | None] = {}
+
+    def _candidate_keys(self) -> dict[tuple[int, str], tuple[str, ...]]:
+        from canon_ledger import CanonLedgerEntry
+
+        candidates: dict[tuple[int, str], list[str]] = {}
         try:
-            receipt = service.load_receipt(path.stem, check_current_tail=False)
-        except Exception:  # noqa: BLE001 - malformed receipts become review findings
-            continue
-        if (
-            receipt is not None
-            and receipt.new_artifact_revision_id == revision_id
-            and receipt.new_artifact_sha256 == sha256
-        ):
-            return receipt
-    return None
+            history = self._service.ledger.history()
+        except Exception:  # noqa: BLE001 - corrupt canon cannot grant authority
+            return {}
+        for entry in history:
+            if isinstance(entry, CanonLedgerEntry):
+                candidates.setdefault(
+                    (entry.chapter, entry.source_artifact_sha), []
+                ).append(entry.idempotency_key)
+        return {
+            target: tuple(sorted(keys)) for target, keys in candidates.items()
+        }
+
+    def find(self, chapter: int, revision_id: str, sha256: str) -> Any:
+        target = (chapter, revision_id, sha256)
+        if target in self._validated:
+            return self._validated[target]
+        for key in self._candidates.get((chapter, sha256), ()):
+            try:
+                receipt = self._service.load_receipt(
+                    key, check_current_tail=False
+                )
+            except Exception:  # noqa: BLE001 - malformed receipts are not evidence
+                continue
+            if (
+                receipt is not None
+                and receipt.new_artifact_revision_id == revision_id
+                and receipt.new_artifact_sha256 == sha256
+            ):
+                self._validated[target] = receipt
+                return receipt
+        self._validated[target] = None
+        return None
 
 
 def _collect_chapter_evidence(
     project: Path, chapter_count: int, story_revision_id: str
 ) -> tuple[list[_ChapterCommercialEvidence], list[CommercialFinding]]:
     artifacts = ArtifactStore(project)
+    receipt_lookup = _PromotionReceiptLookup(project)
     findings: list[CommercialFinding] = []
     evidence: list[_ChapterCommercialEvidence] = []
     for number in range(1, chapter_count + 1):
@@ -924,7 +960,9 @@ def _collect_chapter_evidence(
             findings.append(_finding("chapter_report_story_contract_mismatch", f"Chapter {number} report uses a different story contract"))
         if report.chapter_contract_revision_id != contract_head.revision_id:
             findings.append(_finding("chapter_report_contract_mismatch", f"Chapter {number} report uses a different chapter contract"))
-        receipt = _promotion_receipt_for_revision(project, final_revision.revision_id, final_revision.sha256)
+        receipt = receipt_lookup.find(
+            number, final_revision.revision_id, final_revision.sha256
+        )
         if receipt is None:
             findings.append(_finding("missing_promotion_receipt", f"Chapter {number} has no promotion receipt bound to its final artifact"))
             receipt_id = ""
@@ -1245,6 +1283,7 @@ def _review_input_hashes(
     except Exception:
         story_revision_id = ""
     artifacts = ArtifactStore(project)
+    receipt_lookup = _PromotionReceiptLookup(project)
     values: dict[str, str] = {"story_contract_revision_id": story_revision_id}
     for number in range(1, chapter_count + 1):
         contract_head = artifacts.get_head(number, "chapter_contract")
@@ -1255,7 +1294,9 @@ def _review_input_hashes(
             try:
                 revision = artifacts.get_revision(final_head.revision_id)
                 values[f"chapter_{number:03d}_final_sha256"] = revision.sha256
-                receipt = _promotion_receipt_for_revision(project, revision.revision_id, revision.sha256)
+                receipt = receipt_lookup.find(
+                    number, revision.revision_id, revision.sha256
+                )
                 values[f"chapter_{number:03d}_promotion_receipt_id"] = receipt.receipt_id if receipt else ""
             except Exception:
                 values[f"chapter_{number:03d}_final_sha256"] = ""

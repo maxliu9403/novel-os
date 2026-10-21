@@ -100,6 +100,32 @@ def test_character_specific_fields_are_editable(client):
     assert r.json()["role"] == "antagonist"
 
 
+def test_author_can_set_and_correct_character_identity(client, state_file):
+    response = client.patch("/api/projects/book/codex/char_001", json={
+        "gender": "female", "pronouns": "她 / she/her", "aliases": ["莉娜"],
+    })
+    assert response.status_code == 200
+    assert response.json()["fields"] == {
+        "gender": "female", "pronouns": "她 / she/her", "aliases": ["莉娜"],
+    }
+    response = client.patch("/api/projects/book/codex/char_001", json={"pronouns": "she/her"})
+    assert response.status_code == 200
+    identity = get_entry(client, "char_001")["fields"]
+    assert identity == {"gender": "female", "pronouns": "she/her", "aliases": ["莉娜"]}
+    saved = json.loads(state_file.read_text())
+    assert saved["characters"]["char_001"]["internal_desire"] == "to be believed"
+    assert saved["characters"]["char_001"]["last_appearance_chapter"] == 7
+
+
+def test_invalid_identity_patch_does_not_partially_rename_character(client, state_file):
+    before = state_file.read_bytes()
+    response = client.patch("/api/projects/book/codex/char_001", json={
+        "name": "New Name", "aliases": [""],
+    })
+    assert response.status_code == 400
+    assert state_file.read_bytes() == before
+
+
 def test_editing_a_character_does_not_disturb_engine_owned_facts(client, state_file):
     """last_appearance_chapter is derived from the manuscript, not typed.
 

@@ -12,19 +12,26 @@ controlled comparison.
 
 Record the selected profile in the workshop artifact and generated Prompt:
 
-```yaml
-retention_profile:
-  mode: retention_first|balanced|literary_first
-  language: <output language>
-  market_scope: <country, region, and release markets>
-  target_audience: <user-confirmed primary reader segment, age/life stage, and reading motivation>
-  setting_mode: fictionalized
-  reader_promise: <the repeatable experience the reader is buying>
-  primary_satisfaction: <revenge|competence|romance|mystery|power|belonging|other>
-  opening_window:
-    unit: characters|words|sentences|platform_screen
-    target: <default range adapted to language and platform>
-  free_window: <chapters or milestone definition>
+Use quoted-key JSON for these nested contracts. An indented YAML `language:`
+line is still treated as top-level metadata by the current Prompt Intake.
+
+```json
+{
+  "retention_profile": {
+    "mode": "retention_first",
+    "language": "<output language>",
+    "market_scope": "<country, region, and release markets>",
+    "target_audience": "<user-confirmed primary segment, life stage, and reading motivation>",
+    "setting_mode": "<author-approved real, fictionalized, or mixed setting>",
+    "reader_promise": "<repeatable reader experience>",
+    "primary_satisfaction": "<competence, revenge, romance, mystery, power, belonging, or other>",
+    "opening_window": {
+      "unit": "<characters, words, sentences, or platform_screen>",
+      "target": "<language- and platform-adjusted suggestion>"
+    },
+    "free_window": "<chapters or milestone definition, or not applicable>"
+  }
+}
 ```
 
 `retention_first` is a design priority, not a fixed voice. Preserve the chosen
@@ -42,28 +49,38 @@ or a guarantee of commercial conversion.
 
 Use this contract in the approved design and generated Prompt:
 
-```yaml
-story_lead_contract:
-  required: true
-  placement: before_chapter_1
-  language: <output language>
-  reader_heading: <localized short label, such as 序 or Story Lead>
-  length:
-    unit: characters|words
-    target_range: [<minimum>, <maximum>]
-  core_conflict: <specific collision, injustice, betrayal, threat, or impossible demand>
-  identification_trigger: <immediate desire, loss, fear, humiliation, or boundary>
-  emotional_target: resonance|anger|anticipation|mixed
-  satisfaction_promise: <earned counteraction, exposure, reversal, escape, or rise>
-  unanswered_question: <specific reason to enter chapter one>
-  spoiler_limit: <ending or payoff mechanism that remains unrevealed>
-  manuscript_marker: "## STORY_LEAD: <reader_heading>"
+```json
+{
+  "story_lead_contract": {
+    "required": true,
+    "placement": "before_chapter_1",
+    "language": "<output language>",
+    "reader_heading": "<localized short label, such as 序 or Story Lead>",
+    "length": {
+      "unit": "words",
+      "target_range": [
+        120,
+        180
+      ]
+    },
+    "core_conflict": "<specific conflict, injustice, threat, or impossible demand>",
+    "identification_trigger": "<immediate desire, loss, fear, humiliation, or boundary>",
+    "emotional_target": "<resonance, anger, anticipation, or mixed>",
+    "satisfaction_promise": "<earned payoff promised to the reader>",
+    "unanswered_question": "<specific question leading into chapter one>",
+    "spoiler_limit": "<ending or major payoff mechanism kept unrevealed>",
+    "manuscript_marker": "## STORY_LEAD: <reader_heading>"
+  }
+}
 ```
 
 Default to `180-260` characters for Chinese and `120-180` words for English.
+The JSON example illustrates the English unit and suggestion; adapt both to
+the approved output language.
 For another language, record a comparable range based on language density,
 platform layout, and the target market's reading pattern. These are target
-ranges for editorial control, not performance claims.
+ranges for editorial guidance, not exact-length gates or performance claims.
+Allow natural variation and preserve an explicit user choice over these defaults.
 
 Build the lead in this order:
 

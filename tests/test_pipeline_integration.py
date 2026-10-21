@@ -32,7 +32,7 @@ class PipelineLLM:
 
     def complete(self, *, system, user):
         type(self).calls.append(system.splitlines()[0])
-        if system.startswith("whole-book-conflict.v2"):
+        if system.startswith("whole-book-conflict.v3"):
             source = json.loads(user.rsplit("as canonical JSON:\n", 1)[1])
             chapters = source["chapters"]
             by_number = {item["number"]: item for item in chapters}
@@ -457,7 +457,20 @@ def test_real_orchestrator_pipeline_completes_two_chapters(tmp_path: Path):
     assert (project / "outputs/deliverables/package-manifest.json").is_file()
     with zipfile.ZipFile(project / "outputs/deliverables/book-package.zip") as package:
         assert "book.md" in package.namelist()
+        assert "meta/novel-classification.json" in package.namelist()
         assert "package-manifest.json" in package.namelist()
+        classification = json.loads(
+            package.read("meta/novel-classification.json")
+        )
+        assert classification["schema_version"] == "novel-classification.v1"
+        assert classification["primary_genre_id"]
+        assert classification["filter_type_ids"]
+        assert classification["audience"]["channel"] in {
+            "female", "male", "general",
+        }
+        assert classification["length"]["form"] in {
+            "short", "long", "unknown",
+        }
 
 
 def test_real_orchestrator_commercial_pipeline_persists_originality_gate(
@@ -1090,7 +1103,8 @@ def test_resume_reconciles_committed_promotion_before_restoring_state(
     assert canonical_canon_sha(StoryState(str(project))) == committed_canon_sha
 
 
-def test_resume_reuses_committed_chapters_after_outline_checkpoint_changes(tmp_path: Path):
+@pytest.mark.parametrize("changed_file", ["outputs/outline.md", "outputs/input/foundation.json"])
+def test_resume_blocks_planning_drift_before_regenerating_committed_story(tmp_path: Path, changed_file):
     prompt = tmp_path / "prompt.md"
     prompt.write_text("# One Prompt Book\n\nMara chooses a new life.", encoding="utf-8")
     project = tmp_path / "project"
@@ -1105,23 +1119,35 @@ def test_resume_reuses_committed_chapters_after_outline_checkpoint_changes(tmp_p
     ))
     assert manifest.status == "completed", manifest.error
 
-    # Make the upstream outline checkpoint stale after both chapter
-    # promotions have committed.  A resume must replay planning context only.
-    outline = project / "outputs/outline.md"
-    outline.write_text(outline.read_text(encoding="utf-8") + "\nchanged\n", encoding="utf-8")
+    # A real Architect is nondeterministic: replay could change the story under
+    # already committed chapters. Stop before any LLM call or state rollback.
+    outline = project / changed_file
+    if changed_file.endswith(".json"):
+        changed = json.loads(outline.read_text(encoding="utf-8"))
+        changed["premise"] = "A different story produced by another run."
+        outline.write_text(json.dumps(changed), encoding="utf-8")
+    else:
+        outline.write_text(outline.read_text(encoding="utf-8") + "\nchanged\n", encoding="utf-8")
     manifest.status = "paused"
     manifest.error = "simulated outline checkpoint drift"
     store = runner._store(project, manifest.run_id)
     store.save(manifest)
+    state_before = (project / "outputs/state/story_state.json").read_bytes()
+    ledger_before = (project / "outputs/state/canon_ledger.jsonl").read_bytes()
+    outline_before = outline.read_bytes()
 
     PipelineLLM.calls.clear()
     resumed = PipelineRunner(
         orchestrator_factory=_real_orchestrator_with_fake_llm
     ).resume(manifest.run_id, project)
 
-    assert resumed.status == "completed", resumed.error
-    assert "scribe" not in PipelineLLM.calls
-    assert "editor" not in PipelineLLM.calls
+    assert resumed.status == "paused", resumed.error
+    assert "Committed chapters" in resumed.error
+    assert "outline" in resumed.error
+    assert PipelineLLM.calls == []
+    assert (project / "outputs/state/story_state.json").read_bytes() == state_before
+    assert (project / "outputs/state/canon_ledger.jsonl").read_bytes() == ledger_before
+    assert outline.read_bytes() == outline_before
     assert all(
         resumed.get("chapter.promote", number).promotion_receipt_id
         for number in (1, 2)
@@ -1430,9 +1456,9 @@ def test_resume_reloads_bound_canon_proposal_by_id(tmp_path: Path):
     assert PipelineLLM.calls[: len(before_calls)] == before_calls
     assert all(
         call in {
-            "whole-book-conflict.v2",
+            "whole-book-conflict.v3",
             "publication-copy-writer.v2",
-            "publication-copy-validator.v2",
+            "publication-copy-validator.v3",
         }
         for call in PipelineLLM.calls[len(before_calls) :]
     )

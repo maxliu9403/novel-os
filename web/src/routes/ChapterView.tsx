@@ -9,6 +9,7 @@ import {
   type ChapterSummary,
   type CommentItem,
 } from "../api/client";
+import MethodReviews from "../components/MethodReviews";
 import StatusPill from "../components/StatusPill";
 import PipelineFlow, { type StageKey } from "../components/PipelineFlow";
 // TipTap and its extensions are the bulk of this route's bundle, and they are
@@ -431,6 +432,7 @@ export default function ChapterView() {
               </div>
             </div>
             <PipelineFlow stages={stages} selected={selected} onSelect={selectStage} />
+            <MethodReviews key={`${id}:${num}`} projectId={id!} chapter={num} />
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <RunButton label="生成初稿" running={runningStage === "write"}

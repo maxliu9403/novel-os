@@ -1,4 +1,4 @@
-"""Immutable proposals for agent-authored canon deltas."""
+"""Immutable proposals for agent-authored and imported-source canon deltas."""
 
 from __future__ import annotations
 
@@ -17,7 +17,10 @@ from state_parser import apply_to_state, parse_agent_output
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _PROPOSAL_ID_RE = re.compile(r"^proposal-[0-9a-f]{64}$")
 _ALLOWED_AGENT_NAMES = frozenset(
-    {"architect", "scribe", "editor", "continuity_guardian", "style_curator"}
+    {
+        "architect", "scribe", "editor", "continuity_guardian", "style_curator",
+        "user_supplied_import",
+    }
 )
 
 

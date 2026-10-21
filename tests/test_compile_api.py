@@ -112,7 +112,9 @@ def test_markdown_compile_is_offered_too(client):
     r = client.get("/api/projects/book/compile?format=markdown")
     assert r.status_code == 200
     assert 'filename="book.md"' in r.headers["content-disposition"]
-    assert r.text.startswith("# The Pier")
+    assert r.text.startswith('---\nnovel_os_schema: "novel-classification.v1"')
+    assert 'primary_genre_id: "general_fiction"' in r.text
+    assert "# The Pier" in r.text
 
 
 def test_downloaded_markdown_and_epub_include_publication_intro_before_chapter_one(

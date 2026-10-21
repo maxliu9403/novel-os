@@ -8,6 +8,7 @@ from core.cover_director import CoverArtDirector, CoverDirectionError
 from core.cover_design import evidence_ledger_from_brief
 from core.cover_models_v2 import CoverBriefV2
 from core.cover_profiles import portfolio_blueprint
+from core.cover_validator import validate_direction
 from tests.test_cover_models_v2 import two_character_fixture
 
 
@@ -267,14 +268,14 @@ def test_live_director_repairs_invalid_json_shape_before_semantic_review() -> No
         calls.append(user)
         return next(responses)
 
-    direction = CoverArtDirector(complete=complete, model="fixture-designer").plan(
+    direction = CoverArtDirector(complete=complete, model="fixture-designer", profile_version="cover-profiles.v8").plan(
         _brief(), count=4,
     )
 
     assert len(calls) == 2
     assert "cover director response must be a JSON object" in calls[1]
     assert direction.visual_identity is not None
-    assert direction.profile_version == "cover-profiles.v5"
+    assert direction.profile_version == "cover-profiles.v8"
 
 
 def test_director_rejects_provider_failure_before_image_generation() -> None:
@@ -290,7 +291,7 @@ def test_director_rejects_provider_failure_before_image_generation() -> None:
 def test_director_prompt_defines_exact_machine_readable_response_contract() -> None:
     brief = _brief()
 
-    payload = json.loads(CoverArtDirector._user_prompt(brief, 4))
+    payload = json.loads(CoverArtDirector._user_prompt(brief, 4, profile_version="cover-profiles.v8"))
 
     contract = payload["response_contract"]
     assert contract["plans"]["exact_count"] == 4
@@ -308,7 +309,7 @@ def test_director_prompt_defines_exact_machine_readable_response_contract() -> N
         "causal_visibility", "conflict_delivery", "conflict_read", "cause_signal",
         "consequence_signal", "conflict_character_ids", "protagonist_action_visible",
     }
-    assert contract["fixed_values"]["profile_version"] == "cover-profiles.v5"
+    assert contract["fixed_values"]["profile_version"] == "cover-profiles.v8"
     assert "core_conflict_visual_contract" in contract["top_level_required_fields"]
     assert "visual_identity" in contract["top_level_required_fields"]
     assert contract["allowed_character_ids"] == ["char_mara", "char_oren"]
@@ -323,6 +324,140 @@ def test_director_prompt_defines_exact_machine_readable_response_contract() -> N
     assert "book-specific lettering" in field_rules["typography_style"]
 
 
+def test_director_contract_surfaces_story_constraints_without_design_fields() -> None:
+    payload = two_character_fixture()
+    payload["cover_constraints"] = {
+        "constraint_version": "cover-constraints.v1",
+        "must_preserve_story_facts": ["estranged spouses"],
+        "must_show_if_supported": ["door_choice"],
+        "must_not_show": ["final reconciliation"],
+        "spoiler_ceiling": "Do not reveal the final relationship outcome.",
+        "user_visual_preferences": ["restrained live-action photography"],
+        "preferred_story_node_ids": ["door_choice"],
+        "preferred_character_ids": ["char_mara"],
+        "source_refs": ["section:9.node:door_choice"],
+    }
+    brief = CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+
+    contract = CoverArtDirector._response_contract(brief, 4, profile_version="cover-profiles.v8")
+
+    story_constraints = contract["story_constraints"]
+    assert story_constraints["source"] == "brief.cover_constraints"
+    assert story_constraints["required"] is False
+    assert story_constraints["constraints"]["preferred_story_node_ids"] == ["door_choice"]
+    assert "candidate_moments" not in story_constraints["constraints"]
+    assert "visual_hook" not in story_constraints["constraints"]
+    assert "cover moment selection" in story_constraints["studio_owns"]
+
+
+def test_director_contract_requires_shared_core_conflict_evidence_in_every_plan() -> None:
+    contract = json.loads(CoverArtDirector._user_prompt(_brief(), 4))[
+        "response_contract"
+    ]
+
+    assert "core_conflict_visual_contract.evidence_refs" in (
+        contract["plans"]["field_rules"]["story_evidence_refs"]
+    )
+
+
+def test_adaptive_contract_declares_strict_container_field_types() -> None:
+    contract = json.loads(CoverArtDirector._user_prompt(_brief(), 4))[
+        "response_contract"
+    ]
+
+    assert contract["plans"]["field_types"] == {
+        "story_evidence_refs": "non-empty array of strings",
+        "cast": "non-empty array of strings",
+        "gaze_graph": "non-empty array of strings",
+        "environment_anchors": "non-empty array of strings",
+        "visual_hook": "object",
+        "conflict_character_ids": "array of strings; may be empty",
+        "protagonist_action_visible": "boolean",
+        "all_other_required_fields": "non-empty string",
+    }
+    assert contract["core_conflict_visual_contract"]["field_types"] == {
+        "pressure_character_ids": "array of strings; may be empty",
+        "required_visual_signals": "array of at least two strings",
+        "evidence_refs": "non-empty array of strings",
+        "all_other_required_fields": "non-empty string",
+    }
+
+
+def test_repair_prompt_names_shared_conflict_refs_for_the_failing_concept() -> None:
+    brief = _brief()
+    payload = adaptive_director_fixture()
+    evidence_id = payload["evidence_ledger"]["items"][0]["evidence_id"]
+    payload["plans"][0]["concept_id"] = "three_sheets_no_surrender"
+    payload["plans"][0]["story_evidence_refs"] = [f"evidence:{evidence_id}"]
+    direction = CoverArtDirector.from_fixture(payload).plan(brief, count=4)
+    findings = tuple(
+        item
+        for item in validate_direction(brief, direction)
+        if item.code == "missing_conflict_evidence"
+    )
+
+    prompt = json.loads(CoverArtDirector._repair_prompt(
+        brief=brief,
+        count=4,
+        previous_payload=payload,
+        findings=findings,
+        evidence_ledger=evidence_ledger_from_brief(brief),
+    ))
+
+    assert findings[0].evidence == "three_sheets_no_surrender"
+    assert prompt["finding_specific_repairs"] == [{
+        "code": "missing_conflict_evidence",
+        "concept_ids": ["three_sheets_no_surrender"],
+        "allowed_shared_evidence_refs": [
+            "node:door_choice", "character:char_mara", "character:char_oren",
+        ],
+        "replace_invalid_core_conflict_evidence_refs": False,
+        "instruction": (
+            "For each named concept, add at least one allowed_shared_evidence_refs "
+            "value to story_evidence_refs while preserving its other valid evidence. "
+            "When replace_invalid_core_conflict_evidence_refs is true, first replace "
+            "the contract's invalid evidence_refs with source-supported values from "
+            "allowed_shared_evidence_refs. This repair is scoped to "
+            "missing_conflict_evidence; other listed validation findings may require "
+            "adding or replacing further exact evidence references."
+        ),
+    }]
+
+
+def test_live_director_repairs_conflict_and_story_evidence_together() -> None:
+    invalid = adaptive_director_fixture()
+    invalid["core_conflict_visual_contract"]["evidence_refs"] = [
+        "node:not-approved"
+    ]
+    for plan in invalid["plans"]:
+        plan["story_evidence_refs"] = ["character:char_oren"]
+    repaired = adaptive_director_fixture()
+    responses = iter((json.dumps(invalid), json.dumps(repaired)))
+    calls: list[str] = []
+
+    def complete(_system: str, user: str) -> str:
+        calls.append(user)
+        return next(responses)
+
+    direction = CoverArtDirector(complete=complete, model="fixture-designer", profile_version="cover-profiles.v8").plan(
+        _brief(), count=4,
+    )
+
+    assert len(calls) == 2
+    repair = json.loads(calls[1])
+    assert {
+        "missing_story_scene_evidence",
+        "missing_conflict_evidence",
+        "unknown_conflict_evidence",
+    }.issubset({item["code"] for item in repair["validation_findings"]})
+    specific = repair["finding_specific_repairs"][0]
+    assert specific["allowed_shared_evidence_refs"]
+    assert "node:door_choice" in specific["allowed_shared_evidence_refs"]
+    assert specific["replace_invalid_core_conflict_evidence_refs"] is True
+    assert "other listed validation findings" in specific["instruction"]
+    assert not validate_direction(_brief(), direction)
+
+
 def test_director_contract_does_not_force_causal_foreground_background_staging() -> None:
     payload = two_character_fixture()
     optional = dict(payload["principal_characters"][1])
@@ -335,7 +470,7 @@ def test_director_contract_does_not_force_causal_foreground_background_staging()
     payload["principal_characters"].append(optional)
     brief = CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
 
-    request = json.loads(CoverArtDirector._user_prompt(brief, 4))
+    request = json.loads(CoverArtDirector._user_prompt(brief, 4, profile_version="cover-profiles.v8"))
     contract = request["response_contract"]
     rules = contract["plans"]["field_rules"]
 
@@ -349,7 +484,7 @@ def test_director_contract_does_not_force_causal_foreground_background_staging()
 def test_adaptive_contract_requires_a_visible_reader_anchor_without_fixing_composition() -> None:
     brief = _brief()
 
-    contract = json.loads(CoverArtDirector._user_prompt(brief, 4))["response_contract"]
+    contract = json.loads(CoverArtDirector._user_prompt(brief, 4, profile_version="cover-profiles.v8"))["response_contract"]
 
     assert contract["reader_anchor_character_id"] == "char_mara"
     assert "must include reader_anchor_character_id" in contract["plans"]["field_rules"]["cast"]
@@ -434,3 +569,15 @@ def test_director_count_error_reports_requested_and_received_plans() -> None:
         match="requested 4, received 3",
     ):
         director.plan(_brief(), count=4)
+
+
+def test_v7_plan_and_repair_prompts_do_not_restore_ensemble_quotas():
+    prompt = json.loads(CoverArtDirector._user_prompt(_brief(), 4, profile_version="cover-profiles.v7"))
+    rules = prompt['response_contract']['plans']['portfolio_rules']
+    assert any('no fixed percentage' in rule for rule in rules)
+    assert all('At most one' not in rule and '3 of 4' not in rule for rule in rules)
+    field_rules = prompt['response_contract']['plans']['field_rules']
+    assert 'key/fill' in field_rules['motivated_lighting']
+    assert 'left-to-right' in field_rules['title_safe_zone']
+    repaired = CoverArtDirector._repair_prompt(brief=_brief(), count=4, previous_payload={}, findings=())
+    assert 'three quarters' not in repaired

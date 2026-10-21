@@ -1,0 +1,37 @@
+{
+  "archives": [
+    {
+      "name": "01-introduction-80-chapters-4-volumes.zip",
+      "sha256": "2cdba97059a1612dab524392212a115bc471e390269d219a5fe764ebb4a22cc6",
+      "size": 53666
+    },
+    {
+      "name": "02-same-book-cover-only-update.zip",
+      "sha256": "3915870031a78731e837eafb91490e37206dcd71cea3804f10158f2ee5fbd866",
+      "size": 53736
+    },
+    {
+      "name": "03-different-book-same-structure.zip",
+      "sha256": "ded7301adc6ff96ca04cd27fccdd603f133560360dd2a8db832260719b45bdbb",
+      "size": 53737
+    }
+  ],
+  "book_id": "novel-os:c0d0cd671e644ed7acc86c2e8f5bd4a4",
+  "changed_components": [
+    "cover_metadata_sha256",
+    "selected_cover_sha256"
+  ],
+  "chapter_count": 80,
+  "chapter_one_spine_index": 1,
+  "different_book_id": "novel-os:b335deb2917540489079c18659dfa1c7",
+  "identical_content_sha256": "507946a79bd9b6f4e1a47723ca0b1f3f71bc764b35be1d4817b9d12fbe4676ad",
+  "identical_epub_sha256": "5eda1e47cb47d84ed015ebaf2c6d9dc5e255221418daeaa3637ef41a83089da8",
+  "import_revisions": [
+    "f185deb14c2cfcfc560ab638132d61bbdf08eef3266434b52568437d948a6b6e",
+    "10ce9fea0a5e4e464aef78bb5f73e1e45b45c637d50247fe0df473ab3a978965"
+  ],
+  "introduction_spine_index": 0,
+  "same_structure_distinct_book_verified": true,
+  "verified": true,
+  "volume_count": 4
+}

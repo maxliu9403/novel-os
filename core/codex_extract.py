@@ -295,6 +295,8 @@ def known_names_from_state(state) -> List[str]:
         full = getattr(char, "full_name", "") or ""
         if full:
             names.append(full)
+        # An approved nickname is the same person, not a new cast proposal.
+        names.extend(getattr(char, "aliases", []) or [])
     for entry in getattr(state, "codex", {}).values():
         name = getattr(entry, "name", "") or ""
         if name:

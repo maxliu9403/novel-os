@@ -1,6 +1,16 @@
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class ProjectCoverSummary(BaseModel):
+    status: Literal["not_started", "processing", "awaiting_review", "needs_attention", "selected"] = "not_started"
+    detail: str = ""
+    image_url: str | None = None
+    image_kind: Literal["selected", "candidate"] | None = None
+    cover_set_id: str | None = None
+    candidate_id: str | None = None
+    candidate_count: int = 0
 
 
 class ProjectSummary(BaseModel):
@@ -14,10 +24,19 @@ class ProjectSummary(BaseModel):
     drafted_count: int = 0
     content_rating: str = "general"  # general | mature
     updated_at: str | None = None
+    task_id: str | None = None
+    task_started_at: str | None = None
+    task_can_resume: bool = False
+    task_error: str | None = None
+    task_phase: str | None = None
+    task_resume_job_id: str | None = None
     genres: list[str] = []
     premise: str = ""
     target_word_count: int = 80000
     session_word_target: int = 1000
+    classification: dict = {}
+    narrative_format: dict = {}
+    cover: ProjectCoverSummary = Field(default_factory=ProjectCoverSummary)
 
 
 class ProjectDetail(BaseModel):
@@ -27,6 +46,12 @@ class ProjectDetail(BaseModel):
     author: str
     chapter_count: int
     status: str
+    task_id: str | None = None
+    task_started_at: str | None = None
+    task_can_resume: bool = False
+    task_error: str | None = None
+    task_phase: str | None = None
+    task_resume_job_id: str | None = None
     style: dict
     content_rating: str = "general"
     word_count: int = 0
@@ -34,6 +59,9 @@ class ProjectDetail(BaseModel):
     premise: str = ""
     target_word_count: int = 80000
     session_word_target: int = 1000
+    classification: dict = {}
+    narrative_format: dict = {}
+    cover: ProjectCoverSummary = Field(default_factory=ProjectCoverSummary)
 
 
 class ProjectDeletionInventory(BaseModel):
@@ -64,11 +92,14 @@ class ProjectDeletionResult(BaseModel):
 class UpdateProject(BaseModel):
     content_rating: str | None = None
     title: str | None = None
+    author: str | None = None
     genre: str | None = None
     genres: list[str] | None = None
     premise: str | None = None
     target_word_count: int | None = None
     session_word_target: int | None = None
+    classification: dict | None = None
+    narrative_format: dict | None = None
 
 
 class StudioLlmUpdate(BaseModel):
@@ -108,6 +139,14 @@ class StudioCoverUpdate(BaseModel):
     director_reasoning_effort: str | None = None
 
 
+class ImageModelCapabilities(BaseModel):
+    exact_model_selection: bool
+    default_model: str
+    model_verification: Literal["unavailable", "when_reported_by_provider"]
+    note: str
+    reference_edit_transport: Literal["codex_image_attachment", "images_edits_multipart"] | None = None
+
+
 class StudioCoverStatus(BaseModel):
     configured: bool
     has_api_key: bool
@@ -128,6 +167,7 @@ class StudioCoverStatus(BaseModel):
     director_reasoning_effort: str = ""
     director_inherits_writing: bool = True
     error: str | None = None
+    model_capabilities: ImageModelCapabilities | None = None
 
 
 class ProviderTemplateOut(BaseModel):
@@ -166,6 +206,12 @@ class ProviderConnectionOut(BaseModel):
     last_test_ok: bool | None = None
     last_test_error: str
     discovered_models: list[str]
+    model_details: dict[str, dict] = Field(default_factory=dict)
+
+
+class ProviderModelCatalogOut(BaseModel):
+    models: list[str]
+    details: dict[str, dict]
 
 
 class TextRouteInput(BaseModel):
@@ -175,6 +221,7 @@ class TextRouteInput(BaseModel):
     max_tokens: int = 8192
     reasoning_effort: str = ""
     inherits_default: bool = False
+    timeout_seconds: int | None = Field(default=None, ge=60, le=1800)
 
 
 class TextRouteOut(TextRouteInput):
@@ -184,6 +231,7 @@ class TextRouteOut(TextRouteInput):
     effective_reasoning_effort: str
     effective_source: str
     configured: bool
+    effective_timeout_seconds: float | None = None
 
 
 class TextRoutesUpdate(BaseModel):
@@ -192,6 +240,23 @@ class TextRoutesUpdate(BaseModel):
 
 class TextModelTestRequest(BaseModel):
     prompt: str
+
+
+class VisionRouteInput(BaseModel):
+    connection_id: str
+    model: str = ""
+    max_tokens: int = Field(default=8192, ge=1, le=32768)
+
+
+class VisionRouteOut(VisionRouteInput):
+    id: str
+    connection_name: str
+    connection_provider: str
+    configured: bool
+    error: str
+    source: str
+    effective_connection_id: str
+    effective_model: str
 
 
 class ImageProfileUpdate(BaseModel):
@@ -209,6 +274,7 @@ class ImageProfileOut(ImageProfileUpdate):
     connection_name: str
     configured: bool
     error: str
+    model_capabilities: ImageModelCapabilities | None = None
 
 
 class StudioModelConfigurationOut(BaseModel):
@@ -217,6 +283,7 @@ class StudioModelConfigurationOut(BaseModel):
     templates: list[ProviderTemplateOut]
     connections: list[ProviderConnectionOut]
     text_routes: list[TextRouteOut]
+    vision_routes: list[VisionRouteOut]
     image_profiles: dict[str, ImageProfileOut]
 
 
@@ -228,12 +295,24 @@ class ProviderTestResult(BaseModel):
     tested_at: str
 
 
+class ImageModelCatalogOut(BaseModel):
+    models: list[str]
+    discovery_supported: bool
+    exact_model_selection: bool
+    source: Literal["provider", "cache", "unsupported"]
+    message: str
+    fetched_at: str = ""
+
+
 class ImageTestResult(BaseModel):
     ok: bool
     data_url: str
     width: int
     height: int
     model: str
+    requested_model: str = ""
+    observed_model: str = ""
+    model_verified: bool = False
     request_id: str
 
 
@@ -263,6 +342,12 @@ class ChapterSummary(BaseModel):
     word_count: int
     pov: str
     target_word_count: int = 2500
+    volume_id: str = "volume_01"
+    volume_number: int = 1
+    chapter_in_volume: int = 1
+    volume_role: str = "setup"
+    series_id: str = ""
+    series_book_number: int | None = None
 
 
 class ChapterDetail(ChapterSummary):
@@ -274,6 +359,9 @@ class CharacterSummary(BaseModel):
     id: str
     full_name: str
     role: str
+    gender: str = ""
+    pronouns: str = ""
+    aliases: list[str] = []
     portrait_media_id: str = ""
     portrait_url: str | None = None
 
@@ -341,6 +429,9 @@ class UpdateCodexEntry(BaseModel):
     # Characters only; ignored for other entry types.
     role: str | None = None
     age: int | None = None
+    gender: str | None = None
+    pronouns: str | None = None
+    aliases: list[str] | None = None
     physical_description: str | None = None
     internal_desire: str | None = None
     external_goal: str | None = None
@@ -686,11 +777,14 @@ class FinalDocSave(BaseModel):
 
 
 class CreateProject(BaseModel):
+    method_mode: Literal["off", "advisory"] = "advisory"
     title: str
     genre: str = ""
     genres: list[str] = []
     premise: str = ""
     author: str = ""
+    classification: dict | None = None
+    narrative_format: dict | None = None
 
 
 class AddCharacter(BaseModel):
@@ -711,6 +805,7 @@ class CoverGenerateRequest(BaseModel):
     count: int | None = None
     direction_id: str = ""
     approved_direction_sha256: str = ""
+    request_id: str = Field(default="", pattern=r"^(?:[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})?$")
 
 
 class CoverDirectionCreate(BaseModel):
@@ -719,11 +814,31 @@ class CoverDirectionCreate(BaseModel):
     source_prompt_sha256: str = ""
     foundation_sha256: str = ""
     count: int = 4
+    analysis_id: str = ""
+    freshness_policy: str = "require_current_head"
 
 
 class CoverDirectionApproval(BaseModel):
     expected_brief_sha256: str
     approved_direction_sha256: str
+    confirm_source: bool = False
+    extra_image_attempts: int = Field(default=0, ge=0, le=1)
+
+
+class CoverStoryFactCharacter(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    character_id: str
+    age_band: str | None = None
+    occupation_and_status: str | None = None
+
+
+class CoverStoryFactsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision_sha256: str
+    characters: list[CoverStoryFactCharacter] = Field(default_factory=list)
+    primary_spaces: list[str] | None = None
 
 
 class CoverCandidateMutation(BaseModel):
@@ -731,15 +846,18 @@ class CoverCandidateMutation(BaseModel):
     expected_active_revision: int = 0
     confirm_stale: bool = False
     repair_codes: list[str] = []
+    quality_acceptance_reason: str = ""
 
 
 class Job(BaseModel):
     job_id: str
+    task_id: str | None = None
     kind: str
     status: str
     error: str | None = None
     started_at: str | None = None
     finished_at: str | None = None
+    cancel_requested: bool = False
     meta: dict = {}
 
 

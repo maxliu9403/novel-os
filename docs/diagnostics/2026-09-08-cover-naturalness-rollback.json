@@ -1,0 +1,77 @@
+{
+  "checkpoint": {
+    "checkpoint": "/Users/max/OpenSource/Novel-OS/.cover-checkpoints/cover-20260908T050053Z-76f1e033.zip",
+    "checkpoint_id": "cover-20260908T050053Z-76f1e033",
+    "checkpoint_sha256": "bc9d64df01db8d2ab9e542006be6924a9d18c5af3a338d1da61d3ebf27330d1f",
+    "source": {
+      "origin": "local cover implementation saved before naturalness optimization; source-only rollback",
+      "reference_cover_set": "cover-d8c06f9e38f14f02b7e63bb955a96367",
+      "runtime_image_verified": false
+    },
+    "before": {
+      "compiler": "cover-compiler.v12",
+      "profile": "cover-profiles.v7"
+    },
+    "after": {
+      "compiler": "cover-compiler.v13",
+      "profile": "cover-profiles.v8"
+    },
+    "active_source": "after",
+    "modified_files": [],
+    "changed_shared_contracts": [],
+    "switch_ready": true,
+    "runtime_changed": false,
+    "note": "Source only; running service is unchanged. Deployment is a separate explicit action."
+  },
+  "temporary_round_trip": "passed; real workspace and service never restored",
+  "before_replay": {
+    "compiler": "cover-compiler.v12",
+    "cases": [
+      {
+        "matches_saved_prompt": true,
+        "chars": 11971,
+        "has_naturalness_contract": false
+      },
+      {
+        "matches_saved_prompt": true,
+        "chars": 11970,
+        "has_naturalness_contract": false
+      },
+      {
+        "matches_saved_prompt": true,
+        "chars": 11961,
+        "has_naturalness_contract": false
+      },
+      {
+        "matches_saved_prompt": true,
+        "chars": 11966,
+        "has_naturalness_contract": false
+      }
+    ]
+  },
+  "after_replay": {
+    "compiler": "cover-compiler.v13",
+    "cases": [
+      {
+        "matches_saved_prompt": false,
+        "chars": 11961,
+        "has_naturalness_contract": true
+      },
+      {
+        "matches_saved_prompt": false,
+        "chars": 11946,
+        "has_naturalness_contract": true
+      },
+      {
+        "matches_saved_prompt": false,
+        "chars": 11945,
+        "has_naturalness_contract": true
+      },
+      {
+        "matches_saved_prompt": false,
+        "chars": 11973,
+        "has_naturalness_contract": true
+      }
+    ]
+  }
+}

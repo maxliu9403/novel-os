@@ -1,0 +1,257 @@
+{
+  "classification": {
+    "schema_version": "novel-classification.v1",
+    "catalog_version": "novel-types.2026-09",
+    "classification_id": "classification:b74a2b842bb07e85354f85bb5437ec3e3ca71b7f0150ad172b06f6af39d7dea6",
+    "primary_genre_id": "womens_fiction",
+    "secondary_genre_ids": [
+      "family_drama",
+      "contemporary_realism"
+    ],
+    "story_type_ids": [
+      "domestic_betrayal",
+      "marriage_crisis"
+    ],
+    "tone_ids": [
+      "angst",
+      "emotional_realism"
+    ],
+    "setting_ids": [
+      "family_domestic",
+      "social_life"
+    ],
+    "audience": {
+      "channel": "female",
+      "age_band": "midlife"
+    },
+    "length": {
+      "form": "long",
+      "chapter_band": "chapters_51_100"
+    },
+    "commercial_tier": "core",
+    "source": "author_confirmed",
+    "confidence": 1.0,
+    "filter_type_ids": [
+      "womens_fiction",
+      "family_drama",
+      "contemporary_realism",
+      "domestic_betrayal",
+      "marriage_crisis",
+      "angst",
+      "emotional_realism",
+      "family_domestic",
+      "social_life"
+    ],
+    "display_labels": {
+      "zh-CN": {
+        "primary_genre": "女性小说",
+        "secondary_genres": [
+          "家庭",
+          "情感现实主义"
+        ],
+        "story_types": [
+          "家庭背叛",
+          "婚姻危机"
+        ],
+        "tones": [
+          "虐心",
+          "情感现实主义"
+        ],
+        "settings": [
+          "家庭生活",
+          "社交生活"
+        ]
+      },
+      "en-US": {
+        "primary_genre": "Women's Fiction",
+        "secondary_genres": [
+          "Family Drama",
+          "Contemporary Realism"
+        ],
+        "story_types": [
+          "Domestic Betrayal",
+          "Marriage Crisis"
+        ],
+        "tones": [
+          "Angst",
+          "Emotional Realism"
+        ],
+        "settings": [
+          "Family / Domestic",
+          "Social Life"
+        ]
+      }
+    }
+  },
+  "narrative_format": {
+    "schema_version": "narrative-format.v1",
+    "mode": "multi_volume",
+    "total_chapters": 60,
+    "target_words": 72000,
+    "volumes": [
+      {
+        "volume_id": "volume_01",
+        "volume_number": 1,
+        "chapter_start": 1,
+        "chapter_end": 20,
+        "target_words": 24000,
+        "structural_role": "opening_disruption"
+      },
+      {
+        "volume_id": "volume_02",
+        "volume_number": 2,
+        "chapter_start": 21,
+        "chapter_end": 40,
+        "target_words": 24000,
+        "structural_role": "escalation_and_reversal_2"
+      },
+      {
+        "volume_id": "volume_03",
+        "volume_number": 3,
+        "chapter_start": 41,
+        "chapter_end": 60,
+        "target_words": 24000,
+        "structural_role": "final_reckoning"
+      }
+    ],
+    "series": {
+      "series_id": "",
+      "title": "",
+      "book_number": null,
+      "planned_books": null
+    },
+    "format_id": "narrative-format:fb2cf788df658e91a146e93687f5c441886ee25fd78dad17969108164cb574c3",
+    "is_long_form": true,
+    "chapter_target_words": 1200,
+    "volume_count": 3,
+    "selection_source": "author_selected",
+    "confirmation_status": "confirmed",
+    "long_form_suitability": {
+      "score": 50,
+      "recommendation": "short_preferred",
+      "requested_fit": "high_extension_risk",
+      "dimensions": {
+        "conflict_renewal": 48,
+        "character_arc_capacity": 82,
+        "reveal_ladder": 43,
+        "subplot_capacity": 54,
+        "world_expansion": 17,
+        "volume_payoff_capacity": 46
+      },
+      "strengths": [
+        "character_arc_capacity"
+      ],
+      "risks": [
+        "world_expansion",
+        "reveal_ladder",
+        "volume_payoff_capacity",
+        "long_form_requires_distinct_volume_engines"
+      ],
+      "confidence": 0.7
+    },
+    "audit_policy": {
+      "interval_chapters": 5,
+      "volume_end_required": true,
+      "whole_book_required": true
+    }
+  },
+  "commercial_story": {
+    "schema_version": 1,
+    "reader_contract": {
+      "audience_age_band": "50–65",
+      "life_contexts": [
+        "Marriage and its accumulated disappointments",
+        "Caregiving and invisible emotional work",
+        "Professional return",
+        "Financial independence",
+        "Rebuilding an adult life"
+      ],
+      "emotional_jobs": {
+        "recognition": 5,
+        "anger": 4,
+        "pity": 2,
+        "regret": 4,
+        "belonging": 4,
+        "agency": 5,
+        "hope": 5
+      }
+    },
+    "premise_engine": {
+      "protagonist_life_stage": "active_parenting",
+      "protagonist_desire_beyond_escape": "Build useful landscapes, maintain a dependable home, recover an adult creative life, and respect her daughter as a separate person.",
+      "invisible_labor": "emotional_management",
+      "sacred_asset": "child_safety",
+      "boundary_transfer": "time",
+      "beneficiary_role": "favored_child",
+      "proof_type": "financial_record",
+      "deadline_type": "child_harm_threshold",
+      "agency_source": "professional_skill",
+      "agency_seeded_in_chapter": 2,
+      "action_cost": "housing",
+      "belonging_anchors": [
+        "self",
+        "child",
+        "work",
+        "friend"
+      ],
+      "relationship_shape": "parent_child_displacement"
+    },
+    "conflict_ladder": [
+      {
+        "level": 1,
+        "resource_dimension": "time",
+        "protagonist_action": "Try to complete the garden display after Christian leaves, then allow Olivia to stop the shared model project.",
+        "observable_consequence": "The ninth spire is removed; the child is no longer required to preserve a false appearance of happy cooperation."
+      },
+      {
+        "level": 2,
+        "resource_dimension": "money",
+        "protagonist_action": "Challenge the proposal to reduce Olivia’s learning support.",
+        "observable_consequence": "The supposedly necessary sacrifice falls on their child while Christian keeps outside commitments."
+      },
+      {
+        "level": 3,
+        "resource_dimension": "relationship",
+        "protagonist_action": "Read the $12,000 bill and note, preserve records actually obtained, and answer the recruitment email.",
+        "observable_consequence": "A specific resource double standard is visible; Evelyn takes a seeded route toward earned income."
+      },
+      {
+        "level": 4,
+        "resource_dimension": "body",
+        "protagonist_action": "After receiving the job offer, respond to the shooting alert, call Christian and locate Olivia through site staff.",
+        "observable_consequence": "Calls do not provide safety; Evelyn finds the child and learns what she directly experienced. The short-term rescue question is answered."
+      },
+      {
+        "level": 5,
+        "resource_dimension": "space",
+        "protagonist_action": "Pay the first night of a three-night stay and prepare to leave with Olivia.",
+        "observable_consequence": "Cash is spent and a real place to go exists; chapter 4 completes the move and starts the practical consequences."
+      }
+    ],
+    "free_trial_arc": {
+      "chapter_count": 3,
+      "recognition_event": "Christian leaves the garden event; Evelyn accepts the ninth spire from Olivia.",
+      "pattern_proof": "The $12,000 equestrian bill and note contrast with proposed cuts to learning support.",
+      "first_boundary_test": "Permit Olivia to stop the model project and reenter recruitment instead of maintaining the family appearance.",
+      "local_payoff": "Evelyn earns the director offer and finds Olivia alive; the child receives immediate care.",
+      "irreversible_choice": "Spend accessible cash on the first night of a separate stay.",
+      "visible_cost": "The first paid night is a real expenditure and reduces the finite transition reserve.",
+      "next_concrete_expectation": "Pack, leave and actually enter the booked accommodation in chapter 4.",
+      "action_sequence": [
+        "recognize",
+        "verify",
+        "test_boundary",
+        "protect",
+        "accept_cost"
+      ]
+    },
+    "quality_budgets": {
+      "consecutive_humiliation_scenes_max": 2,
+      "identical_hook_type_max": 1,
+      "unseeded_rescue_max": 0,
+      "child_voice_age_check": true,
+      "institutional_plausibility_check": true,
+      "protagonist_causes_major_turn": true
+    }
+  }
+}

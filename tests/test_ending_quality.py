@@ -129,6 +129,35 @@ def test_closed_ending_passes_and_writes_report(tmp_path: Path):
     assert persisted["finale_window"] == {"start_chapter": 3, "end_chapter": 4}
 
 
+def test_source_bound_verified_payoff_evidence_closes_legacy_id_gap(tmp_path: Path):
+    contract = _contract()
+    contract["plot_payoffs"][0]["verified_evidence"] = [
+        {
+            "status": "paid",
+            "chapter": 2,
+            "source": "outputs/manuscript/chapter_002_final.md",
+            "evidence": "The manuscript records the clue's completed consequence.",
+        }
+    ]
+    project = _project(tmp_path, contract=contract)
+    state = StoryState(str(project))
+    state.chapters[4].foreshadowing_resolved_ids = []
+    state.chapters[4].foreshadowing_resolved = []
+    state.save_state()
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "pass"
+    assert not report.critical
+    ledger = json.loads(
+        (project / "outputs/state/payoff_ledger.json").read_text(encoding="utf-8")
+    )
+    assert ledger["items"][0]["status"] == "paid"
+    assert ledger["items"][0]["payoff_evidence"][0]["source"].endswith(
+        "chapter_002_final.md"
+    )
+
+
 def test_agent_state_blocks_feed_payoff_arc_and_ending_ledgers(tmp_path: Path):
     project = _project(tmp_path, contract=_contract())
     state = StoryState(str(project))
@@ -396,12 +425,51 @@ def test_finale_prompts_share_semantic_ending_contract(tmp_path: Path):
     }
 
     assert all('"required_outcome": "independence"' in value for value in prompts.values())
+    assert all("Book Ending Contract (authoritative)" in value for value in prompts.values())
+    assert all("Payoff Tracking Directory" not in value for value in prompts.values())
     assert "outcome=<canonical outcome value from ending_contract>" in prompts[
         "scribe"
     ]
     assert "outcome=<canonical outcome value from ending_contract>" in prompts[
         "guardian"
     ]
+
+
+def test_pre_finale_prompts_share_payoff_directory_without_full_ending_contract(
+    tmp_path: Path,
+):
+    contract = _contract()
+    contract["finale_window"] = {"start_chapter": 56, "end_chapter": 60}
+    project = _project(tmp_path, chapters=60, contract=contract)
+    orchestrator = NovelOrchestrator(str(project))
+    for number in (35, 55):
+        chapter = orchestrator.state.get_chapter(number)
+        assert chapter is not None
+        prompts = {
+            "architect": orchestrator._generate_chapter_outline_prompt(chapter),
+            "scribe": orchestrator._generate_chapter_prompt(chapter),
+            "editor": orchestrator._generate_edit_prompt(chapter, "Draft", "developmental"),
+            "guardian": orchestrator._generate_validation_prompt(number, "Draft"),
+            "style": orchestrator._generate_style_prompt(number, "Draft"),
+        }
+
+        for prompt in prompts.values():
+            assert "Payoff Tracking Directory" in prompt
+            assert '"id": "payoff_001"' in prompt
+            assert '"required_payoff": "minor clue"' in prompt
+            assert '"setup_ids"' in prompt
+            assert '"ch1:fs1"' in prompt
+            assert '"deadline": 4' in prompt
+            assert '"character_arcs"' not in prompt
+            assert '"main_conflict"' not in prompt
+            assert '"emotional_contract"' not in prompt
+            assert "`recalled`" in prompt
+            assert "is not `paid`" in prompt
+
+        assert "Character Outcome Tracking Directory" in prompts["scribe"]
+        assert "Character Outcome Tracking Directory" in prompts["guardian"]
+        assert "Do not perform a future choice early" in prompts["scribe"]
+        assert "Do not perform a future choice early" in prompts["guardian"]
 
 
 def test_pipeline_ending_stages_gate_before_compile(tmp_path: Path):
@@ -434,3 +502,147 @@ def test_pipeline_ending_stages_gate_before_compile(tmp_path: Path):
     )
 
     assert manifest.get("ending.review").status == "done"
+
+
+def _project_with_payoff_events(tmp_path: Path, events: dict[int, list[dict]]) -> Path:
+    """Exercise persisted canon without a foreshadowing-id fallback."""
+    count = max(4, *events)
+    contract = _contract()
+    contract["finale_window"] = {"start_chapter": max(1, count - 4), "end_chapter": count}
+    project = _project(tmp_path, chapters=count, contract=contract)
+    state = StoryState(str(project))
+    for chapter in state.chapters.values():
+        chapter.foreshadowing_resolved = []
+        chapter.foreshadowing_resolved_ids = []
+        chapter.payoff_events = events.get(chapter.number, [])
+    state.save_state()
+    # Promotion snapshots can serialize chapter keys lexicographically: 1, 10, 2.
+    path = project / "outputs/state/story_state.json"
+    path.write_text(json.dumps(json.loads(path.read_text()), sort_keys=True))
+    return project
+
+
+def _payoff_event(status: str, evidence: str) -> dict:
+    return {"payoff_id": "payoff_001", "status": status, "evidence": evidence}
+
+
+def test_pipeline_ending_preserves_paid_evidence_after_later_recall(tmp_path: Path):
+    project = _project_with_payoff_events(tmp_path, {
+        2: [_payoff_event("paid", "Both parents confirm the truth; Mara changes her plan.")],
+        4: [_payoff_event("recalled", "Mara sees the parents keep the arrangement.")],
+    })
+    state_before = (project / "outputs/state/story_state.json").read_bytes()
+    manifest = RunManifest.new(
+        RunSpec(project_path=str(project), num_chapters=4, target_words=40, approval_policy="auto"),
+        run_id="paid-then-recalled",
+    )
+    runner = PipelineRunner()
+    runner._stage(
+        manifest, project, runner._store(project, manifest.run_id),
+        "ending.review", None,
+        lambda: evaluate_ending(project, as_of_chapter=4),
+        runner._validate_ending_result,
+        ["outputs/state/payoff_ledger.json", "outputs/feedback/book_completion_report.json"],
+    )
+
+    assert manifest.get("ending.review").status == "done"
+    ledger = json.loads((project / "outputs/state/payoff_ledger.json").read_text())
+    assert ledger["items"][0]["status"] == "paid"
+    assert ledger["items"][0]["payoff_evidence"] == [{
+        **_payoff_event("paid", "Both parents confirm the truth; Mara changes her plan."),
+        "chapter": 2,
+    }]
+    assert (project / "outputs/state/story_state.json").read_bytes() == state_before
+
+
+def test_paid_event_survives_lexicographic_chapter_order_and_same_chapter_recall(tmp_path: Path):
+    project = _project_with_payoff_events(tmp_path, {
+        2: [_payoff_event("recalled", "The question remains active.")],
+        10: [
+            _payoff_event("paid", "Mara acts after the direct confirmation."),
+            _payoff_event("recalled", "She remembers that choice afterward."),
+        ],
+    })
+
+    assert evaluate_ending(project, as_of_chapter=10).status == "pass"
+    ledger = json.loads((project / "outputs/state/payoff_ledger.json").read_text())
+    assert ledger["items"][0]["payoff_evidence"][0]["chapter"] == 10
+    assert ledger["items"][0]["payoff_evidence"][0]["status"] == "paid"
+
+
+def test_recalled_events_without_paid_evidence_still_block(tmp_path: Path):
+    project = _project_with_payoff_events(tmp_path, {
+        2: [_payoff_event("recalled", "Mara asks the question.")],
+        4: [_payoff_event("recalled", "The question is mentioned again.")],
+    })
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "fail"
+    assert any(item["category"] == "core_payoff_unresolved" for item in report.critical)
+
+
+def test_nonpaid_event_selection_uses_numeric_chapter_order(tmp_path: Path):
+    project = _project_with_payoff_events(tmp_path, {
+        2: [_payoff_event("intentional_open", "Mara considers leaving the question open.")],
+        10: [_payoff_event("recalled", "The still-unanswered question is active again.")],
+    })
+
+    report = evaluate_ending(project, as_of_chapter=10)
+
+    assert report.status == "fail"
+    assert any(item["category"] == "core_payoff_unresolved" for item in report.critical)
+
+
+def test_multiple_paid_events_retain_first_completion_source(tmp_path: Path):
+    project = _project_with_payoff_events(tmp_path, {
+        2: [_payoff_event("paid", "The first direct confirmation changes Mara's choice.")],
+        3: [_payoff_event("paid", "The new arrangement remains in force.")],
+        4: [_payoff_event("recalled", "Mara recalls the confirmed truth.")],
+    })
+
+    assert evaluate_ending(project, as_of_chapter=4).status == "pass"
+    ledger = json.loads((project / "outputs/state/payoff_ledger.json").read_text())
+    assert ledger["items"][0]["payoff_evidence"][0]["chapter"] == 2
+
+
+def test_historical_resolution_survives_a_later_lower_arc_estimate(tmp_path):
+    project = _project(tmp_path, contract=_contract())
+    state = StoryState(str(project))
+    character = state.characters["char_001"]
+    character.arc_stage = "middle"
+    character.arc_progress = 85
+    state.chapters[4].arc_state_updates = [{
+        "character_id": "char_001",
+        "chapter": 4,
+        "stage": "resolution",
+        "progress": 100,
+        "outcome": "independence",
+        "evidence": "Mara signs the lease in her own name.",
+    }]
+    state.save_state()
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "pass"
+    assert not any(item["category"] == "character_arc_unclosed" for item in report.critical)
+
+
+def test_future_chapter_resolution_does_not_unlock_an_earlier_gate(tmp_path):
+    project = _project(tmp_path, chapters=5, contract=_contract())
+    state = StoryState(str(project))
+    state.characters["char_001"].arc_stage = "middle"
+    state.characters["char_001"].arc_progress = 85
+    state.chapters[5].arc_state_updates = [{
+        "character_id": "char_001",
+        "chapter": 5,
+        "stage": "resolution",
+        "progress": 100,
+        "evidence": "A future chapter resolves the arc.",
+    }]
+    state.save_state()
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "fail"
+    assert any(item["category"] == "character_arc_unclosed" for item in report.critical)

@@ -109,6 +109,185 @@ def test_v2_round_trip_preserves_required_characters_and_visual_goal() -> None:
     assert brief.commercial_visual_goal.display_context == "mobile_thumbnail"
 
 
+@pytest.mark.parametrize("agency", ["", None, "  "])
+def test_optional_registered_character_may_have_no_source_agency(agency) -> None:
+    payload = two_character_fixture()
+    recipient = {
+        **_character("char_leo", age=20),
+        "narrative_role": "secondary recipient",
+        "must_appear": False,
+        "agency_signal": agency,
+    }
+    payload["principal_characters"].append(recipient)
+
+    brief = CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+    restored = CoverBriefV2.from_dict(brief.to_dict(), source_prompt_sha256="a" * 64)
+
+    assert restored == brief
+    assert restored.principal_characters[-1].character_id == "char_leo"
+    assert restored.principal_characters[-1].agency_signal == ""
+    assert "char_leo" not in {item.character_id for item in restored.required_characters}
+
+
+@pytest.mark.parametrize("explicit_required", [False, True])
+@pytest.mark.parametrize("allow_pending", [False, True])
+def test_required_character_still_needs_source_agency(explicit_required, allow_pending) -> None:
+    payload = two_character_fixture()
+    protagonist = payload["principal_characters"][0]
+    protagonist.pop("agency_signal")
+    if not explicit_required:
+        protagonist.pop("must_appear")
+
+    with pytest.raises(ValueError, match=r"principal_characters\[0\]\.agency_signal is required"):
+        CoverBriefV2.from_dict(
+            payload, source_prompt_sha256="a" * 64,
+            allow_pending_required_facts=allow_pending,
+        )
+
+
+def test_optional_character_without_agency_survives_frozen_cover_workflow(tmp_path) -> None:
+    from dataclasses import replace
+
+    from core.cover_analysis import CoverStoryAnalyzer
+    from core.cover_sources import CoverSourceSelector, capture_source
+    from core.cover_store import CoverStore
+    from core.cover_workflow import CoverWorkflow
+    from tests.test_cover_analysis_snapshot import source
+    from tests.test_cover_workflow import FullStoryFixture, approve
+
+    context, _, project = source.__wrapped__(tmp_path)
+    prompt = project / "outputs/input/prompt.md"
+    prompt.write_text(
+        prompt.read_text(encoding="utf-8")
+        + "\n## Other registered people\nLeo, 20, is a secondary recipient. No action is specified.\n",
+        encoding="utf-8",
+    )
+    store = CoverStore(project)
+    context = replace(context, cover_root=store.root)
+    snapshot = capture_source(context, CoverSourceSelector("project_input", project_id="book"))
+    director = FullStoryFixture()
+
+    def retain_recipient(request, result):
+        result = director._with_events(request, result)
+        if request["phase"] == "global":
+            recipient = {
+                **_character("char_leo", age=20),
+                "name": "Leo", "narrative_role": "secondary recipient",
+                "must_appear": False, "relationships": [],
+            }
+            recipient.pop("agency_signal")
+            result["brief"]["principal_characters"].append(recipient)
+            result["characters"].append({
+                "character_id": "char_leo", "name": "Leo",
+                "narrative_role": "secondary recipient",
+                "evidence_refs": result["story"]["evidence_refs"],
+            })
+        return result
+
+    director.extractor.mutate = retain_recipient
+    analysis = CoverStoryAnalyzer(
+        complete=director._complete, model=director.model, max_repair_attempts=0,
+    ).analyze(context, snapshot)
+    flow = CoverWorkflow(context, store)
+    direction = approve(flow, flow.plan(analysis.analysis_id, director))
+    brief, concepts, arguments = flow.generation_arguments(
+        direction.direction_id, direction.direction_sha256,
+    )
+
+    assert len(analysis.characters) == len(brief.principal_characters) == 3
+    assert brief.principal_characters[-1].agency_signal == ""
+    assert all("char_leo" not in plan.cast for plan in direction.plans)
+    assert all("char_leo" not in concept.generation_prompt for concept in concepts)
+    assert arguments["source_binding"]["analysis_id"] == analysis.analysis_id
+
+
+def test_v2_round_trip_preserves_story_facing_cover_constraints() -> None:
+    payload = two_character_fixture()
+    payload["cover_constraints"] = {
+        "constraint_version": "cover-constraints.v1",
+        "must_preserve_story_facts": ["estranged spouses", "the shared home is at stake"],
+        "must_show_if_supported": ["door_choice"],
+        "must_not_show": ["final reconciliation", "unsupported ethnicity"],
+        "spoiler_ceiling": "Do not reveal the final relationship outcome.",
+        "user_visual_preferences": ["restrained live-action photography"],
+        "preferred_story_node_ids": ["door_choice"],
+        "preferred_character_ids": ["char_mara"],
+        "source_refs": ["section:6.relationship_map", "section:9.node:door_choice"],
+    }
+
+    brief = CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+    restored = CoverBriefV2.from_dict(brief.to_dict(), source_prompt_sha256="a" * 64)
+
+    assert restored.cover_constraints == brief.cover_constraints
+    assert restored.to_dict()["cover_constraints"]["preferred_story_node_ids"] == ["door_choice"]
+
+
+def test_v2_omits_optional_cover_constraints_for_legacy_handoffs() -> None:
+    brief = CoverBriefV2.from_dict(two_character_fixture(), source_prompt_sha256="a" * 64)
+
+    assert brief.cover_constraints is None
+    assert "cover_constraints" not in brief.to_dict()
+
+
+def test_v2_rejects_unknown_cover_constraint_version() -> None:
+    payload = two_character_fixture()
+    payload["cover_constraints"] = {"constraint_version": "cover-constraints.v2"}
+
+    with pytest.raises(ValueError, match="constraint_version"):
+        CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("candidate_moments", [], "unsupported fields"),
+        ("preferred_story_node_ids", ["missing_node"], "decisive_story_nodes"),
+        ("preferred_character_ids", ["missing_character"], "principal_characters"),
+        ("must_not_show", ["valid", 7], "only strings"),
+    ],
+)
+def test_v2_rejects_cover_constraint_duplication_or_unknown_references(
+    field: str,
+    value: list[str],
+    message: str,
+) -> None:
+    payload = two_character_fixture()
+    payload["cover_constraints"] = {
+        "constraint_version": "cover-constraints.v1",
+        "must_preserve_story_facts": [],
+        "must_show_if_supported": [],
+        "must_not_show": [],
+        "spoiler_ceiling": "",
+        "user_visual_preferences": [],
+        "preferred_story_node_ids": [],
+        "preferred_character_ids": [],
+        "source_refs": [],
+        field: value,
+    }
+
+    with pytest.raises(ValueError, match=message):
+        CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+
+
+def test_model_inferred_visual_assumption_is_visible_but_not_a_blocking_fact() -> None:
+    payload = two_character_fixture()
+    payload["visual_assumptions"] = [{
+        "field": "principal_characters[0].physical_identity",
+        "proposed_value": "natural, age-appropriate appearance with restrained styling",
+        "reason": "The skeleton does not specify physical appearance.",
+        "status": "pending_confirmation",
+        "critical": True,
+        "provenance": "model_inferred",
+    }]
+
+    brief = CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+
+    assert brief.pending_critical_assumptions()[0].field.endswith("physical_identity")
+    assert brief.blocking_pending_critical_assumptions() == ()
+    assert brief.model_inferred_assumptions()[0].provenance == "model_inferred"
+    assert brief.to_dict()["visual_assumptions"][0]["provenance"] == "model_inferred"
+
+
 def test_v2_rejects_required_character_without_age_or_lived_identity() -> None:
     payload = two_character_fixture()
     payload["principal_characters"][0].pop("age")

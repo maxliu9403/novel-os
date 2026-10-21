@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "artifact_type": "private_material_intake",
+  "created_at": "2026-10-04",
+  "scope": "Authorized continuation and story expansion of the supplied manuscript; preserve characters and occurred events, repair logic explicitly.",
+  "source_directory": "/Users/max/Desktop/After 10 Golden Spires Broke, My Daughter Chose to Erase Her",
+  "source_files": [
+    "2.txt",
+    "3.txt",
+    "4.txt",
+    "After 10 Golden Spires Broke, My Daughter Chose to Erase Her.txt"
+  ],
+  "material_use": {
+    "classification": "project_canon",
+    "status": "user_confirmed",
+    "confirmation": "User selected A: preserve original characters and occurred events, repair logic and continue the story.",
+    "raw_material_may_enter_current_project_context": true,
+    "private_analysis_is_not_manuscript": true
+  },
+  "confirmed_current_request": [
+    "开始一部新小说",
+    "读取所给前几章",
+    "基于材料继续推理",
+    "用户选择A：保留人物和已发生事件，补齐逻辑并推演后续",
+    "60章，一部长篇分3卷，每卷20章；用户已明确确认"
+  ],
+  "prior_project_preferences": {
+    "market": "United States",
+    "audience": "Women aged 50–65",
+    "language": "English",
+    "chapters": 24,
+    "words_per_chapter": 1200,
+    "status": "Previously approved for a different book; not silently locked for this new project"
+  },
+  "inventory_findings": {
+    "observed_sequence": [
+      "2.txt",
+      "3.txt",
+      "4.txt",
+      "After 10 Golden Spires Broke, My Daughter Chose to Erase Her.txt"
+    ],
+    "sequence_basis": "The numbered fourth fragment introduces the outing and shooting; the title-named fragment follows the mother's interview and discovery of the daughter.",
+    "missing_material": "No separate first-chapter file; the numbered second fragment opens during an existing argument. The first eight broken spires are not individually described.",
+    "title_status": "Unconfirmed; 'Erase Her' referent unclear relative to the father-daughter conflict."
+  },
+  "private_source_facts": {
+    "narrator": "Evelyn, mother, previously professionally connected in landscape design, out of workforce for two years.",
+    "daughter": "Olivia, nine per 4.txt, described as dyslexic in 3.txt; enjoys constructing a model and worked on a garden display.",
+    "husband": "Christian Davis, operates a struggling landscape firm; prioritizes Helena and Carter in several depicted situations.",
+    "others": [
+      {
+        "name": "Helena",
+        "role": "His former girlfriend; faces unspecified custody crisis; receives help for her six-year-old son."
+      },
+      {
+        "name": "Carter Hayes",
+        "role": "Helena's six-year-old son; equestrian expense paid by Christian; biological paternity not established."
+      },
+      {
+        "name": "Jack",
+        "role": "Evelyn's former senior fellow, oversees a development project; invited Christian's firm to bid after Evelyn's recommendation."
+      },
+      {
+        "name": "Claire",
+        "role": "Neighbor bringing a pie; possible support, but no future helper role established."
+      }
+    ],
+    "verified_endpoint": [
+      "Evelyn has received an on-the-spot job offer, not an evidenced executed employment agreement or first paycheck.",
+      "Evelyn has found Olivia and packed their belongings; their actual departure/destination are not yet shown.",
+      "Olivia destroys the remaining model.",
+      "No filed divorce, custody order, business disqualification, affair consummation or paternity reveal is established."
+    ]
+  },
+  "issues_pending_design": [
+    {
+      "id": "P01",
+      "severity": "high",
+      "category": "POV",
+      "evidence": "4.txt narrates the father's internal choice and movement into an ambulance while first-person narrator is at an interview.",
+      "constraint": "A continuation must separate what the narrator saw, later learned, inferred or does not know; original design must choose coherent viewpoint authority."
+    },
+    {
+      "id": "P02",
+      "severity": "high",
+      "category": "timeline",
+      "evidence": "4.txt says building cleared twenty minutes later; title-named fragment says daughter had held fear in for hours and shows mother passing police tape to find her.",
+      "constraint": "Establish actual elapsed times, evacuation/reunification status, father's knowledge and mother's access; do not assert all police procedures from unstated facts."
+    },
+    {
+      "id": "P03",
+      "severity": "high",
+      "category": "resources",
+      "evidence": "3.txt shows influence over a private bidding invitation and access to account evidence, but narrator concludes she has zero power; title-named fragment immediately supplies a director offer.",
+      "constraint": "Separate professional network, account visibility, usable cash, caregiving availability, hiring requirements and real start date. Keep an offer distinct from immediate financial security."
+    },
+    {
+      "id": "P04",
+      "severity": "high",
+      "category": "child_and_learning_support",
+      "evidence": "3.txt directly links continuous sensory integration to dyslexia; multiple fragments characterize the child mainly as quiet and devastated.",
+      "constraint": "Distinguish reading support from sensory or other co-occurring needs. Give child age-appropriate preferences, uncertainty and agency without making her responsible for adult separation."
+    },
+    {
+      "id": "P05",
+      "severity": "medium",
+      "category": "causal_escalation",
+      "evidence": "The supplied events already reach a life-threatening crisis and break the father-daughter symbol.",
+      "constraint": "Further development needs consequences and changed choices, not escalating through another arbitrary emergency or a child harmed repeatedly to prove adult betrayal."
+    }
+  ],
+  "verified_research": [
+    {
+      "url": "https://www.nichd.nih.gov/health/topics/reading/conditioninfo/teach",
+      "source": "NICHD",
+      "supported_scope": "Systematic explicit reading instruction includes phonemic awareness, phonics, fluency, vocabulary and comprehension.",
+      "application": "For future fiction, define Olivia's reading support concretely rather than treating a sensory intervention as interchangeable."
+    },
+    {
+      "url": "https://www.healthychildren.org/English/health-issues/conditions/developmental-disabilities/Pages/Sensory-Integration-Therapy.aspx",
+      "source": "American Academy of Pediatrics / HealthyChildren",
+      "supported_scope": "Sensory integration concerns sensory processing; its evidence for ASD is described as limited and inconclusive.",
+      "application": "Do not use this as a diagnosis of the fictional child or extrapolate to a dyslexia cure."
+    }
+  ],
+  "stage_status": {
+    "material_boundary": "confirmed_project_canon",
+    "source_read": "complete",
+    "independent_source_audit": "complete",
+    "new_audience_scope": "author_confirmed",
+    "new_design": "author_approved",
+    "production_prompt": "created_and_validated",
+    "manuscript_generation": "not_started",
+    "planning_validation": "pass_22_checks",
+    "prompt_validation": "pass_30_checks"
+  },
+  "next_step": "Deliver the validated Prompt and launcher command. The author chooses when to start generation.",
+  "selected_format": {
+    "mode": "multi_volume",
+    "chapters": 60,
+    "volumes": 3,
+    "chapters_per_volume": 20,
+    "status": "author_confirmed"
+  },
+  "approved_current_design": {
+    "date": "2026-10-04",
+    "reply": "同意",
+    "scope": "Presented A–E full proposal, including title, audience, ages, world, plot,60 chapters/3volumes and ending",
+    "artifact": "long-form-design.approved.json"
+  }
+}

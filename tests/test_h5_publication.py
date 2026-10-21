@@ -11,6 +11,12 @@ import pytest
 
 from core.publication_copy import canonical_json_bytes
 from core.publication_source import PublicationSourceSet, SourceChapter
+from core.narrative_format import (
+    infer_narrative_format,
+    serialization_payload,
+    volume_contract_template,
+)
+from core.novel_classification import infer_classification
 
 
 @dataclass(frozen=True)
@@ -38,11 +44,12 @@ def _source_set(count: int = 4) -> PublicationSourceSet:
     names = ("One", "Two", "Three", "Four", "Five")
     chapters = []
     for number in range(1, count + 1):
-        text = f"# {names[number - 1]}\n\nBody {number}."
+        name = names[number - 1] if number <= len(names) else f"Chapter {number}"
+        text = f"# {name}\n\nBody {number}."
         sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
         chapters.append(SourceChapter(
             number=number,
-            title=names[number - 1],
+            title=name,
             revision_id=sha256,
             sha256=sha256,
             text=text,
@@ -64,7 +71,7 @@ def _source_set(count: int = 4) -> PublicationSourceSet:
     )
 
 
-def test_h5_projector_matches_v1_bytes_counts_receipts_and_snapshot(tmp_path: Path):
+def test_h5_projector_matches_v3_bytes_classification_serialization_and_snapshot(tmp_path: Path):
     from core.h5_publication import project_h5_publication
 
     source = _source_set()
@@ -90,8 +97,17 @@ def test_h5_projector_matches_v1_bytes_counts_receipts_and_snapshot(tmp_path: Pa
         chapter.text.encode("utf-8") for chapter in source.chapters
     ) + b"\n"
 
-    assert package["version"] == 1
+    assert package["version"] == 3
     assert package["platform"] == "novel-os"
+    assert package["classification"]["primary_genre_id"] == "womens_fiction"
+    assert package["classification"]["secondary_genre_ids"] == ["family_drama"]
+    assert package["classification"]["filter_type_ids"][:2] == [
+        "womens_fiction", "family_drama",
+    ]
+    assert package["serialization"]["schema_version"] == "novel-serialization.v1"
+    assert package["serialization"]["format"]["mode"] == "short_novel"
+    assert package["chapters"][0]["volume_id"] == "volume_01"
+    assert package["chapters"][3]["chapter_in_volume"] == 4
     assert package["hook_lead"] == _CopyFixture().hook_lead
     assert package["spoiler_free_blurb"] == _CopyFixture().spoiler_free_blurb
     assert package["counting_policy"] == "utf8-runes"
@@ -143,6 +159,55 @@ def test_h5_projector_returns_none_for_books_shorter_than_four_chapters(
 
     assert result is None
     assert not (tmp_path / "outputs/deliverables/h5-publication").exists()
+
+
+def test_h5_v3_binds_long_chapters_to_volume_and_series_metadata(tmp_path: Path):
+    from core.h5_publication import project_h5_publication
+
+    classification = infer_classification(
+        genre="Women's Fiction / Mystery",
+        premise="A family secret crosses three generations.",
+        chapters=60,
+    )
+    format_contract = infer_narrative_format(
+        classification,
+        chapters=60,
+        target_words=54000,
+        premise="A family secret crosses three generations.",
+        explicit_length=True,
+    ).with_confirmation("author_selected")
+    volumes = volume_contract_template(format_contract)
+    for item in volumes:
+        number = item["volume_number"]
+        item.update({
+            "title": f"Movement {number}",
+            "central_conflict": f"Distinct conflict {number}",
+            "volume_promise": f"Distinct promise {number}",
+            "protagonist_shift": f"Durable shift {number}",
+            "payoff": f"Visible payoff {number}",
+            "carryover_hook": f"Next consequence {number}" if number < 3 else "",
+        })
+    serialization = serialization_payload(format_contract, volumes)
+
+    result = project_h5_publication(
+        tmp_path,
+        "run-123",
+        _source_set(60),
+        _CopyFixture(),
+        "2026-08-31T00:00:00Z",
+        "2026-08-31T00:01:00Z",
+        "The Three Doors",
+        [],
+        ["Women's Fiction", "Mystery"],
+        classification.to_dict(),
+        serialization,
+    )
+    package = json.loads(result.publication_package_path.read_bytes())
+
+    assert package["serialization"]["format"]["volume_count"] == 3
+    assert package["chapters"][19]["volume_id"] == "volume_01"
+    assert package["chapters"][20]["volume_id"] == "volume_02"
+    assert package["chapters"][20]["chapter_in_volume"] == 1
 
 
 def test_h5_projector_reuses_only_a_byte_identical_immutable_root(tmp_path: Path):

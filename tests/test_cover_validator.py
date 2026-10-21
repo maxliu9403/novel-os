@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from copy import deepcopy
+
+import pytest
 
 from core.cover_director import CoverArtDirector
-from core.cover_validator import validate_direction
+from core.cover_validator import _validate_story_constraints, validate_direction
 from core.cover_novelty import plan_fingerprint
+from core.cover_models_v2 import CoverBriefV2
 from tests.test_cover_director import (
     _brief, adaptive_director_fixture, director_fixture, v3_director_fixture,
 )
@@ -16,6 +20,251 @@ def test_validator_accepts_fixture_direction_with_resolvable_evidence() -> None:
     findings = validate_direction(_brief(), direction)
 
     assert findings == ()
+
+
+def _brief_with_cover_constraints(**overrides) -> CoverBriefV2:
+    payload = _brief().to_dict()
+    payload["cover_constraints"] = {
+        "constraint_version": "cover-constraints.v1",
+        "must_preserve_story_facts": [],
+        "must_show_if_supported": ["door_choice"],
+        "must_not_show": ["final reconciliation"],
+        "spoiler_ceiling": "Do not reveal the final relationship outcome.",
+        "user_visual_preferences": [],
+        "preferred_story_node_ids": ["door_choice"],
+        "preferred_character_ids": ["char_mara"],
+        "source_refs": ["node:door_choice"],
+        **overrides,
+    }
+    return CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+
+
+def test_validator_applies_machine_checkable_cover_constraints() -> None:
+    brief = _brief_with_cover_constraints()
+    direction = CoverArtDirector.from_fixture(director_fixture()).plan(brief, count=4)
+
+    assert _validate_story_constraints(brief, direction) == []
+
+    changed = replace(
+        direction,
+        plans=tuple(
+            replace(plan, frozen_action="she reveals the final reconciliation")
+            if index == 0 else plan
+            for index, plan in enumerate(direction.plans)
+        ),
+    )
+    findings = _validate_story_constraints(brief, changed)
+
+    assert {item.code for item in findings} == {"cover_constraint_violation"}
+
+
+def test_validator_rejects_unresolved_typed_cover_constraint_source_ref() -> None:
+    brief = _brief_with_cover_constraints(source_refs=["node:missing"])
+    direction = CoverArtDirector.from_fixture(director_fixture()).plan(_brief(), count=4)
+
+    findings = _validate_story_constraints(brief, direction)
+
+    assert {item.code for item in findings} == {"unknown_constraint_source_ref"}
+
+
+def test_validator_scans_v10_campaign_execution_fields_for_forbidden_actions() -> None:
+    """The nested campaign, rather than legacy plan prose, is what gets rendered."""
+    from tests.test_cover_campaign import direction_context
+
+    brief, direction, _ = direction_context()
+    payload = brief.to_dict()
+    payload["cover_constraints"] = {
+        "constraint_version": "cover-constraints.v1",
+        "must_preserve_story_facts": [],
+        "must_show_if_supported": [],
+        "must_not_show": ["final reconciliation"],
+        "spoiler_ceiling": "Do not show the final reconciliation.",
+        "user_visual_preferences": [],
+        "preferred_story_node_ids": [],
+        "preferred_character_ids": [],
+        "source_refs": [],
+    }
+    constrained = CoverBriefV2.from_dict(payload, source_prompt_sha256="a" * 64)
+    campaigns = [deepcopy(plan.campaign) for plan in direction.plans]
+    campaigns[0]["layers"][0]["function"] = "she reveals the final reconciliation"
+    changed = replace(direction, plans=tuple(
+        replace(plan, campaign=campaigns[index])
+        for index, plan in enumerate(direction.plans)
+    ))
+
+    findings = _validate_story_constraints(constrained, changed)
+
+    assert "cover_constraint_violation" in {item.code for item in findings}
+
+
+def test_validator_does_not_treat_a_negative_instruction_as_depicted_content() -> None:
+    brief = _brief_with_cover_constraints()
+    direction = CoverArtDirector.from_fixture(director_fixture()).plan(brief, count=4)
+    changed = replace(direction, plans=tuple(
+        replace(plan, frozen_action="do not show final reconciliation")
+        if index == 0 else plan
+        for index, plan in enumerate(direction.plans)
+    ))
+
+    assert "cover_constraint_violation" not in {
+        item.code for item in _validate_story_constraints(brief, changed)
+    }
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "do not depict: final reconciliation",
+        "without revealing final reconciliation",
+        "avoid including final reconciliation",
+        "never displaying final reconciliation",
+    ],
+)
+def test_validator_ignores_punctuated_and_gerund_negative_instructions(instruction: str) -> None:
+    brief = _brief_with_cover_constraints()
+    direction = CoverArtDirector.from_fixture(director_fixture()).plan(brief, count=4)
+    changed = replace(direction, plans=tuple(
+        replace(plan, frozen_action=instruction) if index == 0 else plan
+        for index, plan in enumerate(direction.plans)
+    ))
+
+    assert "cover_constraint_violation" not in {
+        item.code for item in _validate_story_constraints(brief, changed)
+    }
+
+
+@pytest.mark.parametrize(
+    "depiction, forbidden, blocked",
+    [
+        ("画面中呈现最终和解的拥抱", "最终和解", True),
+        ("不要展示最终和解", "最终和解", False),
+        ("不得呈现：最终和解", "最终和解", False),
+        ("避免描绘最终和解的拥抱", "最终和解", False),
+        ("不要展示最终和解，但背景呈现最终和解的拥抱", "最终和解", True),
+        ("不展示争吵，然而画面呈现最终和解", "最终和解", True),
+        ("不要展示争吵。最终和解的拥抱位于前景", "最终和解", True),
+        ("不能不展示最终和解", "最终和解", True),
+        ("并非不展示最终和解", "最终和解", True),
+        ("Do not show the final reconciliation.", "final reconciliation", False),
+        ("Do not show a final reconciliation.", "final reconciliation", False),
+        ("A scene without final reconciliation.", "final reconciliation", False),
+        ("Without revealing any final reconciliation.", "final reconciliation", False),
+        ("Do not show final reconciliation, but depict final reconciliation in the reflection.", "final reconciliation", True),
+        ("Avoid showing arguments; final reconciliation fills the background.", "final reconciliation", True),
+        ("Do not show arguments. The final reconciliation is central.", "final reconciliation", True),
+        ("Do not avoid showing final reconciliation.", "final reconciliation", True),
+        ("Do not show final reconciliationist banners.", "final reconciliation", False),
+    ],
+)
+def test_constraint_depiction_matching_respects_language_and_local_negation(
+    depiction: str, forbidden: str, blocked: bool,
+) -> None:
+    brief = _brief_with_cover_constraints(must_not_show=[forbidden])
+    direction = CoverArtDirector.from_fixture(director_fixture()).plan(_brief(), count=4)
+    changed = replace(direction, plans=(
+        replace(direction.plans[0], frozen_action=depiction), *direction.plans[1:],
+    ))
+
+    findings = _validate_story_constraints(brief, changed)
+
+    assert ("cover_constraint_violation" in {item.code for item in findings}) is blocked
+
+
+def test_constraint_negation_does_not_extend_across_executable_fields() -> None:
+    brief = _brief_with_cover_constraints()
+    direction = CoverArtDirector.from_fixture(director_fixture()).plan(_brief(), count=4)
+    changed = replace(direction, plans=(
+        replace(direction.plans[0], moment_before="Do not show", frozen_action="final reconciliation"),
+        *direction.plans[1:],
+    ))
+
+    assert "cover_constraint_violation" in {
+        item.code for item in _validate_story_constraints(brief, changed)
+    }
+
+
+def test_validator_requires_a_requested_signal_to_be_cited() -> None:
+    brief_payload = _brief().to_dict()
+    brief_payload["cover_constraints"] = {
+        "constraint_version": "cover-constraints.v1",
+        "must_preserve_story_facts": [],
+        "must_show_if_supported": ["child_backpack"],
+        "must_not_show": [],
+        "spoiler_ceiling": "",
+        "user_visual_preferences": [],
+        "preferred_story_node_ids": [],
+        "preferred_character_ids": [],
+        "source_refs": [],
+    }
+    brief = CoverBriefV2.from_dict(brief_payload, source_prompt_sha256="a" * 64)
+    from core.cover_design import evidence_ledger_from_brief
+    ledger = evidence_ledger_from_brief(brief)
+    direction = CoverArtDirector.from_fixture(director_fixture()).plan(
+        brief, count=4, evidence_ledger=ledger,
+    )
+
+    missing = _validate_story_constraints(brief, replace(direction, plans=tuple(
+        replace(plan, story_evidence_refs=tuple(ref for ref in plan.story_evidence_refs
+                                                if "child_backpack" not in ref))
+        for plan in direction.plans
+    )))
+    assert "requested_story_evidence_missing" in {item.code for item in missing}
+
+    signal_ref = next(
+        ref for ref in ledger.allowed_refs
+        if ledger.by_id(ref.removeprefix("evidence:")).source_ref == "cover_brief:signal:child_backpack"
+    )
+    cited = replace(direction, plans=tuple(
+        replace(plan, story_evidence_refs=tuple(plan.story_evidence_refs) + (signal_ref,))
+        for plan in direction.plans
+    ))
+    assert _validate_story_constraints(brief, cited) == []
+
+
+def test_validator_requires_a_requested_character_to_be_visible_not_just_cited() -> None:
+    brief = _brief_with_cover_constraints(
+        must_show_if_supported=["char_mara"],
+        preferred_character_ids=["char_mara"],
+    )
+    direction = CoverArtDirector.from_fixture(director_fixture()).plan(brief, count=4)
+    hidden = replace(direction, plans=tuple(
+        replace(plan, cast=tuple(character for character in plan.cast if character != "char_mara"),
+                story_evidence_refs=("character:char_mara",))
+        for plan in direction.plans
+    ))
+
+    findings = _validate_story_constraints(brief, hidden)
+
+    assert "requested_story_evidence_missing" in {item.code for item in findings}
+
+
+def test_validator_does_not_use_substring_matching_for_evidence_source_refs() -> None:
+    brief = _brief_with_cover_constraints()
+    direction = CoverArtDirector.from_fixture(director_fixture()).plan(brief, count=4)
+    from core.cover_design import evidence_ledger_from_brief
+    original_ledger = evidence_ledger_from_brief(brief)
+    ledger = replace(original_ledger, items=tuple(
+        replace(item, source_ref="cover_brief:node:door_choice_2")
+        if index == 0 else item for index, item in enumerate(original_ledger.items)
+    ))
+    evidence_ref = ledger.allowed_refs[0]
+    hidden = replace(direction, evidence_ledger=ledger, plans=tuple(
+        replace(plan, story_evidence_refs=(evidence_ref,))
+        for plan in direction.plans
+    ))
+
+    findings = _validate_story_constraints(brief, hidden)
+
+    assert "requested_story_evidence_missing" in {item.code for item in findings}
+
+
+def test_validator_ignores_colon_in_freeform_must_show_text() -> None:
+    brief = _brief_with_cover_constraints(
+        must_show_if_supported=["家庭关系: 母亲保护女儿"],
+    )
+    direction = CoverArtDirector.from_fixture(director_fixture()).plan(brief, count=4)
+
+    assert _validate_story_constraints(brief, direction) == []
 
 
 def test_validator_blocks_unknown_evidence_and_identity_invention() -> None:
@@ -381,3 +630,29 @@ def test_v4_validator_requires_scene_evidence_beyond_character_identity() -> Non
     codes = {item.code for item in validate_direction(_brief(), direction)}
 
     assert "missing_story_scene_evidence" in codes
+
+
+def test_v7_allows_story_evidence_designs_without_fixed_ensemble_quotas():
+    direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(_brief(), count=4)
+    plans = tuple(
+        plan if index == 0 else replace(plan, cast=('char_mara',),
+            causal_visibility='indirect', conflict_character_ids=(),
+            protagonist_action_visible=True,
+            cause_signal='The shared key denied to Oren lies in Mara\'s open hand')
+        for index, plan in enumerate(direction.plans)
+    )
+    current = replace(direction, profile_version='cover-profiles.v7', plans=plans)
+    assert validate_direction(_brief(), current) == ()
+    legacy = replace(current, profile_version='cover-profiles.v6')
+    assert 'portfolio_conflict_undercoverage' in {f.code for f in validate_direction(_brief(), legacy)}
+
+
+def test_v7_still_requires_visible_protagonist_causal_evidence_and_a_relationship_plan():
+    direction = CoverArtDirector.from_fixture(adaptive_director_fixture()).plan(_brief(), count=4)
+    current = replace(direction, profile_version='cover-profiles.v7', plans=tuple(
+        replace(p, cast=('char_mara',), causal_visibility='indirect',
+                conflict_character_ids=(), cause_signal='', protagonist_action_visible=False)
+        for p in direction.plans))
+    codes = {f.code for f in validate_direction(_brief(), current)}
+    assert {'missing_core_conflict', 'portfolio_conflict_undercoverage',
+            'protagonist_action_undercoverage'} <= codes

@@ -1,0 +1,4 @@
+interface:
+  display_name: "小说骨架头脑风暴"
+  short_description: "主动探索不同剧情走线，反复完善全书因果与伏笔，交付标准骨架和启动命令"
+  default_prompt: "请使用 $novel-brainstorm-workshop，基于我的构想主动提出不同剧情方向，与我反复完善全书走线、人物选择和伏笔，确认后交付完整小说骨架与 Novel OS 启动命令。"

@@ -1,25 +1,171 @@
 # Quality Gates
 
-Use these checks during design review and again before handing off the Prompt. They are evidence questions, not a numeric promise about commercial performance.
+Select checks for the current stage. The workshop delivers a story skeleton and
+engine handoff; it does not need to draft or approve a manuscript first. These
+are evidence questions, not a numeric promise about commercial performance.
+
+## Evidence and stage boundaries
+
+For a plan, cite chapter-map entries, character decisions, and payoff setups.
+For a draft, cite actual chapter/scene passages and observed consequences.
+Use `pass`, `revise`, or `not_run` per applicable gate; never mark unwritten
+chapters as passing because their outline promises quality. Keep planning,
+parser validation, and manuscript review as separate results. See
+[creation-path.md](creation-path.md) for prerequisite and repair routes.
+
+During brainstorming, first test the whole-book causal spine: story pressure,
+character desire/fear and capabilities/limits, consequential choices, opposing
+feedback, escalation, distinct payoffs, fair setups/reveals, and an earned ending.
+Then map that spine to chapters. Discuss the few decisions that most affect it;
+do not turn character sheets or chapter fields into an item-by-item interview.
+The final skeleton keeps all required sections and engine fields, but entries
+may be concise and shared defaults may be referenced explicitly. Detail follows
+story significance and length, not the number of empty cells in a template.
+
+Language polish, dialogue/subtext, scene enactment, sample prose, independent
+reading, and actual ending evidence belong to later manuscript work. Record
+them as `not_run` while prose is unwritten. They do not block skeleton handoff
+or require the author to approve extra writing samples. Preserve their writing
+instructions for the existing pipeline instead of claiming they already passed.
+
+When `high-retention-web-novel` performs prose review, use its existing
+rubric as a diagnostic aid after checking hard failures. A total score never
+overrides passage-level problems in voice, language, emotion, originality, or
+continuity. Use only applicable criteria; a normal non-paywall chapter is not
+penalized for lacking a paid bridge. Missing required evidence is unreviewed,
+not not-applicable.
+
+## Originality and material use
+
+- Classify every supplied material before canon extraction. The user's own
+  framework is `author_brief`; preserve approved facts. External inspiration
+  stays `reference_only`; current-project continuation uses `project_canon`.
+  A format example does not supply the new book's cast or plot.
+- Compare the approved design with the supplied references: independent
+  character agency, relationship dynamics, distinctive event/reveal sequence,
+  and climax mechanism must be supported by the new story's causal design.
+- Generic genre conventions may overlap. Renaming a cast or changing wording
+  while retaining a distinctive plot chain fails.
+- Keep source-specific comparisons private; inspect all runtime attachments for
+  accidental source injection. Review actual prose again before delivery.
 
 ## Story engine
 
 - A reader can state who wants what, why action is urgent, what blocks it, and what failure costs.
-- Each of the five story forces changes at least two other forces.
+- Story forces interact: changing a goal, relationship, belief, secret, or
+  pressure changes meaningful choices elsewhere rather than adding parallel
+  threads merely to fill a template.
 - The protagonist's visible capability creates options and the limitation creates meaningful costs.
 - The opponent or environment adapts after the protagonist acts.
 
 ## Chapter and retention
 
-- Every chapter has an observable goal, obstacle, active choice, consequence, local payoff, and next pressure.
-- The protagonist changes the causal chain in every chapter or in a deliberately marked interlude.
-- The first three chapters form a complete micro-arc with a visible irreversible change.
+- Every chapter has a stated function and observable reader value. Active plot
+  chapters show goal, obstacle, choice, and consequence. Aftermath, ensemble,
+  observational, or quiet chapters can deepen understanding, emotional meaning,
+  or relationship experience without an external turn or on-page protagonist
+  decision. Identify what would be lost by deletion.
+- The protagonist's choices drive the main turns. An interlude must change a
+  relevant relationship, knowledge, consequence, or earned emotional meaning
+  that the subsequent story uses; labeling a chapter an interlude is no exemption.
+- The early chapters establish a concrete reader promise, meaningful agency,
+  and fresh value while leaving room for later escalation. Choose an opening
+  arc appropriate to the book; a three-chapter micro-arc applies when the
+  selected retention profile calls for it, not as a universal template.
 - A free-window ending completes a stage payoff before creating the next target; the first paid chapter opens on its direct consequence.
-- Recent chapters vary opening situation, setting, conflict, strategy, emotional result, and hook type.
+- Recent chapters vary in function and emotional experience; repeated settings,
+  rituals, or motifs may remain when their changing meaning earns the return.
+
+## Quality without padding
+
+For active plot chapters record: entry state -> goal/pressure -> action and
+feedback -> choice/cost -> exit state -> reader value -> next consequence.
+For other chapter functions, identify the planned before/after difference in
+reader understanding, emotional experience, or relationship meaning; during
+manuscript review cite the relevant passage. Do not invent actions merely to
+fill a contract template or require prose to prove an unwritten plan.
+During drafting, verify those claims against the prose rather than copying the
+plan's claims into a passing report.
+
+- **Deletion test:** in a skeleton, ask what removing a chapter or planned beat
+  would lose. In prose, if removing a scene or repeated passage leaves causality,
+  character understanding, relationship development, and the earned emotional
+  experience unchanged, cut, merge, or replace it. Identify what is lost when a
+  valuable scene is removed. Quiet grief, intimacy, recovery, and reflection
+  can earn space without an external twist or a new fight.
+- **Causal progress:** new pressure follows an action or changing circumstance.
+  Repeated accusations, punishments, misunderstandings, or threats need a new
+  decision or durable consequence; louder repetitions do not count.
+- **Character depth:** choices reveal competing needs, limits, self-deception,
+  and change. Antagonists and helpers have goals beyond provoking or rescuing
+  the protagonist. Convenient stupidity cannot supply the plot engine.
+- **Emotional development:** a feeling develops through perception, behavior,
+  subtext, and consequence. Repeating an emotional label or inner monologue
+  does not deepen it. Let payoff and recovery have enough space to feel earned.
+- **Language (manuscript stage):** precise, character-specific attention and purposeful dialogue
+  take precedence over generic slogans, stock bodily reactions, and repetitive
+  atmospheric description. Preserve voice and rhythm rather than flattening
+  every scene into short action sentences.
+- **Length:** word counts are planning constraints, not permission to pad.
+  When substance cannot sustain the agreed length, revise conflict/arc design
+  or obtain approval for a revised length. Do not silently shorten, inflate,
+  or add unrelated subplots to meet a quota.
+
+Repair skeletons in this order: originality and causal structure -> agency and
+character arcs -> payoff and emotional development -> continuity. Resolve prose
+pacing and language when the manuscript exists, without adding them as gates to
+the current design discussion.
+Return a failed chapter to its contract when the problem is structural; surface
+polish cannot repair a missing decision or payoff. Recheck the revision and
+affected later setups before promoting its facts into canonical state.
+
+## Manuscript-stage prose, character, and whole-arc review
+
+This section is a downstream writing/review handoff. Apply it when actual prose
+is available or the user separately requests a sample; do not generate samples
+or require these reviews merely to finish a skeleton.
+
+- **Voice calibration:** use this project's approved prose or concise original
+  conflict/quiet samples grounded in its design. New samples are not canon.
+  Define narrative distance, attention, register, rhythm, imagery, and dialogue
+  strategy; avoid rigid sentence quotas or imitation of reference novels.
+- **POV and language:** inspect representative passages for what the focal
+  character can perceive or infer, unexplained distance shifts, borrowed
+  knowledge, interchangeable metaphors, and narrator explanation that preempts
+  the reader's experience. Each character's history shapes attention and voice.
+- **Scene presence:** important decisions and emotional turns unfold through
+  observable behavior, dialogue/subtext, perceptions, and reactions. Check that
+  prose has not merely expanded the outline into a list of completed events.
+  Ordinary transitions may be summarized.
+- **Emotional evidence:** major trust/belief changes connect prior state,
+  trigger, interpretation/resistance, choice or behavior, and later evidence.
+  Review neighboring chapters for abrupt forgiveness, intimacy, or repeated
+  identical awakenings. Plans remain plans until the prose supports them.
+- **Arc rhythm:** at a major arc boundary, reread consecutive prose, including
+  recovery and payoff aftermath. Check whether familiar dilemmas gain meaning,
+  earlier consequences persist, and the ending of the arc grows from its scenes.
+  Do not demand a cliffhanger, reversal, or moral ambiguity in every scene.
+- **Separate prose findings:** record evidence and `pass|revise|not_run` for
+  voice/POV, language, dialogue/subtext, scene presence, and emotion. Recheck
+  affected facts after stylistic revision. A high structural score is not a
+  reason to waive a substantial prose problem.
+- **Independent reading:** when available, give a fresh reader actual prose,
+  necessary adjacent passages, and reader/language constraints. Withhold the
+  outline, planned payoff, author explanation, prior scores, and desired verdict.
+  Ask for specific places of confusion, disengagement, and emotional engagement.
+  Verify continuity separately against canon; flag unavailable context instead
+  of inventing it. Without a separate reader, report a second self-review, not
+  an independent test. Model responses are editorial simulations, not real
+  reader feedback or conversion predictions.
+
+These are Skill-level writing and review practices. Do not modify the framework
+or claim automatic backend enforcement to satisfy this checklist.
 
 ### Reader-facing story lead gate
 
-Apply to every Prompt and completed novel:
+Every Prompt carries the lead contract and its conflict, emotional promise, and
+reveal boundary. The following artifact and passage checks apply after drafting
+and export; none requires writing the lead during brainstorming:
 
 - `story_lead_contract.required` is true and placement is `before_chapter_1`.
 - The chapter-one artifact begins with `## STORY_LEAD: <localized reader heading>`, then the lead, then the real chapter-one heading and prose.
@@ -35,6 +181,11 @@ Apply to every Prompt and completed novel:
 
 Apply when the Prompt contains `retention_profile.mode: retention_first`:
 
+At skeleton stage check the planned event, choices, payoff sequence, and paid
+bridge when applicable. First-screen wording, atmosphere, identification in
+prose, and actual passage evidence are reviewed only after drafting. A design
+entry can be concise; it is not a request to write three sample chapters.
+
 - The opening contract names a concrete event, immediate stakes, a specific question, and a protagonist choice.
 - The selected first-screen window contains at least two recorded signals from `event`, `loss`, `contradiction`, `cost`, `question`, or `choice`.
 - The first three chapters use at least two conflict dimensions and connect them through protagonist action and opposing feedback.
@@ -46,7 +197,8 @@ Apply when the Prompt contains `retention_profile.mode: retention_first`:
 - The identification anchor is a specific desire, fear, habit, object, or boundary expressed in the target market's register.
 - Satisfaction sources and escalation dimensions rotate across competence, evidence, status, relationship, moral choice, knowledge, resources, and time.
 - The first paid chapter displays the direct consequence named in `paid_bridge` before opening a separate thread.
-- The evidence cites chapter, scene, or draft locations. Numeric scores do not replace evidence.
+- Design evidence cites chapter-map decisions and planned consequences; prose
+  evidence cites actual chapter or scene locations. Numeric scores do not replace evidence.
 
 `retention_first` is a cross-language design profile. Adjust the opening window,
 idiom, social assumptions, and reader promise for each language and market
@@ -56,7 +208,9 @@ threshold.
 ## Continuity and fairness
 
 - Names, ages, relationships, locations, resources, dates, and knowledge boundaries are tracked.
-- Story-facing cities, districts, institutions, landmarks, and other place names are invented or abstract; real geography appears only in separated audience-research metadata.
+- Story-facing places follow the approved real, fictionalized or mixed setting.
+  Keep release geography separate; do not silently replace real cities supplied
+  by the author. Record material professional or jurisdictional research needs.
 - Every major reversal has earlier evidence, a plausible motive, a fair prior interpretation, and a changed next action.
 - Secrets have a payoff window, an answer, and an observable aftermath.
 - Legal, medical, technical, cultural, and professional processes match the chosen setting.
@@ -70,8 +224,15 @@ threshold.
 
 ## Book ending gate
 
+For the skeleton, define the finale window, decisive choice and cost, required
+outcomes, planned payoff locations, and emotional closure. These are planned
+obligations, not completed evidence. The following enforced state and report
+checks belong to the story foundation and manuscript pipeline; their absence
+before that pipeline runs does not block delivery of the Prompt.
+
 - The story foundation contains an enforced `ending_contract` with a finale
-  window covering the last 3-5 chapters.
+  window appropriate to the approved structure; the last 3-5 chapters are a
+  recommendation, never a demand for chapters beyond the actual book length.
 - The main conflict thread reaches its required terminal status.
 - Every required payoff is `paid` with chapter evidence, or is explicitly
   declared `intentional_open` in the contract.
@@ -92,11 +253,18 @@ threshold.
 
 ## Prompt handoff
 
+Confirm that the following requirements are handed to their responsible stages.
+This is not an instruction to perform drafting, editing, or compilation now.
+
 - The target audience is explicitly confirmed by the user and records the primary reader segment, age or life stage, and main reading motivation; it is not an inferred assumption.
-- The Prompt carries `setting_policy.mode: fictionalized` and keeps real market context inside `audience_profile` rather than the story-facing world ledger.
+- The Prompt carries the approved `setting_policy` and records release-market
+  context in `audience_profile`, separately from story geography.
 - A commercial Prompt carries exactly one valid `COMMERCIAL_STORY_JSON` block and no raw corpus, embedding, vector-search, or nearest-match payload.
 - The Prompt carries a complete `story_lead_contract` and assigns drafting, editing, continuity validation, and style preservation responsibilities for the lead.
 - Top-level fields contain one fixed title, chapter count, and total word target.
+- Per-chapter word/character targets and lead lengths allow reasonable variation.
+  Diagnose weak or padded prose from its content, not a minor length deviation.
+  The Skill does not add strict manuscript-length gates or alter engine checks.
 - All approved decisions appear in the Prompt; assumptions are labeled in one section.
 - Architect, Scribe, Editor, Continuity Guardian, and Style Curator have distinct responsibilities and shared state fields.
 - The Scribe receives only the approved story contract, current chapter contract,

@@ -7,7 +7,12 @@ import * as client from "../api/client";
 test("shows project title and chapter cards", async () => {
   vi.spyOn(client.api, "project").mockResolvedValue({
     id: "p", title: "My Novel", genre: "Drama", author: "A",
-    chapter_count: 1, status: "in_progress", style: {},
+    chapter_count: 1, status: "failed", style: {}, task_id: "failed-original-run",
+  });
+  vi.spyOn(client.api, "projectTask").mockResolvedValue({
+    run_id: "failed-original-run", status: "failed", started_at: null, updated_at: null,
+    current_phase: "publication.copy", current_chapter: null,
+    error: "出版文案调用失败", failed_stages: [], can_resume: true,
   });
   vi.spyOn(client.api, "chapters").mockResolvedValue([
     { number: 1, title: "Opening", status: "drafted", word_count: 2300, pov: "Lena" },
@@ -34,6 +39,8 @@ test("shows project title and chapter cards", async () => {
   expect(screen.getByText("Opening")).toBeInTheDocument();
   expect(screen.getByText("已有初稿")).toBeInTheDocument();
   expect(screen.getByPlaceholderText("添加章节梗概…")).toBeInTheDocument();
+  expect(await screen.findByText("出版文案调用失败")).toBeInTheDocument();
+  expect(client.api.projectTask).toHaveBeenCalledWith("p", "failed-original-run");
 });
 
 test("refreshes externally generated chapter progress when the window regains focus", async () => {

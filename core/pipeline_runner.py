@@ -7,12 +7,20 @@ approval policy, and compilation.
 
 from __future__ import annotations
 
+try:
+    from core.usage_tracking import scoped_usage
+except ModuleNotFoundError as exc:
+    if exc.name != "core":
+        raise
+    from usage_tracking import scoped_usage
+
 import hashlib
 import json
 import os
 import re
 import shutil
 import stat
+import sys
 import tempfile
 import time
 from contextlib import contextmanager
@@ -46,6 +54,19 @@ from h5_publication import (
     validate_h5_publication_root,
 )
 from llm_client import LLMError
+from novel_classification import classification_from_metadata
+from narrative_format import (
+    NarrativeFormat,
+    chapter_binding,
+    narrative_format_from_metadata,
+    serialization_from_state,
+)
+from long_form_quality import (
+    LongFormReport,
+    audit_due_chapters,
+    evaluate_progress as evaluate_long_form_progress,
+    write_report as write_long_form_report,
+)
 from pipeline_models import ManifestStore, RunManifest, RunSpec, StageResult
 from prompt_intake import ingest_prompt
 from project_identity import ensure_project_instance_id
@@ -187,9 +208,11 @@ def _project_execution_lock(project: Path, run_id: str):
 
 
 class PipelineRunner:
-    def __init__(self, project_path: str | Path | None = None, *, orchestrator_factory: Optional[Callable[[str], Any]] = None):
+    def __init__(self, project_path: str | Path | None = None, *, orchestrator_factory: Optional[Callable[[str], Any]] = None,
+                 method_client_factory: Optional[Callable[[], Any]] = None):
         self.project_path = Path(project_path) if project_path else None
         self._orchestrator_factory = orchestrator_factory or self._default_orchestrator
+        self._method_client_factory = method_client_factory
 
     @staticmethod
     def _default_orchestrator(project_path: str):
@@ -205,6 +228,7 @@ class PipelineRunner:
     def _store(cls, project: Path, run_id: str) -> ManifestStore:
         return ManifestStore(cls._run_dir(project, run_id) / "run.json")
 
+    @scoped_usage("manuscript", lambda a: a["spec"].project_path)
     def run(self, spec: RunSpec) -> RunManifest:
         project = Path(spec.project_path).resolve()
         spec.project_path = str(project)
@@ -213,10 +237,24 @@ class PipelineRunner:
         manifest = RunManifest.new(spec)
         store = self._store(project, manifest.run_id)
         with _project_execution_lock(project, manifest.run_id):
+            method_policy_error = ""
+            if spec.method_policy is None:
+                from narrative_methods import MethodPolicy
+                from narrative_methods.store import MethodStore
+                try:
+                    spec.method_policy = MethodStore(project).policy()["data"]["policy"]
+                except Exception as exc:
+                    spec.method_policy = MethodPolicy(mode="off").to_dict()
+                    method_policy_error = type(exc).__name__
+            if not spec.dry_run:
+                print(f"Narrative methods: {spec.method_policy['mode']} (read-only; approved English free-trial window; judge route; at most 2 model calls/chapter).")
             self._reconciled_promotions = set()
             self._prepare_run(manifest, store)
+            if method_policy_error:
+                self._event(manifest, "methods.policy_unavailable", error_type=method_policy_error)
             return self._execute(manifest, project, store)
 
+    @scoped_usage("manuscript", lambda a: a["project_path"] or a["self"].project_path or ".")
     def resume(
         self,
         run_id: str,
@@ -245,6 +283,7 @@ class PipelineRunner:
         store = self._store(project, run_id)
         manifest = store.load()
         manifest.spec.project_path = str(project)
+        print(f"Checking saved checkpoints for run {run_id}...", flush=True)
         try:
             reconciled_promotions = self._reconcile_committed_promotions(
                 manifest, project, store
@@ -527,6 +566,11 @@ class PipelineRunner:
                     f"outputs/deliverables/book.{self._format_extension(fmt)}"
                     for fmt in manifest.spec.output_formats
                 ] + [
+                    "outputs/publication/novel-classification.json",
+                    "outputs/publication/novel-serialization.json",
+                    "outputs/deliverables/meta/novel-classification.json",
+                    "outputs/deliverables/meta/novel-serialization.json",
+                    "outputs/deliverables/meta/h5-import.json",
                     "outputs/deliverables/package-manifest.json",
                     "outputs/deliverables/book-package.zip",
                 ]
@@ -628,6 +672,7 @@ class PipelineRunner:
         self._rerun_started = False
         self._last_valid_state_snapshot = ""
         self._active_orchestrator = None
+        self._method_reviews = None
         if manifest.spec.model:
             os.environ["NOVEL_OS_MODEL"] = manifest.spec.model
         try:
@@ -678,6 +723,7 @@ class PipelineRunner:
                     "outputs/outline.json",
                     "outputs/input/foundation.json",
                     "outputs/story_bible.md",
+                    "outputs/quality/long-form/plan-report.json",
                 ],
             )
             commercial_story = self._foundation_commercial_story(project)
@@ -715,6 +761,9 @@ class PipelineRunner:
                 self._validate_foundation_commit,
                 [foundation_receipt],
             )
+            self._prepare_method_reviews(manifest, project, store, commercial_story)
+            narrative_format = self._narrative_format(project)
+            long_form_audits = set(audit_due_chapters(narrative_format))
             commercial_review_enabled = (
                 commercial_story is not None
                 and manifest.spec.quality_policy == "evidence_v1"
@@ -728,6 +777,22 @@ class PipelineRunner:
             )
             for chapter in range(1, manifest.spec.num_chapters + 1):
                 self._run_chapter(manifest, project, store, orchestrator, chapter)
+                if chapter in long_form_audits:
+                    audit_relative = (
+                        f"outputs/quality/long-form/chapter_{chapter:03d}_audit.json"
+                    )
+                    self._stage(
+                        manifest,
+                        project,
+                        store,
+                        "long_form.audit",
+                        chapter,
+                        lambda current=chapter: self._evaluate_and_write_long_form(
+                            project, current
+                        ),
+                        self._validate_long_form_result,
+                        [audit_relative],
+                    )
                 if commercial_review_enabled and chapter == free_trial_chapter:
                     self._stage(
                         manifest,
@@ -814,6 +879,9 @@ class PipelineRunner:
                 [
                     f"outputs/deliverables/book.{self._format_extension(fmt)}"
                     for fmt in manifest.spec.output_formats
+                ] + [
+                    "outputs/publication/novel-classification.json",
+                    "outputs/publication/novel-serialization.json",
                 ],
             )
             self._stage(
@@ -825,6 +893,9 @@ class PipelineRunner:
                 lambda: self._deliver_package(manifest, project),
                 lambda value: bool(value),
                 [
+                    "outputs/deliverables/meta/novel-classification.json",
+                    "outputs/deliverables/meta/novel-serialization.json",
+                    "outputs/deliverables/meta/h5-import.json",
                     "outputs/deliverables/package-manifest.json",
                     "outputs/deliverables/book-package.zip",
                 ],
@@ -889,6 +960,7 @@ class PipelineRunner:
                     chapter=number,
                     receipt_id=receipt.receipt_id,
                 )
+                print(f"Reusing completed chapter {number}/{spec.num_chapters}.", flush=True)
                 return
         commercial_story = (
             self._foundation_commercial_story(project)
@@ -1153,12 +1225,72 @@ class PipelineRunner:
                     chapter=number,
                     repair_attempt=commercial_attempt,
                 )
+        self._review_methods(manifest, project, number)
         self._stage(
             manifest, project, store, "chapter.promote", number,
             lambda: self._promote(manifest, project, number),
             lambda value: bool(value),
             [self._chapter_stage(number, "final" if spec.approval_policy == "auto" else "candidate_final")],
         )
+
+    def _prepare_method_reviews(self, manifest, project, store, commercial_story):
+        """Advisory sidecars never participate in production checkpoint invalidation."""
+        from narrative_methods import MethodPolicy
+        from narrative_methods.runtime import MethodReviews
+
+        if manifest.spec.method_policy is None:
+            return  # Pre-feature runs are not silently opted in on resume.
+        policy = MethodPolicy.from_dict(manifest.spec.method_policy)
+        if policy.mode == "off":
+            return
+        try:
+            brief = json.loads((project / "outputs/input/brief.json").read_text(encoding="utf-8"))
+            reviews = MethodReviews(project, client_factory=self._method_client_factory)
+            allow_create = not manifest.method_snapshot_started
+            manifest.method_snapshot_started = True
+            store.save(manifest)
+            snapshot = reviews.prepare(
+                manifest.run_id, policy, language=str(brief.get("language", "")),
+                free_trial_end=commercial_story.free_trial_arc.chapter_count if commercial_story else None,
+                contracts={"commercial_story": commercial_story.to_dict()} if commercial_story else {},
+                allow_create=allow_create,
+            )
+            if manifest.method_lock_sha256 and manifest.method_lock_sha256 != snapshot["sha256"]:
+                raise ValueError("run method lock diverged from manifest")
+            manifest.method_lock_sha256 = snapshot["sha256"]
+            store.save(manifest)
+            self._method_reviews = reviews
+            self._method_free_trial_end = snapshot["data"].get("free_trial_end")
+            self._event(manifest, "methods.prepared", status=snapshot["data"].get("status"),
+                        method_lock_sha256=snapshot["sha256"])
+        except Exception as exc:
+            self._event(manifest, "methods.unavailable", error_type=type(exc).__name__)
+
+    def _review_methods(self, manifest, project, number):
+        reviews = getattr(self, "_method_reviews", None)
+        end = getattr(self, "_method_free_trial_end", None)
+        if reviews is None or end is None or number > end:
+            return
+        try:
+            from narrative_methods import ReviewInput
+            artifacts = ArtifactStore(project)
+            candidate = self._latest_candidate_stage(manifest, number)
+            if candidate is None or not candidate.revision_id:
+                raise ValueError("method review needs an immutable candidate")
+            contracts = {}
+            if candidate.chapter_contract_revision_id:
+                contracts["chapter_contract"] = artifacts.read_text(candidate.chapter_contract_revision_id)
+                contracts["chapter_contract_revision_id"] = candidate.chapter_contract_revision_id
+            report = reviews.review(manifest.run_id, ReviewInput(
+                revision_id=candidate.revision_id, chapter=number,
+                text=artifacts.read_text(candidate.revision_id), language="", free_trial_end=None,
+                contracts=contracts,
+            ))
+            self._event(manifest, "methods.reviewed", chapter=number,
+                        report_id=report["report_id"], status=report["status"],
+                        model_calls=report["usage"]["model_calls"])
+        except Exception as exc:
+            self._event(manifest, "methods.unavailable", chapter=number, error_type=type(exc).__name__)
 
     def _restore_committed_tail_state(
         self,
@@ -1178,6 +1310,19 @@ class PipelineRunner:
         if not history:
             return
         tail = history[-1]
+        from canon_ledger import CanonReconciliationEntry
+
+        if isinstance(tail, CanonReconciliationEntry):
+            # Chapter retries can restore a snapshot from before recovery.
+            # Reassert the audited foundation transaction before promotion.
+            self._commit_story_foundation(manifest, project)
+            if canonical_canon_sha(StoryState(str(project))) != tail.new_canon_sha:
+                raise PipelineError(
+                    "Cannot restore committed canon: foundation reconciliation head diverged",
+                    blocked=True,
+                )
+            self._reload_active_state(project)
+            return
         prefix = f"pipeline-{manifest.run_id}-chapter-"
         if not tail.idempotency_key.startswith(prefix):
             return
@@ -1242,7 +1387,31 @@ class PipelineRunner:
         captured_input_hashes: Optional[Dict[str, str]] = None,
     ) -> StageResult:
         previous = manifest.get(phase, chapter)
+        stage_label = RunManifest.stage_key(phase, chapter)
+        if (
+            manifest.spec.quality_policy == "evidence_v1"
+            and phase in {"intake", "outline"}
+            and (
+                self._rerun_started
+                or previous is None
+                or previous.status != "done"
+                or not self._checkpoint_valid(project, previous, manifest)
+            )
+        ):
+            from canon_ledger import CanonLedger
+
+            if CanonLedger(project).history():
+                manifest.current_phase = phase
+                manifest.current_chapter = chapter
+                raise PipelineError(
+                    f"Committed chapters exist but {phase} checkpoint changed; "
+                    "automatic replanning is disabled. Restore the approved "
+                    "planning artifacts or explicitly reconcile the foundation "
+                    "with committed chapter history before resuming.",
+                    blocked=True,
+                )
         if previous and previous.status == "done" and not self._rerun_started:
+            print(f"Checking saved stage: {stage_label}...", flush=True)
             self._require_quality_gate(manifest.spec.quality_policy, previous)
             self._validate_bound_revision(project, previous)
             self._validate_bound_proposals(project, previous)
@@ -1287,6 +1456,7 @@ class PipelineRunner:
                 # proposal-only runs can continue using the foundation-backed
                 # runtime state before the next stage executes.
                 self._reload_active_state(project)
+                print(f"Reusing completed stage: {stage_label}.", flush=True)
                 return previous
             if self._last_valid_state_snapshot:
                 self._restore_state(project, self._last_valid_state_snapshot)
@@ -1317,6 +1487,7 @@ class PipelineRunner:
                 started_at=self._now(),
             )
             try:
+                print(f"Running stage: {stage_label} (attempt {attempt}/{max_attempts})...", flush=True)
                 result.input_hashes = dict(
                     captured_input_hashes
                     if captured_input_hashes is not None
@@ -1470,10 +1641,27 @@ class PipelineRunner:
         manifest: RunManifest,
         project: Path,
     ) -> Any:
+        source = manifest.spec.prompt_path
+        if source == "-":
+            run_prompt = self._run_dir(project, manifest.run_id) / "input/prompt.md"
+            if run_prompt.is_file():
+                source = str(run_prompt)
+            else:
+                raw_prompt = sys.stdin.read()
+                if not raw_prompt.strip():
+                    raise ValueError(
+                        "Prompt is empty; this stdin-backed run has no saved run prompt. "
+                        "Provide the original prompt on stdin when resuming."
+                    )
+                # The project execution lock covers this write.  Bind stdin to
+                # the run before intake can fail during author generation.
+                self._atomic_text(run_prompt, raw_prompt)
+                source = str(run_prompt)
         result = ingest_prompt(
             project,
-            manifest.spec.prompt_path,
+            source,
             self._brief_overrides(manifest.spec),
+            generate_author=not manifest.spec.dry_run,
         )
         self._persist_story_contract(project)
         return result
@@ -1554,6 +1742,20 @@ class PipelineRunner:
                     "commercial book review requires a run manifest", blocked=True
                 )
             return commercial_book_input_hashes(project, manifest.spec.num_chapters)
+        if phase == "long_form.audit":
+            current = chapter or 0
+            span = PipelineRunner._narrative_format(project).volume_for_chapter(current)
+            relatives = ["outputs/state/story_state.json"]
+            for number in range(span.chapter_start, current + 1):
+                relatives.extend([
+                    PipelineRunner._chapter_outline(number),
+                    PipelineRunner._chapter_stage(number, "final"),
+                ])
+            return {
+                relative: PipelineRunner._sha256(project / relative)
+                for relative in relatives
+                if (project / relative).is_file()
+            }
         inputs: Dict[str, list[str]] = {
             "outline": ["outputs/input/prompt.md", "outputs/input/brief.json"],
             "foundation.commit": ["outputs/input/foundation.json"],
@@ -1580,7 +1782,6 @@ class PipelineRunner:
             ],
             "ending.review": [
                 ENDING_CONTRACT_RELATIVE,
-                PAYOFF_LEDGER_RELATIVE,
                 "outputs/state/story_state.json",
             ],
         }
@@ -1595,6 +1796,12 @@ class PipelineRunner:
             for relative in inputs.get(phase, [])
             if (project / relative).is_file()
         }
+        if phase == "ending.review":
+            from ending_evidence import EndingEvidenceStore
+
+            # The payoff ledger is an output of this check. Bind the review
+            # records and their approved sources, including deletion, instead.
+            file_hashes.update(EndingEvidenceStore(project).input_hashes())
         if manifest is None or phase not in {
             "commercial.free_trial_review",
             "commercial.book_review",
@@ -1653,6 +1860,28 @@ class PipelineRunner:
             file_hashes[
                 "outputs/publication/publication-copy.json"
             ] = PipelineRunner._sha256(publication_path)
+
+        if phase in {"compile", "delivery.package"}:
+            file_hashes["epub_import_policy_sha256"] = hashlib.sha256(
+                b"novel-epub-map.v1/novel-h5-import.v1"
+            ).hexdigest()
+            classification = PipelineRunner._publication_delivery_metadata(
+                project
+            )["classification"]
+            file_hashes["novel_classification_sha256"] = hashlib.sha256(
+                canonical_json_bytes(classification)
+            ).hexdigest()
+            serialization = PipelineRunner._publication_delivery_metadata(
+                project
+            )["serialization"]
+            file_hashes["novel_serialization_sha256"] = hashlib.sha256(
+                json.dumps(
+                    serialization,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8") + b"\n"
+            ).hexdigest()
 
         if phase == "delivery.package":
             for fmt in manifest.spec.output_formats:
@@ -1983,6 +2212,16 @@ class PipelineRunner:
                 f"commercial_book_report_id:{value.report_id}",
             ]
 
+        if result.phase == "long_form.audit" and isinstance(
+            value, LongFormReport
+        ):
+            result.findings = [item.to_dict() for item in value.findings]
+            result.decisions = [
+                f"long_form_status:{value.status}",
+                f"long_form_audit_type:{value.audit_type}",
+                f"long_form_report_id:{value.report_id}",
+            ]
+
         if result.phase == "intake":
             from state_manager import StoryState
 
@@ -2005,7 +2244,10 @@ class PipelineRunner:
             result.story_contract_revision_id = self._current_contract_revision_id(
                 artifacts, 0, "story_contract"
             )
-            if manifest.spec.quality_policy == "evidence_v1":
+            if (
+                manifest.spec.quality_policy == "evidence_v1"
+                or self._long_form_enforced(project)
+            ):
                 contract = self._parse_chapter_contract(
                     project / self._chapter_outline(result.chapter),
                     result.chapter,
@@ -2884,7 +3126,9 @@ class PipelineRunner:
     def _publication_delivery_metadata(project: Path) -> Dict[str, Any]:
         from state_manager import StoryState
 
-        metadata = StoryState(str(project)).metadata
+        state = StoryState(str(project))
+        metadata = state.metadata
+        classification = classification_from_metadata(metadata)
         return {
             "title": str(metadata.get("title") or "Untitled"),
             "alternate_titles": PipelineRunner._metadata_text_list(
@@ -2893,7 +3137,51 @@ class PipelineRunner:
             "tags": PipelineRunner._metadata_text_list(
                 metadata.get("tags"), "tags"
             ),
+            "classification": classification.to_dict(),
+            "serialization": serialization_from_state(
+                metadata,
+                state.story_bible,
+                classification=classification,
+            ),
         }
+
+    @staticmethod
+    def _long_form_enforced(project: Path) -> bool:
+        return PipelineRunner._narrative_format(project).is_long_form
+
+    @staticmethod
+    def _narrative_format(project: Path):
+        from state_manager import StoryState
+
+        state = StoryState(str(project))
+        classification = classification_from_metadata(state.metadata)
+        return narrative_format_from_metadata(
+            state.metadata,
+            classification=classification,
+            premise=str(state.story_bible.get("premise") or ""),
+        )
+
+    @staticmethod
+    def _evaluate_and_write_long_form(
+        project: Path, chapter: int
+    ) -> LongFormReport:
+        report = evaluate_long_form_progress(project, chapter)
+        write_long_form_report(project, report, as_of_chapter=chapter)
+        return report
+
+    @staticmethod
+    def _validate_long_form_result(value: Any) -> None:
+        if not isinstance(value, LongFormReport):
+            raise PipelineError(
+                "Long-form audit returned no structured report", blocked=True
+            )
+        if value.status == "blocked":
+            details = "; ".join(item.message for item in value.blockers)
+            raise PipelineError(
+                "Long-form quality audit blocked later chapters: "
+                + (details or "volume obligations were not met"),
+                blocked=True,
+            )
 
     @staticmethod
     def _metadata_text_list(value: Any, name: str) -> list[str]:
@@ -2970,7 +3258,15 @@ class PipelineRunner:
         state = project / "outputs/state/story_state.json"
         if not snapshot.exists():
             raise PipelineError(f"State snapshot is missing: {snapshot_relative}", blocked=True)
-        self._atomic_copy(snapshot, state)
+        from book_author import saved_project_author
+
+        author = saved_project_author(project)
+        payload = json.loads(snapshot.read_text(encoding="utf-8"))
+        if author and payload.get("metadata", {}).get("author") != author:
+            payload.setdefault("metadata", {})["author"] = author
+            self._atomic_json(state, payload)
+        else:
+            self._atomic_copy(snapshot, state)
         self._reload_active_state(project)
 
     def _reload_active_state(self, project: Path) -> None:
@@ -2989,17 +3285,43 @@ class PipelineRunner:
 
     @staticmethod
     def _is_retryable(exc: Exception) -> bool:
+        from book_author import AuthorGenerationError
+
+        if isinstance(exc, AuthorGenerationError) and isinstance(exc.__cause__, Exception):
+            return PipelineRunner._is_retryable(exc.__cause__)
         text = str(exc).lower()
         non_retryable = (
             "no llm provider configured",
             "requires novel_os_",
             "api key is not set",
+            "api key is missing",
+            "invalid api key",
+            "incorrect api key",
+            "invalid_api_key",
             "unknown provider",
             "agent prompt not found",
             "missing [",
             "empty revised chapter",
+            "unauthorized",
+            "403 forbidden",
+            "not authenticated",
+            "authentication failed",
+            "authentication required",
+            "authentication error",
+            "authentication_error",
+            "missing authentication",
+            "missing bearer",
+            "missing credentials",
+            "invalid credentials",
+            "codex login",
         )
         if any(marker in text for marker in non_retryable):
+            return False
+        if re.search(
+            r"\b(?:http(?: status)?|status(?: code)?|unexpected status)"
+            r"\s*[:=]?\s*(?:401|403)\b",
+            text,
+        ):
             return False
         if isinstance(exc, (LLMError, TimeoutError, ConnectionError)):
             return True
@@ -3616,7 +3938,26 @@ class PipelineRunner:
         self._require_files(project, [str(state_path.relative_to(project))])
         from state_manager import StoryState
 
+        from book_author import ensure_project_author
+        ensure_project_author(project)
         state = StoryState(str(project))
+        classification = classification_from_metadata(state.metadata)
+        classification_payload = classification.to_dict()
+        classification_path = (
+            project / "outputs/publication/novel-classification.json"
+        )
+        self._atomic_json(classification_path, classification_payload)
+        serialization = serialization_from_state(
+            state.metadata,
+            state.story_bible,
+            classification=classification,
+        )
+        serialization_path = (
+            project / "outputs/publication/novel-serialization.json"
+        )
+        self._atomic_json(serialization_path, serialization)
+        format_contract = NarrativeFormat.from_dict(serialization["format"])
+        volume_contracts = serialization["volumes"]
         artifacts = ArtifactStore(project)
         publication_copy = (
             self._load_publication_copy(manifest, project)
@@ -3649,17 +3990,23 @@ class PipelineRunner:
                     blocked=True,
                 )
             chapter = state.get_chapter(number)
-            chapters.append({
+            chapter_record = {
                 "number": number,
                 "title": chapter.title if chapter else f"Chapter {number}",
                 "text": text,
-            })
+            }
+            chapter_record.update(
+                chapter_binding(format_contract, number, volume_contracts)
+            )
+            chapters.append(chapter_record)
         book = gather(
             title=state.metadata.get("title", "Untitled"),
             author=state.metadata.get("author", ""),
             genre=state.metadata.get("genre", ""),
             chapters=chapters,
             publication_copy=publication_copy,
+            classification=classification_payload,
+            serialization=serialization,
         )
         if len(book.chapters) != manifest.spec.num_chapters:
             raise PipelineError(
@@ -3686,7 +4033,20 @@ class PipelineRunner:
         from delivery_package import build_delivery_package
 
         if not require_publication_copy:
-            return _DeliveryStageValue(build_delivery_package(project), None)
+            return _DeliveryStageValue(
+                build_delivery_package(
+                    project,
+                    publication_copy_path=None,
+                    classification_path=(
+                        project / "outputs/publication/novel-classification.json"
+                    ),
+                    serialization_path=(
+                        project / "outputs/publication/novel-serialization.json"
+                    ),
+                    h5_root=None,
+                ),
+                None,
+            )
 
         publication_copy = self._load_publication_copy(manifest, project)
         source = build_publication_source_set(
@@ -3721,11 +4081,19 @@ class PipelineRunner:
                 metadata["title"],
                 metadata["alternate_titles"],
                 metadata["tags"],
+                metadata["classification"],
+                metadata["serialization"],
             )
             package_result = build_delivery_package(
                 project,
                 publication_copy_path=(
                     project / "outputs/publication/publication-copy.json"
+                ),
+                classification_path=(
+                    project / "outputs/publication/novel-classification.json"
+                ),
+                serialization_path=(
+                    project / "outputs/publication/novel-serialization.json"
                 ),
                 h5_root=h5_result.root if h5_result is not None else None,
             )

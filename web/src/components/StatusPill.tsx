@@ -1,9 +1,9 @@
 import { displayLabel } from "../lib/displayLabels";
 
-export default function StatusPill({ status }: { status: string }) {
+export default function StatusPill({ status, label }: { status: string; label?: string }) {
   return (
     <span className="status-pill" data-status={status.toLowerCase()}>
-      {displayLabel(status)}
+      {label ?? displayLabel(status)}
     </span>
   );
 }

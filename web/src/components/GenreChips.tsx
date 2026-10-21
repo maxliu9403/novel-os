@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { GENRE_OPTIONS, genreLabel } from "../lib/genres";
+import { GENRE_GROUPS, genreLabel } from "../lib/genres";
 
 export default function GenreChips({
   selected,
@@ -34,25 +34,32 @@ export default function GenreChips({
 
   return (
     <div>
-      <div className="flex flex-wrap gap-1.5">
-        {GENRE_OPTIONS.map((g) => {
-          const on = selected.some((s) => s.toLowerCase() === g.toLowerCase());
-          return (
-            <button
-              key={g}
-              type="button"
-              aria-pressed={on}
-              onClick={() => toggle(g)}
-              className={`rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors sm:px-3 sm:py-1.5 sm:text-[12.5px] ${
-                on
-                  ? "bg-[var(--color-violet)] text-white shadow-[0_6px_16px_rgba(104,103,234,0.28)]"
-                  : "border border-[rgba(96,112,153,0.16)] bg-white/55 text-ink-muted hover:text-ink"
-              }`}
-            >
-              {genreLabel(g)}
-            </button>
-          );
-        })}
+      <div className="space-y-3">
+        {GENRE_GROUPS.map((group) => (
+          <fieldset key={group.label}>
+            <legend className="mb-1.5 text-[11.5px] text-ink-muted">{group.label}</legend>
+            <div className="flex flex-wrap gap-1.5">
+              {group.options.map((g) => {
+                const on = selected.some((s) => s.toLowerCase() === g.toLowerCase());
+                return (
+                  <button
+                    key={g}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => toggle(g)}
+                    className={`rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors sm:px-3 sm:py-1.5 sm:text-[12.5px] ${
+                      on
+                        ? "bg-[var(--color-violet)] text-white shadow-[0_6px_16px_rgba(104,103,234,0.28)]"
+                        : "border border-[rgba(96,112,153,0.16)] bg-white/55 text-ink-muted hover:text-ink"
+                    }`}
+                  >
+                    {genreLabel(g)}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+        ))}
         <button
           type="button"
           aria-pressed={showOther}

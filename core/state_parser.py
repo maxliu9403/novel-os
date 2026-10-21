@@ -114,6 +114,122 @@ def extract_manuscript_block(text: str, tag: str = "REVISED_CHAPTER") -> Optiona
 
 _FIELD_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_ ]*?)\s*:\s*(.*)$")
 _BULLET_RE = re.compile(r"^\s*[-*•]\s+(.+)$")
+_ENDING_FIELDS = {"payoff_events", "arc_state_updates", "ending_evidence"}
+
+
+class EndingProtocolError(ValueError):
+    """An explicit ending declaration would otherwise be silently discarded."""
+
+
+def _append_ending_values(out: Dict[str, Any], key: str, values: List[str]) -> None:
+    existing = out.setdefault(key, [])
+    for value in values:
+        if value not in existing:
+            existing.append(value)
+
+
+def _validate_ending_declaration(key: str, value: str) -> None:
+    if key == "ending_evidence":
+        return  # This field intentionally accepts literal evidence text.
+    common = {"id", "thread_id", "chapter", "evidence"}
+    allowed = common | (
+        {"status", "note", "payoff"} if key == "payoff_events" else
+        {"stage", "arc_stage", "progress", "arc_progress", "outcome", "outcome_state", "choice", "state"}
+    )
+
+    def invalid(reason: str) -> None:
+        raise EndingProtocolError(f"ending_protocol: {key}: {reason}; declaration={value!r}")
+
+    parts = [part.strip() for part in value.split("|")]
+    seen: Dict[str, str] = {}
+    for index, part in enumerate(parts):
+        if index == 0 and "=" not in part:
+            continue
+        name, separator, content = part.partition("=")
+        name, content = _normalize_key(name), content.strip()
+        if not separator or name not in allowed or not content:
+            invalid("expected an entity and supported nonempty key=value fields")
+        if name in seen and seen[name] != content:
+            invalid(f"conflicting duplicate {name}")
+        seen[name] = content
+    entity, fields = _parse_pipe_update(value)
+    if not entity or entity.lower() in _PLACEHOLDER or len(parts) < 2:
+        invalid("missing entity or structured fields")
+    identities = [seen[name] for name in ("id", "thread_id") if name in seen]
+    if parts[0] and "=" not in parts[0]:
+        identities.append(parts[0])
+    if len(set(identities)) > 1:
+        invalid("conflicting entity identifiers")
+    if "chapter" in fields and not re.fullmatch(r"[1-9]\d*", fields["chapter"]):
+        invalid("chapter must be a positive integer")
+    if key == "payoff_events":
+        if fields.get("status", "").lower() not in {"planted", "recalled", "paid", "intentional_open", "blocked"}:
+            invalid("status must be planted, recalled, paid, intentional_open or blocked")
+        evidence = fields.get("evidence") or fields.get("note") or fields.get("payoff")
+    else:
+        for name, alias in (("stage", "arc_stage"), ("progress", "arc_progress"), ("outcome", "outcome_state")):
+            if name in fields and alias in fields and fields[name] != fields[alias]:
+                invalid(f"conflicting {name} aliases")
+        stage = fields.get("stage") or fields.get("arc_stage")
+        if stage and stage.lower() not in {"beginning", "middle", "climax", "resolution"}:
+            invalid("unrecognized arc stage")
+        progress = fields.get("progress") or fields.get("arc_progress")
+        if progress and (not re.fullmatch(r"\d{1,3}", progress) or int(progress) > 100):
+            invalid("progress must be an integer from 0 to 100")
+        if not (stage or progress or fields.get("outcome") or fields.get("outcome_state")):
+            invalid("missing stage, progress or outcome")
+        evidence = fields.get("evidence") or fields.get("choice") or fields.get("state")
+    if not evidence or evidence.lower() in _PLACEHOLDER:
+        invalid("missing observable evidence")
+
+
+def _store_parsed_field(out: Dict[str, Any], key: str, value: Any) -> None:
+    """Route only explicit ending labels; never infer state from a fact or note."""
+    retained: List[str] = []
+    routed = False
+    for item in _as_list(value):
+        target = key
+        normalized = item.strip()
+        while (prefix := _FIELD_RE.match(normalized)):
+            field = _normalize_key(prefix.group(1))
+            if field not in _ENDING_FIELDS:
+                break
+            target = field
+            normalized = prefix.group(2).strip()
+        if target in _ENDING_FIELDS:
+            routed = True
+            for declaration in _as_list(normalized):
+                _validate_ending_declaration(target, declaration)
+                _append_ending_values(out, target, [declaration])
+            continue
+        # A bare, machine-shaped declaration under general facts is ambiguous.
+        # Expose the lost field instead of promoting a fact into canon. Ordinary
+        # prose mentioning a payoff, and text inside Character_References.note,
+        # remain untouched.
+        if key == "new_facts_established" and "|" in item:
+            entity, fields = _parse_pipe_update(item)
+            misplaced = (
+                re.fullmatch(r"payoff_[A-Za-z0-9_-]+", entity) and "status" in fields
+            ) or (
+                re.fullmatch(r"(?:char_[A-Za-z0-9_-]+|[A-Z][A-Za-z]*\d+)", entity)
+                and ("stage" in fields or "arc_stage" in fields)
+                and "evidence" in fields
+            )
+            if misplaced:
+                raise EndingProtocolError(
+                    "ending_protocol: structured declaration in new_facts_established "
+                    "requires an explicit Payoff_Events or Arc_State_Updates field; "
+                    f"declaration={item!r}"
+                )
+        retained.append(item)
+    if key in _ENDING_FIELDS:
+        out.setdefault(key, [])
+    else:
+        # Preserve the legacy scalar/list shapes for unrelated fields.
+        if not routed:
+            out[key] = value
+        else:
+            out[key] = retained if isinstance(value, list) else (retained[0] if retained else "")
 
 
 def parse_fields(block: str) -> Dict[str, Any]:
@@ -132,6 +248,10 @@ def parse_fields(block: str) -> Dict[str, Any]:
             continue
         m = _FIELD_RE.match(line.lstrip())
         if not m:
+            bullet = _BULLET_RE.match(line)
+            prefixed = _FIELD_RE.match(bullet.group(1)) if bullet else None
+            if prefixed and _normalize_key(prefixed.group(1)) in _ENDING_FIELDS:
+                _store_parsed_field(out, _normalize_key(prefixed.group(1)), prefixed.group(2))
             continue
         key = _normalize_key(m.group(1))
         rest = m.group(2).strip()
@@ -148,19 +268,30 @@ def parse_fields(block: str) -> Dict[str, Any]:
             if peek.strip() == "" and i + 1 < len(lines) and _BULLET_RE.match(lines[i + 1]):
                 i += 1
                 continue
+            if key in _ENDING_FIELDS and not peek.strip():
+                i += 1
+                continue
+            if key in _ENDING_FIELDS and peek.strip() and not _FIELD_RE.match(peek.lstrip()):
+                # A malformed explicit declaration must not vanish merely
+                # because its list marker is missing. Valid unbulleted pipe
+                # records remain accepted by the same validation below.
+                bullets.append(peek.strip())
+                i += 1
+                continue
             break
 
         if bullets:
             # If 'rest' was empty, bullets ARE the value; otherwise prepend rest.
-            out[key] = bullets if not rest else [rest] + bullets
+            value = bullets if not rest else [rest] + bullets
         elif rest.startswith("[") and rest.endswith("]"):
             inner = rest[1:-1].strip()
             if not inner or inner.lower() in ("list", "count", "none"):
-                out[key] = []
+                value = []
             else:
-                out[key] = [s.strip() for s in inner.split(",") if s.strip()]
+                value = [s.strip() for s in inner.split(",") if s.strip()]
         else:
-            out[key] = rest
+            value = rest
+        _store_parsed_field(out, key, value)
     return out
 
 
@@ -251,7 +382,11 @@ def parse_continuity(text: str) -> Dict[str, Any]:
     for tag in ("CONTINUITY_REPORT", "CONTINUITY_STATE_UPDATE"):
         block = extract_block(text, tag)
         if block:
-            out.update(parse_fields(block))
+            for key, value in parse_fields(block).items():
+                if key in _ENDING_FIELDS:
+                    _append_ending_values(out, key, value)
+                else:
+                    out[key] = value
     return out
 
 
@@ -276,13 +411,17 @@ def _resolve_character_id(state: "StoryState", name: str) -> Optional[str]:
     direct = state.get_character_by_name(name)
     if direct:
         return direct.id
-    # Loose match: first/last name token
-    lower = name.lower()
-    for char in state.characters.values():
-        full = char.full_name.lower()
-        if lower == full or lower in full.split():
-            return char.id
-    return None
+    # Legacy first/last-name references are safe only when unique. Never
+    # attribute an update to the first relative with a shared surname.
+    lower = name.casefold()
+    matches = [
+        char.id for char in state.characters.values()
+        if any(
+            lower == value.casefold() or lower in value.casefold().split()
+            for value in [char.full_name, *char.aliases]
+        )
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _split_pair(item: str, sep_chars: str = ":-—") -> Tuple[str, str]:
@@ -294,6 +433,18 @@ def _split_pair(item: str, sep_chars: str = ":-—") -> Tuple[str, str]:
 
 
 _PLACEHOLDER = {"none", "n/a", "0", "[none]", "[n/a]", "[]", "(none)", "-"}
+
+# Stable setup identifiers are part of the ending contract. Keep accepting
+# the original generated ``chN:fsM`` form, while recognizing the explicit
+# contract form used by long-form prompts. Do not treat arbitrary prose that
+# merely contains ``ch`` or ``:fs`` as an identifier.
+_STABLE_FORESHADOWING_ID_RE = re.compile(
+    r"^ch\d+:(?:fs\d+|setup:payoff_[A-Za-z0-9][A-Za-z0-9_-]*)$"
+)
+
+
+def _is_stable_foreshadowing_id(value: str) -> bool:
+    return bool(_STABLE_FORESHADOWING_ID_RE.fullmatch(value.strip()))
 
 def _as_list(value: Any) -> List[str]:
     if value is None:
@@ -513,6 +664,44 @@ def _apply_payoff_events(
         log.append(f"[{source}] payoff {payoff_id}: status={status}")
 
 
+_ARC_STAGE_RANK = {"beginning": 0, "middle": 1, "climax": 2, "resolution": 3}
+
+
+def _arc_rank(stage: str) -> int:
+    return _ARC_STAGE_RANK.get(str(stage or "").strip().lower(), 0)
+
+
+def _advance_arc_state(
+    current_stage: str,
+    current_progress: int,
+    incoming_stage: str,
+    incoming_progress: Optional[int],
+) -> tuple[str, int, str, Optional[int]]:
+    """Keep a character's lifecycle monotonic across chapter estimates."""
+    stage = str(current_stage or "beginning").strip().lower()
+    if stage not in _ARC_STAGE_RANK:
+        stage = "beginning"
+    progress = max(0, min(100, int(current_progress or 0)))
+    effective_stage = stage
+    effective_progress = progress
+    if incoming_stage and _arc_rank(incoming_stage) >= _arc_rank(effective_stage):
+        effective_stage = incoming_stage
+    if incoming_progress is not None:
+        effective_progress = max(effective_progress, incoming_progress)
+    if effective_progress >= 100:
+        effective_stage = "resolution"
+        effective_progress = 100
+    elif effective_stage == "resolution":
+        effective_progress = 100
+    reported_stage = ""
+    if incoming_stage and _arc_rank(incoming_stage) < _arc_rank(effective_stage):
+        reported_stage = incoming_stage
+    reported_progress = None
+    if incoming_progress is not None and incoming_progress < effective_progress:
+        reported_progress = incoming_progress
+    return effective_stage, effective_progress, reported_stage, reported_progress
+
+
 def _apply_arc_state_updates(
     state: "StoryState",
     chapter: Any,
@@ -540,10 +729,17 @@ def _apply_arc_state_updates(
                 progress = max(0, min(100, int(str(progress_text).strip())))
             except ValueError:
                 log.append(f"[{source}] ignored invalid arc progress for {cid}: {progress_text!r}")
-        if stage:
-            character.arc_stage = stage
-        if progress is not None:
-            character.arc_progress = progress
+        effective_stage, effective_progress, reported_stage, reported_progress = _advance_arc_state(
+            character.arc_stage, character.arc_progress, stage, progress,
+        )
+        character.arc_stage = effective_stage
+        character.arc_progress = effective_progress
+        if reported_stage or reported_progress is not None:
+            log.append(
+                f"[{source}] ignored regressed arc update for {character.full_name}: "
+                f"{stage or 'unchanged'}/{progress if progress is not None else 'unchanged'} "
+                f"-> {effective_stage}/{effective_progress}"
+            )
         outcome = str(
             fields.get("outcome") or fields.get("outcome_state") or ""
         ).strip().lower()
@@ -560,11 +756,17 @@ def _apply_arc_state_updates(
         event = {
             "character_id": cid,
             "chapter": chapter_number,
-            "stage": stage or character.arc_stage,
+            "stage": character.arc_stage,
             "progress": character.arc_progress,
             "outcome": outcome or character.outcome_state,
             "evidence": evidence,
         }
+        if reported_stage:
+            event["reported_stage"] = reported_stage
+        if reported_progress is not None:
+            event["reported_progress"] = reported_progress
+        if reported_stage or reported_progress is not None:
+            event["regression_ignored"] = True
         if event not in chapter.arc_state_updates:
             chapter.arc_state_updates.append(event)
         outcome_log = f", outcome={character.outcome_state}" if character.outcome_state else ""
@@ -692,7 +894,7 @@ def apply_to_state(
         log.append(f"[{source}] foreshadowing planted: {fs[:60]}")
     for fs in _as_list(parsed.get("foreshadowing_resolved")):
         resolved_id, fields = _parse_pipe_update(fs)
-        if resolved_id.startswith("ch") and ":fs" in resolved_id:
+        if _is_stable_foreshadowing_id(resolved_id):
             if resolved_id not in chapter.foreshadowing_resolved_ids:
                 chapter.foreshadowing_resolved_ids.append(resolved_id)
             note = fields.get("note") or fields.get("description") or resolved_id

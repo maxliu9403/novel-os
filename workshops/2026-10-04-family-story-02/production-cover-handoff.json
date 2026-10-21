@@ -1,0 +1,249 @@
+{
+  "schema_version": 2,
+  "title": "The Last Golden Spire",
+  "author": "",
+  "language": "English",
+  "genre": "Women's Fiction / Family Drama",
+  "target_audience": "US women aged50–65",
+  "market_scope": "United States, English, single market",
+  "core_task": "After her husband leaves their nine-year-old daughter behind during a mall shooting, Evelyn, a landscape professional returning after two years away, leaves the marriage. To build a lasting home she must turn a job offer into dependable income, correct his unauthorized use of her professional name, own her mistakes at work, and let her daughter have a life beyond the betrayal.",
+  "core_conflict": "Christian diverts money and attention to his former girlfriend and her child, then physically separates his own daughter from his coat and leaves with them during a mall emergency. Evelyn must spend finite resources to leave, correct a false professional-service promise and build a home without requiring her child to erase every good memory. A current sexual affair and biological paternity are unestablished.",
+  "emotional_promise": "Recognition of accumulated betrayal, maternal agency, grief and an earned independent life.",
+  "principal_characters": [
+    {
+      "character_id": "evelyn",
+      "name": "Evelyn",
+      "narrative_role": "protagonist",
+      "must_appear": true,
+      "age": 41,
+      "age_band": "",
+      "gender_presentation": "female",
+      "physical_identity": "",
+      "occupation_and_status": "Landscape professional returning after two years away; mother of Olivia.",
+      "daily_wardrobe": "",
+      "lived_environment": "Small furnished rental, work plans, crowded table and ordinary art supplies.",
+      "current_emotional_state": "Protective resolve with grief.",
+      "agency_signal": "Packs and leaves with her daughter, then carries her own work.",
+      "relationships": [
+        "olivia",
+        "christian"
+      ],
+      "source_refs": [
+        "approved_story_contract.characters.evelyn",
+        "approved_story_contract.chapter_map.4"
+      ]
+    },
+    {
+      "character_id": "olivia",
+      "name": "Olivia",
+      "narrative_role": "co-protagonist",
+      "must_appear": true,
+      "age": 9,
+      "age_band": "",
+      "gender_presentation": "female",
+      "physical_identity": "",
+      "occupation_and_status": "Nine-year-old schoolchild at the opening; ten by the final volume.",
+      "daily_wardrobe": "",
+      "lived_environment": "Model fragments, paper puppets, school support and a small new home.",
+      "current_emotional_state": "Hurt and tentative curiosity.",
+      "agency_signal": "Stops the shared model and later chooses her own collaborative work.",
+      "relationships": [
+        "evelyn",
+        "christian"
+      ],
+      "source_refs": [
+        "approved_story_contract.characters.olivia",
+        "approved_story_contract.chapter_map.4"
+      ]
+    },
+    {
+      "character_id": "christian",
+      "name": "Christian Davis",
+      "narrative_role": "opposing husband and father",
+      "must_appear": false,
+      "age": 43,
+      "age_band": "",
+      "gender_presentation": "male",
+      "physical_identity": "",
+      "occupation_and_status": "Small landscape-firm owner, husband and father.",
+      "daily_wardrobe": "",
+      "lived_environment": "Family doorway and professional bid materials.",
+      "current_emotional_state": "Urgency directed away from his own daughter.",
+      "agency_signal": "Leaves his daughter while assisting Helena and Carter; later must carry consequences.",
+      "relationships": [
+        "evelyn",
+        "olivia",
+        "helena",
+        "carter"
+      ],
+      "source_refs": [
+        "approved_story_contract.characters.christian",
+        "approved_story_contract.chapter_map.4"
+      ]
+    },
+    {
+      "character_id": "helena",
+      "name": "Helena",
+      "narrative_role": "outside emotional and material beneficiary",
+      "must_appear": false,
+      "age": 42,
+      "age_band": "",
+      "gender_presentation": "female",
+      "physical_identity": "",
+      "occupation_and_status": "Christian’s former girlfriend and Carter’s mother.",
+      "daily_wardrobe": "",
+      "lived_environment": "Her own household and a costly equestrian bill.",
+      "current_emotional_state": "Need and expectation of help.",
+      "agency_signal": "Seeks continued support and later acknowledges its end.",
+      "relationships": [
+        "christian",
+        "carter"
+      ],
+      "source_refs": [
+        "approved_story_contract.characters.helena",
+        "approved_story_contract.chapter_map.4"
+      ]
+    },
+    {
+      "character_id": "carter",
+      "name": "Carter Hayes",
+      "narrative_role": "child affected by adult favoritism",
+      "must_appear": false,
+      "age": 6,
+      "age_band": "",
+      "gender_presentation": "male",
+      "physical_identity": "",
+      "occupation_and_status": "Helena’s six-year-old son; not responsible for adult conduct.",
+      "daily_wardrobe": "",
+      "lived_environment": "With his mother, no independent financial or romantic role.",
+      "current_emotional_state": "Child-level dependence.",
+      "agency_signal": "Accompanies the adult who receives help; no scheming or paternity revelation.",
+      "relationships": [
+        "helena",
+        "christian"
+      ],
+      "source_refs": [
+        "approved_story_contract.supporting_characters.carter",
+        "approved_story_contract.chapter_map.4"
+      ]
+    }
+  ],
+  "relationship_map": [
+    {
+      "from_character_id": "evelyn",
+      "to_character_id": "olivia",
+      "relationship": "mother and daughter",
+      "power_balance": "Mother carries adult decisions; daughter has her own feelings.",
+      "visible_tension": "Mother packs while child releases the last model spire.",
+      "shared_risk": "Leaving familiar housing for a finite paid retreat."
+    },
+    {
+      "from_character_id": "christian",
+      "to_character_id": "olivia",
+      "relationship": "father and daughter",
+      "power_balance": "His promised protection has failed.",
+      "visible_tension": "A physical and emotional gap after a broken promise.",
+      "shared_risk": "Trust cannot be restored by a pose or a payment."
+    },
+    {
+      "from_character_id": "christian",
+      "to_character_id": "helena",
+      "relationship": "former partners with continuing emotional and material expectations",
+      "power_balance": "His selective help places costs on his own household.",
+      "visible_tension": "His attention is directed toward her household while his daughter is excluded.",
+      "shared_risk": "Do not assert a sexual affair or secret paternity."
+    }
+  ],
+  "lived_environment": {
+    "era": "contemporary",
+    "fictional_place": "Alderwick",
+    "primary_spaces": [
+      "family home doorway",
+      "small furnished rental",
+      "working shared courtyard"
+    ],
+    "economic_signals": [
+      "packed ordinary belongings",
+      "small rental table",
+      "work plans"
+    ],
+    "cultural_signals": [
+      "school support",
+      "paper-puppet craft",
+      "adult sketch class"
+    ],
+    "weather_and_season": "",
+    "environment_truths": [
+      "Model is a relationship object, not magic.",
+      "Professional recovery requires ordinary work and paid care."
+    ]
+  },
+  "decisive_story_nodes": [
+    {
+      "node_id": "node_departure",
+      "description": "At the packed family doorway, Evelyn carries the adult decision to leave while Olivia lets go of the last gold spire.",
+      "evidence_refs": [
+        "character:evelyn",
+        "character:olivia",
+        "approved_story_contract.chapter_map.4"
+      ]
+    },
+    {
+      "node_id": "node_own_work",
+      "description": "Mother and daughter share a small home but pursue different creations: adult work plans and the child’s paper puppets.",
+      "evidence_refs": [
+        "character:evelyn",
+        "character:olivia",
+        "approved_story_contract.chapter_map.24"
+      ]
+    }
+  ],
+  "secondary_signals": [
+    {
+      "signal_id": "golden_spire",
+      "description": "A small physical fragment from the ten-spire model.",
+      "story_function": "Accrued disappointment and the possibility of releasing an old expectation."
+    },
+    {
+      "signal_id": "work_plan",
+      "description": "A real landscape plan on an ordinary table.",
+      "story_function": "Seeded professional agency without glamorous rescue."
+    }
+  ],
+  "genre_emotion_profile": {
+    "primary_genre": "Women's Fiction",
+    "submode": "family_ethics",
+    "emotional_temperature": "restrained anguish turning toward deliberate action",
+    "desired_viewer_feeling": "Recognition and concern, followed by belief in the mother’s agency.",
+    "relationship_motion": "Mother and daughter leave a broken promise while retaining separate interior lives.",
+    "prohibited_shortcuts": [
+      "Glamorous replacement-lover rescue",
+      "Fantasy towers or erasure magic",
+      "Graphic child injury",
+      "Secret paternity or confirmed-affair imagery"
+    ]
+  },
+  "commercial_visual_goal": {
+    "market": "US English",
+    "audience_segment": "women50–65",
+    "display_context": "mobile_thumbnail",
+    "thumbnail_reference_width": 120,
+    "thumbnail_reference_height": 180,
+    "first_glance_priority": "Mother and daughter making a concrete departure",
+    "reader_identification": "The adult who keeps covering another person’s absence finally changes what she will carry.",
+    "truthful_story_promise": "A domestic betrayal novel with costly agency and lasting rebuilding."
+  },
+  "title_direction": {
+    "hierarchy": "The Last Golden Spire is the dominant text; no unsupported subtitle or author.",
+    "preferred_zone": "top",
+    "readability": "mobile_thumbnail"
+  },
+  "forbidden_elements": [
+    "real landmarks",
+    "logos",
+    "watermarks",
+    "unsupported spoilers",
+    "invented author name"
+  ],
+  "visual_assumptions": []
+}

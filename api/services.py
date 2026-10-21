@@ -7,6 +7,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+from core.usage_tracking import scoped_usage
 
 from . import db, richtext, tenancy
 from .models import (
@@ -14,6 +15,8 @@ from .models import (
     ProjectDetail, ProjectSummary, RelationshipOut, StageDiff, StageProvenance,
 )
 from .project_operations import ProjectMutationBlocked, project_operations
+from .project_task_summary import parse_task_time, project_task_summary
+from .project_cover_summary import project_cover_summary
 
 # core/ modules import each other by top-level name; put core/ on the path once.
 _CORE = Path(__file__).resolve().parent.parent / "core"
@@ -21,6 +24,16 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 from state_manager import StoryState  # noqa: E402
+from novel_classification import (  # noqa: E402
+    NovelClassification,
+    classification_from_metadata,
+    infer_classification,
+    markdown_front_matter,
+)
+from narrative_format import (  # noqa: E402
+    NarrativeFormat,
+    narrative_format_from_metadata,
+)
 
 from artifacts import (  # noqa: E402
     ArtifactCommitUncertain,
@@ -242,6 +255,8 @@ class ProjectService:
 
     def list_projects(self) -> list[ProjectSummary]:
         out: list[ProjectSummary] = []
+        creation_times: dict[str, datetime] = {}
+        oldest = datetime.min.replace(tzinfo=timezone.utc)
         base = self.base_dir
         if not base.exists():
             return out
@@ -251,10 +266,19 @@ class ProjectService:
                 continue
             s = self._load(child.name)
             out.append(self._summary(child.name, s, state_file))
+            creation_times[child.name] = parse_task_time(s.metadata.get("created")) or oldest
+        # Launched tasks first, newest start first. Keep untasked legacy/draft
+        # projects deterministic without pretending their creation is a launch.
+        out.sort(key=lambda p: p.id)
+        out.sort(key=lambda p: (
+            p.task_started_at is not None,
+            parse_task_time(p.task_started_at) or creation_times[p.id],
+        ), reverse=True)
         return out
 
     def _summary(self, project_id: str, s: StoryState, state_file: Path | None = None) -> ProjectSummary:
         chapters = list(s.chapters.values())
+        task = project_task_summary(self._project_dir(project_id), s.metadata, chapters)
         words = sum(c.word_count for c in chapters)
         drafted = sum(1 for c in chapters if c.status != "planned")
         updated = None
@@ -272,7 +296,15 @@ class ProjectService:
             title=s.metadata.get("title", project_id),
             genre=s.metadata.get("genre", "") or _genre_label(genres),
             chapter_count=len(chapters),
-            status=s.metadata.get("status", "in_progress"),
+            status=task.status,
+            task_id=task.task_id,
+            task_started_at=task.task_started_at,
+            task_can_resume=task.task_can_resume,
+            task_error=task.task_error,
+            task_phase=task.task_phase,
+            task_resume_job_id=task.task_resume_job_id,
+            cover=project_cover_summary(self._project_dir(project_id), project_id,
+                workspace_id=self.workspace.id if self.workspace else tenancy.DEFAULT_WORKSPACE_ID),
             author=s.metadata.get("author", ""),
             word_count=words,
             drafted_count=drafted,
@@ -282,11 +314,18 @@ class ProjectService:
             premise=premise,
             target_word_count=max(0, target),
             session_word_target=max(0, session_target),
+            classification=classification_from_metadata(s.metadata).to_dict(),
+            narrative_format=narrative_format_from_metadata(
+                s.metadata,
+                classification=classification_from_metadata(s.metadata),
+                premise=premise,
+            ).to_dict(),
         )
 
     def project_detail(self, project_id: str) -> ProjectDetail:
         s = self._load(project_id)
         chapters = list(s.chapters.values())
+        task = project_task_summary(self._project_dir(project_id), s.metadata, chapters)
         rating = s.metadata.get("content_rating", "general")
         if rating not in ("general", "mature"):
             rating = "general"
@@ -300,7 +339,15 @@ class ProjectService:
             genre=s.metadata.get("genre", "") or _genre_label(genres),
             author=s.metadata.get("author", ""),
             chapter_count=len(chapters),
-            status=s.metadata.get("status", "in_progress"),
+            status=task.status,
+            task_id=task.task_id,
+            task_started_at=task.task_started_at,
+            task_can_resume=task.task_can_resume,
+            task_error=task.task_error,
+            task_phase=task.task_phase,
+            task_resume_job_id=task.task_resume_job_id,
+            cover=project_cover_summary(self._project_dir(project_id), project_id,
+                workspace_id=self.workspace.id if self.workspace else tenancy.DEFAULT_WORKSPACE_ID),
             style={
                 "tone": s.style_profile.tone,
                 "point_of_view": s.style_profile.point_of_view,
@@ -312,14 +359,27 @@ class ProjectService:
             premise=premise,
             target_word_count=max(0, target),
             session_word_target=max(0, session_target),
+            classification=classification_from_metadata(s.metadata).to_dict(),
+            narrative_format=narrative_format_from_metadata(
+                s.metadata,
+                classification=classification_from_metadata(s.metadata),
+                premise=premise,
+            ).to_dict(),
         )
 
     def update_project(self, project_id: str, *, content_rating: str | None = None,
                        title: str | None = None, genre: str | None = None,
+                       author: str | None = None,
                        genres: list[str] | None = None, premise: str | None = None,
                        target_word_count: int | None = None,
-                       session_word_target: int | None = None) -> ProjectDetail:
+                       session_word_target: int | None = None,
+                       classification: dict | None = None,
+                       narrative_format: dict | None = None) -> ProjectDetail:
         s = self._load(project_id)
+        if author is not None:
+            if not author.strip():
+                raise BadRequest("Author name must not be empty")
+            s.set_metadata("author", author.strip())
         if content_rating is not None:
             if content_rating not in ("general", "mature"):
                 raise BadRequest("content_rating must be 'general' or 'mature'")
@@ -346,7 +406,45 @@ class ProjectService:
             if session_word_target < 0:
                 raise BadRequest("session_word_target must be >= 0")
             s.set_metadata("session_word_target", int(session_word_target))
+        if classification is not None:
+            try:
+                canonical = NovelClassification.from_dict(classification).with_source(
+                    "author_confirmed", 1.0
+                )
+            except (TypeError, ValueError) as exc:
+                raise BadRequest(f"Invalid novel classification: {exc}") from exc
+            s.set_metadata("classification", canonical.to_dict())
+            s.update_story_bible("classification", canonical.to_dict())
+        elif genre is not None or genres is not None or premise is not None:
+            canonical = infer_classification(
+                genre=str(s.metadata.get("genre") or ""),
+                genres=tuple(s.metadata.get("genres") or ()),
+                premise=str(s.metadata.get("premise") or ""),
+                audience=str(s.metadata.get("audience") or ""),
+                tone=str(s.metadata.get("tone") or ""),
+                chapters=(
+                    int(s.metadata["target_chapters"])
+                    if s.metadata.get("target_chapters") is not None
+                    else None
+                ),
+            )
+            s.set_metadata("classification", canonical.to_dict())
+            s.update_story_bible("classification", canonical.to_dict())
+        if narrative_format is not None:
+            try:
+                format_contract = NarrativeFormat.from_dict(narrative_format)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise BadRequest(f"Invalid narrative format: {exc}") from exc
+            if format_contract.confirmation_status != "confirmed":
+                raise BadRequest("Project narrative format must be author-confirmed")
+            s.set_metadata("narrative_format", format_contract.to_dict())
+            s.set_metadata("target_chapters", format_contract.total_chapters)
+            s.set_metadata("target_word_count", format_contract.target_words)
+            s.update_story_bible("narrative_format", format_contract.to_dict())
         s.save_state()
+        if author is not None:
+            from book_author import ensure_project_author
+            ensure_project_author(self._project_dir(project_id))
         return self.project_detail(project_id)
 
     def list_chapters(self, project_id: str) -> list[ChapterSummary]:
@@ -359,6 +457,12 @@ class ProjectService:
                 word_count=c.word_count,
                 pov=c.pov_character or "",
                 target_word_count=int(c.target_word_count or 2500),
+                volume_id=c.volume_id,
+                volume_number=c.volume_number,
+                chapter_in_volume=c.chapter_in_volume,
+                volume_role=c.volume_role,
+                series_id=c.series_id,
+                series_book_number=c.series_book_number,
             )
             for c in sorted(s.chapters.values(), key=lambda c: c.number)
         ]
@@ -379,6 +483,12 @@ class ProjectService:
             word_count=c.word_count,
             pov=c.pov_character or "",
             target_word_count=int(c.target_word_count or 2500),
+            volume_id=c.volume_id,
+            volume_number=c.volume_number,
+            chapter_in_volume=c.chapter_in_volume,
+            volume_role=c.volume_role,
+            series_id=c.series_id,
+            series_book_number=c.series_book_number,
             outline=outline_path.read_text(encoding="utf-8") if outline_path.exists() else None,
             draft=draft_path.read_text(encoding="utf-8") if draft_path.exists() else None,
         )
@@ -390,6 +500,9 @@ class ProjectService:
                 id=c.id,
                 full_name=c.full_name,
                 role=c.role,
+                gender=c.gender,
+                pronouns=c.pronouns,
+                aliases=list(c.aliases),
                 portrait_media_id=getattr(c, "portrait_media_id", "") or "",
                 portrait_url=(
                     f"/api/projects/{project_id}/media/{c.portrait_media_id}/raw"
@@ -417,6 +530,7 @@ class ProjectService:
                     portrait_url=c.portrait_url,
                     summary="",
                     notes="",
+                    fields={"gender": c.gender, "pronouns": c.pronouns, "aliases": list(c.aliases)},
                 ))
         if entry_type != "character":
             s = self._load(project_id)
@@ -594,6 +708,7 @@ class ProjectService:
         "full_name", "role", "age", "physical_description", "internal_desire",
         "external_goal", "fear", "weakness", "strength", "secret",
         "arc_stage", "current_location", "emotional_state", "notes",
+        "gender", "pronouns", "aliases",
     )
     EDITABLE_CODEX_FIELDS = ("name", "summary", "notes", "tags")
 
@@ -624,7 +739,10 @@ class ProjectService:
                 raise BadRequest("Name cannot be empty.")
             if not updates:
                 raise BadRequest("Nothing to update.")
-            s.update_character(entry_id, updates)
+            try:
+                s.update_character(entry_id, updates, allow_identity_change=True)
+            except ValueError as exc:
+                raise BadRequest(str(exc)) from exc
             s.save_state()
             return self._codex_entry(project_id, entry_id)
 
@@ -823,6 +941,7 @@ class ProjectService:
         s.save_state()
         return s.binder.to_tree()
 
+    @scoped_usage("manuscript", lambda a: a["self"].project_path(a["project_id"]))
     def refresh_synopsis(self, project_id: str, number: int) -> dict:
         """Ask the Architect for a corkboard synopsis and save it on the binder node."""
         from prose_sanitize import sanitize_manuscript, strip_em_dashes  # noqa: E402
@@ -1589,6 +1708,7 @@ POV: {pov or "[unspecified]"}
         )
         return wc
 
+    @scoped_usage("manuscript", lambda a: a["self"].project_path(a["project_id"]))
     def continue_paragraph(self, project_id: str, number: int, instruction: str) -> dict:
         """Scribe writes the next paragraph from an author instruction (chat)."""
         instruction = (instruction or "").strip()
@@ -1677,6 +1797,7 @@ Chapter {number} POV: {pov or "[unspecified]"} · Location: {location or "[unspe
             cls._consequence_previews.pop(preview_id, None)
         return len(matching)
 
+    @scoped_usage("manuscript", lambda a: a["self"].project_path(a["project_id"]))
     def preview_consequence(
         self,
         project_id: str,
@@ -1883,12 +2004,43 @@ Foreshadowing_Planted: …
     # ----- Tier 0: create / edit the world
 
     def create_project(self, title: str, genre: str = "", author: str = "",
-                       genres: list[str] | None = None, premise: str = "") -> ProjectSummary:
+                       genres: list[str] | None = None, premise: str = "",
+                       classification: dict | None = None,
+                       narrative_format: dict | None = None,
+                       method_mode: str = "advisory") -> ProjectSummary:
+        from narrative_methods import MethodPolicy
+        try:
+            MethodPolicy(mode=method_mode)
+        except ValueError as exc:
+            raise BadRequest(str(exc)) from exc
         title = title.strip()
         if not title:
             raise BadRequest("Title is required.")
         normalized = _normalize_genres(genres, genre)
         label = _genre_label(normalized, genre)
+        try:
+            canonical_classification = (
+                NovelClassification.from_dict(classification).with_source(
+                    "author_confirmed", 1.0
+                )
+                if classification is not None
+                else infer_classification(
+                    genre=label,
+                    genres=tuple(normalized),
+                    premise=premise,
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            raise BadRequest(f"Invalid novel classification: {exc}") from exc
+        try:
+            canonical_format = (
+                NarrativeFormat.from_dict(narrative_format)
+                if narrative_format is not None else None
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise BadRequest(f"Invalid narrative format: {exc}") from exc
+        if canonical_format is not None and canonical_format.confirmation_status != "confirmed":
+            raise BadRequest("Project narrative format must be author-confirmed")
         slug = _slugify(title)
         base = self.base_dir
         n = 2
@@ -1914,6 +2066,9 @@ Foreshadowing_Planted: …
                         normalized_genres=normalized,
                         genre_label=label,
                         premise=premise,
+                        classification=canonical_classification,
+                        narrative_format=canonical_format,
+                        method_mode=method_mode,
                     )
             except ProjectMutationBlocked:
                 folder = base / f"{slug}-{n}"
@@ -1928,8 +2083,19 @@ Foreshadowing_Planted: …
         normalized_genres: list[str],
         genre_label: str,
         premise: str,
+        classification: NovelClassification,
+        narrative_format: NarrativeFormat | None,
+        method_mode: str = "advisory",
     ) -> ProjectSummary:
         """Create one canonical project while its operation lease is held."""
+        if not author.strip():
+            from book_author import AuthorGenerationError, generate_author_name
+            try:
+                author = generate_author_name({
+                    "title": title, "genre": genre_label, "premise": premise,
+                })
+            except AuthorGenerationError as exc:
+                raise BadRequest(str(exc)) from exc
         folder.mkdir(parents=True, exist_ok=True)
         build_orchestrator(str(folder)).init_project(
             title, genre_label or "Fiction", author
@@ -1937,6 +2103,13 @@ Foreshadowing_Planted: …
         db.project_claim(folder.name, self.workspace.id if self.workspace
                          else tenancy.DEFAULT_WORKSPACE_ID)
         s = StoryState(str(folder))
+        s.set_metadata("classification", classification.to_dict())
+        s.update_story_bible("classification", classification.to_dict())
+        if narrative_format is not None:
+            s.set_metadata("narrative_format", narrative_format.to_dict())
+            s.set_metadata("target_chapters", narrative_format.total_chapters)
+            s.set_metadata("target_word_count", narrative_format.target_words)
+            s.update_story_bible("narrative_format", narrative_format.to_dict())
         if normalized_genres:
             s.set_metadata("genres", normalized_genres)
             s.set_metadata("genre", genre_label)
@@ -1956,6 +2129,9 @@ Foreshadowing_Planted: …
                     )
                     bible.write_text(text, encoding="utf-8")
         s.save_state()
+        from narrative_methods import MethodPolicy
+        from narrative_methods.store import MethodStore
+        MethodStore(folder).set_policy(MethodPolicy(mode=method_mode), "")
         return self._summary(folder.name, s, folder / "outputs" / "state" / "story_state.json")
 
     def create_sample_project(self) -> ProjectSummary:
@@ -2109,7 +2285,10 @@ Foreshadowing_Planted: …
     def export_markdown(self, project_id: str) -> str:
         """Compile the manuscript, preferring the human-reviewed Final per chapter."""
         s = self._load(project_id)
+        classification = classification_from_metadata(s.metadata).to_dict()
         lines = [
+            *markdown_front_matter(classification).rstrip().splitlines(),
+            "",
             f"# {s.metadata.get('title', 'Untitled')}",
             "",
             f"*{s.metadata.get('genre', 'Fiction')}*",
@@ -2162,6 +2341,11 @@ Foreshadowing_Planted: …
         from styles import StyleSheet  # noqa: E402
 
         s = self._load(project_id)
+        from book_author import AuthorGenerationError, ensure_project_author
+        try:
+            s.metadata["author"] = ensure_project_author(self._project_dir(project_id))
+        except AuthorGenerationError as exc:
+            raise BadRequest(str(exc)) from exc
         chapters: list[dict] = []
         for c in sorted(s.chapters.values(), key=lambda c: c.number):
             p = self._stage_paths(project_id, c.number)
@@ -2188,6 +2372,7 @@ Foreshadowing_Planted: …
             genre=s.metadata.get("genre", ""),
             chapters=chapters,
             publication_copy=publication_copy,
+            classification=classification_from_metadata(s.metadata).to_dict(),
         )
         sheet = StyleSheet.from_dict(s.compile_styles)
         try:

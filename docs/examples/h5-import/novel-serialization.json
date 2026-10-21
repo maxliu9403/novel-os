@@ -1,0 +1,248 @@
+{
+  "format": {
+    "audit_policy": {
+      "interval_chapters": 5,
+      "volume_end_required": true,
+      "whole_book_required": true
+    },
+    "chapter_target_words": 900,
+    "confirmation_status": "confirmed",
+    "format_id": "narrative-format:2b90533ca027cc8febb151bce49a61bd6dd18379a5e3e7db2c9a1f960af2d81e",
+    "is_long_form": true,
+    "long_form_suitability": {
+      "confidence": 0.7,
+      "dimensions": {
+        "character_arc_capacity": 72,
+        "conflict_renewal": 56,
+        "reveal_ladder": 49,
+        "subplot_capacity": 54,
+        "volume_payoff_capacity": 56,
+        "world_expansion": 28
+      },
+      "recommendation": "flexible",
+      "requested_fit": "supported_with_expansion",
+      "risks": [
+        "world_expansion",
+        "reveal_ladder",
+        "long_form_requires_distinct_volume_engines"
+      ],
+      "score": 54,
+      "strengths": [
+        "character_arc_capacity"
+      ]
+    },
+    "mode": "multi_volume",
+    "schema_version": "narrative-format.v1",
+    "selection_source": "author_selected",
+    "series": {
+      "book_number": null,
+      "planned_books": null,
+      "series_id": "",
+      "title": ""
+    },
+    "target_words": 72000,
+    "total_chapters": 80,
+    "volume_count": 4,
+    "volumes": [
+      {
+        "chapter_end": 20,
+        "chapter_start": 1,
+        "structural_role": "rupture_and_awakening",
+        "target_words": 18000,
+        "volume_id": "volume_01",
+        "volume_number": 1
+      },
+      {
+        "chapter_end": 40,
+        "chapter_start": 21,
+        "structural_role": "boundary_and_countermove",
+        "target_words": 18000,
+        "volume_id": "volume_02",
+        "volume_number": 2
+      },
+      {
+        "chapter_end": 60,
+        "chapter_start": 41,
+        "structural_role": "identity_and_cost",
+        "target_words": 18000,
+        "volume_id": "volume_03",
+        "volume_number": 3
+      },
+      {
+        "chapter_end": 80,
+        "chapter_start": 61,
+        "structural_role": "reckoning_and_new_order",
+        "target_words": 18000,
+        "volume_id": "volume_04",
+        "volume_number": 4
+      }
+    ]
+  },
+  "schema_version": "novel-serialization.v1",
+  "serialization_id": "serialization:8c457cf22d0af88bf4119aa4d6a5a9a66d06cfcb6fa78e2658c2565b9b0b9250",
+  "volumes": [
+    {
+      "carryover_hook": "Next test movement 1",
+      "central_conflict": "Distinct test pressure 1",
+      "chapter_end": 20,
+      "chapter_start": 1,
+      "climax_chapter": 19,
+      "obligations": [
+        {
+          "due_chapter": 1,
+          "event_id": "volume_01_promise",
+          "kind": "promise"
+        },
+        {
+          "due_chapter": 10,
+          "event_id": "volume_01_midpoint",
+          "kind": "midpoint_revaluation"
+        },
+        {
+          "due_chapter": 19,
+          "event_id": "volume_01_climax",
+          "kind": "climax"
+        },
+        {
+          "due_chapter": 20,
+          "event_id": "volume_01_payoff",
+          "kind": "payoff"
+        },
+        {
+          "due_chapter": 20,
+          "event_id": "volume_01_carryover",
+          "kind": "carryover_hook"
+        }
+      ],
+      "payoff": "Test consequence 1",
+      "protagonist_shift": "Test choice 1",
+      "structural_role": "rupture_and_awakening",
+      "target_words": 18000,
+      "title": "Volume 1: Test Movement",
+      "volume_id": "volume_01",
+      "volume_number": 1,
+      "volume_promise": "Test reader promise 1"
+    },
+    {
+      "carryover_hook": "Next test movement 2",
+      "central_conflict": "Distinct test pressure 2",
+      "chapter_end": 40,
+      "chapter_start": 21,
+      "climax_chapter": 39,
+      "obligations": [
+        {
+          "due_chapter": 21,
+          "event_id": "volume_02_promise",
+          "kind": "promise"
+        },
+        {
+          "due_chapter": 30,
+          "event_id": "volume_02_midpoint",
+          "kind": "midpoint_revaluation"
+        },
+        {
+          "due_chapter": 39,
+          "event_id": "volume_02_climax",
+          "kind": "climax"
+        },
+        {
+          "due_chapter": 40,
+          "event_id": "volume_02_payoff",
+          "kind": "payoff"
+        },
+        {
+          "due_chapter": 40,
+          "event_id": "volume_02_carryover",
+          "kind": "carryover_hook"
+        }
+      ],
+      "payoff": "Test consequence 2",
+      "protagonist_shift": "Test choice 2",
+      "structural_role": "boundary_and_countermove",
+      "target_words": 18000,
+      "title": "Volume 2: Test Movement",
+      "volume_id": "volume_02",
+      "volume_number": 2,
+      "volume_promise": "Test reader promise 2"
+    },
+    {
+      "carryover_hook": "Next test movement 3",
+      "central_conflict": "Distinct test pressure 3",
+      "chapter_end": 60,
+      "chapter_start": 41,
+      "climax_chapter": 59,
+      "obligations": [
+        {
+          "due_chapter": 41,
+          "event_id": "volume_03_promise",
+          "kind": "promise"
+        },
+        {
+          "due_chapter": 50,
+          "event_id": "volume_03_midpoint",
+          "kind": "midpoint_revaluation"
+        },
+        {
+          "due_chapter": 59,
+          "event_id": "volume_03_climax",
+          "kind": "climax"
+        },
+        {
+          "due_chapter": 60,
+          "event_id": "volume_03_payoff",
+          "kind": "payoff"
+        },
+        {
+          "due_chapter": 60,
+          "event_id": "volume_03_carryover",
+          "kind": "carryover_hook"
+        }
+      ],
+      "payoff": "Test consequence 3",
+      "protagonist_shift": "Test choice 3",
+      "structural_role": "identity_and_cost",
+      "target_words": 18000,
+      "title": "Volume 3: Test Movement",
+      "volume_id": "volume_03",
+      "volume_number": 3,
+      "volume_promise": "Test reader promise 3"
+    },
+    {
+      "carryover_hook": "",
+      "central_conflict": "Distinct test pressure 4",
+      "chapter_end": 80,
+      "chapter_start": 61,
+      "climax_chapter": 79,
+      "obligations": [
+        {
+          "due_chapter": 61,
+          "event_id": "volume_04_promise",
+          "kind": "promise"
+        },
+        {
+          "due_chapter": 70,
+          "event_id": "volume_04_midpoint",
+          "kind": "midpoint_revaluation"
+        },
+        {
+          "due_chapter": 79,
+          "event_id": "volume_04_climax",
+          "kind": "climax"
+        },
+        {
+          "due_chapter": 80,
+          "event_id": "volume_04_payoff",
+          "kind": "payoff"
+        }
+      ],
+      "payoff": "Test consequence 4",
+      "protagonist_shift": "Test choice 4",
+      "structural_role": "reckoning_and_new_order",
+      "target_words": 18000,
+      "title": "Volume 4: Test Movement",
+      "volume_id": "volume_04",
+      "volume_number": 4,
+      "volume_promise": "Test reader promise 4"
+    }
+  ]
+}

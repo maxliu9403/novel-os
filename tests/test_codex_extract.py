@@ -149,6 +149,19 @@ def test_known_names_reads_characters_and_codex():
     assert sorted(known_names_from_state(_State())) == ["Grey Harbour", "Lena Marrow"]
 
 
+def test_declared_aliases_are_not_proposed_as_new_characters(tmp_path):
+    from state_manager import Character, StoryState
+
+    state = StoryState(str(tmp_path))
+    state.add_character(Character(
+        id="char_001", full_name="Alex Holt", role="protagonist", aliases=["Mara"],
+    ))
+    out = extract_proposals({1: CH1, 2: CH2}, known_names=known_names_from_state(state))
+
+    assert "Mara" not in names(out)
+    assert "Lena" in names(out)
+
+
 def test_a_repeated_full_name_is_one_proposal_not_two():
     text = "\n".join([
         'Lena Marrow crossed the yard. "Wait," said Lena Marrow.',

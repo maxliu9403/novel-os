@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import Settings from "../routes/Settings";
@@ -8,7 +8,7 @@ import { ToastProvider } from "../components/Toaster";
 
 const fetchMock = vi.fn();
 
-const routeIds = ["default", "architect", "writer", "editor", "guardian", "style", "judge", "cover_director"];
+const routeIds = ["default", "workshop", "architect", "writer", "editor", "guardian", "style", "judge", "cover_director"];
 
 function configuration() {
   return {
@@ -30,6 +30,11 @@ function configuration() {
         default_base_url: "", capabilities: ["text_generation", "image_generation"],
         requires_api_key: true, model_placeholder: "Model id",
       },
+      {
+        id: "deepseek", label: "DeepSeek", auth_type: "api_key",
+        default_base_url: "https://api.deepseek.com/v1", capabilities: ["text_generation"],
+        requires_api_key: true, model_placeholder: "deepseek-reasoner",
+      },
     ],
     connections: [
       {
@@ -47,6 +52,8 @@ function configuration() {
       max_tokens: 8192,
       reasoning_effort: id === "cover_director" ? "medium" : "",
       inherits_default: id !== "default",
+      timeout_seconds: null,
+      effective_timeout_seconds: id === "workshop" ? 900 : null,
       effective_connection_id: "primary",
       effective_connection_name: "Primary models",
       effective_model: "story-model",
@@ -72,11 +79,22 @@ function response(body: unknown, status = 200) {
   }));
 }
 
+function catalog(models: string[], details: Record<string, unknown> = {}) {
+  return { models, details };
+}
+
+function imageCatalog(models = ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]) {
+  return {models, discovery_supported: true, exact_model_selection: true, source: "provider",
+    message: "服务商返回的候选型号，请确认图片生成支持。", fetched_at: "2026-10-11T15:00:00Z"};
+}
+
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     if (path.endsWith("/api/studio/models")) return response(configuration());
+    if (path.endsWith("/api/studio/providers/primary/image-models?refresh=true")) return response(imageCatalog());
+    if (path.endsWith("/api/studio/providers/primary/model-catalog?refresh=true")) return response(catalog(["story-model", "planning-model"]));
     if (path.endsWith("/api/studio/providers") && init?.method === "POST") {
       return response({ ...configuration().connections[0], id: "new-provider" }, 201);
     }
@@ -190,6 +208,161 @@ describe("model provider settings", () => {
     });
   });
 
+  it("does not offer text-only cached models as image model choices", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", {name: "图像生成"}));
+    const choices = Array.from(document.querySelectorAll<HTMLSelectElement>("#image-models option"))
+      .map(option => option.value);
+    expect(choices).not.toContain("story-model");
+    expect(screen.getByLabelText("图像模型")).toHaveValue("gpt-image-2");
+  });
+
+  it("does not test the saved image profile while a different model is shown in the draft", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", {name: "图像生成"}));
+    await user.clear(screen.getByLabelText("图像模型"));
+    await user.type(screen.getByLabelText("图像模型"), "publisher/image-v3");
+    expect(screen.getByRole("button", {name: "测试图片"})).toBeDisabled();
+  });
+
+  it("refreshes the separate image directory without replacing the unsaved model", async () => {
+    let calls = 0;
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/providers/primary/image-models?refresh=true")) {
+        return response(imageCatalog(++calls === 1 ? ["publisher/first-image"] : ["publisher/refreshed-image"]));
+      }
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", {name: "图像生成"}));
+    await waitFor(() => expect(document.querySelector('#image-models option[value="publisher/first-image"]')).toBeInTheDocument());
+    await user.clear(screen.getByLabelText("图像模型"));
+    await user.type(screen.getByLabelText("图像模型"), "publisher/private-image");
+    await user.click(screen.getByRole("button", {name: "拉取图片模型列表"}));
+    await waitFor(() => expect(document.querySelector('#image-models option[value="publisher/refreshed-image"]')).toBeInTheDocument());
+    expect(screen.getByLabelText("图像模型")).toHaveValue("publisher/private-image");
+    expect(document.querySelector('#image-models option[value="gpt-image-2"]')).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(call => String(call[0]).includes("/primary/model-catalog"))).toHaveLength(0);
+    expect(fetchMock.mock.calls.some(call => call[1]?.method === "PUT")).toBe(false);
+  });
+
+  it("keeps manual image configuration after a directory failure or an empty response", async () => {
+    let calls = 0;
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/providers/primary/image-models?refresh=true")) return ++calls === 1
+        ? response({detail: "Image directory is unavailable"}, 502) : response(imageCatalog([]));
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", {name: "图像生成"}));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Image directory is unavailable");
+    expect(screen.getByLabelText("图像模型")).toHaveValue("gpt-image-2");
+    await user.click(screen.getByRole("button", {name: "拉取图片模型列表"}));
+    await screen.findByText("服务商目录返回 0 个候选型号");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(document.querySelectorAll("#image-models option")).toHaveLength(0);
+    expect(screen.getByLabelText("图像模型")).toHaveValue("gpt-image-2");
+  });
+
+  it.each([
+    ["使用 Sunburst · 推荐", "gpt-image-2.5-sunburst"],
+    ["使用 Flare", "gpt-image-2.5-flare"],
+  ])("saves the exact image model selected with %s", async (label, expected) => {
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "图像生成" }));
+    await user.click(screen.getByRole("button", { name: label }));
+    expect(screen.getByLabelText("图像模型")).toHaveValue(expected);
+    await user.click(screen.getByRole("button", { name: "保存设置" }));
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith("/api/studio/image-profiles/cover") && item[1]?.method === "PUT");
+      expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ connection_id: "primary", model: expected });
+    });
+  });
+
+  it("explains Codex image model limits without changing the existing profile", async () => {
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/studio/models")) {
+        const config = configuration();
+        config.connections[0].provider = "codex";
+        return response(config);
+      }
+      if (String(input).endsWith("/providers/primary/image-models?refresh=true")) return response({
+        ...imageCatalog([]), discovery_supported: false, exact_model_selection: false, source: "unsupported",
+        message: "Codex 未提供图片型号目录。",
+      });
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "图像生成" }));
+    expect(screen.getByText(/当前 Codex 连接/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "使用 Sunburst · 推荐" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("图像模型")).toHaveValue("Codex 自动选择");
+    expect(screen.getByLabelText("图像模型")).toHaveAttribute("readonly");
+    await screen.findByText("当前连接不提供图片型号列表");
+    expect(document.querySelectorAll("#image-models option")).toHaveLength(0);
+    expect(fetchMock.mock.calls.some((item) => item[1]?.method === "PUT")).toBe(false);
+    await user.click(screen.getByRole("button", {name: "保存设置"}));
+    await waitFor(() => {
+      const saved = fetchMock.mock.calls.find(call => String(call[0]).endsWith("/image-profiles/cover") && call[1]?.method === "PUT");
+      expect(JSON.parse(String(saved?.[1]?.body))).toMatchObject({model: "codex-image-auto"});
+    });
+  });
+
+  it("keeps API model drafts separate when switching between Codex and API connections", async () => {
+    const config = configuration();
+    config.connections.push({...config.connections[0], id: "codex", name: "Codex account", provider: "codex", discovered_models: ["text-codex-model"]});
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/studio/models")) return response(config);
+      if (String(input).endsWith("/providers/codex/image-models?refresh=true")) return response({
+        ...imageCatalog([]), discovery_supported: false, exact_model_selection: false, source: "unsupported",
+      });
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", {name: "图像生成"}));
+    await user.clear(screen.getByLabelText("图像模型"));
+    await user.type(screen.getByLabelText("图像模型"), "publisher/custom-image");
+    await user.selectOptions(screen.getByLabelText("服务商连接"), "codex");
+    expect(screen.getByLabelText("图像模型")).toHaveValue("Codex 自动选择");
+    await user.selectOptions(screen.getByLabelText("服务商连接"), "primary");
+    expect(screen.getByLabelText("图像模型")).toHaveValue("publisher/custom-image");
+    expect(screen.getByLabelText("图像模型")).not.toHaveAttribute("readonly");
+  });
+
+  it("does not mix a late image directory response into another connection", async () => {
+    const config = configuration();
+    config.connections.push({...config.connections[0], id: "secondary", name: "Second image connection", discovered_models: []});
+    let resolvePrimary!: (value: Response) => void;
+    const pending = new Promise<Response>(resolve => { resolvePrimary = resolve; });
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/studio/models")) return response(config);
+      if (String(input).endsWith("/providers/primary/image-models?refresh=true")) return pending;
+      if (String(input).endsWith("/providers/secondary/image-models?refresh=true")) return response(imageCatalog(["secondary-image"]));
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", {name: "图像生成"}));
+    await user.selectOptions(screen.getByLabelText("服务商连接"), "secondary");
+    await waitFor(() => expect(document.querySelector('#image-models option[value="secondary-image"]')).toBeInTheDocument());
+    expect(screen.getByLabelText("图像模型")).toHaveValue("gpt-image-2.5-sunburst");
+    await act(async () => { resolvePrimary(new Response(JSON.stringify(imageCatalog(["late-primary-image"])), {status: 200})); });
+    expect(document.querySelector('#image-models option[value="late-primary-image"]')).not.toBeInTheDocument();
+    expect(document.querySelector('#image-models option[value="secondary-image"]')).toBeInTheDocument();
+  });
+
   it("keeps specialist text routes inherited from the default", async () => {
     const user = userEvent.setup();
     renderSettings();
@@ -224,6 +397,181 @@ describe("model provider settings", () => {
     });
   });
 
+  it("configures a separate workshop model without changing the architect or writer routes", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+    expect(screen.getByLabelText("头脑风暴模型")).toBeDisabled();
+    await user.click(screen.getByRole("checkbox", { name: "头脑风暴使用默认模型" }));
+    await user.selectOptions(screen.getByLabelText("头脑风暴连接"), "primary");
+    await user.selectOptions(screen.getByLabelText("头脑风暴模型"), "manual");
+    await user.type(screen.getByLabelText("头脑风暴自定义模型"), "planning-model");
+    await user.click(screen.getByRole("button", { name: "保存路由" }));
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith("/api/studio/model-routes") && item[1]?.method === "PUT");
+      const routes = JSON.parse(String(call?.[1]?.body)).routes;
+      expect(routes.find((route: { id: string }) => route.id === "workshop")).toMatchObject({
+        inherits_default: false, model: "planning-model", connection_id: "primary",
+      });
+      for (const id of ["architect", "writer"]) {
+        expect(routes.find((route: { id: string }) => route.id === id)).toMatchObject({ inherits_default: true, model: "" });
+      }
+      expect(routes.find((route: { id: string }) => route.id === "default")).toMatchObject({ model: "story-model" });
+    });
+  });
+
+  it("loads models from the connection API once for inherited routes and saves an actual dropdown choice", async () => {
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/api/studio/providers/primary/model-catalog?refresh=true")
+      ? response(catalog(["fresh-api-model", "another-api-model"])) : baseFetch(input, init));
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+    const model = screen.getByRole("combobox", { name: "默认写作模型模型" });
+    await within(model).findByRole("option", { name: "fresh-api-model" });
+    expect(within(model).getByRole("option", { name: "story-model（当前 / 自定义）" })).toBeInTheDocument();
+    expect(model).toHaveValue("model:story-model");
+    expect(fetchMock.mock.calls.filter((call) => String(call[0]).includes("/providers/primary/model-catalog"))).toHaveLength(1);
+    await user.selectOptions(model, "model:fresh-api-model");
+    expect(screen.getByLabelText("头脑风暴模型")).toHaveValue("model:fresh-api-model");
+    await user.click(screen.getByRole("button", { name: "保存路由" }));
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith("/api/studio/model-routes") && item[1]?.method === "PUT");
+      expect(JSON.parse(String(call?.[1]?.body)).routes.find((route: { id: string }) => route.id === "default")).toMatchObject({ model: "fresh-api-model" });
+    });
+  });
+
+  it("keeps custom models through discovery failure and refresh without replacing unsaved manual input", async () => {
+    let attempts = 0;
+    const config = configuration();
+    config.text_routes[0].model = "private-model";
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/studio/models")) return response(config);
+      if (String(input).endsWith("/api/studio/providers/primary/model-catalog?refresh=true")) return ++attempts === 1 ? response({ detail: "Discovery is unavailable" }, 502) : response(catalog(["public-model"]));
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Discovery is unavailable");
+    const model = screen.getByLabelText("默认写作模型模型");
+    expect(model).toHaveValue("model:private-model");
+    await user.selectOptions(model, "manual");
+    const custom = screen.getByLabelText("默认写作模型自定义模型");
+    await user.clear(custom);
+    await user.type(custom, "my/manual-model");
+    await user.click(screen.getByRole("button", { name: "刷新 Primary models 的模型列表" }));
+    await within(model).findByRole("option", { name: "public-model" });
+    expect(custom).toHaveValue("my/manual-model");
+    expect(screen.queryByText("Discovery is unavailable")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存路由" }));
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith("/api/studio/model-routes") && item[1]?.method === "PUT");
+      expect(JSON.parse(String(call?.[1]?.body)).routes.find((route: { id: string }) => route.id === "default")).toMatchObject({ model: "my/manual-model" });
+    });
+  });
+
+  it("does not mix a late model response into the newly selected connection", async () => {
+    const config = configuration();
+    config.connections.push({ ...config.connections[0], id: "secondary", name: "Second connection", discovered_models: [] });
+    let resolvePrimary!: (result: Response) => void;
+    const primaryReply = new Promise<Response>((resolve) => { resolvePrimary = resolve; });
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/studio/models")) return response(config);
+      if (String(input).endsWith("/api/studio/providers/primary/model-catalog?refresh=true")) return primaryReply;
+      if (String(input).endsWith("/api/studio/providers/secondary/model-catalog?refresh=true")) return response(catalog(["second-connection-model"]));
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+    await user.selectOptions(screen.getByLabelText("默认写作模型连接"), "secondary");
+    const model = screen.getByLabelText("默认写作模型模型");
+    await within(model).findByRole("option", { name: "second-connection-model" });
+    await act(async () => { resolvePrimary(new Response(JSON.stringify(catalog(["late-primary-model"])), { status: 200 })); });
+    expect(within(model).queryByRole("option", { name: "late-primary-model" })).not.toBeInTheDocument();
+    expect(within(model).getByRole("option", { name: "second-connection-model" })).toBeInTheDocument();
+    expect(model).toHaveValue("model:");
+    expect(within(model).queryByRole("option", { name: /story-model/ })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter((call) => String(call[0]).includes("/providers/secondary/model-catalog"))).toHaveLength(1);
+    await user.selectOptions(model, "model:second-connection-model");
+    expect(screen.getByLabelText("头脑风暴模型")).toHaveValue("model:second-connection-model");
+    await user.selectOptions(screen.getByLabelText("默认写作模型连接"), "");
+    expect(within(model).queryByRole("option", { name: "second-connection-model" })).not.toBeInTheDocument();
+  });
+
+  it("saves workshop minutes independently of inherited models and restores them after reopening", async () => {
+    let savedSeconds = 900;
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const config = configuration();
+      config.text_routes = config.text_routes.map((route) => route.id === "workshop" ? { ...route, effective_timeout_seconds: savedSeconds } : route);
+      if (String(input).endsWith("/api/studio/models")) return response(config);
+      if (String(input).endsWith("/api/studio/model-routes") && init?.method === "PUT") {
+        const routes = JSON.parse(String(init.body)).routes;
+        savedSeconds = routes.find((route: { id: string }) => route.id === "workshop").timeout_seconds;
+        return response(config.text_routes.map((route) => route.id === "workshop" ? { ...route, effective_timeout_seconds: savedSeconds } : route));
+      }
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    const currentView = renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+    const timeout = screen.getByLabelText("头脑风暴请求超时（分钟）");
+    expect(timeout).toHaveValue(15);
+    expect(timeout).toBeEnabled();
+    expect(screen.getByLabelText("头脑风暴模型")).toBeDisabled();
+    await user.clear(timeout);
+    await user.type(timeout, "31");
+    await user.click(screen.getByRole("button", { name: "保存路由" }));
+    expect(await screen.findByText("头脑风暴超时请填写 1–30 分钟")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some((call) => call[1]?.method === "PUT")).toBe(false);
+    await user.clear(timeout);
+    await user.type(timeout, "20");
+    await user.click(screen.getByRole("button", { name: "保存路由" }));
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith("/api/studio/model-routes") && item[1]?.method === "PUT");
+      const routes = JSON.parse(String(call?.[1]?.body)).routes;
+      expect(routes.find((route: { id: string }) => route.id === "workshop")).toMatchObject({ timeout_seconds: 1200, inherits_default: true });
+      for (const id of ["default", "architect", "writer"]) {
+        expect(routes.find((route: { id: string }) => route.id === id)).not.toHaveProperty("timeout_seconds");
+      }
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "保存路由" })).toBeEnabled());
+    currentView.unmount();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+    expect(screen.getByLabelText("头脑风暴请求超时（分钟）")).toHaveValue(20);
+    expect(screen.getByLabelText("头脑风暴模型")).toBeDisabled();
+  });
+
+  it("preserves an unedited legacy timeout below one minute while saving other route settings", async () => {
+    const config = configuration();
+    config.text_routes = config.text_routes.map((route) => route.id === "workshop" ? { ...route, effective_timeout_seconds: 30 } : route);
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/studio/models")) return response(config);
+      if (String(input).endsWith("/api/studio/model-routes") && init?.method === "PUT") return response(config.text_routes);
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+    expect(screen.getByLabelText("头脑风暴请求超时（分钟）")).toHaveValue(0.5);
+    await user.selectOptions(screen.getByLabelText("封面指导推理强度"), "high");
+    await user.click(screen.getByRole("button", { name: "保存路由" }));
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith("/api/studio/model-routes") && item[1]?.method === "PUT");
+      const routes = JSON.parse(String(call?.[1]?.body)).routes;
+      expect(routes.find((route: { id: string }) => route.id === "workshop")).not.toHaveProperty("timeout_seconds");
+      expect(routes.find((route: { id: string }) => route.id === "cover_director")).toMatchObject({ reasoning_effort: "high" });
+    });
+    expect(screen.queryByText("头脑风暴超时请填写 1–30 分钟")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("头脑风暴请求超时（分钟）")).toHaveValue(0.5);
+  });
+
   it("runs a real text response test as a background job", async () => {
     const user = userEvent.setup();
     renderSettings();
@@ -250,5 +598,152 @@ describe("model provider settings", () => {
       "src",
       "data:image/png;base64,aW1hZ2U=",
     );
+    expect(screen.getByText("请求配置：gpt-image-2")).toBeInTheDocument();
+    expect(screen.getByText("服务商未返回实际图片型号")).toBeInTheDocument();
   });
 });
+
+
+  it("keeps DeepSeek text-only in the provider editor", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "添加连接" }));
+    await user.selectOptions(screen.getByLabelText("服务商"), "deepseek");
+
+    expect(screen.getByRole("button", { name: "文本生成" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "图像生成" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "视觉理解" })).toBeDisabled();
+    expect(screen.getByText(/DeepSeek 在当前连接中只声明文本生成/)).toBeInTheDocument();
+  });
+
+  it("saves an independent vision route without touching the text route", async () => {
+    const config = configuration();
+    config.connections[0].capabilities = ["text_generation", "image_generation", "image_input"];
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/api/studio/models")) return response(config);
+      if (path.endsWith("/providers/primary/models?refresh=true")) return response(["vision-model", "story-model"]);
+      if (path.endsWith("/api/studio/vision-routes/cover_review") && init?.method === "PUT") {
+        return response({
+          id: "cover_review", connection_id: "primary", model: "vision-model", max_tokens: 4096,
+          connection_name: "Primary models", connection_provider: "openai_compatible",
+          configured: true, error: "", source: "configured",
+          effective_connection_id: "primary", effective_model: "vision-model",
+        });
+      }
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "图像生成" }));
+
+    expect(await screen.findByRole("heading", { name: "视觉审阅" })).toBeInTheDocument();
+    const model = screen.getByLabelText("视觉审阅模型");
+    await within(model).findByRole("option", { name: "vision-model" });
+    await user.selectOptions(model, "vision-model");
+    await user.click(screen.getByRole("button", { name: "保存视觉审阅" }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith("/api/studio/vision-routes/cover_review") && item[1]?.method === "PUT");
+      expect(call).toBeTruthy();
+      expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+        connection_id: "primary", model: "vision-model", max_tokens: 8192,
+      });
+    });
+    expect(fetchMock.mock.calls.some((item) => String(item[0]).endsWith("/api/studio/model-routes") && item[1]?.method === "PUT")).toBe(false);
+  });
+
+
+  it("uses DeepSeek model metadata for names and reasoning levels", async () => {
+    const config = configuration();
+    config.connections.push({
+      ...config.connections[0], id: "deepseek", name: "DeepSeek", provider: "deepseek",
+      base_url: "https://api.deepseek.com/v1", capabilities: ["text_generation"],
+      discovered_models: ["deepseek-flash", "deepseek-v4-pro"],
+      model_details: {
+        "deepseek-flash": {
+          id: "deepseek-flash", name: "DeepSeek-V4.1-Flash",
+          reasoning: { supported_levels: ["low", "high", "max"], default_level: "high" },
+          input_modalities: ["text", "image"],
+        },
+        "deepseek-v4-pro": {
+          id: "deepseek-v4-pro", name: "DeepSeek-V4-Pro",
+          reasoning: { supported_levels: ["low", "high", "max"], default_level: "high" },
+          input_modalities: ["text"],
+        },
+      },
+    });
+    config.text_routes = config.text_routes.map((route) => route.id === "default"
+      ? { ...route, connection_id: "deepseek", model: "deepseek-v4-pro", reasoning_effort: "" }
+      : route);
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/api/studio/models")) return response(config);
+      if (path.endsWith("/providers/deepseek/model-catalog?refresh=true")) return response(catalog(
+        ["deepseek-flash", "deepseek-v4-pro"], config.connections[1].model_details,
+      ));
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+
+    const model = screen.getByLabelText("默认写作模型模型");
+    expect(within(model).getByRole("option", { name: "DeepSeek-V4-Pro" })).toBeInTheDocument();
+    const reasoning = screen.getByLabelText("默认写作模型推理强度");
+    expect(reasoning).toBeEnabled();
+    expect(within(reasoning).getAllByRole("option").map((option) => option.textContent)).toEqual(["模型默认（高）", "低", "高", "最大"]);
+    await user.selectOptions(reasoning, "max");
+    await user.click(screen.getByRole("button", { name: "保存路由" }));
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith("/api/studio/model-routes") && item[1]?.method === "PUT");
+      const routes = JSON.parse(String(call?.[1]?.body)).routes;
+      expect(routes.find((route: { id: string }) => route.id === "default")).toMatchObject({
+        connection_id: "deepseek", model: "deepseek-v4-pro", reasoning_effort: "max",
+      });
+    });
+  });
+
+  it("clears the previous model when switching connections", async () => {
+    const config = configuration();
+    config.connections.push({
+      ...config.connections[0], id: "deepseek", name: "DeepSeek", provider: "deepseek",
+      base_url: "https://api.deepseek.com/v1", capabilities: ["text_generation"],
+      discovered_models: ["deepseek-flash", "deepseek-v4-pro"],
+      model_details: {},
+    });
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/api/studio/models")) return response(config);
+      if (path.endsWith("/providers/deepseek/model-catalog?refresh=true")) return response(catalog(["deepseek-flash", "deepseek-v4-pro"]));
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+    const model = screen.getByLabelText("默认写作模型模型");
+    expect(model).toHaveValue("model:story-model");
+
+    await user.selectOptions(screen.getByLabelText("默认写作模型连接"), "deepseek");
+    await within(model).findByRole("option", { name: "deepseek-flash" });
+
+    expect(model).toHaveValue("model:");
+    expect(within(model).queryByRole("option", { name: /story-model|gpt-6-astra/ })).not.toBeInTheDocument();
+    expect(within(model).getByRole("option", { name: "deepseek-v4-pro" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("默认写作模型推理强度")).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "模型默认（高）", "低", "高", "最大",
+    ]);
+  });
+
+  it("preselects a provider from the template catalog", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("button", { name: "添加 DeepSeek 连接" }));
+    expect(screen.getByRole("dialog", { name: "添加连接" })).toBeInTheDocument();
+    expect(screen.getByLabelText("服务商")).toHaveValue("deepseek");
+    expect(screen.getByLabelText("连接名称")).toHaveValue("DeepSeek");
+  });

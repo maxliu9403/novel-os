@@ -279,6 +279,38 @@ def check_required_character_fields(state: "StoryState") -> List[Finding]:
     return out
 
 
+def check_character_identity(state: "StoryState") -> List[Finding]:
+    """Check explicit identity data; prose referents need Guardian review.
+
+    Do not guess a character's gender or decide who 他/她 refers to using
+    adjacency or a regular expression. Report missing and ambiguous inputs.
+    """
+    out: List[Finding] = []
+    names: dict[str, set[str]] = {}
+    for char in state.characters.values():
+        missing = [key for key in ("gender", "pronouns") if not getattr(char, key)]
+        if missing:
+            out.append(Finding(
+                severity="warning",
+                category="character_identity_unspecified",
+                message=f"{char.full_name} ({char.id}) has no explicit {', '.join(missing)}.",
+                suggestion="Record the intended identity in the character card; until then use the canonical name, and do not infer from names or roles.",
+                entity_id=char.id,
+            ))
+        for value in [char.full_name, *char.aliases]:
+            names.setdefault(value.strip().casefold(), set()).add(char.id)
+    for name, ids in sorted(names.items()):
+        if len(ids) > 1:
+            out.append(Finding(
+                severity="warning",
+                category="character_identity_ambiguous",
+                message=f"Name or alias {name!r} identifies multiple characters: {', '.join(sorted(ids))}.",
+                suggestion="Use distinct canonical names or unambiguous aliases in prose and character IDs in state updates.",
+                entity_id=name,
+            ))
+    return out
+
+
 _HOSTILE_LABELS = frozenset({
     "enemy", "enemies", "rival", "rivals", "hostile", "nemesis", "foe",
 })
@@ -293,16 +325,14 @@ def _present_ids_for_chapter(state: "StoryState", cur: int) -> Set[str]:
     chapter = state.chapters.get(cur)
     if not chapter:
         return set()
-    present_raw = [p.strip().lower() for p in (chapter.characters_present or []) if p.strip()]
-    name_to_id = {
-        c.full_name.strip().lower(): c.id for c in state.characters.values()
-    }
-    present_ids = {name_to_id[n] for n in present_raw if n in name_to_id}
+    present_raw = [p.strip() for p in (chapter.characters_present or []) if p.strip()]
     if chapter.pov_character:
-        pov_id = name_to_id.get(chapter.pov_character.strip().lower())
-        if pov_id:
-            present_ids.add(pov_id)
-    return present_ids
+        present_raw.append(chapter.pov_character.strip())
+    return {
+        character.id for name in present_raw
+        if (character := state.characters.get(name) or state.get_character_by_name(name))
+        is not None
+    }
 
 
 def _is_dead_character(char) -> bool:
@@ -496,6 +526,7 @@ ALL_CHECKS = (
     check_absent_characters,
     check_dead_characters_reappearing,
     check_required_character_fields,
+    check_character_identity,
     check_relationship_integrity,
     check_hostile_pairs_co_present,
     check_relationship_since_anachronism,

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
+import pytest
 from fastapi.testclient import TestClient
 
 from api.cover_service import CoverService
@@ -110,17 +114,21 @@ def _wait(client: TestClient, job_id: str) -> dict:
     raise AssertionError("cover job did not finish")
 
 
-def test_cover_art_director_uses_its_configured_reasoning_effort(monkeypatch) -> None:
-    from core import llm_client, studio_settings
+@pytest.mark.parametrize("image_connection", ["", "missing-image-connection"])
+def test_cover_art_director_uses_its_configured_reasoning_effort(monkeypatch, image_connection) -> None:
+    from core import llm_client, studio_settings, provider_settings
 
     captured = {}
 
     class FakeClient:
         model = "gpt-5.6-sol"
         provider = "codex"
+        provider_name = "codex"
+        max_tokens = 8192
 
         def __init__(self, **kwargs):
             captured.update(kwargs)
+            self.reasoning_effort = kwargs.get("reasoning_effort")
 
         def complete(self, _system: str, _user: str) -> str:
             return "{}"
@@ -139,11 +147,23 @@ def test_cover_art_director_uses_its_configured_reasoning_effort(monkeypatch) ->
         ),
     )
 
+    # Text analysis must remain available before an image connection is set up.
+    monkeypatch.setattr(provider_settings, "load_configuration", lambda: {
+        "source": "v2", "connections": [], "image_profiles": {"cover": {
+            "connection_id": image_connection, "size": "1024x1536"}}})
     director = routes.get_cover_art_director()
 
     assert isinstance(director, CoverArtDirector)
+    assert director.model == "gpt-5.6-sol"
+    assert director.image_size == "1024x1536"
     assert captured["timeout_seconds"] == 600
     assert captured["reasoning_effort"] == "high"
+    assert director.analysis_configuration["max_workers"] == 3
+    factory = director.analysis_configuration["complete_factory"]
+    first, second = factory(), factory()
+    assert first.__self__ is not second.__self__
+    assert first.__self__ is not director._complete.__self__
+    assert first.__self__.reasoning_effort == second.__self__.reasoning_effort == "high"
 
 
 class CanonAwareFixtureDirector:
@@ -160,6 +180,71 @@ class CanonAwareFixtureDirector:
             plan["gaze_graph"] = [f"{character_id} -> primary evidence"]
         payload["plans"] = payload["plans"][:count]
         return ArtDirectionSet.from_dict(payload, brief_sha256=brief.source_prompt_sha256)
+
+
+def _write_pending_cover_sources(project_path) -> None:
+    inputs = project_path / "outputs" / "input"
+    state_dir = project_path / "outputs" / "state"
+    inputs.mkdir(parents=True, exist_ok=True)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    inputs.joinpath("prompt.md").write_text(
+        "# Legacy prompt\n```json\n"
+        + json.dumps([
+            {"id": "audience", "age_band": "women ages 30-50"},
+            {
+                "id": "claire_bennett",
+                "name": "Claire Bennett",
+                "public_identity": "Independent interior designer returning to practice.",
+            },
+        ])
+        + "\n```\n",
+        encoding="utf-8",
+    )
+    inputs.joinpath("brief.json").write_text(json.dumps({
+        "title": "The Empty Chair Beside Her",
+        "genre": "domestic drama",
+        "audience": "women ages 30-50",
+        "language": "American English",
+    }), encoding="utf-8")
+    inputs.joinpath("foundation.json").write_text(json.dumps({
+        "title": "The Empty Chair Beside Her",
+        "premise": "Claire leaves an unreliable marriage and rebuilds her work.",
+        "characters": [{
+            "id": "claire_bennett",
+            "name": "Claire Bennett",
+            "role": "protagonist",
+            "age": None,
+            "physical_description": "A practical woman rebuilding after a separation.",
+            "external_goal": "Build a dependable home and independent practice.",
+            "strength": "Documents the truth and sets boundaries.",
+        }],
+        "plot_threads": [{
+            "id": "main",
+            "name": "independence",
+            "description": "Claire replaces promises with reliable care.",
+            "type": "main",
+        }],
+        "setting": {
+            "time_period": "August 2027 through June 2028",
+            "primary_location": "Linden Falls, a fictional city centered on Willow Creek",
+        },
+    }), encoding="utf-8")
+    state_dir.joinpath("story_state.json").write_text(json.dumps({
+        "metadata": {
+            "genre": "domestic drama",
+            "language": "American English",
+            "audience": "women ages 30-50",
+        },
+        "characters": {"claire_bennett": {
+            "id": "claire_bennett",
+            "full_name": "Claire Bennett",
+            "role": "protagonist",
+        }},
+        "story_bible": {"setting": {
+            "time_period": "August 2027 through June 2028",
+            "primary_location": "Linden Falls, a fictional city centered on Willow Creek",
+        }},
+    }), encoding="utf-8")
 
 
 def test_generate_lists_and_downloads_project_cover_package(tmp_path, monkeypatch) -> None:
@@ -394,7 +479,7 @@ def test_retry_endpoint_replaces_only_the_failed_candidate(tmp_path, monkeypatch
     assert {item["status"] for item in ready["candidates"]} == {"ready"}
 
 
-def test_generation_automatically_repairs_a_render_that_drops_the_causal_relationship(
+def test_generation_keeps_semantic_failure_without_unapproved_image_spend(
     tmp_path, monkeypatch,
 ) -> None:
     client, _ = _client(tmp_path, monkeypatch)
@@ -431,6 +516,8 @@ def test_generation_automatically_repairs_a_render_that_drops_the_causal_relatio
                 core_conflict_fidelity=92,
                 causal_relationship_clarity=92,
                 protagonist_agency=92,
+                cinematic_storytelling=92, genre_emotion=92, thumbnail_clarity=92,
+                hook_promise_alignment=92, title_legibility_advisory=92,
             )
             if self.calls == 1:
                 return CoverQualityReport(
@@ -456,13 +543,12 @@ def test_generation_automatically_repairs_a_render_that_drops_the_causal_relatio
         project["id"], tmp_path / "projects" / project["id"], brief, concepts,
     )
 
-    assert image_client.calls == 5
-    assert evaluator.calls == 5
-    repaired = cover_set.candidates[0]
-    assert repaired.prompt_revision == 2
-    assert len(repaired.attempt_history) == 2
-    assert repaired.attempt_history[1]["repair_codes"] == ["causal_relationship_missing"]
-    assert "Repair focus: causal relationship missing." in repaired.generation_prompt
+    assert image_client.calls == 4
+    assert evaluator.calls == 4
+    original = cover_set.candidates[0]
+    assert original.prompt_revision == 1
+    assert len(original.attempt_history) == 1
+    assert "causal_relationship_missing" in original.quality_report["repair_codes"]
 
 
 def test_selecting_existing_cover_does_not_require_image_api_key(tmp_path, monkeypatch) -> None:
@@ -633,10 +719,12 @@ def test_direction_api_plans_from_persisted_v2_story_facts(tmp_path, monkeypatch
 def test_adaptive_direction_binds_preface_and_final_prose_then_generates_image2_prompts(
     tmp_path, monkeypatch,
 ) -> None:
+    photographic_fixture = adaptive_director_fixture()
+    photographic_fixture["profile_version"] = "cover-profiles.v8"
     client, image_client = _client(
         tmp_path,
         monkeypatch,
-        director=CoverArtDirector.from_fixture(adaptive_director_fixture()),
+        director=CoverArtDirector.from_fixture(photographic_fixture),
     )
     project = client.post(
         "/api/projects", json={"title": "Evidence Cover", "genre": "Drama"}
@@ -671,7 +759,7 @@ def test_adaptive_direction_binds_preface_and_final_prose_then_generates_image2_
 
     assert created_response.status_code == 201
     created = created_response.json()
-    assert created["profile_version"] == "cover-profiles.v5"
+    assert created["profile_version"] == "cover-profiles.v8"
     assert created["visual_identity"]["design_thesis"].startswith("Turn the shared doorway")
     assert "publication_intro" in {
         item["source_type"] for item in created["evidence_ledger"]["items"]
@@ -701,7 +789,41 @@ def test_adaptive_direction_binds_preface_and_final_prose_then_generates_image2_
     assert image_client.calls == 4
     cover_set = client.get(f"/api/projects/{project['id']}/covers").json()[0]
     assert "lead book-cover designer" in cover_set["concepts"][0]["generation_prompt"]
-    assert cover_set["compiler_version"] == "cover-compiler.v9"
+    assert cover_set["compiler_version"] == "cover-compiler.v17"
+
+
+def test_v9_relationship_cast_survives_approval_storage_and_generation(tmp_path, monkeypatch):
+    from tests.test_cover_story_policy import story_fixture
+
+    brief, fixture = story_fixture()
+    client, image_client = _client(tmp_path, monkeypatch, director=CoverArtDirector.from_fixture(fixture))
+    project = client.post('/api/projects', json={'title': brief.title, 'genre': 'Drama'}).json()
+    prompt = tmp_path / 'projects' / project['id'] / 'outputs' / 'input' / 'prompt.md'
+    prompt.parent.mkdir(parents=True, exist_ok=True)
+    prompt.write_text('COVER_HANDOFF_BEGIN\n```json\n' + json.dumps(brief.to_dict()) + '\n```\nCOVER_HANDOFF_END\n')
+    url = f"/api/projects/{project['id']}/covers"
+    response = client.post(url + '/directions', json={'count': 4})
+    assert response.status_code == 201, response.text
+    created = response.json()
+    assert created['profile_version'] == 'cover-profiles.v9'
+    assert all(plan['story_policy_version'] == 'cover-story.v1' for plan in created['plans'])
+    approved = client.post(url + '/directions/' + created['direction_id'] + '/approve', json={
+        'expected_brief_sha256': created['brief_sha256'],
+        'approved_direction_sha256': created['direction_sha256'],
+    })
+    assert approved.status_code == 200, approved.text
+    result = client.post(url + '/generate', json={
+        'direction_id': created['direction_id'],
+        'approved_direction_sha256': approved.json()['direction_sha256'],
+    })
+    assert result.status_code == 202, result.text
+    assert _wait(client, result.json()['job_id'])['status'] == 'done'
+    cover_set = client.get(url).json()[0]
+    assert image_client.calls == 4
+    plans = [item['scene_plan'] for item in cover_set['concepts']]
+    assert [plan['cast'] for plan in plans] == [plan['cast'] for plan in fixture['plans']]
+    assert plans[2]['focal_character_id'] == 'char_child'
+    assert all('THUMBNAIL STORY READ' in item['generation_prompt'] for item in cover_set['concepts'])
 
 
 def test_adaptive_direction_becomes_stale_when_publication_intro_changes(
@@ -757,7 +879,39 @@ def test_adaptive_direction_becomes_stale_when_publication_intro_changes(
     assert client.get(f"/api/projects/{project['id']}/covers/directions").json()[0]["status"] == "stale"
 
 
-def test_direction_api_plans_from_confirmed_legacy_story_facts(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("prompt_text", "expected_identity", "expected_source_ref"),
+    [
+        pytest.param(
+            "# Legacy prompt\n\n"
+            "```yaml\n"
+            "financial_baseline:\n"
+            "  claire:\n"
+            "    occupation: accounts-payable clerk\n"
+            "```\n",
+            "accounts-payable clerk",
+            "outputs/input/prompt.md:structured_character_facts",
+            id="structured-occupation",
+        ),
+        pytest.param(
+            "# Story\n\n## Character Core\n\n"
+            "### Claire Bennett\n\n"
+            "Claire was an excellent university graduate and teacher who stepped behind "
+            "her husband's career. She wants to recover her independence.\n",
+            "Claire was an excellent university graduate and teacher who stepped behind "
+            "her husband's career.",
+            "outputs/input/prompt.md:7",
+            id="markdown-biography",
+        ),
+    ],
+)
+def test_direction_api_plans_from_confirmed_legacy_story_facts(
+    tmp_path,
+    monkeypatch,
+    prompt_text,
+    expected_identity,
+    expected_source_ref,
+) -> None:
     client, image_client = _client(
         tmp_path,
         monkeypatch,
@@ -771,15 +925,7 @@ def test_direction_api_plans_from_confirmed_legacy_story_facts(tmp_path, monkeyp
     state_dir = project_path / "outputs" / "state"
     inputs.mkdir(parents=True, exist_ok=True)
     state_dir.mkdir(parents=True, exist_ok=True)
-    inputs.joinpath("prompt.md").write_text(
-        "# Legacy prompt\n\n"
-        "```yaml\n"
-        "financial_baseline:\n"
-        "  claire:\n"
-        "    occupation: accounts-payable clerk\n"
-        "```\n",
-        encoding="utf-8",
-    )
+    inputs.joinpath("prompt.md").write_text(prompt_text, encoding="utf-8")
     inputs.joinpath("brief.json").write_text(json.dumps({
         "title": "The Empty Chair Beside Her",
         "genre": "domestic drama",
@@ -830,17 +976,515 @@ def test_direction_api_plans_from_confirmed_legacy_story_facts(tmp_path, monkeyp
         }},
     }), encoding="utf-8")
 
+    source_paths = (
+        inputs / "prompt.md",
+        inputs / "brief.json",
+        inputs / "foundation.json",
+        state_dir / "story_state.json",
+    )
+    source_hashes = {
+        path: hashlib.sha256(path.read_bytes()).hexdigest() for path in source_paths
+    }
+
+    facts_response = client.get(
+        f"/api/projects/{project['id']}/covers/story-facts"
+    )
+    assert facts_response.status_code == 200
+    facts = facts_response.json()
+    assert facts["pending_fields"] == []
+    facts_character = facts["brief"]["principal_characters"][0]
+    assert facts_character["occupation_and_status"] == expected_identity
+    assert expected_source_ref in facts_character["source_refs"]
+
     response = client.post(
         f"/api/projects/{project['id']}/covers/directions",
         json={"count": 4},
     )
 
     assert response.status_code == 201
-    assert response.json()["brief"]["principal_characters"][0]["age"] == 30
-    assert response.json()["brief"]["principal_characters"][0][
+    direction_character = response.json()["brief"]["principal_characters"][0]
+    assert direction_character["age"] == 30
+    assert direction_character["occupation_and_status"] == facts_character[
         "occupation_and_status"
-    ] == "accounts-payable clerk"
+    ]
+    assert expected_source_ref in direction_character["source_refs"]
+    assert {
+        path: hashlib.sha256(path.read_bytes()).hexdigest() for path in source_paths
+    } == source_hashes
     assert image_client.calls == 0
+
+
+def test_cover_story_facts_api_persists_only_missing_fields_with_revision_check(
+    tmp_path, monkeypatch,
+) -> None:
+    client, _image_client = _client(tmp_path, monkeypatch)
+    project = client.post(
+        "/api/projects", json={"title": "Pending Cover Facts", "genre": "Domestic drama"}
+    ).json()
+    project_path = tmp_path / "projects" / project["id"]
+    _write_pending_cover_sources(project_path)
+
+    before_files = {
+        path.relative_to(project_path).as_posix()
+        for path in project_path.rglob("*")
+        if path.is_file()
+    }
+    pending = client.get(
+        f"/api/projects/{project['id']}/covers/story-facts"
+    ).json()
+
+    assert pending["pending_fields"] == [{
+        "field": "principal_characters[0].age",
+        "character_id": "claire_bennett",
+        "character_name": "Claire Bennett",
+        "label": "Claire Bennett age range",
+        "proposed_value": "derive from approved story facts",
+    }]
+    assert pending["brief"]["principal_characters"][0][
+        "occupation_and_status"
+    ] == "Independent interior designer returning to practice."
+    empty = client.put(
+        f"/api/projects/{project['id']}/covers/story-facts",
+        json={
+            "expected_revision_sha256": pending["revision_sha256"],
+            "characters": [{
+                "character_id": "claire_bennett",
+                "age_band": "",
+            }],
+        },
+    )
+    assert empty.status_code == 400
+
+    saved_response = client.put(
+        f"/api/projects/{project['id']}/covers/story-facts",
+        json={
+            "expected_revision_sha256": pending["revision_sha256"],
+            "characters": [{
+                "character_id": "claire_bennett",
+                "age_band": "early thirties",
+            }],
+        },
+    )
+
+    assert saved_response.status_code == 200
+    saved = saved_response.json()
+    assert saved["pending_fields"] == []
+    assert saved["revision_sha256"] != pending["revision_sha256"]
+    assert saved["brief"]["source_prompt_sha256"] != pending["brief"][
+        "source_prompt_sha256"
+    ]
+    assert saved["brief"]["principal_characters"][0]["age_band"] == "early thirties"
+    after_files = {
+        path.relative_to(project_path).as_posix()
+        for path in project_path.rglob("*")
+        if path.is_file()
+    }
+    assert after_files - before_files == {
+        "outputs/covers/.story-facts.lock",
+        "outputs/covers/story-facts.json",
+    }
+    sidecar = json.loads(
+        (project_path / "outputs/covers/story-facts.json").read_text(encoding="utf-8")
+    )
+    assert sidecar["provenance"] == "explicit_user_confirmation"
+    assert sidecar["source_prompt_sha256"] == pending["brief"]["source_prompt_sha256"]
+    assert len(sidecar["source_revision_sha256"]) == 64
+
+    stale = client.put(
+        f"/api/projects/{project['id']}/covers/story-facts",
+        json={
+            "expected_revision_sha256": pending["revision_sha256"],
+            "characters": [{
+                "character_id": "claire_bennett",
+                "age_band": "mid thirties",
+            }],
+        },
+    )
+    assert stale.status_code == 409
+    unknown = client.put(
+        f"/api/projects/{project['id']}/covers/story-facts",
+        json={
+            "expected_revision_sha256": saved["revision_sha256"],
+            "characters": [{
+                "character_id": "unknown_character",
+                "age_band": "mid thirties",
+            }],
+        },
+    )
+    assert unknown.status_code == 400
+
+    already_confirmed = client.put(
+        f"/api/projects/{project['id']}/covers/story-facts",
+        json={
+            "expected_revision_sha256": saved["revision_sha256"],
+            "characters": [{
+                "character_id": "claire_bennett",
+                "age_band": "mid thirties",
+            }],
+        },
+    )
+    assert already_confirmed.status_code == 400
+
+
+def test_cover_story_facts_merge_separate_confirmations(tmp_path, monkeypatch) -> None:
+    client, _image_client = _client(tmp_path, monkeypatch)
+    project = client.post(
+        "/api/projects", json={"title": "Partial Cover Facts", "genre": "Domestic drama"}
+    ).json()
+    project_path = tmp_path / "projects" / project["id"]
+    _write_pending_cover_sources(project_path)
+    foundation_path = project_path / "outputs/input/foundation.json"
+    foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
+    foundation["setting"] = {"time_period": "August 2027 through June 2028"}
+    foundation_path.write_text(json.dumps(foundation), encoding="utf-8")
+    initial_response = client.get(
+        f"/api/projects/{project['id']}/covers/story-facts"
+    )
+    assert initial_response.status_code == 200, initial_response.text
+    initial = initial_response.json()
+    assert {item["field"] for item in initial["pending_fields"]} == {
+        "principal_characters[0].age",
+        "lived_environment.primary_spaces",
+    }
+    age_saved = client.put(
+        f"/api/projects/{project['id']}/covers/story-facts",
+        json={
+            "expected_revision_sha256": initial["revision_sha256"],
+            "characters": [{
+                "character_id": "claire_bennett",
+                "age_band": "early thirties",
+            }],
+        },
+    ).json()
+
+    completed_response = client.put(
+        f"/api/projects/{project['id']}/covers/story-facts",
+        json={
+            "expected_revision_sha256": age_saved["revision_sha256"],
+            "primary_spaces": ["Claire's rented cottage", "Willow Creek studio"],
+        },
+    )
+
+    assert completed_response.status_code == 200
+    completed = completed_response.json()
+    assert completed["pending_fields"] == []
+    assert completed["brief"]["principal_characters"][0]["age_band"] == "early thirties"
+    assert completed["brief"]["lived_environment"]["primary_spaces"] == [
+        "Claire's rented cottage",
+        "Willow Creek studio",
+    ]
+
+
+def test_cover_story_facts_same_revision_concurrent_put_has_one_winner(
+    tmp_path, monkeypatch,
+) -> None:
+    from core.cover_store import CoverStore
+
+    client, _image_client = _client(tmp_path, monkeypatch)
+    project = client.post(
+        "/api/projects", json={"title": "Concurrent Cover Facts", "genre": "Drama"}
+    ).json()
+    project_path = tmp_path / "projects" / project["id"]
+    _write_pending_cover_sources(project_path)
+    foundation_path = project_path / "outputs/input/foundation.json"
+    foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
+    foundation["setting"] = {"time_period": "August 2027 through June 2028"}
+    foundation_path.write_text(json.dumps(foundation), encoding="utf-8")
+    initial = client.get(
+        f"/api/projects/{project['id']}/covers/story-facts"
+    ).json()
+
+    first_write_entered = threading.Event()
+    release_first_write = threading.Event()
+    original_write = CoverStore._write_json
+
+    def delayed_first_write(path, payload):
+        if path.name == "story-facts.json" and not first_write_entered.is_set():
+            first_write_entered.set()
+            assert release_first_write.wait(timeout=3)
+        return original_write(path, payload)
+
+    monkeypatch.setattr(CoverStore, "_write_json", staticmethod(delayed_first_write))
+    endpoint = f"/api/projects/{project['id']}/covers/story-facts"
+    age_request = {
+        "expected_revision_sha256": initial["revision_sha256"],
+        "characters": [{
+            "character_id": "claire_bennett",
+            "age_band": "early thirties",
+        }],
+    }
+    spaces_request = {
+        "expected_revision_sha256": initial["revision_sha256"],
+        "primary_spaces": ["Claire's rented cottage"],
+    }
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(client.put, endpoint, json=age_request)
+        assert first_write_entered.wait(timeout=3)
+        second = executor.submit(client.put, endpoint, json=spaces_request)
+        with pytest.raises(FuturesTimeoutError):
+            second.result(timeout=0.2)
+        release_first_write.set()
+        responses = [first.result(timeout=3), second.result(timeout=3)]
+
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    saved = json.loads(
+        (project_path / "outputs/covers/story-facts.json").read_text(encoding="utf-8")
+    )
+    assert saved["characters"] == [{
+        "character_id": "claire_bennett",
+        "age_band": "early thirties",
+    }]
+    assert saved["primary_spaces"] == []
+
+
+@pytest.mark.parametrize(
+    "relative_source",
+    ["outputs/input/prompt.md", "outputs/input/foundation.json"],
+)
+def test_cover_story_facts_require_reconfirmation_when_story_source_changes(
+    tmp_path, monkeypatch, relative_source,
+) -> None:
+    client, _image_client = _client(tmp_path, monkeypatch)
+    project = client.post(
+        "/api/projects", json={"title": "Changing Cover Facts", "genre": "Domestic drama"}
+    ).json()
+    project_path = tmp_path / "projects" / project["id"]
+    _write_pending_cover_sources(project_path)
+    initial = client.get(
+        f"/api/projects/{project['id']}/covers/story-facts"
+    ).json()
+    saved = client.put(
+        f"/api/projects/{project['id']}/covers/story-facts",
+        json={
+            "expected_revision_sha256": initial["revision_sha256"],
+            "characters": [{
+                "character_id": "claire_bennett",
+                "age_band": "early thirties",
+            }],
+        },
+    ).json()
+    source = project_path / relative_source
+    source.write_text(
+        source.read_text(encoding="utf-8") + "\n",
+        encoding="utf-8",
+    )
+
+    current = client.get(
+        f"/api/projects/{project['id']}/covers/story-facts"
+    ).json()
+
+    assert current["revision_sha256"] != saved["revision_sha256"]
+    assert current["brief"]["principal_characters"][0]["age_band"] == ""
+    assert [item["field"] for item in current["pending_fields"]] == [
+        "principal_characters[0].age"
+    ]
+    stale = client.put(
+        f"/api/projects/{project['id']}/covers/story-facts",
+        json={
+            "expected_revision_sha256": saved["revision_sha256"],
+            "characters": [{
+                "character_id": "claire_bennett",
+                "age_band": "early thirties",
+            }],
+        },
+    )
+    assert stale.status_code == 409
+
+
+def test_cover_story_facts_retries_when_source_changes_during_resolution(
+    tmp_path, monkeypatch,
+) -> None:
+    from core import cover_handoff
+
+    client, _image_client = _client(tmp_path, monkeypatch)
+    project = client.post(
+        "/api/projects", json={"title": "Moving Cover Source", "genre": "Drama"}
+    ).json()
+    project_path = tmp_path / "projects" / project["id"]
+    _write_pending_cover_sources(project_path)
+    original_resolve = cover_handoff._resolve_cover_brief_v2_source
+    calls = 0
+
+    def resolve_then_change(project_root, prompt_text):
+        nonlocal calls
+        result = original_resolve(project_root, prompt_text)
+        calls += 1
+        if calls == 1:
+            foundation_path = project_path / "outputs/input/foundation.json"
+            foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
+            foundation["characters"][0]["name"] = "Claire Morgan"
+            foundation_path.write_text(json.dumps(foundation), encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(
+        cover_handoff, "_resolve_cover_brief_v2_source", resolve_then_change,
+    )
+
+    response = client.get(f"/api/projects/{project['id']}/covers/story-facts")
+
+    assert response.status_code == 200
+    assert calls == 2
+    assert response.json()["brief"]["principal_characters"][0]["name"] == "Claire Morgan"
+
+
+def test_cover_story_facts_rejects_source_change_before_commit(
+    tmp_path, monkeypatch,
+) -> None:
+    from core import cover_story_facts
+
+    client, _image_client = _client(tmp_path, monkeypatch)
+    project = client.post(
+        "/api/projects", json={"title": "Commit Race", "genre": "Drama"}
+    ).json()
+    project_path = tmp_path / "projects" / project["id"]
+    _write_pending_cover_sources(project_path)
+    initial = client.get(
+        f"/api/projects/{project['id']}/covers/story-facts"
+    ).json()
+    original_load = cover_story_facts._load
+    changed = False
+
+    def load_then_change(path):
+        nonlocal changed
+        result = original_load(path)
+        if not changed:
+            changed = True
+            state_path = project_path / "outputs/state/story_state.json"
+            state_path.write_text(
+                state_path.read_text(encoding="utf-8") + "\n",
+                encoding="utf-8",
+            )
+        return result
+
+    monkeypatch.setattr(cover_story_facts, "_load", load_then_change)
+    response = client.put(
+        f"/api/projects/{project['id']}/covers/story-facts",
+        json={
+            "expected_revision_sha256": initial["revision_sha256"],
+            "characters": [{
+                "character_id": "claire_bennett",
+                "age_band": "early thirties",
+            }],
+        },
+    )
+
+    assert response.status_code == 409
+    assert not (project_path / "outputs/covers/story-facts.json").exists()
+
+
+def test_cover_story_facts_state_character_change_invalidates_confirmation(
+    tmp_path, monkeypatch,
+) -> None:
+    client, _image_client = _client(tmp_path, monkeypatch)
+    project = client.post(
+        "/api/projects", json={"title": "Changed Protagonist", "genre": "Drama"}
+    ).json()
+    project_path = tmp_path / "projects" / project["id"]
+    _write_pending_cover_sources(project_path)
+    foundation_path = project_path / "outputs/input/foundation.json"
+    foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
+    foundation["characters"] = []
+    foundation_path.write_text(json.dumps(foundation), encoding="utf-8")
+    state_path = project_path / "outputs/state/story_state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["characters"]["claire_bennett"].update({
+        "role": "protagonist",
+        "physical_description": "A practical woman rebuilding after separation.",
+        "external_goal": "Rebuild her independent practice.",
+        "strength": "Documents the truth and sets boundaries.",
+    })
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    initial_response = client.get(
+        f"/api/projects/{project['id']}/covers/story-facts"
+    )
+    assert initial_response.status_code == 200, initial_response.text
+    initial = initial_response.json()
+    saved = client.put(
+        f"/api/projects/{project['id']}/covers/story-facts",
+        json={
+            "expected_revision_sha256": initial["revision_sha256"],
+            "characters": [{
+                "character_id": "claire_bennett",
+                "age_band": "early thirties",
+            }],
+        },
+    )
+    assert saved.status_code == 200
+
+    state["characters"] = {"ivy_morgan": {
+        "id": "ivy_morgan",
+        "full_name": "Ivy Morgan",
+        "role": "protagonist",
+        "physical_description": "A composed woman in practical work clothes.",
+        "external_goal": "Build a dependable home.",
+        "strength": "Keeps careful records.",
+    }}
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    current_response = client.get(
+        f"/api/projects/{project['id']}/covers/story-facts"
+    )
+
+    assert current_response.status_code == 200
+    current = current_response.json()
+    assert current["brief"]["principal_characters"][0]["character_id"] == "ivy_morgan"
+    assert current["brief"]["principal_characters"][0]["age_band"] == ""
+    assert "principal_characters[0].age" in {
+        item["field"] for item in current["pending_fields"]
+    }
+
+
+def test_confirmed_story_facts_flow_through_direction_approval_and_generation(
+    tmp_path, monkeypatch,
+) -> None:
+    client, image_client = _client(
+        tmp_path, monkeypatch, director=CanonAwareFixtureDirector(),
+    )
+    project = client.post(
+        "/api/projects", json={"title": "Confirmed Cover Facts", "genre": "Domestic drama"}
+    ).json()
+    project_path = tmp_path / "projects" / project["id"]
+    _write_pending_cover_sources(project_path)
+    pending = client.get(
+        f"/api/projects/{project['id']}/covers/story-facts"
+    ).json()
+    saved = client.put(
+        f"/api/projects/{project['id']}/covers/story-facts",
+        json={
+            "expected_revision_sha256": pending["revision_sha256"],
+            "characters": [{
+                "character_id": "claire_bennett",
+                "age_band": "early thirties",
+            }],
+        },
+    ).json()
+    assert saved["pending_fields"] == []
+
+    created_response = client.post(
+        f"/api/projects/{project['id']}/covers/directions", json={"count": 4},
+    )
+    assert created_response.status_code == 201
+    created = created_response.json()
+    assert created["brief_sha256"] == saved["brief"]["source_prompt_sha256"]
+    approved_response = client.post(
+        f"/api/projects/{project['id']}/covers/directions/{created['direction_id']}/approve",
+        json={
+            "expected_brief_sha256": created["brief_sha256"],
+            "approved_direction_sha256": created["direction_sha256"],
+        },
+    )
+    assert approved_response.status_code == 200
+    approved = approved_response.json()
+    generated = client.post(
+        f"/api/projects/{project['id']}/covers/generate",
+        json={
+            "direction_id": approved["direction_id"],
+            "approved_direction_sha256": approved["direction_sha256"],
+        },
+    )
+
+    assert generated.status_code == 202
+    assert _wait(client, generated.json()["job_id"])["status"] == "done"
+    assert image_client.calls == 4
 
 
 def test_v2_generation_requires_an_approved_direction_before_image_call(tmp_path, monkeypatch) -> None:
@@ -969,7 +1613,7 @@ def test_approved_v2_direction_generates_four_independent_image2_candidates(
     assert image_client.calls == 4
     cover_set = client.get(f"/api/projects/{project['id']}/covers").json()[0]
     assert cover_set["brief_schema_version"] == 2
-    assert cover_set["compiler_version"] == "cover-compiler.v9"
+    assert cover_set["compiler_version"] == "cover-compiler.v17"
     assert cover_set["brief"]["principal_characters"][0]["age"] == 34
     assert [item["model"] for item in cover_set["candidates"]] == ["gpt-image-2"] * 4
     assert all(item["safe_request_parameters"]["n"] == 1 for item in cover_set["candidates"])

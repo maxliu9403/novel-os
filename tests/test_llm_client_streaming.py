@@ -2,8 +2,10 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 import llm_client
-from llm_client import LLMClient
+from llm_client import LLMClient, LLMError
 
 
 class _Completions:
@@ -100,3 +102,60 @@ def test_openai_shape_multimodal_completion_attaches_full_and_thumbnail_images()
     assert content[0] == {"type": "text", "text": "review user"}
     assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
     assert content[2]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+
+
+def test_deepseek_is_explicitly_rejected_for_image_input():
+    client = object.__new__(LLMClient)
+    client.provider_name = "deepseek"
+    client.model = "deepseek-reasoner"
+    client.max_tokens = 128
+
+    assert client.supports_image_input is False
+    with pytest.raises(LLMError, match="does not support image input"):
+        client.complete_with_images("review", "user", [b"\x89PNG\r\n"])
+
+
+def test_named_vision_providers_report_image_input_support():
+    for provider, expected in [
+        ("codex", True), ("openai", True), ("openrouter", True),
+        ("openai_compatible", True), ("deepseek", False), ("anthropic", False),
+    ]:
+        client = object.__new__(LLMClient)
+        client.provider_name = provider
+        assert client.supports_image_input is expected
+
+
+def test_deepseek_reasoning_effort_is_sent_only_for_supported_levels(monkeypatch):
+    captured = {}
+
+    class Completions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+                usage=None,
+            )
+
+    monkeypatch.setattr(llm_client, "_env_flag", lambda *args, **kwargs: False)
+    client = object.__new__(LLMClient)
+    client.provider_name = "deepseek"
+    client.model = "deepseek-v4-pro"
+    client.max_tokens = 128
+    client.reasoning_effort = "max"
+    client._backend = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+
+    assert client.complete("role", "task") == "ok"
+    assert captured["reasoning_effort"] == "max"
+    assert captured["max_tokens"] == 32768
+
+    client.reasoning_effort = "medium"
+    captured.clear()
+    assert client.complete("role", "task") == "ok"
+    assert "reasoning_effort" not in captured
+    assert captured["max_tokens"] == 128
+
+    client.reasoning_effort = ""
+    captured.clear()
+    assert client.complete("role", "task") == "ok"
+    assert "reasoning_effort" not in captured
+    assert captured["max_tokens"] == 16384

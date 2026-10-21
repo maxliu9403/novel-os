@@ -27,6 +27,8 @@ import EditCodexModal from "../components/EditCodexModal";
 import ModeSwitch from "../components/ModeSwitch";
 import BookShape from "../components/BookShape";
 import CompilePanel from "../components/CompilePanel";
+import TaskStatusPanel from "../components/TaskStatusPanel";
+import GenerationCostPanel from "../components/GenerationCostPanel";
 import { useStudioMode } from "../hooks/useStudioMode";
 import { getStudioMode } from "../lib/studioMode";
 import { useToast } from "../components/toastContext";
@@ -284,6 +286,17 @@ export default function ProjectDashboard() {
                 )}
               </div>
             </header>
+
+            {project.task_id && (
+              <TaskStatusPanel
+                key={`${id}:${project.task_id}`}
+                projectId={id}
+                runId={project.task_id}
+                onTaskChanged={refreshExternalProgress}
+              />
+            )}
+
+            <GenerationCostPanel owner={id} refreshKey={externalRefreshKey} />
 
             {/* Revise leads with the state of the book; Plan and Write lead
                 with where you are against your targets. */}

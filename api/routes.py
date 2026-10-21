@@ -29,10 +29,11 @@ from .models import (
     BinderMoveRequest, BinderPatchRequest, SynopsisRefreshResult, UpdateMedia,
     ProjectStatistics, OutlinerMetricsRefreshResult, UpdateCodexEntry,
     ArtifactRevisionOut, ChapterQualityOut, EvaluationReportOut, PromotionReceiptOut,
-    CoverDirectionCreate, CoverDirectionApproval,
-    ImageProfileOut, ImageProfileUpdate,
-    ProviderConnectionInput, ProviderConnectionOut, ProviderTestResult,
+    CoverDirectionCreate, CoverDirectionApproval, CoverStoryFactsUpdate,
+    ImageProfileOut, ImageProfileUpdate, ImageModelCatalogOut,
+    ProviderConnectionInput, ProviderConnectionOut, ProviderModelCatalogOut, ProviderTestResult,
     StudioModelConfigurationOut, TextModelTestRequest, TextRouteOut, TextRoutesUpdate,
+    VisionRouteInput, VisionRouteOut,
 )
 from .version import __version__
 from .services import (
@@ -141,34 +142,39 @@ def get_media_store() -> media_lib.MediaStore:
 def get_cover_service(
     store: media_lib.MediaStore = Depends(get_media_store),
 ) -> CoverService:
-    from core.cover_quality import build_llm_visual_evaluator, unavailable_evaluator
     from core.image_client import ImageClientError, build_image_generation_client
-    from core.llm_client import LLMClient, LLMError
-    from core.studio_settings import resolve_cover_director_settings, resolve_cover_settings
+    from core.studio_settings import resolve_cover_settings
 
     try:
         client = build_image_generation_client(resolve_cover_settings())
     except (ValueError, ImageClientError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return CoverService(image_client=client, media_store=store, media_add=db.media_add,
+                        visual_evaluator=_cover_visual_evaluator())
+
+
+def _cover_visual_evaluator():
+    from core.cover_quality import build_llm_visual_evaluator, unavailable_evaluator
+    from core.llm_client import LLMClient, LLMError
+    from core.provider_settings import ProviderSettingsError, resolve_vision_route
     try:
-        review_settings = resolve_cover_director_settings()
+        route = resolve_vision_route("cover_review")
         review_client = LLMClient(
-            provider=review_settings.provider or None,
-            model=review_settings.model or None,
-            base_url=review_settings.base_url or None,
-            api_key=review_settings.api_key or None,
-            timeout_seconds=review_settings.timeout_seconds,
-            reasoning_effort=review_settings.reasoning_effort or None,
+            provider=route["provider"] or None,
+            model=route["model"] or None,
+            base_url=route["base_url"] or None,
+            api_key=route["api_key"] or None,
+            max_tokens=route["max_tokens"],
+            timeout_seconds=route["timeout_seconds"],
         )
-        visual_evaluator = build_llm_visual_evaluator(review_client)
-    except (LLMError, ValueError) as exc:
-        visual_evaluator = unavailable_evaluator(str(exc))
-    return CoverService(
-        image_client=client,
-        media_store=store,
-        media_add=db.media_add,
-        visual_evaluator=visual_evaluator,
-    )
+        return build_llm_visual_evaluator(review_client)
+    except (LLMError, ProviderSettingsError, ValueError) as exc:
+        return unavailable_evaluator(str(exc))
+
+
+def get_cover_review_service(store: media_lib.MediaStore = Depends(get_media_store)) -> CoverService:
+    """Review existing bytes without requiring an image-generation credential."""
+    return CoverService(media_store=store, media_add=db.media_add, visual_evaluator=_cover_visual_evaluator())
 
 
 def get_cover_mutation_service(
@@ -182,11 +188,11 @@ def get_cover_art_director():
     """Resolve story direction through the configured text-model boundary."""
     from core.cover_director import CoverArtDirector
     from core.llm_client import LLMClient, LLMError
-    from core.studio_settings import resolve_cover_director_settings
+    from core.studio_settings import resolve_cover_director_settings, resolve_cover_size
 
     try:
         settings = resolve_cover_director_settings()
-        client = LLMClient(
+        client_options = dict(
             provider=settings.provider or None,
             model=settings.model or None,
             base_url=settings.base_url or None,
@@ -196,6 +202,8 @@ def get_cover_art_director():
             # the interactive Codex profile mounted into the container.
             reasoning_effort=settings.reasoning_effort or None,
         )
+        client = LLMClient(**client_options)
+        image_size = resolve_cover_size()
     except (LLMError, ValueError) as exc:
         message = str(exc)
 
@@ -203,10 +211,25 @@ def get_cover_art_director():
             raise LLMError(message)
 
         return CoverArtDirector(complete=unavailable, model="unavailable")
-    return CoverArtDirector(
+    director = CoverArtDirector(
         complete=client.complete,
         model=client.model or client.provider,
+        profile_version="cover-profiles.v11",
+        image_size=image_size,
     )
+    director.analysis_configuration = {
+        # Each worker owns its SDK/CLI and diagnostic context. Scheduling is
+        # excluded from the analyzer's semantic cache/configuration identity.
+        "max_workers": 3,
+        "complete_factory": lambda: LLMClient(**client_options).complete,
+        "provider": client.provider_name,
+        "inference_parameters": {
+            "reasoning_effort": client.reasoning_effort or "",
+            "max_output_tokens": client.max_tokens,
+            "endpoint_sha256": hashlib.sha256((settings.base_url or "").encode()).hexdigest(),
+        },
+    }
+    return director
 
 
 def _content_disposition(project_id: str, extension: str) -> str:
@@ -378,13 +401,44 @@ def test_studio_provider(connection_id: str):
         raise _provider_settings_error(exc) from exc
 
 
+@router.get(
+    "/studio/providers/{connection_id}/model-catalog",
+    response_model=ProviderModelCatalogOut,
+)
+def get_studio_provider_model_catalog(connection_id: str, refresh: bool = False):
+    from core import provider_settings
+
+    if refresh:
+        try:
+            return provider_settings.refresh_connection_model_catalog(connection_id)
+        except provider_settings.ProviderModelDiscoveryError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        except provider_settings.ProviderSettingsError as exc:
+            raise HTTPException(status_code=404, detail="Provider connection not found") from exc
+    configuration = provider_settings.configuration_status()
+    for connection in configuration["connections"]:
+        if connection["id"] == connection_id:
+            return {
+                "models": connection["discovered_models"],
+                "details": connection.get("model_details") or {},
+            }
+    raise HTTPException(status_code=404, detail="Provider connection not found")
+
+
 @router.get("/studio/providers/{connection_id}/models", response_model=list[str])
-def get_studio_provider_models(connection_id: str):
+def get_studio_provider_models(connection_id: str, refresh: bool = False):
     from core import provider_settings
 
     configuration = provider_settings.configuration_status()
     for connection in configuration["connections"]:
         if connection["id"] == connection_id:
+            if refresh:
+                try:
+                    return provider_settings.refresh_connection_models(connection_id)
+                except provider_settings.ProviderModelDiscoveryError as exc:
+                    raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+                except provider_settings.ProviderSettingsError as exc:
+                    raise HTTPException(status_code=404, detail="Provider connection not found") from exc
             return connection["discovered_models"]
     raise HTTPException(status_code=404, detail="Provider connection not found")
 
@@ -397,6 +451,28 @@ def put_studio_model_routes(body: TextRoutesUpdate):
         return provider_settings.save_text_routes(
             route.model_dump() for route in body.routes
         )
+    except provider_settings.ProviderSettingsError as exc:
+        raise _provider_settings_error(exc) from exc
+
+
+@router.put("/studio/vision-routes/{route_id}", response_model=VisionRouteOut)
+def put_studio_vision_route(route_id: str, body: VisionRouteInput):
+    from core import provider_settings
+
+    try:
+        return provider_settings.save_vision_route(route_id, body.model_dump())
+    except provider_settings.ProviderSettingsError as exc:
+        raise _provider_settings_error(exc) from exc
+
+
+@router.get("/studio/providers/{connection_id}/image-models", response_model=ImageModelCatalogOut)
+def get_studio_image_provider_models(connection_id: str, refresh: bool = False):
+    from core import provider_settings
+
+    try:
+        return provider_settings.image_connection_models(connection_id, refresh=refresh)
+    except provider_settings.ProviderModelDiscoveryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except provider_settings.ProviderSettingsError as exc:
         raise _provider_settings_error(exc) from exc
 
@@ -505,6 +581,9 @@ def test_studio_cover_profile():
             "width": generated.width,
             "height": generated.height,
             "model": generated.model,
+            "requested_model": settings.model,
+            "observed_model": generated.observed_model,
+            "model_verified": generated.model_verified,
             "request_id": generated.request_id,
         }
 
@@ -524,6 +603,22 @@ def list_projects(svc: ProjectService = Depends(get_service)):
     return svc.list_projects()
 
 
+@router.get("/novel-classification/catalog")
+def novel_classification_catalog():
+    """Return the engine-owned identifiers accepted by project metadata."""
+    from novel_classification import catalog_payload
+
+    return catalog_payload()
+
+
+@router.get("/narrative-format/catalog")
+def narrative_format_catalog():
+    """Return author-selectable length and serialization modes."""
+    from narrative_format import format_catalog_payload
+
+    return format_catalog_payload()
+
+
 @router.patch("/projects/{project_id}", response_model=ProjectDetail)
 def update_project(project_id: str, body: UpdateProject, svc: ProjectService = Depends(get_service)):
     try:
@@ -531,11 +626,14 @@ def update_project(project_id: str, body: UpdateProject, svc: ProjectService = D
             project_id,
             content_rating=body.content_rating,
             title=body.title,
+            author=body.author,
             genre=body.genre,
             genres=body.genres,
             premise=body.premise,
             target_word_count=body.target_word_count,
             session_word_target=body.session_word_target,
+            classification=body.classification,
+            narrative_format=body.narrative_format,
         )
     except ProjectNotFound:
         raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
@@ -549,6 +647,9 @@ def create_project(body: CreateProject, svc: ProjectService = Depends(get_servic
         return svc.create_project(
             body.title, body.genre, body.author,
             genres=body.genres, premise=body.premise,
+            classification=body.classification,
+            narrative_format=body.narrative_format,
+            method_mode=body.method_mode,
         )
     except BadRequest as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1121,12 +1222,27 @@ def _cover_out(project_id: str, cover_set, *, active_revision: int = 0) -> dict:
     body = cover_set.to_dict()
     body["active_revision"] = active_revision
     candidates = []
+    def media_url(media_id):
+        return f"/api/projects/{project_id}/media/{media_id}/raw" if media_id else None
+    def attach_artwork(item):
+        report = item.get("quality_report") or {}
+        assets = report.get("assets") or {}
+        if assets.get("artwork_media_id"):
+            item["quality_report"] = {**report, "assets": {**assets, "artwork_url": media_url(assets["artwork_media_id"])}}
     for candidate in body["candidates"]:
         item = dict(candidate)
         media_id = item.get("media_id")
         item["url"] = (
             f"/api/projects/{project_id}/media/{media_id}/raw" if media_id else None
         )
+        attach_artwork(item)
+        attempts = []
+        for attempt in item.get("attempt_history") or []:
+            attempt = {**attempt, "url": media_url(attempt.get("media_id"))}
+            attach_artwork(attempt)
+            attempts.append(attempt)
+        if attempts:
+            item["attempt_history"] = attempts
         candidates.append(item)
     body["candidates"] = candidates
     return body
@@ -1142,6 +1258,14 @@ def _direction_out(direction, *, brief: dict | None = None) -> dict:
 def _cover_error(exc: Exception) -> HTTPException:
     from core.cover_store import CoverConflict
     from core.image_client import ImageClientError
+    from core.cover_sources import CoverSourceError
+    from core.cover_analysis import CoverAnalysisError
+
+    if isinstance(exc, (CoverSourceError, CoverAnalysisError)):
+        code = exc.code
+        status = 404 if code in {"source_missing", "archive_not_found", "invalid_scope", "analysis_missing", "snapshot_missing"} else 409
+        return HTTPException(status_code=status, detail={"code": code, "message": str(exc),
+            **getattr(exc, "details", {}), **({"analysis_id": exc.analysis_id} if getattr(exc, "analysis_id", "") else {})})
 
     if isinstance(exc, FileNotFoundError):
         return HTTPException(status_code=404, detail=str(exc))
@@ -1150,6 +1274,57 @@ def _cover_error(exc: Exception) -> HTTPException:
     if isinstance(exc, ImageClientError):
         return HTTPException(status_code=502, detail=str(exc))
     return HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/projects/{project_id}/covers/story-facts")
+def get_cover_story_facts(
+    project_id: str,
+    svc: ProjectService = Depends(get_service),
+):
+    from core.cover_handoff import resolve_cover_brief_v2
+    from core.cover_story_facts import response_payload
+    from core.cover_store import CoverConflict
+
+    project = _cover_project(svc, project_id)
+    try:
+        return response_payload(resolve_cover_brief_v2(project))
+    except CoverConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail="Project Prompt is missing") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/projects/{project_id}/covers/story-facts")
+def put_cover_story_facts(
+    project_id: str,
+    body: CoverStoryFactsUpdate,
+    svc: ProjectService = Depends(get_service),
+):
+    from core.cover_story_facts import (
+        confirm_missing_story_facts,
+        response_payload,
+    )
+    from core.cover_store import CoverConflict
+
+    project = _cover_project(svc, project_id)
+    try:
+        confirmed = confirm_missing_story_facts(
+            project,
+            expected_revision_sha256=body.expected_revision_sha256,
+            characters=[
+                item.model_dump(exclude_none=True) for item in body.characters
+            ],
+            primary_spaces=body.primary_spaces,
+        )
+        return response_payload(confirmed)
+    except CoverConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail="Project Prompt is missing") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post(
@@ -1163,6 +1338,7 @@ def create_cover_direction(
     director=Depends(get_cover_art_director),
 ):
     from core.cover_director import CoverDirectionError
+    from core.usage_tracking import usage_scope
     from core.cover_design import collect_visual_evidence
     from core.cover_handoff import resolve_cover_brief_v2
     from core.cover_models_v2 import ArtDirectionSet, CoverBriefV2
@@ -1170,6 +1346,9 @@ def create_cover_direction(
     from core.cover_validator import validate_direction
     from core.cover_store import CoverConflict, CoverStore
 
+    if body.analysis_id:
+        from .cover_workbench import project_workflow, create_bound_direction
+        return create_bound_direction(project_workflow(svc, project_id), body, director)
     project = _cover_project(svc, project_id)
     try:
         recent_fingerprints = recent_direction_fingerprints(
@@ -1186,12 +1365,13 @@ def create_cover_direction(
                     + ", ".join(item.field for item in pending)
                 )
             evidence_ledger = collect_visual_evidence(project, brief)
-            direction = director.plan(
-                brief,
-                count=body.count,
-                evidence_ledger=evidence_ledger,
-                recent_fingerprints=recent_fingerprints,
-            )
+            with usage_scope(project, "cover"):
+                direction = director.plan(
+                    brief,
+                    count=body.count,
+                    evidence_ledger=evidence_ledger,
+                    recent_fingerprints=recent_fingerprints,
+                )
         else:
             source_sha = body.source_prompt_sha256 or hashlib.sha256(
                 json.dumps(body.brief, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -1210,7 +1390,7 @@ def create_cover_direction(
             brief, direction,
             recent_fingerprints=(
                 recent_fingerprints
-                if direction.profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5"))
+                if direction.profile_version.casefold().startswith(("cover-profiles.v4", "cover-profiles.v5", "cover-profiles.v6", "cover-profiles.v7", "cover-profiles.v8", "cover-profiles.v9"))
                 else ()
             ),
         )
@@ -1256,6 +1436,9 @@ def approve_cover_direction(
 
     project = _cover_project(svc, project_id)
     try:
+        if CoverStore(project).load_direction(direction_id).source_binding:
+            from .cover_workbench import project_workflow, approve_bound_direction
+            return approve_bound_direction(project_workflow(svc, project_id), direction_id, body)
         approved = CoverStore(project).approve_direction(
             direction_id,
             expected_brief_sha256=body.expected_brief_sha256,
@@ -1286,6 +1469,13 @@ def generate_covers(
     from core.cover_validator import validate_direction
 
     project = _cover_project(svc, project_id)
+    if body.direction_id:
+        try:
+            if CoverStore(project).load_direction(body.direction_id).source_binding:
+                from .cover_workbench import project_workflow, generate_bound_covers
+                return generate_bound_covers(project_workflow(svc, project_id), body, covers, project_id=project_id)
+        except (ValueError, FileNotFoundError) as exc:
+            raise _cover_error(exc) from exc
     compiler_version = ""
     try:
         if body.direction_id:
@@ -1416,20 +1606,19 @@ def generate_covers(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
-        job_id = runner.submit(
-            "cover.generate",
-            lambda: covers.generate(
+        from . import cover_generation_tasks
+        from .cover_workbench import project_workflow
+        task = cover_generation_tasks.start(
+            project_workflow(svc, project_id), runner,
+            operation=lambda: covers.generate(
                 project_id, project, brief, concepts, compiler_version=compiler_version,
             ),
-            meta={
-                "project_id": project_id,
-                "project_path": str(project),
-                "direction_id": body.direction_id,
-            },
+            preflight=lambda: None, count=len(concepts),
+            project_id=project_id, direction_id=body.direction_id or "",
         )
     except ProjectJobBlocked as exc:
         raise _project_job_blocked_http() from exc
-    return runner.get(job_id)
+    return cover_generation_tasks.as_job(task, runner)
 
 
 @router.get("/projects/{project_id}/covers")
@@ -1504,6 +1693,8 @@ def select_cover_candidate(
         cover_set = _cover_store(svc, project_id).load(cover_set_id)
         if cover_set.project_id != project_id:
             raise FileNotFoundError("Cover set not found")
+        from .cover_workbench import project_workflow
+        project_workflow(svc, project_id).validate_candidate(cover_set_id, candidate_id)
         selected = covers.select_candidate(
             project,
             cover_set_id,
@@ -1511,6 +1702,7 @@ def select_cover_candidate(
             expected_revision=body.expected_revision,
             expected_active_revision=body.expected_active_revision,
             confirm_stale=body.confirm_stale,
+            quality_acceptance_reason=body.quality_acceptance_reason,
         )
     except (FileNotFoundError, ValueError, CoverServiceError) as exc:
         raise _cover_error(exc) from exc
@@ -1563,6 +1755,12 @@ def retry_cover_candidate(
         raise _cover_error(exc) from exc
     if current.project_id != project_id:
         raise HTTPException(status_code=404, detail="Cover set not found")
+    from .cover_workbench import project_workflow
+    workflow = project_workflow(svc, project_id)
+    try:
+        workflow.validate_candidate(cover_set_id, candidate_id, for_generation=True)
+    except (ValueError, FileNotFoundError) as exc:
+        raise _cover_error(exc) from exc
     if body.repair_codes:
         candidate = next(
             (item for item in current.candidates if item.candidate_id == candidate_id),
@@ -1579,16 +1777,19 @@ def retry_cover_candidate(
                 detail="Retry repair codes must be reported by the candidate quality report",
             )
     try:
-        job_id = runner.submit(
-            "cover.retry",
-            lambda: covers.retry_candidate(
+        def retry():
+            workflow.validate_candidate(cover_set_id, candidate_id, for_generation=True)
+            return covers.retry_candidate(
                 project_id,
                 project,
                 cover_set_id,
                 candidate_id,
                 expected_revision=body.expected_revision,
                 repair_codes=body.repair_codes,
-            ),
+            )
+        job_id = runner.submit(
+            "cover.retry",
+            retry,
             meta={
                 "project_id": project_id,
                 "project_path": str(project),
@@ -1605,14 +1806,45 @@ def download_delivery_package(
     project_id: str,
     svc: ProjectService = Depends(get_service),
 ):
-    path = _cover_project(svc, project_id) / "outputs/deliverables/book-package.zip"
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="Delivery package not found")
+    from core.cover_delivery import DeliveryUnavailable, read_current_package
+    from core.delivery_package import delivery_lock
+    project = _cover_project(svc, project_id)
+    try:
+        with delivery_lock(project):
+            payload = read_current_package(project)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Delivery package not found") from exc
+    except DeliveryUnavailable as exc:
+        raise HTTPException(status_code=409, detail={"code": "delivery_not_current", "delivery": exc.status}) from exc
     return Response(
-        content=path.read_bytes(),
+        content=payload,
         media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="book-package.zip"'},
+        headers={"Content-Disposition": 'attachment; filename="book-package.zip"', "Cache-Control": "no-store"},
     )
+
+
+@router.post("/projects/{project_id}/deliverables/package/rebuild")
+def rebuild_delivery_package(
+    project_id: str,
+    svc: ProjectService = Depends(get_service),
+    covers: CoverService = Depends(get_cover_mutation_service),
+):
+    """Explicit local-only retry; no model or image-generation call is made."""
+    from core.cover_delivery import delivery_selection, delivery_status
+    from core.delivery_package import build_delivery_package, delivery_lock
+    project = _cover_project(svc, project_id)
+    try:
+        with delivery_lock(project):
+            selected = delivery_selection(project)
+            if selected is not None:
+                covers._rebuild_delivery(project, selected)
+            else:
+                build_delivery_package(project)
+            status = delivery_status(project)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail={"code": "delivery_rebuild_failed",
+            "delivery": delivery_status(project), "message": str(exc)[:1200]}) from exc
+    return {"delivery": status}
 
 
 @router.get("/projects/{project_id}", response_model=ProjectDetail)
@@ -2047,3 +2279,13 @@ def chapter_quality_receipt(
     if receipt is None:
         raise HTTPException(status_code=404, detail="Promotion receipt not found")
     return PromotionReceiptOut(**receipt)
+
+
+# Shares the existing project mutation and tenancy guards; no H5 routes are changed.
+from .method_routes import register_method_routes
+
+register_method_routes(router, get_service)
+
+from .project_tasks import register_project_task_routes
+
+register_project_task_routes(router, get_service)

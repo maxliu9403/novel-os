@@ -6,6 +6,7 @@ The generated prompt is the handoff between the approved design and Novel OS. Ke
 
 ```text
 Title: <approved title>
+Author: <approved author; leave empty only for automatic pen-name generation>
 Genre: <primary and secondary genre>
 Audience: <target readers>
 Language: <output language>
@@ -17,29 +18,123 @@ Words: <total prose target>
 
 Use actual values in the final artifact. `Audience` must come from a user-confirmed target audience decision; when it is missing, return to the question loop before generating the Prompt. A range may be discussed in the body, but the top-level run needs one fixed chapter count and one total target.
 
+Use [../assets/novel-skeleton-template.md](../assets/novel-skeleton-template.md)
+for the human-readable layout. Keep each top field on one line, exactly once,
+before the first `##` heading. Do not repeat these English labels in chapter
+templates: Prompt Intake scans the whole file. Use plain integer chapter and
+total targets without thousands separators. Put a short actual premise paragraph
+before the JSON blocks so intake does not mistake configuration for the premise.
+
+For nested contracts containing `language`, `title`, `pov`, or another top-level
+field name, use **JSON with quoted keys**, as in the examples below. Do not emit
+an indented YAML `language: English` line: the current intake also reads that as
+top metadata, and the handoff helper correctly rejects the duplicate. This is
+an existing parser compatibility rule, not a requirement to change the engine.
+
+The total and chapter lengths are planning targets. Record the language and
+counting unit (`words` for English; the author's chosen character convention for
+Chinese), approximate chapter target, and optional advisory range. Accept natural
+variation; do not pad, cut a pivotal scene, or fail a design for a small deviation.
+Do not describe advisory ranges as strict `x-y words` requirements: the existing
+engine may interpret that syntax as a word bound. A soft target is not a claim
+that this Skill disables the engine's existing quality checks or supplies a new
+Chinese character counter. A material change to the agreed scale is a discussion
+item. Exact chapter count and CLI/MD metadata agreement remain required.
+
+## Required novel classification
+
+Load `references/novel-classification.md`, select only its canonical ids, and
+emit exactly one `[NOVEL_CLASSIFICATION_JSON]` block. Treat the selected ids as
+locked story-design obligations. The broad genre remains reader-facing; the
+classification block is the machine-readable publication and H5 filter source.
+
+## Required author-confirmed narrative format
+
+Load `references/narrative-format.md` and emit exactly one
+`[NARRATIVE_FORMAT_JSON]` block. The Workshop asks the customer to select short,
+standalone long, multi-volume, or multi-book series packaging. An AI
+recommendation is advisory until the customer confirms it. The final block must
+use `confirmation_status: confirmed`, cover every chapter exactly once, and
+preserve the customer-approved chapter count, word target, volume boundaries,
+and optional series identity.
+
 ## Required body sections
 
 1. **Core task**: premise, scope, length, originality, and what the final reader sees.
-2. **Story contract**: event, relationship, emotional, and meaning promises.
+2. **Story contract, classification, and narrative format**: event, relationship, emotional, and meaning promises plus the canonical type contract and customer-confirmed publication shape.
 3. **Story engine**: external objective, relationship dilemma, internal misbelief, secret/question, and adaptive pressure.
 4. **Audience profile and regional adaptation**: user-confirmed audience segment, life stage, reading motivation, country or cultural region, language and register, release scope, platform context, and approved creative implications.
-5. **Character ledger**: public identity, desire, need, capability, limitation, fear, boundary, secret, resources, knowledge, pressure response, personality core, visible behaviours, decision style, speech habits, emotional expression, strengths, flaws, change evidence, and personality conflicts or complements.
+5. **Character ledger**: stable id, canonical name, approved aliases, gender and pronouns (unknown existing-canon facts remain unspecified), public identity, desire, need, capability, limitation, fear, boundary, secret, resources, knowledge, pressure response, personality core, visible behaviours, decision style, speech habits, emotional expression, strengths, flaws, change evidence, and personality conflicts or complements.
 6. **Relationship ledger**: power, leverage, trust evidence, suspicion evidence, shared risk, boundaries, and next relationship-changing behaviour.
-7. **World/rules ledger**: realistic constraints or speculative triggers, limits, costs, exceptions, social consequences, and the fictional setting/place-name policy.
+7. **World/rules ledger**: realistic constraints or speculative triggers, limits, costs, exceptions, social consequences, and the author's real, fictionalized, or mixed setting/place-name policy.
 8. **Secret and timeline ledger**: truth, knowledge distribution, clues, fair misreading, payoff window, dates, locations, duration, and state changes.
 9. **Ending contract and payoff ledger**: finale window, main conflict resolution, protagonist final choice and state, antagonist consequence, emotional afterglow, stable payoff ids, target chapters, evidence requirements, and explicitly declared intentional open threads.
-10. **Structure**: acts or volumes, goals, midpoint shifts, irreversible choices, stage payoffs, and carry-forward consequences. Reserve the final 3-5 chapters for the ending contract.
+10. **Structure**: acts or volumes, goals, midpoint shifts, irreversible choices, stage payoffs, and carry-forward consequences; a chapter map with entry state, choice/cost, changed exit state, and reader value; opening scene plans. Select a finale window proportionate to the book; the final 3-5 chapters are a recommendation, bounded by the actual chapter count and the approved ending.
 11. **Reader-facing story lead**: required placement before chapter one, output language, localized heading, language-adjusted length, core conflict, identification trigger, emotional target, earned satisfaction promise, unanswered question, spoiler boundary, and exact chapter-one marker protocol.
 12. **Retention-first opening and first three chapters**: when selected, the opening contract, first-screen signals, conflict braid, atmosphere pressure, identification anchor, chapter value map, and irreversible threshold; otherwise retain the normal opening collision and micro-arc requirements.
 13. **First paid chapter** when relevant: direct consequence of the free-window choice and immediate substantive delivery.
-14. **Chapter contract**: objective -> obstacle -> action -> feedback -> choice -> cost -> payoff -> irreversible change -> next pressure.
-15. **Pacing and rotation**: vary conflict, emotional result, setting, strategy, payoff, and hook type.
-16. **Realism and originality boundaries**: make professional, legal, technical, cultural, and causal assumptions explicit.
+14. **Chapter contract**: identify the chapter's function and evidence of reader value. Active plot chapters use objective -> obstacle -> action -> feedback -> choice -> cost -> payoff -> consequence. Aftermath, quiet, or ensemble chapters may earn their place through changed understanding, relationship meaning, or emotional experience, without a forced new crisis.
+15. **Pacing and rotation**: vary conflict, emotional result, strategy, payoff, and entry/ending form; preserve purposeful recurring settings and motifs. Include recovery, ordinary life, and payoff aftermath. Reread consecutive prose at major arc boundaries for cumulative development, not just isolated chapter scores.
+16. **Realism and originality boundaries**: make professional, legal, technical, cultural, and causal assumptions explicit. State the material-use policy without including reference material or its identity; distinguish original reference-led development from authorized current-project continuation.
 17. **Agent output protocol**: exact state blocks and handoff expectations for each Novel OS agent.
-18. **Quality gates**: continuity, knowledge boundaries, payoff, agency, timeline, resource, style, and ending checks.
+18. **Quality gates**: originality, continuity, knowledge boundaries, payoff, agency, character/emotional development, anti-padding deletion test, timeline, resource, style, and ending checks. Separately review voice/POV, language, dialogue/subtext, scene presence, and emotion; strong plot scores cannot offset failures here. Require draft evidence, repair, and recheck before state promotion.
 19. **Assumptions**: only details the user did not decide.
-20. **Cover handoff**: strict JSON derived from the approved story, audience, conflict, protagonist, decisive node, secondary task, and fictional world signals.
-21. **Final delivery**: story bible, audience profile, machine-readable `workshop_trace` for intake, questions, alternatives, and Section A-E decisions, outline, complete chapters, reports, `book_completion_report.json`, and reader-facing manuscript.
+20. **Cover handoff**: strict JSON derived from the approved story, audience, conflict, protagonist, decisive node, secondary task, and visual setting signals. This metadata does not start image generation or require a separate cover-design interview.
+21. **Final delivery**: story bible, audience profile, sanitized machine-readable `workshop_trace` for selected original decisions and approved Sections A-E, outline, complete chapters, reports, `book_completion_report.json`, and reader-facing manuscript. Private source comparisons and rejected alternatives stay outside runtime inputs.
+
+## Prose-quality handoff
+
+Carry these as writing/review instructions, not new runtime schema fields:
+
+- **Voice guidance:** POV, tense, narrative distance, language/register,
+  character-specific attention, rhythm, imagery, and dialogue strategies. Use
+  approved prose from this project or brief original conflict/quiet samples to
+  calibrate the book; label invented samples as illustrative and not canon.
+  Exclude all reference-book expression. Samples do not pre-approve later prose.
+- **Major emotional transitions:** prior belief or trust, trigger, interpretation
+  or resistance, behavior/choice, and later evidence. Distinguish intended beats
+  from changes supported by written chapters. Let growth include credible
+  hesitation or relapse rather than repeated identical declarations.
+- **Dramatized pivots:** discovery, betrayal, intimacy, separation, and final
+  choices should occur in perceivable scenes when they carry the reader promise.
+  Dialogue, action, silence, and POV response earn the change. Summary remains
+  appropriate for transitions; do not inflate every moment into a full scene.
+- **Review context:** an independent reading pass sees actual prose, necessary
+  adjacent text, and audience/language constraints, without the outline, author
+  explanation, previous score, or desired verdict. It reports passage-specific
+  confusion, disengagement, and emotional engagement. Check continuity separately
+  against canon; missing context is uncertainty, not proof of contradiction.
+  If an independent reader/tool is unavailable, label a second self-review
+  honestly. Model feedback is simulated editorial feedback, not human readership.
+
+Reuse the existing agent responsibilities. These instructions do not authorize
+framework changes, automatic extra model calls, or claims that new review gates
+are already scheduled or enforced by the backend.
+
+## Material isolation and quality evidence
+
+The user's own story framework is `author_brief`, not automatically a reference
+to replace. Preserve its approved identities, events, setting, and ending. Treat
+an example supplied only to demonstrate formatting as a format example, not as
+this novel's content. The following isolation rules apply to external
+`reference_only` material; they do not erase author-confirmed story decisions.
+
+For reference-led new work, include a clear instruction that supplied examples
+provided only abstract dramatic ideas and that the approved original design is
+the writing authority. Do not paste samples, source-specific summaries,
+character identities, paths, distinctive scene sequences, or the private source
+audit into any section or attachment. Cover `source_refs` point only to the new
+approved story contract, never to inspiration files. For explicitly authorized
+continuation, verified current-project canon remains available for continuity;
+unrelated inspiration files retain the same isolation rule.
+
+Carry the completed design review and the chapter review requirements as
+workflow instructions. Do not claim that new labels are parsed or enforced by
+Novel OS without implementation evidence. Separate `design_review`,
+`material_isolation_review`, and `parser_validation` from `draft_review`;
+the last remains `not_run` until actual prose is reviewed. Require chapter
+contract -> draft -> structural edit -> continuity -> style/quality -> approved
+state update, with failed reviews returning to the relevant earlier step.
 
 ## Required cover handoff
 
@@ -133,6 +228,58 @@ COVER_HANDOFF_BEGIN
 COVER_HANDOFF_END
 ````
 
+`visual_assumptions` must always be an array. Use `[]` when no unresolved visual
+assumptions are needed. Every nonempty item must be an object, never a bare
+string or an object replacing the entire array. For example:
+
+```json
+"visual_assumptions": [{
+  "field": "wardrobe_color",
+  "proposed_value": "muted blue",
+  "reason": "A visual proposal only; the author has not confirmed clothing colors.",
+  "status": "pending_confirmation"
+}]
+```
+
+Do not turn unconfirmed visual proposals into established story facts. The
+example illustrates the schema only; do not copy its wardrobe choice into a story.
+
+`cover_constraints` is an optional, story-facing boundary contract. It records
+confirmed facts, user-selected nodes or characters, forbidden reveals, spoiler
+limits, and explicit visual preferences. It does not define a cover scene,
+character blocking, camera, lighting, palette, visual hook, image prompt, or
+candidate portfolio. The cover studio owns those decisions through its existing
+source-bound analysis and campaign planner. Do not add `candidate_moments`,
+`cast_priority`, `visual_motifs`, or `inference_policy` here; those would duplicate
+the studio's `CoverScenePlan`, story-cast policy, secondary signals, and visual
+assumption handling.
+
+When no user-specific cover constraints exist, omit `cover_constraints` rather
+than inventing preferences. Existing schema-v2 handoffs without the field remain
+valid. If the author supplied constraints, append this optional object to the
+JSON above and set `constraint_version` to `cover-constraints.v1`:
+
+```json
+"cover_constraints": {
+  "constraint_version": "cover-constraints.v1",
+  "must_preserve_story_facts": ["<confirmed relationship>"],
+  "must_show_if_supported": ["<user-selected story node or character>"],
+  "must_not_show": ["<ending result>"],
+  "spoiler_ceiling": "<the latest story information the cover may reveal>",
+  "user_visual_preferences": [],
+  "preferred_story_node_ids": [],
+  "preferred_character_ids": [],
+  "source_refs": ["section:6.relationship_map", "section:9.node:<approved_node_id>"]
+}
+```
+
+Typed node, character, signal, and evidence references must resolve to confirmed
+handoff entries. `section:<number>`, `section:<number>.<heading_slug>`, and
+`section:<number>.node:<node_id>` references are resolved against the immutable
+full skeleton outside the handoff JSON; the referenced section must actually
+exist and a node reference must have an explicit node anchor. Free-text facts
+remain author-declared constraints and are not proof of canon by themselves.
+
 The contents must be valid JSON after replacing every placeholder. Title,
 target audience, conflict, principal-character ages and lived identities,
 relationships, decisive nodes, and environment signals come from confirmed
@@ -149,34 +296,60 @@ causal conflict tableau. Record confirmed betrayal,
 parallel-family, concealed-choice, exclusion, or power-abuse facts explicitly in
 `core_conflict`; preserve story ambiguity when the evidence remains ambiguous.
 Do not reduce the handoff to a generic statement such as “the relationship is
-damaged.” Keep real
-market geography only in `audience_profile`; cover-facing places are fictional
-or abstract. This block is production metadata and does not enter reader prose.
+damaged.” The existing cover field `fictional_place` may use an abstract visual
+location such as “a suburban kitchen”; do not rename the approved story city to
+fit that legacy field. Separate cover visual choices from the author's story
+geography and the audience's market geography. This block is production
+metadata and does not enter reader prose.
+
+After generating the final block, use the existing parser from the selected
+repository to check its schema without calling an image model. For example,
+from the repository root with its compatible Python environment:
+
+```bash
+venv/bin/python -c 'import sys; from pathlib import Path; from core.cover_handoff import parse_cover_handoff; brief = parse_cover_handoff(Path(sys.argv[1]).read_text(encoding="utf-8")); print(type(brief).__name__)' './prompt/BOOK.md'
+```
+
+Replace the file with the actual final Prompt. Report cover-schema parsing
+separately from `handoff.py` metadata validation and story review. A valid
+schema does not prove that the cast or scene facts match the approved design;
+compare those facts as part of the content check. Neither check starts a cover
+job. When the environment cannot run the parser, report it as not run.
 
 ## Required story lead contract
 
 Every generated Prompt includes this contract, regardless of retention profile:
 
-```yaml
-story_lead_contract:
-  required: true
-  placement: before_chapter_1
-  language: <output language>
-  reader_heading: <localized short label, such as 序 or Story Lead>
-  length:
-    unit: characters|words
-    target_range: [<minimum>, <maximum>]
-  core_conflict: <concrete conflict or injustice>
-  identification_trigger: <desire, loss, fear, humiliation, or boundary>
-  emotional_target: resonance|anger|anticipation|mixed
-  satisfaction_promise: <earned payoff promised to the reader>
-  unanswered_question: <specific question that leads into chapter one>
-  spoiler_limit: <ending or major payoff mechanism kept unrevealed>
-  manuscript_marker: "## STORY_LEAD: <reader_heading>"
+```json
+{
+  "story_lead_contract": {
+    "required": true,
+    "placement": "before_chapter_1",
+    "language": "<output language>",
+    "reader_heading": "<localized short label, such as 序 or Story Lead>",
+    "length": {
+      "unit": "words",
+      "target_range": [
+        120,
+        180
+      ]
+    },
+    "core_conflict": "<specific conflict, injustice, threat, or impossible demand>",
+    "identification_trigger": "<immediate desire, loss, fear, humiliation, or boundary>",
+    "emotional_target": "<resonance, anger, anticipation, or mixed>",
+    "satisfaction_promise": "<earned payoff promised to the reader>",
+    "unanswered_question": "<specific question leading into chapter one>",
+    "spoiler_limit": "<ending or major payoff mechanism kept unrevealed>",
+    "manuscript_marker": "## STORY_LEAD: <reader_heading>"
+  }
+}
 ```
 
 Use `180-260` characters for Chinese and `120-180` words for English by
-default. For other languages, set an explicit range based on language density,
+default as adjustable editorial guidance, not an exact-length acceptance gate.
+The JSON example uses English units; choose `characters` and the corresponding
+suggestion for Chinese instead of copying the English numbers unchanged.
+The user's chosen lead treatment takes precedence over these defaults. For other languages, set an explicit range based on language density,
 platform layout, and market register. The lead must contain a concrete conflict,
 a recognizable identification trigger, a relationship/status/power contrast,
 and an earned counteraction or reversal promise. End with a specific open
@@ -205,32 +378,46 @@ retention, a satisfying or爽文 experience, a stronger opening, the first three
 chapters, or a paid-reading bridge. The contract is language-neutral and must
 carry the selected output language, market, genre, and platform assumptions.
 
-```yaml
-retention_profile:
-  mode: retention_first
-  language: <output language>
-  market_scope: <country, region, and release markets>
-  target_audience: <user-confirmed primary reader segment, age/life stage, and reading motivation>
-  setting_mode: fictionalized
-  reader_promise: <repeatable reader experience>
-  primary_satisfaction: <competence, revenge, romance, mystery, power, belonging, or other>
-  opening_window:
-    unit: characters|words|sentences|platform_screen
-    target: <language- and platform-adjusted range>
-opening_contract:
-  opening_event: <concrete event already in progress>
-  opening_stakes: <immediate loss, opportunity, or risk>
-  opening_question: <specific question that guides the first chapter>
-  protagonist_immediate_choice: <choice with meaningful costs>
-  first_screen_signals: [event, loss, choice]
-  chapter_1_value: <local reward, reveal, counteraction, or meaningful change>
-  chapter_2_reversal_or_resource: <feedback, evidence, resource, or relationship truth>
-  chapter_3_irreversible_step: <visible state change and its cost>
-  conflict_braid: [external, relationship, internal]
-  satisfaction_loop: <pressure -> recognition -> move -> response -> consequence -> higher goal>
-  atmosphere_pressure: <how setting and sensory detail affect choice or risk>
-  identification_anchor: <specific desire, fear, habit, object, or boundary>
-  paid_bridge: <direct consequence shown at the first paid chapter opening>
+```json
+{
+  "retention_profile": {
+    "mode": "retention_first",
+    "language": "<output language>",
+    "market_scope": "<country, region, and release markets>",
+    "target_audience": "<user-confirmed primary segment, life stage, and reading motivation>",
+    "setting_mode": "<author-approved real, fictionalized, or mixed setting>",
+    "reader_promise": "<repeatable reader experience>",
+    "primary_satisfaction": "<competence, revenge, romance, mystery, power, belonging, or other>",
+    "opening_window": {
+      "unit": "<characters, words, sentences, or platform_screen>",
+      "target": "<language- and platform-adjusted suggestion>"
+    },
+    "free_window": "<chapters or milestone definition, or not applicable>"
+  },
+  "opening_contract": {
+    "opening_event": "<concrete event already in progress>",
+    "opening_stakes": "<immediate loss, opportunity, or risk>",
+    "opening_question": "<specific question guiding the first chapter>",
+    "protagonist_immediate_choice": "<choice with meaningful costs>",
+    "first_screen_signals": [
+      "event",
+      "loss",
+      "choice"
+    ],
+    "chapter_1_value": "<local reward, reveal, counteraction, or meaningful change>",
+    "chapter_2_reversal_or_resource": "<feedback, evidence, resource, or relationship truth>",
+    "chapter_3_irreversible_step": "<visible state change and its cost>",
+    "conflict_braid": [
+      "external",
+      "relationship",
+      "internal"
+    ],
+    "satisfaction_loop": "<pressure -> recognition -> move -> response -> consequence -> higher goal>",
+    "atmosphere_pressure": "<how setting affects choice or risk>",
+    "identification_anchor": "<specific desire, fear, habit, object, or boundary>",
+    "paid_bridge": "<direct consequence at first paid chapter, or not applicable>"
+  }
+}
 ```
 
 `first_screen_signals` records the signals actually present, not a list of
@@ -270,42 +457,44 @@ audience_profile:
     - <approved writing or localization decision>
 ```
 
-## Fictional setting and place-name policy
+## Author-controlled setting and place-name policy
 
-Every generated Prompt must carry this setting policy unless the project has an
-explicit system-level requirement that supersedes it:
+Record the author's choice, separately from the release market. This is a
+writing instruction in the Prompt, not a new parsed engine enum:
 
 ```yaml
 setting_policy:
-  mode: fictionalized
-  story_place_names: invented_or_abstract
-  real_place_names_in_story: false
+  mode: <real|fictionalized|mixed, as approved>
+  story_place_names: <approved naming policy>
+  real_place_names_in_story: <true or false according to the approved setting>
   market_metadata_may_name_real_places: true
 ```
 
-Use invented names for cities, districts, towns, institutions, landmarks, and
-neighbourhoods in the story-facing setting, outline, chapter files, and
-manuscript. Abstract labels such as `the northern port`, `the capital district`,
-or `a coastal university town` are valid when a proper name adds no narrative
-value. The audience profile may retain a real country or cultural region; keep
-that context separate from the fictional world ledger.
+Preserve explicitly supplied real cities. When the user chooses invented
+places, use consistent fictional names or abstract labels. For a mixed setting,
+say which places or institutions are invented. Identify jurisdiction, travel,
+professional, financial, or medical facts that affect causality; distinguish
+verified facts from research needs. A fictional name does not make an implausible
+procedure plausible. Do not silently change the setting to avoid a research need.
 
 ## Workshop decision trace
 
-Persist the reasoning trail alongside the audience profile. Update it after
-each answer and section confirmation so downstream agents and a project detail
-view can distinguish selected decisions from rejected options:
+Keep the full decision history, rejected options, and source comparisons in a
+private workshop record outside runtime inputs. Update it after each answer
+and section confirmation. Export only this source-free projection alongside
+the audience profile; downstream writers receive approved choices, not the
+discarded design branches:
 
 ```yaml
 workshop_trace:
-  intake: <normalized user intent and explicit constraints>
+  intake: <source-free user intent and explicit constraints>
   audience_decision: <user-confirmed primary segment, age/life stage, and reading motivation>
   market_decision: <country/region/language/release scope and date>
   approach_options:
     - id: approach_a
-      summary: <structure and pressure>
-      tradeoffs: <retention and continuity tradeoffs>
-      selected: true|false
+      summary: <selected original structure and pressure>
+      tradeoffs: <approved design tradeoffs without source comparison>
+      selected: true
   section_decisions:
     section_a: <confirmed contract>
     section_b: <confirmed characters and relationships>
@@ -315,8 +504,11 @@ workshop_trace:
   open_assumptions: []
 ```
 
-Keep rejected approaches and their tradeoffs as decision history. The final
-reader-facing Markdown excludes this trace.
+Include only the selected entry in `approach_options`. Omit source identities,
+private record paths, source-specific summaries, and rejected variants from
+every exported field, including assumptions. The final reader-facing Markdown
+excludes this trace. Inspect the complete assembled prompt for leaks, not only
+this block or `COMMERCIAL_STORY_JSON`.
 
 ## Ending contract requirements
 

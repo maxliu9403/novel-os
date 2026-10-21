@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Novel OS · Works Library UIUX Draft</title>
+  <style>
+    :root {
+      --ink: #17213f;
+      --ink-800: #243156;
+      --muted: #7885a6;
+      --paper: #eef3ff;
+      --panel: rgba(255,255,255,.78);
+      --line: rgba(74,91,133,.14);
+      --violet: #6867ea;
+      --violet-soft: #eeedff;
+      --blue: #3974db;
+      --blue-soft: #e8f1ff;
+      --cyan: #1591ab;
+      --cyan-soft: #e3f8fa;
+      --rose: #c85177;
+      --rose-soft: #ffeaf1;
+      --amber: #c47a1b;
+      --amber-soft: #fff2dc;
+      --shadow-paper: 0 8px 24px rgba(45,70,129,.08), inset 0 1px 0 rgba(255,255,255,.9);
+      --shadow-glass: inset 0 1px 1px rgba(255,255,255,.96), inset 0 -2px 5px rgba(9,69,176,.12), 0 28px 70px rgba(7,51,140,.22);
+      --ease: cubic-bezier(.2,.8,.2,1);
+      --font: "SF Pro Display", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --reader: "Newsreader", "Songti SC", Georgia, serif;
+    }
+    * { box-sizing: border-box; }
+    html { background: #dfe9ff; color-scheme: light; }
+    body { min-height: 100vh; margin: 0; color: var(--ink); background: #dfe9ff; font-family: var(--font); -webkit-font-smoothing: antialiased; letter-spacing: -.011em; }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--violet); outline-offset: 3px; }
+    .app { min-height: 100vh; display: grid; grid-template-columns: 240px minmax(0,1fr); }
+    .rail { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 16px 13px; border-right: 1px solid rgba(255,255,255,.65); background: linear-gradient(180deg,rgba(255,255,255,.58),rgba(235,244,255,.36)); box-shadow: inset -1px 0 rgba(255,255,255,.42); backdrop-filter: blur(22px) saturate(140%); }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 5px 7px 18px; }
+    .brand-mark { width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center; color: white; background: linear-gradient(145deg,#7777f2,#485bd2); box-shadow: 0 10px 22px rgba(80,80,205,.25); font-weight: 900; font-size: 11px; letter-spacing: -.12em; }
+    .brand strong { display: block; font-size: 15px; letter-spacing: -.045em; }
+    .brand small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+    .rule { height: 1px; margin: 0 9px 15px; background: rgba(74,91,133,.12); }
+    .rail-nav { display: grid; gap: 4px; }
+    .rail-nav button { width: 100%; height: 42px; display: flex; align-items: center; gap: 11px; border: 0; border-radius: 14px; padding: 0 12px; color: var(--muted); background: transparent; text-align: left; font-size: 12px; font-weight: 650; transition: .18s var(--ease); }
+    .rail-nav button:hover { color: var(--ink); background: rgba(255,255,255,.7); }
+    .rail-nav button.active { color: white; background: var(--ink); box-shadow: 0 10px 24px rgba(23,33,63,.18); }
+    .glyph { width: 17px; color: currentColor; text-align: center; font-size: 16px; }
+    .new-book { width: 100%; margin: 9px 0 12px; border: 0; border-radius: 13px; padding: 11px 12px; color: white; background: var(--violet); box-shadow: 0 9px 20px rgba(104,103,234,.25); font-size: 12px; font-weight: 750; }
+    .new-book:hover { background: #5b5ad3; }
+    .rail-footer { margin-top: auto; padding: 14px; border: 1px solid rgba(74,91,133,.1); border-radius: 18px; background: rgba(255,255,255,.55); box-shadow: var(--shadow-paper); }
+    .rail-footer p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .rail-footer strong { display: block; margin-bottom: 7px; color: var(--ink); font-size: 11px; }
+    .scene { position: relative; min-height: 100vh; overflow: hidden; background: radial-gradient(circle at 12% 18%,rgba(255,249,201,.9) 0 8%,transparent 28%), radial-gradient(circle at 84% 12%,rgba(112,234,225,.65) 0 7%,transparent 29%), linear-gradient(132deg,#cfdbed 2%,#e8e5ca 27%,#6bd5e6 48%,#1676df 68%,#0c3bb8 100%); }
+    .scene::before { content: ""; position: absolute; inset: -15%; opacity: .7; filter: blur(4px); pointer-events: none; background: linear-gradient(146deg,transparent 0 35%,rgba(255,255,255,.45) 35.5% 38%,transparent 38.5% 55%,rgba(11,69,202,.55) 56% 64%,transparent 65%), linear-gradient(25deg,transparent 40%,rgba(89,229,218,.35) 41% 50%,transparent 52%); }
+    .orb { position: absolute; z-index: 0; pointer-events: none; border-radius: 999px; filter: blur(60px); }
+    .orb.a { width: 380px; height: 380px; right: -100px; bottom: -140px; background: rgba(7,42,180,.55); }
+    .orb.b { width: 300px; height: 300px; left: -120px; top: 20%; background: rgba(46,203,242,.45); }
+    .sweep { position: absolute; z-index: 0; pointer-events: none; width: 110%; height: 80px; left: -12%; top: 58%; background: rgba(255,255,255,.22); filter: blur(24px); transform: rotate(-20deg); }
+    .content { position: relative; z-index: 1; width: 100%; min-height: 100vh; padding: clamp(15px,2.2vw,28px); }
+    .shell { width: 100%; min-height: calc(100vh - 56px); padding: 12px; border: 1px solid rgba(255,255,255,.7); border-radius: 36px; background: linear-gradient(145deg,rgba(255,255,255,.38),rgba(205,231,255,.16)); box-shadow: var(--shadow-glass); backdrop-filter: blur(24px) saturate(135%); }
+    .panel { border: 1px solid rgba(255,255,255,.86); border-radius: 26px; background: linear-gradient(160deg,rgba(255,255,255,.96),rgba(247,250,255,.92)); box-shadow: inset 0 0 45px rgba(255,255,255,.85), 0 10px 30px rgba(34,77,151,.06); }
+    .main-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; padding: 23px 26px 21px; }
+    .eyebrow { margin: 0 0 7px; color: var(--muted); font-size: 11px; font-weight: 650; }
+    h1 { max-width: 720px; margin: 0; font-size: clamp(29px,4vw,42px); line-height: 1.01; letter-spacing: -.065em; }
+    .lede { max-width: 640px; margin: 10px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+    .head-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; justify-content: flex-end; }
+    .button { border: 1px solid rgba(74,91,133,.14); border-radius: 999px; padding: 10px 14px; color: var(--ink); background: rgba(255,255,255,.72); font-size: 12px; font-weight: 700; transition: .18s var(--ease); }
+    .button:hover { border-color: rgba(104,103,234,.32); background: white; transform: translateY(-1px); }
+    .button.primary { border-color: var(--ink); color: white; background: var(--ink); box-shadow: 0 10px 24px rgba(23,33,63,.18); }
+    .button.primary:hover { background: var(--ink-800); }
+    .view { display: none; }
+    .view.active { display: block; animation: enter .28s var(--ease) both; }
+    @keyframes enter { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
+    .stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin: 0 0 13px; }
+    .stat { min-height: 92px; padding: 15px 16px; border: 1px solid rgba(74,91,133,.1); border-radius: 20px; background: rgba(255,255,255,.62); box-shadow: var(--shadow-paper); }
+    .stat span { color: var(--muted); font-size: 11px; }
+    .stat strong { display: block; margin-top: 8px; font-size: 25px; letter-spacing: -.06em; }
+    .stat em { color: var(--violet); font-size: 10px; font-style: normal; font-weight: 750; }
+    .library-grid { display: grid; grid-template-columns: minmax(0,1.3fr) minmax(280px,.7fr); gap: 13px; }
+    .section-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; padding: 18px 20px 13px; border-bottom: 1px solid var(--line); }
+    .section-head h2 { margin: 0 0 4px; font-size: 17px; letter-spacing: -.045em; }
+    .section-head p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .section-body { padding: 17px 20px 20px; }
+    .toolbar { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 15px; }
+    .search { flex: 1; min-width: 230px; height: 38px; padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; outline: 0; color: var(--ink); background: white; font-size: 12px; }
+    .search:focus { border-color: var(--violet); box-shadow: 0 0 0 4px var(--violet-soft); }
+    .filter { height: 36px; border: 1px solid transparent; border-radius: 11px; padding: 0 11px; color: var(--muted); background: transparent; font-size: 11px; font-weight: 650; }
+    .filter:hover { color: var(--ink); background: rgba(255,255,255,.7); }
+    .filter.active { color: var(--violet); background: var(--violet-soft); }
+    .book-list { display: grid; gap: 8px; }
+    .book { display: grid; grid-template-columns: 48px minmax(0,1fr) auto; gap: 13px; align-items: center; padding: 12px; border: 1px solid rgba(74,91,133,.1); border-radius: 17px; background: rgba(255,255,255,.64); transition: .18s var(--ease); }
+    .book:hover { border-color: rgba(104,103,234,.26); box-shadow: 0 10px 23px rgba(34,77,151,.08); transform: translateY(-2px); }
+    .cover { width: 48px; height: 61px; border-radius: 12px; box-shadow: 0 7px 14px rgba(35,63,114,.14); background: linear-gradient(145deg,#5f63d5,#9ddce0); }
+    .cover.c2 { background: linear-gradient(145deg,#3f5c89,#cbdc99); }
+    .cover.c3 { background: linear-gradient(145deg,#a25e78,#f1c0ad); }
+    .cover.c4 { background: linear-gradient(145deg,#526baf,#bca9e7); }
+    .book h3 { margin: 0 0 4px; font-size: 12px; line-height: 1.35; letter-spacing: -.02em; }
+    .book p { margin: 0; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+    .book-meta { min-width: 108px; text-align: right; }
+    .pill { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 5px 8px; color: var(--muted); background: rgba(255,255,255,.8); font-size: 10px; font-weight: 750; white-space: nowrap; }
+    .pill::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    .pill.running { color: var(--blue); background: var(--blue-soft); }
+    .pill.ready { color: var(--amber); background: var(--amber-soft); }
+    .pill.draft { color: var(--rose); background: var(--rose-soft); }
+    .pill.complete { color: var(--ink); background: #e9edf7; }
+    .book-meta small { display: block; margin-top: 7px; color: var(--muted); font-size: 10px; }
+    .side-stack { display: grid; gap: 13px; }
+    .progress-card { padding: 20px; border-radius: 24px; color: white; background: linear-gradient(145deg,#232d63 0%,#4c54bd 64%,#6967ea 100%); box-shadow: 0 18px 32px rgba(42,49,137,.22); }
+    .progress-card .mini-label { color: #cfd5ff; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .progress-card h2 { margin: 13px 0 8px; font-size: 18px; line-height: 1.13; letter-spacing: -.04em; }
+    .progress-card p { margin: 0; color: #d8dcff; font-size: 11px; line-height: 1.55; }
+    .bar { height: 7px; margin: 18px 0 9px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.2); }
+    .bar i { display: block; width: 57%; height: 100%; border-radius: inherit; background: #c9ecff; }
+    .progress-row { display: flex; justify-content: space-between; color: #d8dcff; font-size: 10px; }
+    .progress-card .button { margin-top: 17px; border-color: rgba(255,255,255,.3); color: white; background: rgba(255,255,255,.13); }
+    .progress-card .button:hover { background: rgba(255,255,255,.22); }
+    .quick-card { padding: 18px 20px; border: 1px solid rgba(74,91,133,.1); border-radius: 24px; background: rgba(255,255,255,.62); box-shadow: var(--shadow-paper); }
+    .quick-card h2 { margin: 0 0 6px; font-size: 16px; letter-spacing: -.045em; }
+    .quick-card p { margin: 0 0 15px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .quick-card .quick-step { display: flex; gap: 10px; align-items: center; padding: 9px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+    .quick-step b { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 8px; color: var(--violet); background: var(--violet-soft); font-size: 10px; }
+    .quick-step strong { color: var(--ink); font-size: 11px; }
+    .new-layout { display: grid; grid-template-columns: minmax(0,1fr) 330px; gap: 13px; }
+    .stepper { display: grid; grid-template-columns: repeat(4,1fr); gap: 7px; margin: 0 0 13px; }
+    .step { padding: 12px; border: 1px solid var(--line); border-radius: 15px; color: var(--muted); background: rgba(255,255,255,.62); font-size: 10px; line-height: 1.45; }
+    .step strong { display: block; margin-bottom: 4px; color: var(--ink); font-size: 12px; }
+    .step.active { border-color: rgba(104,103,234,.3); background: var(--violet-soft); }
+    .step.active strong { color: var(--violet); }
+    .form-card { padding: 21px; }
+    .form-card h2 { margin: 0 0 6px; font-size: 19px; letter-spacing: -.05em; }
+    .form-card .hint { margin: 0 0 18px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .field { display: grid; gap: 6px; margin-bottom: 14px; }
+    .field label { color: var(--muted); font-size: 10px; font-weight: 750; }
+    .field input, .field textarea { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px; outline: 0; color: var(--ink); background: white; font-size: 12px; }
+    .field textarea { min-height: 98px; resize: vertical; line-height: 1.55; }
+    .field input:focus, .field textarea:focus { border-color: var(--violet); box-shadow: 0 0 0 4px var(--violet-soft); }
+    .chip-box { min-height: 43px; padding: 9px 10px 5px; border: 1px solid var(--line); border-radius: 12px; background: white; }
+    .chip { display: inline-flex; align-items: center; margin: 0 4px 4px 0; padding: 5px 8px; border-radius: 999px; color: var(--violet); background: var(--violet-soft); font-size: 10px; font-weight: 700; }
+    .chip.add { color: var(--muted); background: #f4f6fb; }
+    .skeleton-card { padding: 21px; border-radius: 24px; border: 1px solid rgba(104,103,234,.18); background: linear-gradient(155deg,#fbfbff,#f0f4ff); }
+    .skeleton-card h2 { margin: 0 0 7px; font-size: 17px; letter-spacing: -.045em; }
+    .skeleton-card p { margin: 0 0 18px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+    .spec { display: flex; justify-content: space-between; gap: 13px; padding: 10px 0; border-top: 1px solid rgba(104,103,234,.12); color: var(--muted); font-size: 10px; }
+    .spec strong { color: var(--ink); font-size: 10px; text-align: right; }
+    .workspace-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding: 20px 22px 0; }
+    .workspace-head h2 { margin: 0; font-size: 25px; letter-spacing: -.055em; }
+    .workspace-head p { margin: 7px 0 0; color: var(--muted); font-size: 11px; }
+    .workspace-tabs { display: flex; gap: 5px; flex-wrap: wrap; padding: 18px 22px 0; }
+    .workspace-tabs button { border: 0; border-radius: 10px 10px 0 0; padding: 10px 12px; color: var(--muted); background: transparent; font-size: 11px; font-weight: 700; }
+    .workspace-tabs button.active, .workspace-tabs button:hover { color: var(--ink); background: var(--paper); }
+    .workspace-body { display: grid; grid-template-columns: minmax(0,1fr) 280px; gap: 13px; padding: 13px 22px 22px; background: var(--paper); border-radius: 0 0 26px 26px; }
+    .momentum { padding: 17px 18px; border: 1px solid var(--line); border-radius: 19px; background: rgba(255,255,255,.76); }
+    .momentum-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; }
+    .momentum-head strong { font-size: 13px; }
+    .momentum-head span { color: var(--muted); font-size: 10px; }
+    .momentum-row { display: grid; grid-template-columns: 37px minmax(0,1fr) auto; gap: 10px; align-items: center; padding: 12px 0; border-top: 1px solid #edf0f6; }
+    .momentum-row b { color: var(--violet); font-size: 10px; }
+    .momentum-row strong { display: block; font-size: 11px; }
+    .momentum-row small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .momentum-row .done { color: #3974db; font-size: 10px; font-weight: 750; }
+    .inspector { display: grid; gap: 9px; }
+    .inspect-card { padding: 15px; border: 1px solid var(--line); border-radius: 17px; background: rgba(255,255,255,.72); }
+    .inspect-card h3 { margin: 0 0 8px; font-size: 12px; }
+    .inspect-card p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
+    .queue { display: grid; gap: 8px; }
+    .queue-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 14px; align-items: center; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.67); }
+    .queue-row strong { display: block; font-size: 11px; }
+    .queue-row p { margin: 4px 0 0; color: var(--muted); font-size: 10px; }
+    .footnote { margin: 22px 4px 0; color: rgba(255,255,255,.85); font-size: 10px; line-height: 1.55; }
+    @media (max-width: 1050px) { .app { grid-template-columns: 76px minmax(0,1fr); } .rail { padding: 15px 10px; } .brand { justify-content: center; padding-left: 0; padding-right: 0; } .brand > div:last-child, .rail-nav button span:last-child, .rail-footer, .new-book span { display: none; } .rail-nav button { justify-content: center; padding: 0; } .new-book { width: 42px; margin-left: auto; margin-right: auto; padding: 11px 0; } .library-grid, .new-layout, .workspace-body { grid-template-columns: 1fr; } }
+    @media (max-width: 720px) { .content { padding: 9px; } .shell { padding: 8px; border-radius: 25px; } .main-head, .workspace-head { align-items: flex-start; flex-direction: column; padding: 18px 15px; } .head-actions { justify-content: flex-start; } .stats { grid-template-columns: repeat(2,1fr); } .book { grid-template-columns: 44px minmax(0,1fr); } .book-meta { grid-column: 2; min-width: 0; text-align: left; } .stepper { grid-template-columns: repeat(2,1fr); } .workspace-tabs { padding-left: 15px; padding-right: 15px; overflow-x: auto; flex-wrap: nowrap; } .workspace-body { padding-left: 15px; padding-right: 15px; } h1 { font-size: 34px; } }
+    @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration:.001ms!important; transition-duration:.001ms!important; scroll-behavior:auto!important; } }
+
+    /* Monochrome pass: preserve the existing glass language while making one
+       violet accent carry selection, progress, and primary actions. */
+    :root { --cyan: var(--violet); --cyan-soft: var(--violet-soft); --coral: var(--violet); --coral-soft: var(--violet-soft); --lime: #aeb8c9; --gold: #8b96a9; --amber: #53627b; --amber-soft: #e9edf5; --rose: #53627b; --rose-soft: #e9edf5; }
+    .scene { background: radial-gradient(circle at 15% 10%, rgba(255,255,255,.72), transparent 31%), radial-gradient(circle at 87% 7%, rgba(104,103,234,.16), transparent 27%), linear-gradient(135deg, #d9e2f1, #eef3ff 52%, #d8e5f7); }
+    .scene::before { opacity: .32; background: linear-gradient(145deg, transparent 0 42%, rgba(255,255,255,.46) 43% 45%, transparent 46% 62%, rgba(104,103,234,.16) 63% 70%, transparent 71%); }
+    .orb.a { background: rgba(23,33,63,.12); }
+    .orb.b { background: rgba(104,103,234,.12); }
+    .sweep { background: rgba(255,255,255,.24); }
+    .brand-mark { background: var(--violet); box-shadow: 0 10px 22px rgba(104,103,234,.22); }
+    .progress-card { background: linear-gradient(145deg, #17213f, #2f3f68); box-shadow: 0 18px 32px rgba(23,33,63,.19); }
+    .cover, .cover.c2, .cover.c3, .cover.c4 { background: linear-gradient(145deg, #69758c, #cbd3df); }
+    .pill.running, .pill.ready, .pill.draft, .pill.complete { color: var(--ink); background: #edf1f7; }
+    .pill.running { color: var(--violet); background: var(--violet-soft); }
+    .tag, .tag.coral, .tag.gold, .tag.ink { color: var(--violet); background: var(--violet-soft); }
+    .chip, .chip.add { color: var(--violet); background: var(--violet-soft); }
+    .chip.add { color: var(--muted); background: #f4f6fb; }
+    .stat em, .eyebrow { color: var(--violet); }
+    .book-meta small, .section-head p, .lede, .book p, .queue-row p, .quick-card p, .skeleton-card p, .inspect-card p { color: #7f8aa1; }
+    .book:hover { border-color: rgba(104,103,234,.28); }
+    .filter.active { color: var(--violet); background: var(--violet-soft); }
+    .progress-card .bar i { background: #c6c8ff; }
+
+    /* Keep the approved blue-violet atmosphere without black surfaces. */
+    :root { --ink: #5365ad; --ink-800: #6474c1; --muted: #7b89ad; }
+    .rail { color: #5365ad; }
+    .rail-nav button.active { color: white; background: linear-gradient(145deg, #7276d9, #8587e8); box-shadow: 0 10px 24px rgba(91,96,194,.2); }
+    .new-book, .button.primary { border-color: #7375dc; background: #7375dc; box-shadow: 0 9px 20px rgba(104,103,234,.22); }
+    .new-book:hover, .button.primary:hover { background: #6568cf; }
+    .progress-card { background: linear-gradient(145deg, #6874cb 0%, #7c7cde 65%, #9290eb 100%); box-shadow: 0 18px 32px rgba(90,94,190,.2); }
+    .progress-card .button { border-color: rgba(255,255,255,.45); background: rgba(255,255,255,.18); }
+    .progress-card .button:hover { background: rgba(255,255,255,.3); }
+    .pill.complete { color: #5365ad; }
+    .brainstorm-layout { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(270px,.8fr); gap:13px; }
+    .chat-panel { min-height:540px; display:flex; flex-direction:column; }
+    .chat-stream { display:grid; gap:11px; padding:18px 20px; overflow:auto; }
+    .message { max-width:84%; padding:12px 14px; border:1px solid var(--line); border-radius:16px; background:rgba(255,255,255,.75); font-size:11px; line-height:1.65; }
+    .message.user { justify-self:end; border-color:rgba(104,103,234,.2); background:var(--violet-soft); }
+    .message-label { display:block; margin-bottom:5px; color:var(--muted); font-size:9px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; }
+    .composer { margin-top:auto; padding:13px 20px 18px; border-top:1px solid var(--line); }
+    .composer textarea { width:100%; min-height:70px; resize:vertical; border:1px solid var(--line); border-radius:14px; padding:11px 12px; outline:0; color:var(--ink); background:white; font-size:11px; line-height:1.55; }
+    .composer textarea:focus { border-color:var(--violet); box-shadow:0 0 0 4px var(--violet-soft); }
+    .composer-actions { display:flex; align-items:center; justify-content:space-between; gap:9px; margin-top:9px; }
+    .composer-actions small { color:var(--muted); font-size:10px; }
+    .workshop-side { display:grid; gap:13px; align-content:start; }
+    .revision-card, .route-card { padding:17px 18px; border:1px solid var(--line); border-radius:20px; background:rgba(255,255,255,.7); }
+    .revision-card h2, .route-card h2 { margin:0 0 6px; font-size:15px; letter-spacing:-.04em; }
+    .revision-card p, .route-card p { margin:0 0 13px; color:var(--muted); font-size:10px; line-height:1.55; }
+    .revision { display:flex; justify-content:space-between; gap:10px; padding:10px 0; border-top:1px solid var(--line); color:var(--muted); font-size:10px; }
+    .revision strong { color:var(--ink); }
+    .revision.current strong { color:var(--violet); }
+    .route { display:flex; justify-content:space-between; gap:10px; align-items:center; padding:11px 0; border-top:1px solid var(--line); font-size:10px; }
+    .route strong { color:var(--ink); }
+    .route span { color:var(--violet); font-size:9px; font-weight:800; }
+    @media (max-width: 1050px) { .brainstorm-layout { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="rail">
+      <div class="brand"><div class="brand-mark">N·O</div><div><strong>Novel OS</strong><small>AI writing studio</small></div></div>
+      <div class="rule"></div>
+      <nav class="rail-nav" aria-label="主导航">
+        <button class="active" data-view="library"><span class="glyph">▦</span><span>作品库</span></button>
+        <button data-view="new"><span class="glyph">＋</span><span>新建作品</span></button>
+        <button data-view="workshop"><span class="glyph">✦</span><span>头脑风暴</span></button>
+        <button data-view="tasks"><span class="glyph">◌</span><span>任务队列</span></button>
+        <button data-view="search"><span class="glyph">⌕</span><span>作品检索</span></button>
+      </nav>
+      <button class="new-book" data-view="new"><span>＋ &nbsp;新建小说</span><b aria-hidden="true">＋</b></button>
+      <div class="rail-footer"><strong>新的小说，从骨架开始</strong><p>先确认故事契约和人物动机，再锁定骨架并启动整本创作。</p></div>
+    </aside>
+
+    <div class="scene"><div class="orb a"></div><div class="orb b"></div><div class="sweep"></div>
+      <main class="content"><div class="shell">
+        <header class="panel main-head"><div><p class="eyebrow">作品库 / Works library</p><h1>所有故事，<br />从这里继续。</h1><p class="lede">管理已创作作品，继续正在运行的任务，或从一个新想法开始，沿着统一骨架完成交付。</p></div><div class="head-actions"><button class="button">导入 Prompt</button><button class="button primary" data-view="new">＋ 新建小说</button></div></header>
+
+        <section id="library" class="view active">
+          <div class="stats"><div class="stat"><span>全部作品</span><strong>12</strong><em>+2 本本月新增</em></div><div class="stat"><span>头脑风暴中</span><strong>3</strong><em>等待骨架锁定</em></div><div class="stat"><span>创作运行中</span><strong>2</strong><em>共 69 个章节</em></div><div class="stat"><span>已完成交付</span><strong>7</strong><em>五种格式齐全</em></div></div>
+          <div class="library-grid">
+            <article class="panel"><div class="section-head"><div><h2>我的作品</h2><p>按最近更新排列 · 选择作品进入单本工作区</p></div><button class="button" data-view="search">筛选与检索</button></div><div class="section-body"><div class="toolbar"><input id="library-search" class="search" placeholder="搜索书名、类型、人物…" aria-label="搜索作品" /><button class="filter active">全部</button><button class="filter">创作中</button><button class="filter">骨架已锁定</button><button class="filter">已完成</button></div><div class="book-list">
+              <article class="book" data-card="hidden family betrayal revenge"><div class="cover"></div><div><h3>He Chose His Hidden Family for Twenty Years…</h3><p>家庭背叛 · 复仇 · 21 章 · 最近更新 8 分钟前</p></div><div class="book-meta"><span class="pill running">运行中</span><small>12 / 21 章</small></div></article>
+              <article class="book" data-card="apartment single parent female growth"><div class="cover c2"></div><div><h3>The Apartment Above the Bakery</h3><p>单身父母亲 · 女性成长 · 骨架已锁定 · 昨天更新</p></div><div class="book-meta"><span class="pill ready">待启动</span><small>48 章计划</small></div></article>
+              <article class="book" data-card="queen royal ethics"><div class="cover c3"></div><div><h3>When the Queen Refused the Crown</h3><p>皇后女王 · 伦理 · 36 章 · 2 天前更新</p></div><div class="book-meta"><span class="pill running">运行中</span><small>22 / 36 章</small></div></article>
+              <article class="book" data-card="moonlight werewolf fantasy"><div class="cover c4"></div><div><h3>Moonlight Has No Witnesses</h3><p>狼人 · 玄幻 · 头脑风暴 · 3 天前更新</p></div><div class="book-meta"><span class="pill draft">头脑风暴</span><small>3 个未决问题</small></div></article>
+            </div></div></article>
+            <aside class="side-stack"><article class="progress-card"><span class="mini-label">继续创作 / Running</span><h2>He Chose His Hidden Family…</h2><p>Chapter 12 正在进行人物动机和连续性检查，下一步生成 Chapter 13。</p><div class="bar"><i></i></div><div class="progress-row"><span>12 / 21 章</span><strong>57%</strong></div><button class="button" style="width:100%" data-view="project">进入工作区 →</button></article><article class="quick-card"><h2>新建小说</h2><p>每部新作都经过同一套骨架流程，保证人物、钩子和交付参数可追踪。</p><div class="quick-step"><b>01</b><div><strong>输入想法</strong><br />故事核心和作品类型</div></div><div class="quick-step"><b>02</b><div><strong>头脑风暴</strong><br />确认冲突、人物和结局</div></div><div class="quick-step"><b>03</b><div><strong>锁定骨架</strong><br />生成 Prompt 和启动任务</div></div><button class="button primary" style="width:100%;margin-top:13px" data-view="new">开始新故事</button></article></aside>
+          </div>
+          <p class="footnote">首页只管理所有作品和下一步动作；骨架、章节正文、运行日志和封面控制台属于单本作品工作区。</p>
+        </section>
+
+        <section id="new" class="view"><div class="panel" style="padding:21px"><p class="eyebrow">新建作品 / Skeleton-first flow</p><h1 style="font-size:34px">从一个想法，建立一部可执行的小说。</h1><p class="lede" style="margin-bottom:20px">先完成故事背景、人物动机、章节钩子和交付参数，再启动整本创作。</p><div class="stepper"><div class="step active"><strong>01 · 想法</strong>输入故事核心</div><div class="step"><strong>02 · 头脑风暴</strong>确认冲突和人物</div><div class="step"><strong>03 · 骨架</strong>生成并锁定 MD</div><div class="step"><strong>04 · 启动</strong>预览并运行</div></div><div class="new-layout"><article class="panel form-card"><h2>新建故事</h2><p class="hint">可以从空白想法开始，也可以关联已有作品作为参考。</p><div class="field"><label>小说名称</label><input value="A Daughter Who Stopped Waiting" /></div><div class="field"><label>故事想法</label><textarea>一个父亲长期用工作借口缺席女儿的重要时刻。毕业当天，女儿发现他正在另一个家庭里扮演完美父亲。</textarea></div><div class="field"><label>作品类型</label><div class="chip-box"><span class="chip">家庭背叛</span><span class="chip">复仇</span><span class="chip">女性成长</span><span class="chip add">＋ 添加类型</span></div></div><div class="field"><label>关联已有作品（可选）</label><input placeholder="选择已有作品，或留空创建全新故事" /></div><div class="head-actions" style="justify-content:flex-start"><button class="button">保存草稿</button><button class="button primary">开始头脑风暴 →</button></div></article><aside class="skeleton-card"><h2>novel-skeleton.v1</h2><p>每部新作品都会生成同一套可校验骨架，再由骨架编译成运行 Prompt。</p><div class="spec"><span>故事契约</span><strong>待构建</strong></div><div class="spec"><span>人物台账</span><strong>姓名 / 动机 / 行为风格</strong></div><div class="spec"><span>章节动力线</span><strong>setup · hook · payoff</strong></div><div class="spec"><span>输出格式</span><strong>MD · HTML · DOCX · EPUB · PDF</strong></div><div class="spec"><span>启动前检查</span><strong>必须通过</strong></div></aside></div></div></section>
+
+        <section id="workshop" class="view"><div class="panel" style="padding:21px"><p class="eyebrow">头脑风暴 / Flexible story workshop</p><h1 style="font-size:34px">让故事反复生长，直到你愿意锁定。</h1><p class="lede" style="margin-bottom:20px">可以继续追问、修正、推翻和重写，没有固定轮数。每次保存都会留下版本，锁定前都可以回到任意版本继续。</p><div class="brainstorm-layout"><article class="panel chat-panel"><div class="section-head"><div><h2>故事讨论</h2><p>当前主题：Chloe 的能动性如何进入第三章</p></div><span class="pill running">未锁定</span></div><div class="chat-stream"><div class="message"><span class="message-label">Workshop model · Claude Sonnet</span>如果 Chloe 这次不再向 Richard 要解释，她会先做什么？这个选择会决定她从受伤者转向行动者的速度。</div><div class="message user"><span class="message-label">写手</span>她先保存视频、时间戳和账单，不直接质问父亲。我要让她谨慎，但不是被动。</div><div class="message"><span class="message-label">Workshop model</span>可以。这样第三章的局部兑现是“借口被击穿”，结尾钩子则是“母女必须决定是否打开旧档案”。我会把这个选择加入章节动力线，并保留另一种更激烈的方案供比较。</div></div><div class="composer"><textarea placeholder="继续补充、修正，或让模型重新推导这一部分…"></textarea><div class="composer-actions"><small>不限次数 · 保存后生成新版本</small><div class="head-actions"><button class="button">生成另一种方案</button><button class="button primary">继续推导 →</button></div></div></div></article><aside class="workshop-side"><div class="revision-card"><h2>设计版本</h2><p>修改不会覆盖旧版本，可随时比较、恢复或从旧版本分支。</p><div class="revision current"><strong>v4 · 当前草案</strong><span>刚刚</span></div><div class="revision"><strong>v3 · 加入证据链</strong><span>12 分钟前</span></div><div class="revision"><strong>v2 · 改写 Chloe 动机</strong><span>昨天</span></div><div class="revision"><strong>v1 · 初始想法</strong><span>昨天</span></div><button class="button" style="width:100%;margin-top:13px">比较版本</button></div><div class="route-card"><h2>模型路由</h2><p>头脑风暴和小说生成使用独立配置，互不覆盖。</p><div class="route"><strong>头脑风暴模型</strong><span>Claude Sonnet</span></div><div class="route"><strong>小说生成模型</strong><span>GPT-4.1</span></div><button class="button" style="width:100%;margin-top:13px">配置头脑风暴模型</button></div></aside></div></div></section>
+
+        <section id="project" class="view"><article class="panel"><div class="workspace-head"><div><p class="eyebrow">单本工作区 / Secondary level</p><h2>He Chose His Hidden Family for Twenty Years…</h2><p>家庭背叛 · 复仇 · Contemporary Realism · 21 chapters</p></div><div class="head-actions"><button class="button">下载交付包</button><button class="button primary">打开任务日志</button></div></div><div class="workspace-tabs"><button class="active">概览</button><button>故事骨架</button><button>章节正文</button><button>任务进度</button><button>简介</button><button>封面控制台</button></div><div class="workspace-body"><article class="momentum"><div class="momentum-head"><strong>章节动力线</strong><span>21 / 21 个钩子已登记</span></div><div class="momentum-row"><b>01</b><div><strong>The Reserved Seat and the Speech</strong><small>空座位留下公开伤口，下一章回到二十年的缺席。</small></div><span class="done">已完成</span></div><div class="momentum-row"><b>03</b><div><strong>The Video from Fort Wayne</strong><small>时间戳击穿借口，母女决定先保存证据。</small></div><span class="done">已完成</span></div><div class="momentum-row"><b>12</b><div><strong>Tracing the Drained Equity</strong><small>伪造 HELOC 被证实，房产债务成为不可撤回的压力。</small></div><span style="color:var(--amber);font-size:10px;font-weight:750">运行中</span></div></article><aside class="inspector"><div class="inspect-card"><h3>故事骨架</h3><p>novel-skeleton.v1 · 已锁定<br />人物 6 · 章节 21 · 警告 3</p></div><div class="inspect-card"><h3>任务进度</h3><p>Chapter 12 / 21<br />Validate · evidence_v1</p><div class="bar" style="margin:12px 0 0;background:#e3e8f7"><i style="width:57%;background:var(--violet)"></i></div></div><div class="inspect-card"><h3>简介和封面</h3><p>Story Lead 已生成<br />封面方向已批准</p></div></aside></div></article></section>
+
+        <section id="tasks" class="view"><article class="panel"><div class="section-head"><div><h2>任务队列</h2><p>所有作品的骨架生成、整本创作和交付任务。</p></div><span class="pill running">2 个运行中</span></div><div class="section-body queue"><div class="queue-row"><div><strong>He Chose His Hidden Family…</strong><p>Chapter 12 · Validate · 12 / 21 · 最近事件 hook_payoff_checked</p></div><span class="pill running">运行中</span></div><div class="queue-row"><div><strong>When the Queen Refused the Crown</strong><p>Chapter 23 · Write · 22 / 36 · 最近更新 2 分钟前</p></div><span class="pill running">运行中</span></div><div class="queue-row"><div><strong>The Apartment Above the Bakery</strong><p>骨架已锁定 · 等待作者确认启动参数</p></div><span class="pill ready">待启动</span></div><div class="queue-row"><div><strong>Moonlight Has No Witnesses</strong><p>头脑风暴阶段 · 3 个未决问题</p></div><span class="pill draft">草稿</span></div></div></article></section>
+
+        <section id="search" class="view"><article class="panel"><div class="section-head"><div><h2>作品检索</h2><p>跨作品检索标题、简介、类型和运行状态。</p></div><span class="pill complete">12 个作品</span></div><div class="section-body"><div class="toolbar"><input class="search" value="family betrayal" placeholder="搜索书名、类型、人物或状态…" /><button class="button primary">搜索</button></div><div class="queue"><div class="queue-row"><div><strong>He Chose His Hidden Family for Twenty Years…</strong><p>家庭背叛 · 复仇 · 21 章 · 运行中</p></div><span class="pill running">进入作品</span></div><div class="queue-row"><div><strong>The Apartment Above the Bakery</strong><p>单身父母亲 · 女性成长 · 骨架已锁定</p></div><span class="pill ready">进入作品</span></div><div class="queue-row"><div><strong>When the Queen Refused the Crown</strong><p>皇后女王 · 伦理 · 36 章 · 创作中</p></div><span class="pill running">进入作品</span></div></div></div></article></section>
+      </div><p class="footnote">UIUX 设计稿：沿用现有 Novel OS 的玻璃面板、渐变场景、SF Pro 字体、紫蓝主色和状态胶囊。此文件为独立静态 HTML，不接入现有 API。</p></main>
+    </div>
+  </div>
+  <script>
+    const views=[...document.querySelectorAll('.view')], controls=[...document.querySelectorAll('[data-view]')];
+    function activate(name){views.forEach(v=>v.classList.toggle('active',v.id===name));controls.forEach(c=>c.classList.toggle('active',c.dataset.view===name));window.scrollTo({top:0,behavior:'smooth'});}
+    controls.forEach(c=>c.addEventListener('click',()=>activate(c.dataset.view)));
+    document.querySelectorAll('.filter').forEach(f=>f.addEventListener('click',()=>{document.querySelectorAll('.filter').forEach(x=>x.classList.remove('active'));f.classList.add('active');}));
+    document.querySelector('#library-search')?.addEventListener('input',e=>{const q=e.target.value.toLowerCase().trim();document.querySelectorAll('.book').forEach(card=>card.style.display=!q||card.dataset.card.includes(q)?'grid':'none');});
+  </script>
+</body>
+</html>

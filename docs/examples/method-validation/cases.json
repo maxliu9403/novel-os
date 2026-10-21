@@ -1,0 +1,130 @@
+[
+  {
+    "action": "initial",
+    "baseline": null,
+    "expected_error": null,
+    "free_trial_end": 3,
+    "id": "baseline-80",
+    "package": "01-introduction-80-chapters-4-volumes.zip"
+  },
+  {
+    "action": "cover_only",
+    "baseline": "01-introduction-80-chapters-4-volumes.zip",
+    "expected_error": null,
+    "free_trial_end": 3,
+    "id": "cover-only",
+    "package": "02-same-book-cover-only-update.zip"
+  },
+  {
+    "action": "repeat",
+    "baseline": "02-same-book-cover-only-update.zip",
+    "expected_error": null,
+    "free_trial_end": 3,
+    "id": "repeat-cover",
+    "package": "02-same-book-cover-only-update.zip"
+  },
+  {
+    "action": "different_book",
+    "baseline": "01-introduction-80-chapters-4-volumes.zip",
+    "expected_error": null,
+    "free_trial_end": 3,
+    "id": "different-book",
+    "package": "03-different-book-same-structure.zip"
+  },
+  {
+    "action": "history_replay",
+    "baseline": "02-same-book-cover-only-update.zip",
+    "expected_error": null,
+    "free_trial_end": 3,
+    "id": "history-replay",
+    "package": "01-introduction-80-chapters-4-volumes.zip"
+  },
+  {
+    "action": "initial",
+    "baseline": null,
+    "expected_error": null,
+    "free_trial_end": 3,
+    "id": "short-free-3",
+    "package": "short-22.zip"
+  },
+  {
+    "action": "initial",
+    "baseline": null,
+    "expected_error": null,
+    "free_trial_end": 4,
+    "id": "short-free-4",
+    "package": "short-22.zip"
+  },
+  {
+    "action": "initial",
+    "baseline": null,
+    "expected_error": null,
+    "free_trial_end": 3,
+    "id": "long-48",
+    "package": "long-48.zip"
+  },
+  {
+    "action": "chapter_update",
+    "baseline": "long-48.zip",
+    "expected_error": null,
+    "free_trial_end": 3,
+    "id": "chapter-update",
+    "package": "chapter-update.zip"
+  },
+  {
+    "action": "introduction_update",
+    "baseline": "long-48.zip",
+    "expected_error": null,
+    "free_trial_end": 3,
+    "id": "introduction-update",
+    "package": "intro-update.zip"
+  },
+  {
+    "action": "classification_update",
+    "baseline": "long-48.zip",
+    "expected_error": null,
+    "free_trial_end": 3,
+    "id": "classification-update",
+    "package": "classification-update.zip"
+  },
+  {
+    "action": "volume_title_update",
+    "baseline": "long-48.zip",
+    "expected_error": null,
+    "free_trial_end": 3,
+    "id": "volume-title-update",
+    "package": "volume-title-update.zip"
+  },
+  {
+    "action": "reject_invalid",
+    "baseline": "long-48.zip",
+    "expected_error": "epub_media_type",
+    "free_trial_end": 3,
+    "id": "epub_media_type",
+    "package": "invalid-epub_media_type.zip"
+  },
+  {
+    "action": "reject_invalid",
+    "baseline": "long-48.zip",
+    "expected_error": "file_digest",
+    "free_trial_end": 3,
+    "id": "file_digest",
+    "package": "invalid-file_digest.zip"
+  },
+  {
+    "action": "reject_invalid",
+    "baseline": "long-48.zip",
+    "expected_error": "duplicate_zip_path",
+    "free_trial_end": 3,
+    "id": "duplicate_zip_path",
+    "package": "invalid-duplicate_zip_path.zip"
+  },
+  {
+    "action": "reject_invalid",
+    "baseline": "long-48.zip",
+    "expected_error": "chapter_mapping",
+    "free_trial_end": 3,
+    "id": "chapter_mapping",
+    "package": "invalid-chapter_mapping.zip"
+  }
+]

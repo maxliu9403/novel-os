@@ -10,12 +10,21 @@ from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, TextIO
 
 from commercial_story import parse_commercial_story_block
+from novel_classification import (
+    design_requirements,
+    infer_classification,
+    parse_classification_block,
+)
+from narrative_format import (
+    infer_narrative_format,
+    parse_narrative_format_block,
+)
 from state_manager import StoryState, initialize_project
 
 
 _FIELD_RE = re.compile(
     r"^\s*(?:[-*]\s*)?(?:\*\*)?"
-    r"(title|default working title|genre|primary category|audience|primary audience|"
+    r"(title|default working title|author|genre|primary category|audience|primary audience|"
     r"language|tone|pov|point of view|chapters|words)"
     r"(?:\*\*)?\s*:\s*(.+?)\s*$",
     re.IGNORECASE,
@@ -137,7 +146,7 @@ def build_brief(prompt: str, overrides: Optional[Mapping[str, Any]] = None) -> D
         "title": title,
         "working_title": str(overrides.get("working_title") or fields.get("working_title") or ""),
         "genre": genre,
-        "author": str(overrides.get("author") or ""),
+        "author": str(overrides.get("author") or fields.get("author") or "").strip(),
         "audience": str(overrides.get("audience") or fields.get("audience") or ""),
         "language": str(overrides.get("language") or fields.get("language") or "English"),
         "tone": str(overrides.get("tone") or fields.get("tone") or ""),
@@ -153,6 +162,55 @@ def build_brief(prompt: str, overrides: Optional[Mapping[str, Any]] = None) -> D
             "Fields supplied by CLI overrides take precedence over prompt hints.",
         ],
     }
+    locked_classification = parse_classification_block(prompt)
+    classification = locked_classification or infer_classification(
+        genre=genre,
+        premise=brief["premise"],
+        audience=brief["audience"],
+        tone=brief["tone"],
+        raw_prompt=prompt,
+        chapters=brief["target_chapters"],
+    )
+    explicit_length = any((
+        overrides.get("chapters") is not None,
+        fields.get("chapters") is not None,
+        inferred_chapters is not None,
+    ))
+    narrative_format = parse_narrative_format_block(prompt)
+    if narrative_format is not None:
+        if explicit_length and narrative_format.total_chapters != brief["target_chapters"]:
+            raise ValueError(
+                "NARRATIVE_FORMAT_JSON total_chapters conflicts with the prompt chapter target"
+            )
+        if overrides.get("words") is not None and narrative_format.target_words != brief["target_words"]:
+            raise ValueError(
+                "NARRATIVE_FORMAT_JSON target_words conflicts with the CLI word target"
+            )
+        brief["target_chapters"] = narrative_format.total_chapters
+        brief["target_words"] = narrative_format.target_words
+        if locked_classification is None:
+            classification = infer_classification(
+                genre=genre,
+                premise=brief["premise"],
+                audience=brief["audience"],
+                tone=brief["tone"],
+                raw_prompt=prompt,
+                chapters=brief["target_chapters"],
+            )
+    else:
+        narrative_format = infer_narrative_format(
+            classification,
+            chapters=brief["target_chapters"],
+            target_words=brief["target_words"],
+            premise=brief["premise"],
+            raw_prompt=prompt,
+            explicit_length=explicit_length,
+        )
+    brief["classification"] = classification.to_dict()
+    brief["classification_design_requirements"] = list(
+        design_requirements(classification, genre=genre)
+    )
+    brief["narrative_format"] = narrative_format.to_dict()
     commercial_story = parse_commercial_story_block(prompt)
     if commercial_story is not None:
         brief["commercial_story_contract"] = commercial_story.to_dict()
@@ -179,9 +237,22 @@ def _story_bible_markdown(brief: Mapping[str, Any]) -> str:
 - Tone: {brief.get('tone') or '[To be refined]'}
 - POV: {brief.get('pov') or '[To be refined]'}
 
+## Novel OS Classification
+```json
+{json.dumps(brief.get('classification') or {}, indent=2, ensure_ascii=False)}
+```
+
+### Story-Type Design Requirements
+{bullets(brief.get('classification_design_requirements'))}
+
 ## Structure Targets
 - Chapters: {brief.get('target_chapters')}
 - Words: {brief.get('target_words')}
+
+## Author-Controlled Narrative Format
+```json
+{json.dumps(brief.get('narrative_format') or {}, indent=2, ensure_ascii=False)}
+```
 
 ## Must Include
 {bullets(brief.get('must_have'))}
@@ -201,6 +272,7 @@ def ingest_prompt(
     *,
     stdin_text: Optional[str] = None,
     stdin: Optional[TextIO] = None,
+    generate_author: bool = True,
 ) -> PromptIntakeResult:
     project = Path(project_path)
     raw_prompt = _read_source(source, stdin_text, stdin)
@@ -212,11 +284,16 @@ def ingest_prompt(
     state = (
         StoryState(str(project))
         if state_file.exists()
-        else initialize_project(str(project), brief["title"], brief["genre"])
+        else initialize_project(
+            str(project), brief["title"], brief["genre"],
+            author=brief["author"], language=brief["language"],
+        )
     )
     for key in ("title", "genre", "author", "audience", "language", "tone", "pov"):
         if brief.get(key):
             state.set_metadata(key, brief[key])
+    state.set_metadata("classification", brief["classification"])
+    state.set_metadata("narrative_format", brief["narrative_format"])
     state.set_metadata("target_chapters", brief["target_chapters"])
     state.set_metadata("target_word_count", brief["target_words"])
     state.update_story_bible("premise", brief.get("premise", ""))
@@ -228,6 +305,12 @@ def ingest_prompt(
     state.update_story_bible("must_have", brief.get("must_have", []))
     state.update_story_bible("forbidden", brief.get("forbidden", []))
     state.update_story_bible("prompt_source", "outputs/input/prompt.md")
+    state.update_story_bible("classification", brief["classification"])
+    state.update_story_bible("narrative_format", brief["narrative_format"])
+    state.update_story_bible(
+        "classification_design_requirements",
+        brief["classification_design_requirements"],
+    )
     if brief.get("commercial_story_contract"):
         state.set_metadata(
             "commercial_story_contract_id", brief["commercial_story_contract_id"]
@@ -236,15 +319,20 @@ def ingest_prompt(
             "commercial_story_contract", brief["commercial_story_contract"]
         )
 
+    state.save_state()
     input_dir = project / "outputs" / "input"
     input_dir.mkdir(parents=True, exist_ok=True)
     prompt_path = input_dir / "prompt.md"
     brief_path = input_dir / "brief.json"
     bible_path = project / "outputs" / "story_bible.md"
     prompt_path.write_text(raw_prompt, encoding="utf-8")
+    if generate_author:
+        from book_author import ensure_project_author
+        brief["author"] = ensure_project_author(project)
+    else:
+        brief["author"] = state.metadata.get("author", "")
     brief_path.write_text(json.dumps(brief, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     bible_path.write_text(_story_bible_markdown(brief), encoding="utf-8")
-    state.save_state()
 
     return PromptIntakeResult(
         project_path=str(project),

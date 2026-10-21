@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "motion/react";
 import {
   api,
@@ -8,12 +8,15 @@ import {
   type StudioLlmStatus,
 } from "../api/client";
 import ProjectCard from "../components/ProjectCard";
+import { COVER_STATUS_LABELS } from "../lib/projectCovers";
 import Modal, { Field, fieldClass, textareaClass } from "../components/Modal";
 import Scene from "../components/Scene";
 import Icon from "../components/Icon";
 import GenreChips from "../components/GenreChips";
+import NovelWorkshop, { type WorkshopSeed } from "../components/NovelWorkshop";
 import { mergeGenres } from "../lib/genres";
 import { useToast } from "../components/toastContext";
+import { isProjectTaskRunning, TASK_POLL_INTERVAL_MS } from "../lib/projectTasks";
 
 const grid = { hidden: {}, show: { transition: { staggerChildren: 0.045 } } };
 const card = {
@@ -33,13 +36,87 @@ export default function ProjectsList() {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const requestVersion = useRef(0);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
+  const query = searchParams.get("q") ?? "";
+  const manuscriptFilter = searchParams.get("manuscript") ?? "all";
+  const coverFilter = searchParams.get("cover") ?? "all";
+  function setFilter(name: string, value: string) {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      if (!value || value === "all") next.delete(name); else next.set(name, value);
+      return next;
+    }, { replace: true });
+  }
+  function clearFilters() {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      ["q", "manuscript", "cover"].forEach((key) => next.delete(key));
+      return next;
+    }, { replace: true });
+  }
+  const filteredProjects = projects?.filter((project) => {
+    const searchMatch = [project.title, project.author, project.genre, project.task_id]
+      .filter(Boolean).join(" ").toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
+    const manuscriptMatch = manuscriptFilter === "all"
+      || (manuscriptFilter === "completed" && project.status === "completed")
+      || (manuscriptFilter === "writing" && ["running", "pending", "queued", "in_progress"].includes(project.status))
+      || (manuscriptFilter === "draft" && project.status === "draft")
+      || (manuscriptFilter === "attention" && ["failed", "paused", "interrupted", "cancelled"].includes(project.status));
+    return searchMatch && manuscriptMatch && (coverFilter === "all" || (project.cover?.status ?? "not_started") === coverFilter);
+  }) ?? [];
 
   useEffect(() => {
-    api.projects().then(setProjects).catch((e) => setError(String(e)));
+    let cancelled = false;
+    const version = ++requestVersion.current;
+    api.projects().then((next) => {
+      if (!cancelled && version === requestVersion.current) setProjects(next);
+    }).catch((e) => {
+      if (!cancelled) setError(String(e));
+    });
     api.studioLlm().then(setLlm).catch(() => setLlm(null));
+    return () => { cancelled = true; };
   }, []);
+
+  const hasRunningTasks = projects?.some((project) => isProjectTaskRunning(project.status) || project.cover?.status === "processing") ?? false;
+  useEffect(() => {
+    if (!hasRunningTasks) return;
+    let cancelled = false;
+    let timer: number;
+    async function refresh() {
+      const version = ++requestVersion.current;
+      try {
+        const next = await api.projects();
+        if (cancelled || version !== requestVersion.current) return;
+        setProjects(next);
+        setRefreshError(null);
+      } catch (e) {
+        if (!cancelled) setRefreshError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) timer = window.setTimeout(refresh, TASK_POLL_INTERVAL_MS);
+      }
+    }
+    timer = window.setTimeout(refresh, TASK_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [hasRunningTasks]);
+
+  async function resumeProject(project: ProjectSummary) {
+    if (!project.task_id || !project.task_can_resume) return;
+    await api.resumeProjectTask(project.id, project.task_id);
+    // Ignore any list response that was already in flight before this submit.
+    requestVersion.current += 1;
+    setProjects((current) => current?.map((item) => item.id === project.id
+      ? { ...item, status: "running", task_can_resume: false }
+      : item) ?? current);
+    setRefreshError(null);
+    toast("已提交恢复，正在校验并复用原任务的有效进度", "info");
+  }
 
   useEffect(() => {
     if (!deleteTarget) return;
@@ -114,27 +191,27 @@ export default function ProjectsList() {
   const showWelcome = llm && (!llm.onboarding_completed || !llm.configured);
 
   return (
-    <Scene>
-      <div className="workspace-page">
+    <Scene quiet className="library-scene">
+      <div className="workspace-page library-page">
         <motion.div
           initial={{ opacity: 0, y: 18, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.45, ease: [0.2, 0.8, 0.2, 1] }}
-          className="glass-shell p-3 sm:p-4"
+          className="glass-shell library-shell p-3 sm:p-4"
         >
-          <div className="glass-panel px-5 py-7 sm:px-8 sm:py-9 lg:px-10">
-            <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
+          <div className="glass-panel library-surface px-5 py-7 sm:px-8 sm:py-9 lg:px-10">
+            <header className="library-header">
               <div>
-                <p className="eyebrow">创作工作台</p>
-                <h1 className="font-display text-[32px] font-semibold leading-none tracking-[-0.035em] text-ink-text sm:text-[36px]">
+                <p className="library-eyebrow">创作工作台</p>
+                <h1>
                   作品库
                 </h1>
-                <p className="mt-3 max-w-lg text-[14px] leading-relaxed text-ink-muted">
-                  在一个工作台中管理作品、章节与智能创作流程。
+                <p className="library-header__intro">
+                  故事、文稿与封面，在这里继续。
                 </p>
               </div>
-              <button type="button" onClick={() => setOpen(true)} className="btn-primary shrink-0">
-                新建作品
+              <button type="button" onClick={() => setOpen(true)} className="btn-primary library-create">
+                <Icon name="plus" className="h-4 w-4" /> 新建作品
               </button>
             </header>
 
@@ -181,6 +258,22 @@ export default function ProjectsList() {
               </div>
             )}
 
+            {projects && projects.length > 0 && <section className="library-toolbar" aria-label="筛选作品">
+              <label className="library-search">
+                <Icon name="search" className="h-4 w-4" />
+                <span className="sr-only">搜索作品</span>
+                <input type="search" value={query} onChange={(event) => setFilter("q", event.target.value)} placeholder="搜索书名、作者、类型或任务 ID" />
+              </label>
+              <label className="library-filter"><span>正文</span><select aria-label="正文状态" value={manuscriptFilter} onChange={(event) => setFilter("manuscript", event.target.value)}>
+                <option value="all">全部正文状态</option><option value="writing">创作进行中</option>
+                <option value="completed">正文已完成</option><option value="attention">正文待处理</option><option value="draft">尚未启动</option>
+              </select></label>
+              <label className="library-filter"><span>封面</span><select aria-label="封面状态" value={coverFilter} onChange={(event) => setFilter("cover", event.target.value)}>
+                <option value="all">全部封面状态</option>
+                {Object.entries(COVER_STATUS_LABELS).map(([status, label]) => <option key={status} value={status}>封面{label}</option>)}
+              </select></label>
+            </section>}
+
             {error && (
               <div className="mb-4 rounded-2xl border border-[rgba(74,91,133,0.16)] bg-white/80 px-4 py-3 text-[13px] text-ink-text">
                 作品加载失败：{error}
@@ -188,6 +281,11 @@ export default function ProjectsList() {
             )}
 
             {!error && !projects && <SkeletonGrid />}
+            {refreshError && (
+              <p role="status" className="mb-4 text-[12px] text-[#b84363]">
+                任务状态刷新失败，正在重试：{refreshError}
+              </p>
+            )}
 
             {!error && projects && projects.length === 0 && (
               <div className="rounded-[24px] border border-dashed border-[rgba(74,91,133,0.18)] bg-white/50 px-8 py-14 text-center">
@@ -208,18 +306,26 @@ export default function ProjectsList() {
             )}
 
             {projects && projects.length > 0 && (
-              <motion.div
-                variants={grid}
-                initial="hidden"
-                animate="show"
-                className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
-              >
-                {projects.map((p) => (
-                  <motion.div key={p.id} variants={card}>
-                    <ProjectCard p={p} onDelete={openDelete} />
-                  </motion.div>
-                ))}
-              </motion.div>
+              <>
+                <div className="library-results"><span>{query || manuscriptFilter !== "all" || coverFilter !== "all"
+                  ? `${filteredProjects.length} / ${projects.length} 部作品` : `${projects.length} 部作品`}</span><span>按任务启动时间倒序排列</span></div>
+                {filteredProjects.length === 0 && <div className="library-no-results" role="status">
+                  <h2>没有符合条件的作品</h2><p>试试其他关键词，或清除状态筛选。</p>
+                  <button type="button" onClick={clearFilters} className="library-inline-button">清除筛选</button>
+                </div>}
+                <motion.div
+                  variants={grid}
+                  initial="hidden"
+                  animate="show"
+                  className="library-grid"
+                >
+                  {filteredProjects.map((p) => (
+                    <motion.div key={p.id} variants={card}>
+                      <ProjectCard p={p} onDelete={openDelete} onResume={resumeProject} />
+                    </motion.div>
+                  ))}
+                </motion.div>
+              </>
             )}
           </div>
         </motion.div>
@@ -461,8 +567,11 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
   const [genres, setGenres] = useState<string[]>([]);
   const [otherGenre, setOtherGenre] = useState("");
   const [premise, setPremise] = useState("");
+  const [methodReview, setMethodReview] = useState(true);
   const [author, setAuthor] = useState("");
   const [busy, setBusy] = useState(false);
+  const [workshopOpen, setWorkshopOpen] = useState(false);
+  const [workshopSeed, setWorkshopSeed] = useState<WorkshopSeed | null>(null);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -476,6 +585,7 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
         genres: merged,
         genre: merged.join(" · "),
         premise: premise.trim(),
+        method_mode: methodReview ? "advisory" : "off",
       });
       toast("作品已创建", "success");
       navigate(`/projects/${p.id}`);
@@ -486,7 +596,8 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="新建作品">
+    <>
+    <Modal open={open && !workshopOpen} onClose={onClose} title="新建作品">
       <form onSubmit={create}>
         <Field label="书名">
           <input
@@ -502,7 +613,7 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
             className={fieldClass}
             value={author}
             onChange={(e) => setAuthor(e.target.value)}
-            placeholder="你的名字"
+            placeholder="留空则自动生成笔名"
             autoComplete="name"
           />
         </Field>
@@ -536,16 +647,28 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
             选填。用两到四句话描述构想，架构师会以此规划故事。
           </p>
         </div>
-        <div className="sticky bottom-0 -mx-1 mt-4 flex justify-end gap-3 border-t border-[rgba(74,91,133,0.08)] bg-gradient-to-t from-white/95 via-white/90 to-transparent px-1 pb-1 pt-4">
+        <label className="flex items-start gap-2 rounded-lg bg-white/50 p-3 text-xs leading-relaxed text-ink-muted">
+          <input type="checkbox" checked={methodReview} onChange={e => setMethodReview(e.target.checked)} className="mt-1" />
+          <span>启用只读写作评审：检查英文表达与免费章节的选择、回报和阅读期待。
+            全书任务使用 Judge 路由，按已批准的免费窗口每章增加一次评审，格式修正最多一次；可能增加模型费用。
+            不自动修改正文，单阶段写作不触发。可在章节评审面板关闭未来运行的默认值。</span>
+        </label>
+        <div className="sticky bottom-0 -mx-1 mt-4 flex flex-wrap justify-end gap-2 border-t border-[rgba(74,91,133,0.08)] bg-gradient-to-t from-white/95 via-white/90 to-transparent px-1 pb-1 pt-4">
           <button type="button" onClick={onClose} className="btn-ghost">
             取消
           </button>
-          <button type="submit" disabled={!title.trim() || busy} className="btn-primary disabled:opacity-40">
+          <button type="submit" disabled={!title.trim() || busy} className="btn-secondary disabled:opacity-40">
             {busy ? "正在创建…" : "创建作品"}
           </button>
+          <button type="button" disabled={busy} className="btn-primary !bg-violet hover:!bg-[#5d5bd2] !shadow-[0_8px_20px_rgba(104,103,234,0.18)]" onClick={() => {
+            setWorkshopSeed({ title, author, genres: mergeGenres(genres, otherGenre), premise, method_mode: methodReview ? "advisory" : "off" });
+            setWorkshopOpen(true);
+          }}>头脑风暴完善</button>
         </div>
       </form>
     </Modal>
+    {workshopSeed && <NovelWorkshop open={open && workshopOpen} seed={workshopSeed} onClose={onClose} onBack={() => setWorkshopOpen(false)} />}
+    </>
   );
 }
 

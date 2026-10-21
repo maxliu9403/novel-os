@@ -3,16 +3,18 @@ set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
+
 DATA_DIR="${NOVEL_OS_DATA_DIR:-$ROOT_DIR/docker-data}"
+WEB_PORT="${NOVEL_OS_WEB_PORT:-5174}"
 
 usage() {
   cat <<'EOF'
 Usage: ./deploy.sh <command>
 
 Commands:
-  up       Build and start the frontend and backend
+  up       Sync bundled Skills, then build and start both services
   down     Stop and remove the containers (persistent data is retained)
-  restart  Rebuild and restart both services
+  restart  Sync bundled Skills, then rebuild and restart both services
   build    Build both images without starting containers
   logs     Follow service logs
   status   Show container and health status
@@ -27,6 +29,8 @@ Commands:
            Retry the current stage of a failed or blocked run
   novel-cover [PROMPT]
            Generate or manage portrait 2:3 cover candidates without restarting services
+  cover-rollback capture|status|restore
+           Save or switch cover-only source checkpoints; no deployment or data rollback
 EOF
 }
 
@@ -65,14 +69,14 @@ Manage persisted runs:
 
 Deployment and diagnostics:
   ./deploy.sh up
-      Build and start the frontend and backend; wait for both health checks.
+      Update bundled Codex Skills, build and start both services, and wait for health checks.
 
   ./deploy.sh down
       Stop containers. Manuscripts, media, settings, and the database remain
-      under the persistent docker-data/ directory.
+      under the configured persistent data directory (docker-data/ by default).
 
   ./deploy.sh restart
-      Rebuild and restart both services. Run this explicitly after changing
+      Update bundled Codex Skills, rebuild and restart both services. Run this after changing
       application code or Compose configuration.
 
   ./deploy.sh build
@@ -105,12 +109,17 @@ Optional environment overrides:
   NOVEL_OS_EDIT_MODE          line, developmental, pacing, dialogue, or tension
   NOVEL_OS_APPROVAL           auto or review_required
   NOVEL_OS_QUALITY_POLICY     legacy or evidence_v1
+  NOVEL_OS_METHOD_MODE        off or advisory; omitted inherits project review policy
   NOVEL_OS_OUTPUT             Space-separated formats: markdown html docx epub pdf
   NOVEL_OS_MAX_RETRIES        Transient failure retry count
   NOVEL_OS_MAX_QUALITY_REPAIRS
                               Automatic quality repair count
   NOVEL_OS_DRY_RUN=1          Persist intake only; do not call the LLM
   NOVEL_OS_WEB_PORT           Studio host port; default 5174
+  NOVEL_OS_DATA_DIR           Host data directory; default ./docker-data
+  NOVEL_OS_CODEX_AUTH_FILE    Host Codex auth file (default ~/.codex/auth.json)
+  NOVEL_OS_CODEX_CONFIG_FILE  Host Codex config (default ~/.codex/config.toml)
+  CODEX_HOME                 Host Skill destination (default ~/.codex); up/restart only
 
 Examples:
   ./deploy.sh novel
@@ -123,7 +132,8 @@ Examples:
 Runtime behavior:
   Novel commands reuse a healthy backend container and do not manage the
   frontend. Existing containers are never recreated by novel commands. Project
-  artifacts are stored at docker-data/projects/PROJECT/outputs/.
+  artifacts are stored under the configured data directory at
+  projects/PROJECT/outputs/.
 EOF
 }
 
@@ -166,8 +176,8 @@ Optional environment overrides:
 
 Provider URL and key are configured in ignored .env values or Studio Settings.
 Cover commands reuse a healthy backend, never restart services, and write to:
-  docker-data/projects/PROJECT/outputs/deliverables/covers/
-  docker-data/projects/PROJECT/outputs/deliverables/book-package.zip
+  <data-dir>/projects/PROJECT/outputs/deliverables/covers/
+  <data-dir>/projects/PROJECT/outputs/deliverables/book-package.zip
 
 The selection workspace is:
   http://localhost:5174/projects/PROJECT/covers
@@ -175,6 +185,7 @@ EOF
 }
 
 require_docker() {
+  local compose_environment key value
   if ! command -v docker >/dev/null 2>&1; then
     echo "Docker is not installed or is not on PATH." >&2
     return 1
@@ -183,7 +194,25 @@ require_docker() {
     echo "Docker Compose is unavailable. Install the Docker Compose plugin." >&2
     return 1
   fi
+
+  # Let Compose handle .env quotes, comments, interpolation, and precedence.
+  # Only read the two values used on the host; never evaluate or print the
+  # complete environment, which can include provider credentials.
+  compose_environment="$(docker compose config --environment)" || return 1
+  while IFS='=' read -r key value; do
+    case "$key" in
+      NOVEL_OS_DATA_DIR) DATA_DIR="${value:-$ROOT_DIR/docker-data}" ;;
+      NOVEL_OS_WEB_PORT) WEB_PORT="${value:-5174}" ;;
+    esac
+  done <<< "$compose_environment"
+
   mkdir -p "$DATA_DIR/projects" "$DATA_DIR/media"
+  # Compose resolves relative volume paths from the repository root. Export an
+  # absolute path so custom data directories behave identically for Compose,
+  # run discovery, and the paths printed by this launcher.
+  DATA_DIR="$(cd "$DATA_DIR" && pwd)"
+  export NOVEL_OS_DATA_DIR="$DATA_DIR"
+  export NOVEL_OS_WEB_PORT="$WEB_PORT"
 }
 
 show_url() {
@@ -193,8 +222,21 @@ show_url() {
   if [[ -n "$binding" && "$port" != "$binding" ]]; then
     echo "Novel OS: http://localhost:${port}"
   else
-    echo "Novel OS: http://localhost:${NOVEL_OS_WEB_PORT:-5174}"
+    echo "Novel OS: http://localhost:${WEB_PORT}"
   fi
+}
+
+sync_project_skills() {
+  local python_bin="python3"
+  [[ ! -x "$ROOT_DIR/venv/bin/python" ]] || python_bin="$ROOT_DIR/venv/bin/python"
+  if ! command -v "$python_bin" >/dev/null 2>&1; then
+    echo "Python 3 is required to sync bundled Skills before deployment." >&2
+    return 1
+  fi
+  # Do this before service recreation: an unwritable host Skill directory must
+  # not leave the current application stopped. The helper backs up changed copies.
+  "$python_bin" "$ROOT_DIR/scripts/sync_skills.py" \
+    --source "$ROOT_DIR/skills" --codex-home "${CODEX_HOME:-$HOME/.codex}"
 }
 
 ensure_backend() {
@@ -331,6 +373,10 @@ run_novel() {
     echo "Edit mode must be line, developmental, pacing, dialogue, or tension." >&2
     return 1
   fi
+  if [[ -n "${NOVEL_OS_METHOD_MODE:-}" && "$NOVEL_OS_METHOD_MODE" != "off" && "$NOVEL_OS_METHOD_MODE" != "advisory" ]]; then
+    echo "Method mode must be off or advisory." >&2
+    return 1
+  fi
   read -r -a output_formats <<< "$output"
   if [[ ${#output_formats[@]} -eq 0 ]]; then
     echo "Choose at least one output format." >&2
@@ -373,6 +419,7 @@ run_novel() {
   [[ -n "$genre" ]] && command_args+=(--genre "$genre")
   [[ -n "$chapters" ]] && command_args+=(--chapters "$chapters")
   [[ -n "$words" ]] && command_args+=(--words "$words")
+  [[ -n "${NOVEL_OS_METHOD_MODE:-}" ]] && command_args+=(--method-mode "$NOVEL_OS_METHOD_MODE")
   [[ "$dry_run" == "1" ]] && command_args+=(--dry-run)
   command_args+=(--output "${output_formats[@]}")
 
@@ -415,7 +462,7 @@ run_novel_cover_generate() {
   "${args[@]}" < "$prompt_file"
   printf '\nCover candidates: %s/projects/%s/outputs/deliverables/covers/pending\n' "$DATA_DIR" "$project_name"
   printf 'Delivery package: %s/projects/%s/outputs/deliverables/book-package.zip\n' "$DATA_DIR" "$project_name"
-  printf 'Cover Studio: http://localhost:%s/projects/%s/covers\n' "${NOVEL_OS_WEB_PORT:-5174}" "$project_name"
+  printf 'Cover Studio: http://localhost:%s/projects/%s/covers\n' "$WEB_PORT" "$project_name"
 }
 
 run_novel_cover_manage() {
@@ -460,7 +507,7 @@ run_novel_cover_manage() {
   ensure_backend
   "${args[@]}"
   printf '\nDelivery package: %s/projects/%s/outputs/deliverables/book-package.zip\n' "$DATA_DIR" "$project_name"
-  printf 'Cover Studio: http://localhost:%s/projects/%s/covers\n' "${NOVEL_OS_WEB_PORT:-5174}" "$project_name"
+  printf 'Cover Studio: http://localhost:%s/projects/%s/covers\n' "$WEB_PORT" "$project_name"
 }
 
 run_novel_cover() {
@@ -596,13 +643,14 @@ novel_retry() {
 command="${1:-up}"
 if [[ "$command" != "help" && "$command" != "-h" && "$command" != "--help" \
       && !( "$command" == "novel" && ( "${2:-}" == "help" || "${2:-}" == "-h" || "${2:-}" == "--help" ) ) ]]; then
-  if [[ "$command" != "novel-cover" ]]; then
+  if [[ "$command" != "novel-cover" && "$command" != "cover-rollback" ]]; then
     require_docker
   fi
 fi
 
 case "$command" in
   up)
+    sync_project_skills
     docker compose up --detach --build --wait --wait-timeout 180
     docker compose ps
     show_url
@@ -611,6 +659,7 @@ case "$command" in
     docker compose down
     ;;
   restart)
+    sync_project_skills
     docker compose down
     docker compose up --detach --build --wait --wait-timeout 180
     docker compose ps
@@ -646,6 +695,11 @@ case "$command" in
     ;;
   novel-cover)
     run_novel_cover "${@:2}"
+    ;;
+  cover-rollback)
+    python_bin="python3"
+    [[ ! -x "$ROOT_DIR/venv/bin/python" ]] || python_bin="$ROOT_DIR/venv/bin/python"
+    "$python_bin" "$ROOT_DIR/scripts/cover_rollback.py" "${@:2}"
     ;;
   -h|--help|help)
     usage

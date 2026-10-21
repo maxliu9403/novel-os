@@ -190,7 +190,17 @@ class CanonReconciliationService(FoundationCanonService):
                 for milestone in thread.milestones[prior_length:]:
                     milestone["timestamp"] = entry.committed_at
 
-        required = self._required_outcomes(foundation)
+        # Recovery can happen mid-book. An ending contract describes future
+        # obligations; requiring its outcomes here would fabricate unwritten
+        # events just to restore a planning baseline. Keep completed-book
+        # evidence requirements, and replay only committed facts otherwise.
+        planned_chapters = {int(item["number"]) for item in foundation.get("chapters") or []}
+        committed_chapters = {entry.chapter for entry in history}
+        required = (
+            self._required_outcomes(foundation)
+            if planned_chapters.issubset(committed_chapters)
+            else {}
+        )
         for character_id, expected in required.items():
             if character_id not in outcomes:
                 raise ValueError(

@@ -29,10 +29,22 @@ services:
       NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS: ${NOVEL_OS_COVER_DIRECTOR_TIMEOUT_SECONDS:-600}
       NOVEL_OS_COVER_DIRECTOR_REASONING_EFFORT: ${NOVEL_OS_COVER_DIRECTOR_REASONING_EFFORT:-}
     volumes:
-      - ./docker-data:/data
+      # Keep the host path configurable so deploy.sh and the container always
+      # read and write the same persistent data directory.
+      - ${NOVEL_OS_DATA_DIR:-./docker-data}:/data
       # Codex must persist refreshed ChatGPT session tokens between requests.
-      - ${HOME}/.codex/auth.json:/root/.codex/auth.json
-      - ${HOME}/.codex/config.toml:/root/.codex/config.toml:ro
+      # Fail on missing files instead of silently creating directories for them.
+      - type: bind
+        source: ${NOVEL_OS_CODEX_AUTH_FILE:-${HOME}/.codex/auth.json}
+        target: /root/.codex/auth.json
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${NOVEL_OS_CODEX_CONFIG_FILE:-${HOME}/.codex/config.toml}
+        target: /root/.codex/config.toml
+        read_only: true
+        bind:
+          create_host_path: false
     extra_hosts:
       - "host.docker.internal:host-gateway"
     init: true

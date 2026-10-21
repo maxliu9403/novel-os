@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +24,17 @@ def _fake_docker(tmp_path: Path) -> tuple[Path, Path, Path]:
 set -eu
 printf '%s\\n' "$*" >> "$FAKE_DOCKER_LOG"
 if [ "${1:-}" = compose ] && [ "${2:-}" = version ]; then
+  exit 0
+fi
+if [ "${1:-}" = compose ] && [ "${2:-}" = config ]; then
+  if [ "${FAKE_CONFIG_FAIL:-0}" = "1" ]; then
+    echo 'Invalid Compose configuration' >&2
+    exit 1
+  fi
+  if [ -n "${FAKE_REAL_DOCKER:-}" ]; then
+    exec "$FAKE_REAL_DOCKER" "$@"
+  fi
+  printf '%s\\n' "${FAKE_COMPOSE_ENVIRONMENT:-}"
   exit 0
 fi
 if [ "${1:-}" = compose ] && [ "${2:-}" = ps ] && [ "${3:-}" = -q ]; then
@@ -71,6 +86,7 @@ def _run_deploy(tmp_path: Path, *args: str, input_text: str = "") -> tuple[subpr
     env["FAKE_DOCKER_LOG"] = str(log)
     env["FAKE_PROMPT_CAPTURE"] = str(capture)
     env["NOVEL_OS_DATA_DIR"] = str(tmp_path / "data")
+    env["CODEX_HOME"] = str(tmp_path / "codex")
     env["NOVEL_OS_NONINTERACTIVE"] = "1"
     env["NOVEL_OS_APPROVAL"] = "auto"
     env["NOVEL_OS_OUTPUT"] = "markdown epub"
@@ -99,6 +115,22 @@ def test_novel_forwards_prompt_to_backend_with_container_project_path(tmp_path: 
     assert "--approval auto" in calls
     assert "--output markdown epub" in calls
     assert capture.read_text(encoding="utf-8") == "# A prompt from the author\n"
+
+
+@pytest.mark.parametrize("mode", ["off", "advisory"])
+def test_novel_forwards_explicit_review_mode(tmp_path: Path, monkeypatch, mode: str):
+    monkeypatch.setenv("NOVEL_OS_METHOD_MODE", mode)
+    result, log, _ = _run_deploy(tmp_path, "novel")
+    assert result.returncode == 0, result.stderr
+    assert f"--method-mode {mode}" in log.read_text()
+
+
+def test_novel_rejects_invalid_review_mode_before_running(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("NOVEL_OS_METHOD_MODE", "write")
+    result, log, _ = _run_deploy(tmp_path, "novel")
+    assert result.returncode != 0
+    assert "Method mode must be off or advisory" in result.stderr
+    assert "compose exec" not in log.read_text()
 
 
 def test_novel_status_uses_latest_persisted_run_without_manual_run_id(tmp_path: Path):
@@ -428,3 +460,145 @@ def test_novel_cover_help_lists_generation_and_selection_without_docker(tmp_path
         assert command in result.stdout
     assert "2048x3072" in result.stdout
     assert not log.exists()
+
+
+def test_invalid_compose_configuration_stops_before_starting_or_creating_data(tmp_path: Path):
+    bin_dir, log, capture = _fake_docker(tmp_path)
+    data_dir = tmp_path / "data"
+    env = os.environ.copy()
+    env.update({
+        "PATH": f"{bin_dir}:{env['PATH']}",
+        "FAKE_DOCKER_LOG": str(log),
+        "FAKE_PROMPT_CAPTURE": str(capture),
+        "FAKE_CONFIG_FAIL": "1",
+        "NOVEL_OS_DATA_DIR": str(data_dir),
+    })
+
+    result = subprocess.run(
+        [str(SCRIPT), "up"], cwd=ROOT, env=env,
+        text=True, capture_output=True, check=False,
+    )
+
+    assert result.returncode != 0
+    assert "Invalid Compose configuration" in result.stderr
+    assert "compose up" not in log.read_text()
+    assert not data_dir.exists()
+
+
+@pytest.mark.parametrize("command", ["up", "restart"])
+def test_deployment_automatically_updates_bundled_skills(tmp_path: Path, command: str):
+    bin_dir, log, capture = _fake_docker(tmp_path)
+    codex_home = tmp_path / "codex home"
+    old = codex_home / "skills" / "novel-brainstorm-workshop"
+    old.mkdir(parents=True)
+    (old / "SKILL.md").write_text("old installed skill\n")
+    (old / "obsolete.md").write_text("personal note\n")
+    unrelated = codex_home / "skills" / "personal-skill"
+    unrelated.mkdir()
+    (unrelated / "SKILL.md").write_text("keep me\n")
+    env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}",
+               FAKE_DOCKER_LOG=str(log), FAKE_PROMPT_CAPTURE=str(capture),
+               NOVEL_OS_DATA_DIR=str(tmp_path / "data"), CODEX_HOME=str(codex_home))
+
+    result = subprocess.run([str(SCRIPT), command], cwd=ROOT, env=env,
+                            text=True, capture_output=True)
+
+    assert result.returncode == 0, result.stderr
+    for name in ("novel-brainstorm-workshop", "high-retention-web-novel", "novel-cover-studio"):
+        assert (codex_home / "skills" / name / "SKILL.md").read_bytes() == (ROOT / "skills" / name / "SKILL.md").read_bytes()
+    assert not (old / "obsolete.md").exists()
+    backups = list((codex_home / "skill-backups").glob("*/novel-brainstorm-workshop"))
+    assert len(backups) == 1
+    assert (backups[0] / "obsolete.md").read_text() == "personal note\n"
+    assert (unrelated / "SKILL.md").read_text() == "keep me\n"
+    assert "compose up --detach --build" in log.read_text()
+
+
+def test_skill_sync_failure_does_not_stop_current_services(tmp_path: Path):
+    bin_dir, log, capture = _fake_docker(tmp_path)
+    codex_home = tmp_path / "codex"
+    codex_home.mkdir()
+    (codex_home / "skills").write_text("not a directory")
+    env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}",
+               FAKE_DOCKER_LOG=str(log), FAKE_PROMPT_CAPTURE=str(capture),
+               NOVEL_OS_DATA_DIR=str(tmp_path / "data"), CODEX_HOME=str(codex_home))
+
+    result = subprocess.run([str(SCRIPT), "restart"], cwd=ROOT, env=env,
+                            text=True, capture_output=True)
+
+    assert result.returncode != 0
+    assert "compose down" not in log.read_text()
+    assert "compose up" not in log.read_text()
+
+
+@pytest.mark.parametrize("command", ["build", "status", "down", "config"])
+def test_non_upgrade_commands_do_not_install_skills(tmp_path: Path, command: str):
+    result, _, _ = _run_deploy(tmp_path, command)
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "codex").exists()
+
+
+@pytest.mark.parametrize("override", [False, True])
+def test_dotenv_data_and_port_match_real_compose_without_starting_containers(tmp_path: Path, override: bool):
+    docker = shutil.which("docker")
+    if docker is None or subprocess.run(
+        [docker, "compose", "version"], capture_output=True, check=False,
+    ).returncode != 0:
+        pytest.skip("Docker Compose is required for the configuration integration test")
+
+    # Copy just the deployment entry points so no developer .env or data is read.
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    shutil.copy2(SCRIPT, checkout / "deploy.sh")
+    shutil.copy2(ROOT / "compose.yaml", checkout / "compose.yaml")
+    (checkout / ".env").write_text(
+        'DATA_PARENT=./stored data\n'
+        'NOVEL_OS_DATA_DIR="${DATA_PARENT}/books#1=ready" # data directory\n'
+        'NOVEL_OS_WEB_PORT="6123" # host port\n'
+        'NOVEL_OS_API_KEY=fixture-secret-do-not-print\n'
+        'NOVEL_OS_CODEX_AUTH_FILE=./codex/auth.json\n'
+        'NOVEL_OS_CODEX_CONFIG_FILE=./codex/config.toml\n',
+        encoding="utf-8",
+    )
+    bin_dir, log, capture = _fake_docker(tmp_path)
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(("NOVEL_OS_", "COMPOSE_")) and key != "DATA_PARENT"}
+    env.update({
+        "PATH": f"{bin_dir}:{env['PATH']}",
+        "FAKE_DOCKER_LOG": str(log),
+        "FAKE_PROMPT_CAPTURE": str(capture),
+        "FAKE_SERVICES_HEALTHY": "1",
+        "FAKE_REAL_DOCKER": docker,
+    })
+    if override:
+        env.update({"NOVEL_OS_DATA_DIR": "./shell data", "NOVEL_OS_WEB_PORT": "6234"})
+
+    config = subprocess.run(
+        [docker, "compose", "config", "--format", "json"], cwd=checkout, env=env,
+        text=True, capture_output=True, check=True,
+    )
+    services = json.loads(config.stdout)["services"]
+    data_dir = Path(next(v["source"] for v in services["backend"]["volumes"] if v["target"] == "/data"))
+    port = next(p["published"] for p in services["frontend"]["ports"] if p["target"] == 80)
+    assert data_dir == checkout / ("shell data" if override else "stored data/books#1=ready")
+    assert str(port) == ("6234" if override else "6123")
+    run = data_dir / "projects" / "dotenv-book" / "outputs" / "runs" / "RUN_ENV"
+    run.mkdir(parents=True)
+    (run / "run.json").write_text("{}\n", encoding="utf-8")
+
+    for args in (("novel-status", "RUN_ENV"), ("novel-cover", "list", "dotenv-book")):
+        result = subprocess.run(
+            [str(checkout / "deploy.sh"), *args], cwd=tmp_path, env=env,
+            input="", text=True, capture_output=True, check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "fixture-secret-do-not-print" not in result.stdout + result.stderr
+        if args[0] == "novel-cover":
+            assert f"{data_dir}/projects/dotenv-book/outputs/deliverables" in result.stdout
+            assert f"http://localhost:{port}/projects/dotenv-book/covers" in result.stdout
+
+    calls = log.read_text()
+    assert "run-status --project /data/projects/dotenv-book --run-id RUN_ENV" in calls
+    assert "compose up" not in calls
+    assert "compose down" not in calls
+    assert not (checkout / "docker-data").exists()

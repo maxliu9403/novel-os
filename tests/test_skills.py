@@ -132,7 +132,9 @@ def test_cover_skill_requires_confirmed_design_and_distinct_concepts() -> None:
     direction = _read(COVER / "references" / "commercial-direction.md")
     body = skill + handoff + direction
 
-    assert "3-5" in body
+    assert "3-5" in body.replace("–", "-")
+    assert "four concepts by default" in body.lower()
+    assert "existing approved" in body.lower()
     assert "COVER_HANDOFF_BEGIN" in body
     assert "COVER_HANDOFF_END" in body
     assert "Sections A-E" in body
@@ -145,10 +147,13 @@ def test_cover_skill_requires_confirmed_design_and_distinct_concepts() -> None:
     assert "Do not infer or invent ethnicity" in body
     assert "American white casting" not in body
     assert "premium US commercial fiction magazine cover" in body
-    assert "visible action, reaction, and stakes" in body
+    assert "visible action, reaction, and stakes" in body.lower()
     assert "Western editorial typography" in body
-    assert "emotional consequence" in body
-    assert "causal relationship action" in body
+    assert "cover-readability.v2" in body
+    assert "cover-commercial-review.v1" in body
+    assert "expression_mode" in body
+    assert "Advisories" in body
+    assert "These do not block approval" in body
     assert "flat group portrait" in body
 
 

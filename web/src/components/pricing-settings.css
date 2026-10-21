@@ -1,0 +1,41 @@
+.pricing-settings { color: #263454; max-width: 1100px; }
+.pricing-settings header { display: flex; justify-content: space-between; gap: 20px; align-items: center; }
+.pricing-settings h2 { font-size: 24px; font-weight: 600; }
+.pricing-settings h3 { font-size: 16px; font-weight: 600; }
+.pricing-settings p { color: #687690; font-size: 12px; line-height: 1.8; margin-top: 5px; }
+.pricing-settings .pricing-settings__eyebrow { font-size: 10px; letter-spacing: .18em; color: #7770a7; }
+.pricing-settings__preset { display: flex; justify-content: space-between; gap: 18px; align-items: center; flex-wrap: wrap; margin: 22px 0 0; padding: 18px 20px; border: 1px solid rgba(104,103,234,.2); border-radius: 10px; background: linear-gradient(135deg, rgba(238,237,255,.9), rgba(255,255,255,.78)); }
+.pricing-settings__preset-left { display: flex; gap: 13px; align-items: flex-start; }
+.pricing-settings__preset-mark { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: #fff; border: 1px solid rgba(104,103,234,.2); color: #6867ea; font-size: 12px; font-weight: 700; letter-spacing: -.02em; flex: none; }
+.pricing-settings__preset h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.pricing-settings__preset p { margin: 4px 0 0; max-width: 680px; }
+.pricing-settings__exchange { margin: 24px 0; padding: 20px; border: 1px solid #dae0ec; border-radius: 10px; background: #fff; }
+.pricing-settings legend { font-size: 12px; font-weight: 600; padding-inline: 6px; }
+.pricing-settings label { font-size: 11px; color: #63718a; display: block; }
+.pricing-settings input { display: block; width: 100%; height: 38px; margin-top: 6px; border: 1px solid #d9dfeb; border-radius: 6px; background: #fff; padding: 8px 10px; color: #253350; font-size: 13px; min-width: 0; }
+.pricing-settings input:focus { outline: 2px solid #9f9bd1; outline-offset: 2px; }
+.pricing-settings input::placeholder { color: #9aa2b3; font-size: 11px; }
+.pricing-settings__exchange > div { display: flex; align-items: center; gap: 12px; font-size: 13px; margin-top: 6px; }
+.pricing-settings__exchange > div > span { white-space: nowrap; }
+.pricing-settings__exchange input { width: 150px; margin-top: 0; }
+.pricing-settings__section-heading { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 20px; }
+.pricing-settings__models { display: grid; gap: 14px; }
+.pricing-settings__model { border: 1px solid #dce2ee; border-radius: 10px; background: rgba(255,255,255,.9); padding: 18px 20px 20px; }
+.pricing-settings__identity { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,2fr) auto; gap: 16px; align-items: end; }
+.pricing-settings__identity button { font-size: 11px; color: #a06172; padding: 10px 0 10px 12px; }
+.pricing-settings__rates { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 16px; margin-top: 18px; }
+.pricing-settings__rates label > div { position: relative; }
+.pricing-settings__rates label span { position: absolute; top: 10px; left: 11px; font-size: 12px; color: #8b95aa; }
+.pricing-settings__rates input { padding-left: 25px; font-variant-numeric: tabular-nums; }
+.pricing-settings .pricing-settings__error { color: #a13751; background: #fff4f6; padding: 12px; border-radius: 8px; margin-top: 16px; }
+.pricing-settings .pricing-settings__success { color: #277455; padding-block: 12px; }
+.pricing-settings__footnote { border-top: 1px solid #dde3ee; margin-top: 24px; padding-top: 14px; }
+.pricing-settings__footnote a { font-size: 11px; color: #625a9f; display: inline-block; margin-top: 12px; }
+.pricing-settings__empty { padding: 24px; border: 1px dashed #dce2ee; }
+@media (max-width: 720px) {
+  .pricing-settings header,.pricing-settings__section-heading { align-items: flex-start; flex-direction: column; }
+  .pricing-settings__identity { grid-template-columns: minmax(0,1fr) auto; }
+  .pricing-settings__identity label:nth-child(2) { grid-column: 1; }
+  .pricing-settings__identity button { grid-column: 2; grid-row: 2; }
+  .pricing-settings__rates { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}

@@ -1,0 +1,13 @@
+{
+  "schema": "novel-method-catalog.v1",
+  "methods": {
+    "en-functional-prose.v1": {
+      "path": "en-functional-prose.v1.json",
+      "sha256": "8c97588b9bc1d3722b0b4e855a1bc84a166e889df8ce3acd6dc0a7dccdbf2dcd"
+    },
+    "en-agency-payoff.v1": {
+      "path": "en-agency-payoff.v1.json",
+      "sha256": "0187056e77b93bc2fa210ada3072aba3ad397e1022f094a313f605221fc5992a"
+    }
+  }
+}

@@ -5,7 +5,7 @@ import pytest
 from core import studio_settings
 
 
-def test_cover_settings_default_to_image2_and_exact_2k() -> None:
+def test_cover_settings_legacy_default_to_image2_and_exact_2k() -> None:
     settings = studio_settings.resolve_cover_settings({})
 
     assert settings.model == "gpt-image-2"
@@ -14,6 +14,38 @@ def test_cover_settings_default_to_image2_and_exact_2k() -> None:
     assert settings.output_format == "jpeg"
     assert settings.count == 4
     assert settings.timeout_seconds == 300.0
+
+
+def test_cover_size_reads_v2_parameters_without_resolving_image_connection(monkeypatch):
+    from core import provider_settings
+    monkeypatch.setattr(provider_settings, "load_configuration", lambda: {
+        "source": "v2", "image_profiles": {"cover": {"size": "1024x1536", "connection_id": "",
+                                                       "quality": "not configured"}}})
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Canvas geometry must not resolve an image connection or secret")
+    monkeypatch.setattr(provider_settings, "resolve_image_profile", forbidden)
+    monkeypatch.setattr(provider_settings, "_connection_secret", forbidden)
+    assert studio_settings.resolve_cover_size() == "1024x1536"
+
+
+def test_cover_size_keeps_legacy_precedence_without_other_image_parameters(monkeypatch):
+    from core import provider_settings
+    monkeypatch.setattr(provider_settings, "load_configuration", lambda: {"source": "legacy"})
+    monkeypatch.setenv("NOVEL_OS_COVER_SIZE", "768x1152")
+    monkeypatch.setattr(studio_settings, "load_settings", lambda: {"NOVEL_OS_COVER_SIZE": "1024x1536",
+                                                                 "NOVEL_OS_COVER_QUALITY": "invalid"})
+    assert studio_settings.resolve_cover_size() == "1024x1536"
+    assert studio_settings.resolve_cover_size({}) == "2048x3072"
+    assert studio_settings.resolve_cover_size({"NOVEL_OS_COVER_SIZE": "768x1152"}) == "768x1152"
+
+
+@pytest.mark.parametrize("size", ["1024x1024", "0x0", "auto", "-1x-1"])
+def test_cover_size_still_rejects_invalid_geometry(monkeypatch, size):
+    from core import provider_settings
+    monkeypatch.setattr(provider_settings, "load_configuration", lambda: {
+        "source": "v2", "image_profiles": {"cover": {"size": size}}})
+    with pytest.raises(ValueError):
+        studio_settings.resolve_cover_size()
 
 
 def test_cover_settings_reuse_writing_endpoint_and_key() -> None:

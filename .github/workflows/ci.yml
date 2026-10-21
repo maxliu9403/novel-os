@@ -78,3 +78,33 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  deployment:
+    name: Docker deployment files
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax
+        run: |
+          bash -n deploy.sh
+          sh -n docker-entrypoint.sh
+
+      - name: Compose configuration
+        env:
+          NOVEL_OS_DATA_DIR: /tmp/novel-os-data
+          NOVEL_OS_CODEX_AUTH_FILE: /tmp/codex/auth.json
+          NOVEL_OS_CODEX_CONFIG_FILE: /tmp/codex/config.toml
+        run: |
+          docker compose config --quiet
+          docker compose config --format json | python3 -c '
+          import json, os, sys
+          volumes = json.load(sys.stdin)["services"]["backend"]["volumes"]
+          mounts = {volume["target"]: volume for volume in volumes}
+          assert mounts["/data"]["source"] == os.environ["NOVEL_OS_DATA_DIR"]
+          for filename, variable in (("auth.json", "NOVEL_OS_CODEX_AUTH_FILE"), ("config.toml", "NOVEL_OS_CODEX_CONFIG_FILE")):
+              mount = mounts["/root/.codex/" + filename]
+              assert mount["source"] == os.environ[variable]
+              assert mount["bind"]["create_host_path"] is False
+          '
