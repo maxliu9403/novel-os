@@ -27,12 +27,15 @@ def _hold_delivery_lock(project: str, ready, release) -> None:
 def _package(project: Path, *, marker: str = "first") -> Path:
     path = project / "outputs" / "deliverables" / "book-package.zip"
     path.parent.mkdir(parents=True, exist_ok=True)
-    with ZipFile(path, "w") as archive:
-        archive.writestr("book.md", marker)
-        archive.writestr("package-manifest.json", json.dumps({
-            "cover": {},
-            "files": [],
-        }))
+    if marker == 'first':
+        from tests.h5_fixtures import compiled_book
+        from core.delivery_package import build_delivery_package
+        compiled_book(project)
+        build_delivery_package(project)
+    else:
+        with ZipFile(path, "w") as archive:
+            archive.writestr("book.md", marker)
+            archive.writestr("package-manifest.json", json.dumps({"cover": {}, "files": []}))
     return path
 
 
@@ -53,7 +56,7 @@ def _status_marker(project: Path, archive: Path, *, status: str = "ready") -> Pa
     return path
 
 
-def test_list_and_detail_expose_downloadable_legacy_package(tmp_path):
+def test_list_and_detail_expose_verified_package_without_writes(tmp_path):
     project = _project(tmp_path, "book")
     archive = _package(project)
     before = {path: path.stat().st_mtime_ns for path in project.rglob("*") if path.is_file()}
@@ -67,10 +70,30 @@ def test_list_and_detail_expose_downloadable_legacy_package(tmp_path):
         "status": "ready",
         "retryable": False,
         "error": None,
-        "updated_at": None,
+        "updated_at": listed.delivery.updated_at,
     }
     assert read_current_package(project) == archive.read_bytes()
     assert {path: path.stat().st_mtime_ns for path in project.rglob("*") if path.is_file()} == before
+
+
+def test_library_does_not_decode_images_but_download_checks_the_contract(tmp_path, monkeypatch):
+    from core import delivery_validation
+    project = _project(tmp_path, 'cold-list')
+    _package(project)
+    calls = []
+    original = delivery_validation.inspect_package_bytes
+
+    def inspected(raw):
+        calls.append(len(raw))
+        return original(raw)
+
+    monkeypatch.setattr(delivery_validation, 'inspect_package_bytes', inspected)
+    assert project_delivery_summary(project).status == 'ready'
+    assert not calls
+    assert read_current_package(project).startswith(b'PK')
+    assert len(calls) == 1
+    read_current_package(project)
+    assert len(calls) == 1
 
 
 def test_missing_orphaned_pending_and_failed_are_projected_without_rebuilding(tmp_path):

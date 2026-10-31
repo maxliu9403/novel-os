@@ -131,14 +131,12 @@ def test_author_only_change_updates_revision_without_changing_book_or_chapters(t
     ]
 
 
-def test_metadata_only_package_has_explicit_empty_author_without_generation(tmp_path):
+def test_new_book_without_epub_is_not_published_as_metadata_only(tmp_path):
     project = tmp_path / "book"
 
-    sidecar, manifest = package_metadata(build_delivery_package(project))
-
-    assert sidecar["status"] == "metadata_only"
-    assert sidecar["author"] == manifest["author"] == ""
-    assert sidecar["versions"]["author_sha256"] == object_digest({"author": ""})
+    with pytest.raises(ValueError, match="import_contract"):
+        build_delivery_package(project)
+    assert not (project / "outputs/deliverables/book-package.zip").exists()
 
 
 def test_cover_only_change_keeps_book_body_and_structure_identity(tmp_path):
@@ -146,9 +144,10 @@ def test_cover_only_change_keeps_book_body_and_structure_identity(tmp_path):
     make_book(project)
     cover = project / "outputs/deliverables/covers/selected-cover.png"
     cover.parent.mkdir()
-    cover.write_bytes(b"cover-A")
+    from tests.test_cover_epub import cover_bytes
+    cover.write_bytes(cover_bytes("navy"))
     a = import_sidecar(build_delivery_package(project))
-    cover.write_bytes(b"cover-B")
+    cover.write_bytes(cover_bytes("maroon"))
     b = import_sidecar(build_delivery_package(project))
     assert a["book_id"] == b["book_id"]
     assert a["chapters"] == b["chapters"]
@@ -248,7 +247,7 @@ def test_epub_map_errors_are_reported_before_import(tmp_path, fault):
         epub_index(buffer.getvalue(), serialization, classification)
 
 
-def test_legacy_epub_without_map_remains_exportable_without_guessing_binding(tmp_path):
+def test_legacy_epub_without_map_requires_recompile_before_h5_export(tmp_path):
     project = tmp_path / "book"
     _, classification, serialization = make_book(project)
     epub_path = project / "outputs/deliverables/book.epub"
@@ -263,12 +262,11 @@ def test_legacy_epub_without_map_remains_exportable_without_guessing_binding(tmp
     with zipfile.ZipFile(epub_path, "w") as target:
         for name, data in members.items():
             target.writestr(name, data)
-    data = import_sidecar(build_delivery_package(project))
-    assert data["status"] == "legacy_epub"
-    assert data["epub"]["sha256"] == digest(epub_path.read_bytes())
-    assert data["chapters"] == []
-    assert data["versions"]["content_sha256"] is None
-    assert data["author"] == "Fixture"
+    original = epub_path.read_bytes()
+    with pytest.raises(ValueError, match="import_contract"):
+        build_delivery_package(project)
+    assert epub_path.read_bytes() == original
+    assert not (project / "outputs/deliverables/book-package.zip").exists()
     classification["audience"]["channel"] = "male"
     with pytest.raises(ValueError, match="classification conflicts"):
         epub_index(epub_path.read_bytes(), serialization, classification)

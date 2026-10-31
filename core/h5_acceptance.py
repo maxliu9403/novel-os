@@ -1,50 +1,35 @@
 """Read-only release evidence tools. This is not the H5 importer or an updater."""
 import json
-import posixpath
 import re
-import stat
 import zipfile
-from xml.etree import ElementTree as ET
-from io import BytesIO
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from h5_import import digest, epub_index, object_digest
-from novel_classification import NovelClassification
-from narrative_format import validate_serialization
+try:
+    from .h5_import import digest, epub_index, object_digest
+    from .novel_classification import NovelClassification
+    from .narrative_format import validate_serialization
+    from .h5_contract import (PROFILE, BOOK_ID, TOKEN, ContractError, require as _require,
+                             strict_json as _json, checked_archive as _archive,
+                             verify_image, bound, safe_path, xml_document, valid_text)
+except ImportError:
+    from h5_import import digest, epub_index, object_digest
+    from novel_classification import NovelClassification
+    from narrative_format import validate_serialization
+    from h5_contract import (PROFILE, BOOK_ID, TOKEN, ContractError, require as _require,
+                             strict_json as _json, checked_archive as _archive,
+                             verify_image, bound, safe_path, xml_document, valid_text)
 
-MAX_ARCHIVE = 100_000_000
-MAX_EXPANDED = 200_000_000
+MAX_ARCHIVE = PROFILE.zip_bytes
+MAX_EXPANDED = PROFILE.zip_expanded
 MEDIA = {'.epub': 'application/epub+zip', '.json': 'application/json', '.md': 'text/markdown',
          '.pdf': 'application/pdf', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-         '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp'}
+         '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
 PRIVATE_KEYS = {'method_policy', 'method_lock', 'method_lock_sha256', 'raw_critique', 'secret_knowledge',
                 'method_reviews', 'knowledge_observations', 'run_method_lock', 'preference_id', 'raw_response'}
 PRIVATE_SCHEMAS = ('novel-method-', 'narrative-method', 'novel-knowledge', 'novel-preference', 'novel-experiment')
-
-
-class ContractError(ValueError):
-    def __init__(self, code):
-        self.code = code
-        super().__init__(code)
-
-
-def _require(condition, code):
-    if not condition:
-        raise ContractError(code)
-
-
-def _json(raw):
-    def unique(pairs):
-        result = {}
-        for key, value in pairs:
-            _require(key not in result, 'duplicate_json_key')
-            result[key] = value
-        return result
-    return json.loads(raw, object_pairs_hook=unique,
-                      parse_constant=lambda _: (_ for _ in ()).throw(ContractError('nonfinite_json')))
 
 
 def _public_json(value):
@@ -69,8 +54,10 @@ def _public_path(entry):
     elif role == 'cover_metadata':
         allowed = len(parts) == 2 and parts[0] == 'covers' and suffix == '.json'
     elif role in {'cover_candidate', 'selected_cover'}:
-        allowed = suffix in {'.png', '.jpg', '.jpeg', '.webp'} and (
-            (role == 'cover_candidate' and len(parts) == 3 and parts[:2] == ('covers', 'pending'))
+        _require(entry.get('media_type') in {'image/png', 'image/jpeg'}, 'cover_media_type',
+                 path=entry['path'], actual=entry.get('media_type'), expected='PNG/JPEG')
+        allowed = suffix in {'.png', '.jpg', '.jpeg'} and (
+            (role == 'cover_candidate' and len(parts) >= 3 and parts[:2] == ('covers', 'pending'))
             or (role == 'selected_cover' and len(parts) == 2 and parts[0] == 'covers'))
     else:
         # Exact object families emitted by h5_publication.py, not arbitrary JSON
@@ -80,33 +67,20 @@ def _public_path(entry):
                    and parts[1].startswith('pkg-') and (relative in {
                        'meta/publication_package.json', 'meta/finalization.json', 'meta/delivery.json', '正文.md',
                    } or re.fullmatch(r'chapters/[0-9]{2,4}\.md', relative)))
-    _require(allowed, 'invalid_public_role_path')
-
-
-def _archive(raw):
-    archive = zipfile.ZipFile(BytesIO(raw))
-    try:
-        entries = archive.infolist()
-        _require(0 < len(entries) <= 4096 and sum(e.file_size for e in entries) <= MAX_EXPANDED, 'archive_budget')
-        _require(len({e.filename for e in entries}) == len(entries), 'duplicate_zip_path')
-        for entry in entries:
-            name = entry.filename
-            _require(name and not name.startswith('/') and '\\' not in name and ':' not in name
-                     and '..' not in name.split('/') and posixpath.normpath(name) == name, 'unsafe_zip_path')
-            _require(not stat.S_ISLNK(entry.external_attr >> 16) and not entry.is_dir(), 'unsafe_zip_member')
-            _require(not entry.flag_bits & 1, 'encrypted_zip_member')
-            _require(entry.file_size <= MAX_ARCHIVE, 'archive_member_budget')
-        return archive
-    except Exception:
-        archive.close()
-        raise
+    _require(allowed, 'invalid_public_role_path', path=entry['path'])
 
 
 def inspect_package(path: str | Path) -> dict:
     """Validate exact ZIP bytes without extraction, writing, or external calls."""
     path = Path(path)
     _require(path.is_file() and not path.is_symlink() and path.stat().st_size <= MAX_ARCHIVE, 'invalid_package_file')
-    raw = path.read_bytes()
+    with path.open('rb') as stream:
+        raw = stream.read(MAX_ARCHIVE + 1)
+    return inspect_package_bytes(raw)
+
+
+def inspect_package_bytes(raw: bytes) -> dict:
+    """Inspect the exact bytes to be published or returned to a downloader."""
     try:
         with _archive(raw) as archive:
             manifest = _json(archive.read('package-manifest.json'))
@@ -115,6 +89,7 @@ def inspect_package(path: str | Path) -> dict:
             files = manifest['files']
             _require(isinstance(files, list) and files, 'file_index')
             paths = [f['path'] for f in files]
+            _require(paths == sorted(paths), 'manifest_order')
             _require(len(paths) == len(set(paths)), 'duplicate_manifest_path')
             _require(set(paths) | {'package-manifest.json'} == set(archive.namelist())
                      and 'package-manifest.json' not in paths, 'unindexed_zip_member')
@@ -142,8 +117,11 @@ def inspect_package(path: str | Path) -> dict:
                 _require(len(matching) <= 1 and (matching or not required), 'ambiguous_or_missing_role')
                 return matching[0] if matching else None
 
-            def referenced(pointer, role):
-                entry = singleton(role, required=True)
+            def referenced(pointer, role, *, required=True):
+                entry = singleton(role, required=required)
+                if entry is None:
+                    _require(pointer is None or isinstance(pointer, dict) and not pointer.get('path'), 'conflicting_path_pointer')
+                    return None
                 _require(isinstance(pointer, dict) and pointer['path'] == entry['path'], 'conflicting_path_pointer')
                 for key in ('size', 'sha256', 'media_type'):
                     if key in pointer:
@@ -153,7 +131,7 @@ def inspect_package(path: str | Path) -> dict:
             data = referenced(manifest['h5_import'], 'h5_import')
             _require(data['schema_version'] == 'novel-h5-import.v1' and data['status'] == 'ready'
                      and data['body_source'] == 'epub', 'import_contract')
-            _require(data['book_id'] == manifest['book_id'] and data['book_id'].startswith('novel-os:'), 'book_identity')
+            _require(data['book_id'] == manifest['book_id'] and BOOK_ID.fullmatch(data['book_id']), 'book_identity')
             author_present = 'author' in data
             manifest_author_present = 'author' in manifest
             if author_present:
@@ -162,17 +140,28 @@ def inspect_package(path: str | Path) -> dict:
                 _require(type(manifest['author']) is str, 'author_contract')
             if author_present and manifest_author_present:
                 _require(data['author'] == manifest['author'], 'author_contract')
-            classification = referenced(data['classification'], 'novel_classification')
-            referenced(manifest['classification'], 'novel_classification')
-            _require(NovelClassification.from_dict(classification).to_dict() == classification, 'classification_contract')
-            serialization = referenced(data['serialization'], 'novel_serialization')
-            referenced(manifest['serialization'], 'novel_serialization')
-            _require(validate_serialization(serialization) == serialization, 'serialization_contract')
+            classification = referenced(data['classification'], 'novel_classification', required=False)
+            referenced(manifest['classification'], 'novel_classification', required=False)
+            if classification is not None:
+                _require(NovelClassification.from_dict(classification).to_dict() == classification, 'classification_contract')
+                _require(manifest['classification']['classification_id'] == classification['classification_id'], 'classification_identity')
+            serialization = referenced(data['serialization'], 'novel_serialization', required=False)
+            referenced(manifest['serialization'], 'novel_serialization', required=False)
+            if serialization is not None:
+                _require(validate_serialization(serialization) == serialization, 'serialization_contract')
+                _require(manifest['serialization']['serialization_id'] == serialization['serialization_id'], 'serialization_identity')
+            for entry in files:
+                if entry['role'] == 'h5_publication_object' and entry['path'].endswith('/meta/publication_package.json'):
+                    publication = _json(archive.read(entry['path']))
+                    for key, expected in (('classification', classification), ('serialization', serialization)):
+                        if publication.get(key) is not None:
+                            _require(publication[key] == expected, 'publication_metadata_conflict', path=entry['path'])
             epub_entry = by_path[data['epub']['path']]
             _require(epub_entry['role'] == 'book_export' and epub_entry['media_type'] == 'application/epub+zip', 'epub_media_type')
             _require(all(data['epub'][k] == epub_entry[k] for k in ('path', 'size', 'sha256')), 'epub_descriptor')
             epub_raw = archive.read(epub_entry['path'])
-            with _archive(epub_raw) as epub:
+            _require(sum(f['media_type'] == 'application/epub+zip' for f in files) == 1, 'epub_count')
+            with _archive(epub_raw, epub=True) as epub:
                 _require(epub.read('mimetype') == b'application/epub+zip', 'epub_mimetype')
             index = epub_index(epub_raw, serialization, classification)
             author = (
@@ -180,8 +169,9 @@ def inspect_package(path: str | Path) -> dict:
                 else manifest['author'] if manifest_author_present
                 else index['dc_creator']
             )
-            with _archive(epub_raw) as epub:
-                opf = ET.fromstring(epub.read(index['opf_path']))
+            _require(not author or valid_text(author, 128, utf8_bytes=True), 'author_contract')
+            with _archive(epub_raw, epub=True) as epub:
+                opf = xml_document(epub.read(index['opf_path']), path=index['opf_path'])
                 for meta in opf.findall('.//{*}meta'):
                     key = meta.get('property', meta.get('name', ''))
                     if key.startswith('novel-os:'):
@@ -197,23 +187,66 @@ def inspect_package(path: str | Path) -> dict:
             _require(data['cover']['selection_action'] == ('replace' if selected else 'keep_existing'), 'cover_action')
             cover_metadata = singleton('cover_metadata')
             _require(data['cover']['metadata'] == cover_metadata, 'cover_metadata')
+            decoded = {}
+            candidate_files = {}
+            orders = set()
+            for file in files:
+                if file['role'] in {'selected_cover', 'cover_candidate'}:
+                    decoded[file['path']] = verify_image(archive.read(file['path']), file['media_type'], file['path'])
+                if file['role'] == 'cover_candidate':
+                    candidate_id, order = file.get('candidate_id'), file.get('display_order')
+                    _require(isinstance(candidate_id, str) and TOKEN.fullmatch(candidate_id)
+                             and candidate_id not in candidate_files, 'cover_candidate_identity')
+                    _require(type(order) is int and 1 <= order <= PROFILE.cover_candidates and order not in orders, 'cover_candidate_order')
+                    candidate_files[candidate_id] = file
+                    orders.add(order)
             if cover_metadata:
-                from cover_models import CoverSet
-                cover = CoverSet.from_dict(_json(archive.read(cover_metadata['path'])))
+                try:
+                    from .cover_models import CoverSet
+                except ImportError:
+                    from cover_models import CoverSet
+                raw_cover = _json(archive.read(cover_metadata['path']))
+                _require(type(raw_cover.get('revision')) is int and raw_cover['revision'] >= 1
+                         and type(raw_cover.get('brief_schema_version')) is int
+                         and raw_cover['brief_schema_version'] in {1, 2}
+                         and isinstance(raw_cover.get('cover_set_id'), str)
+                         and TOKEN.fullmatch(raw_cover['cover_set_id'])
+                         and raw_cover.get('status') in {'generating', 'partial', 'ready', 'selected', 'failed', 'stale'},
+                         'cover_metadata_identity')
+                concepts = [c['concept_id'] for c in raw_cover['concepts']]
+                candidate_ids = [c['candidate_id'] for c in raw_cover['candidates']]
+                _require(all(isinstance(i, str) and TOKEN.fullmatch(i) for i in concepts + candidate_ids)
+                         and len(set(concepts)) == len(concepts)
+                         and len(set(candidate_ids)) == len(candidate_ids), 'cover_candidate_identity')
+                _require(all(c['concept_id'] in concepts for c in raw_cover['candidates']), 'cover_candidate_concept')
+                _require(all(c.get('status') in {'pending', 'ready', 'failed', 'rejected', 'selected'}
+                             and type(c.get('width')) is int and type(c.get('height')) is int
+                             for c in raw_cover['candidates']), 'cover_candidate_contract')
+                cover = CoverSet.from_dict(raw_cover)
+                bound(len(cover.candidates), PROFILE.cover_candidates, 'cover_candidate_count')
                 _require(cover.selected_candidate_id == data['cover']['selected_candidate_id']
                          == manifest['cover']['selected_candidate_id'], 'cover_selection')
+                _require(not manifest['cover']['cover_set_id'] or manifest['cover']['cover_set_id'] == cover.cover_set_id, 'cover_identity')
                 for candidate in cover.candidates:
-                    matching = [e for e in files if e.get('candidate_id') == candidate.candidate_id]
-                    if candidate.status in {'ready', 'selected'}:
-                        _require(len(matching) == 1 and matching[0]['sha256'] == candidate.sha256, 'cover_candidate')
+                    file = candidate_files.get(candidate.candidate_id)
+                    is_selected = candidate.candidate_id == cover.selected_candidate_id
+                    _require(candidate.status != 'selected' or is_selected, 'cover_selection')
+                    if is_selected:
+                        file = selected
+                    if file is None:
+                        _require(candidate.status not in {'ready', 'selected'}, 'cover_candidate')
+                        continue
+                    _require(file['sha256'] == candidate.sha256, 'cover_candidate')
+                    _require(decoded[file['path']] == (candidate.width, candidate.height)
+                             and file['media_type'] == candidate.content_type, 'cover_dimensions')
+                    if candidate.relative_path:
+                        _require(safe_path(candidate.relative_path.removeprefix('outputs/deliverables/')), 'cover_candidate_path')
+                _require(set(candidate_files).issubset({c.candidate_id for c in cover.candidates}), 'cover_candidate_identity')
                 if selected:
                     candidates = [c for c in cover.candidates if c.candidate_id == cover.selected_candidate_id]
                     _require(len(candidates) == 1 and candidates[0].sha256 == selected['sha256'], 'cover_selection')
-            for file in files:
-                if file['role'] in {'selected_cover', 'cover_candidate'}:
-                    from PIL import Image
-                    with Image.open(BytesIO(archive.read(file['path']))) as picture:
-                        picture.verify()
+            else:
+                _require(not candidate_files and not data['cover']['selected_candidate_id'], 'cover_metadata')
             versions = {'epub_sha256': digest(epub_raw), 'content_sha256': index['content_sha256'],
                         'front_matter_sha256': index['front_matter_sha256'],
                         'selected_cover_sha256': selected['sha256'] if selected else None}
@@ -230,19 +263,21 @@ def inspect_package(path: str | Path) -> dict:
             _require(data['versions'] == versions, 'component_revisions')
             _require(data['import_revision_sha256'] == object_digest({'book_id': data['book_id'], 'versions': versions}), 'import_revision')
             return {'engine_contract_status': 'passed', 'external_import_status': 'pending',
+                    'target_profile': PROFILE.id, 'catalog_sha256': PROFILE.catalog_sha256,
+                    'validator_revision': PROFILE.validator_revision,
                     'package_sha256': digest(raw), 'package_revision_sha256': manifest['package_revision_sha256'],
                     'import_revision_sha256': data['import_revision_sha256'], 'book_id': data['book_id'],
                     'author': author,
                     'author_present': author_present or manifest_author_present,
                     'versions': versions, 'chapters': data['chapters'], 'chapter_count': data['chapter_count'],
                     'volumes': [{k: v[k] for k in ('volume_id', 'volume_number', 'title', 'chapter_start', 'chapter_end')}
-                                for v in serialization['volumes']],
+                                for v in (serialization or {}).get('volumes', [])],
                     'volume_count': len({c['volume_id'] for c in data['chapters']}),
                     'introduction_count': sum(c['kind'] == 'introduction' for c in data['non_chapter_items']),
                     'non_chapter_items': data['non_chapter_items']}
     except ContractError:
         raise
-    except (ValueError, KeyError, TypeError, OSError, zipfile.BadZipFile, RuntimeError, RecursionError) as exc:
+    except (ValueError, KeyError, TypeError, AttributeError, OSError, zipfile.BadZipFile, RuntimeError, RecursionError) as exc:
         raise ContractError('malformed_package_contract') from exc
 
 

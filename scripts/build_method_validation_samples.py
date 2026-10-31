@@ -15,7 +15,8 @@ from compile_book import gather, render_markdown
 from compile_epub import render_epub
 from delivery_package import build_delivery_package
 from h5_acceptance import build_acceptance_plan, inspect_package
-from h5_import import digest, object_digest
+from h5_import import digest, object_digest, epub_index
+from compiled_source import COMPILED_SOURCE, source_digest
 from narrative_format import infer_narrative_format, serialization_payload, volume_contract_template
 from novel_classification import infer_classification
 from scripts.build_h5_handoff_samples import create_cover_set
@@ -46,7 +47,7 @@ def _book(project, count, volume_count):
         '## STORY_LEAD: Introduction\n\nTechnical fixture only. A woman finds a letter and chooses to answer it herself.\n\n'
         if n == 1 else '') + f'# Chapter {n}\n\nFixture chapter {n}: Ada answers the letter. Her decision has a consequence. 🌿'
                 } for n in range(1, count + 1)]
-    cover = create_cover_set(project, 'Method Validation: Technical Fixture')
+    cover = replace(create_cover_set(project, 'Method Validation: Technical Fixture'), revision=1)
     selected = cover.candidates[0]
     cover = replace(cover, status='selected', selected_candidate_id=selected.candidate_id,
                     candidates=tuple(replace(c, status='selected' if c == selected else 'ready') for c in cover.candidates))
@@ -69,6 +70,15 @@ def _compile(project, classification, serial, chapters, cover):
     (deliverables / 'book.md').write_text(render_markdown(book, StyleSheet()), encoding='utf-8')
     _json(project / 'outputs/publication/novel-classification.json', classification.to_dict())
     _json(project / 'outputs/publication/novel-serialization.json', serial)
+    binding_paths = [str(p.relative_to(project)) for p in sources.glob('*_final.md')]
+    index = epub_index((deliverables / 'book.epub').read_bytes(), serial, classification.to_dict())
+    _json(project / COMPILED_SOURCE, {
+        'schema_version': 'novel-compiled-source.v1',
+        'sources': {p: source_digest(project, p) for p in binding_paths},
+        'chapter_count': len(chapters),
+        'content_sha256': index['content_sha256'],
+        'front_matter_sha256': index['front_matter_sha256'],
+    })
     return build_delivery_package(project, cover_set=cover).archive_path
 
 

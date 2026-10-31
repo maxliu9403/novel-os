@@ -1516,16 +1516,13 @@ class CoverService:
 
     def _rebuild_delivery(self, project_path: str | Path, cover_set: CoverSet) -> None:
         with delivery_lock(project_path):
-            from core.cover_delivery import delivery_selection, tracks_delivery, record_delivery
+            from core.cover_delivery import delivery_selection, record_delivery
             selected = delivery_selection(project_path, cover_set)
-            tracked = tracks_delivery(selected)
-            if tracked:
-                record_delivery(project_path, selected, "pending")
+            record_delivery(project_path, selected, "pending")
             try:
                 self._rebuild_delivery_locked(project_path, cover_set)
             except Exception as exc:
-                if tracked:
-                    record_delivery(project_path, selected, "failed", error=exc)
+                record_delivery(project_path, selected, "failed", error=exc)
                 raise
 
     def _rebuild_selected_delivery(self, project_path: str | Path, cover_set: CoverSet) -> None:
@@ -1565,13 +1562,11 @@ class CoverService:
         if delivery_set.selected_candidate_id:
             self._project_selected(project, delivery_set,
                 self._candidate(delivery_set, delivery_set.selected_candidate_id))
-            if delivery_set.compiler_version.startswith("skeleton-poster") or any(
-                    concept.scene_plan.get("_poster_recipe") for concept in delivery_set.concepts):
-                from core.cover_epub import sync_selected_epub
-                chosen = self._candidate(delivery_set, delivery_set.selected_candidate_id)
-                sync_selected_epub(project, self._stored_asset(project, delivery_set.project_id,
-                    chosen.sha256, chosen.content_type, chosen.relative_path),
-                    title=delivery_set.brief.title, expected_sha256=chosen.sha256)
+        if not (project / "outputs/deliverables/book.epub").is_file():
+            from core.cover_delivery import record_delivery
+            record_delivery(project, delivery_set, "failed",
+                            error="请先编译完整正文 EPUB，再生成 H5 交付包；已生成封面会保留。")
+            return
         build_delivery_package(project, cover_set=delivery_set)
 
     def _require_generation_dependencies(self) -> None:

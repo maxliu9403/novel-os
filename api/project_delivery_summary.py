@@ -15,6 +15,7 @@ from typing import Iterator, Literal
 from zipfile import BadZipFile, ZipFile
 
 from .models import ProjectDeliverySummary
+from core.delivery_validation import contract_dependencies, current_package_binding_sha
 from core.safe_project_io import (
     ProjectPathError,
     open_project_file,
@@ -98,6 +99,7 @@ def _dependencies(project: Path) -> tuple[object, ...]:
         else _STAT_MISSING,
         _stamp(project, _STATUS),
         _stamp(project, _ARCHIVE),
+        contract_dependencies(project),
     )
 
 
@@ -204,6 +206,10 @@ def _summary_values(project: Path) -> tuple[str, bool, str | None, str | None]:
         actual_sha = _sha256_file(project)
         if actual_sha != expected_sha:
             return "stale", True, "交付包文件已变化，请重新生成交付包。", updated_at
+    try:
+        current_package_binding_sha(project)
+    except (ValueError, OSError) as exc:
+        return "stale", True, f"交付包需要重新校验或生成：{exc}", updated_at
     return "ready", False, None, updated_at
 
 

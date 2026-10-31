@@ -1,0 +1,56 @@
+name: H5 target contract
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repository:
+        description: Repository containing the authorized H5 importer checkout (owner/repo)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read pinned target revision
+        id: target
+        run: |
+          python3 - <<'PY'
+          import json, os
+          lock = json.load(open('resources/h5-target/validator.lock.json'))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('revision=' + lock['revision'] + '\n')
+          PY
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.target_repository }}
+          ref: ${{ steps.target.outputs.revision }}
+          path: .h5-target
+          token: ${{ secrets.H5_CONTRACT_READ_TOKEN || github.token }}
+          persist-credentials: false
+          sparse-checkout: apps/api/internal/studio/zipimport
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Install test dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Verify actual target parser offline
+        env:
+          H5_ZIPIMPORT_SOURCE: ${{ github.workspace }}/.h5-target/apps/api/internal/studio/zipimport
+        run: python -m pytest tests/test_h5_target_contract.py -v --basetemp=/tmp/h5-contract-tests
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: h5-contract-evidence
+          path: |
+            /tmp/h5-contract-tests/**/target-cases.json
+            /tmp/h5-contract-tests/**/target-results.json
+          if-no-files-found: warn

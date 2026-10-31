@@ -286,6 +286,8 @@ def render_epub(book: CompiledBook, sheet: StyleSheet, *, cover_image: bytes | N
             "story_lead_label", "story_lead_title", "story_hook", "story_lead",
         }
     ]
+    from h5_contract import PROFILE, bound
+    bound(len(book.chapters) + bool(intro_blocks), PROFILE.spine_items, 'epub_spine')
     intro_title = next(
         (
             block.text

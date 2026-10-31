@@ -102,6 +102,8 @@ def studio(tmp_path, monkeypatch):
               "```COVER_SOURCE_DEPENDENCIES\r\n{\"cast\":\"cast.md\"}\r\n```\r\n").encode()
     source_path.write_bytes(source)
     (project / "cast.md").write_text("Leo is an adult; preserve mother and son identities.\n")
+    from tests.h5_fixtures import compiled_book
+    compiled_book(project, book=book_fixture("The Choice Was Hers")[0])
     yield SimpleNamespace(client=client, project=project, project_id=project_id,
                           base=f"/api/projects/{project_id}/poster", planner=planner,
                           images=images, source=source, service=service)
@@ -207,11 +209,11 @@ def test_selection_and_local_typography_update_epub_and_every_delivery_hash(stud
     original = render_epub(book, StyleSheet())
     original_index = epub_index(original, serialization, classification)
     deliverables = studio.project / "outputs/deliverables"
-    deliverables.mkdir(parents=True)
+    deliverables.mkdir(parents=True, exist_ok=True)
     epub_path = deliverables / "book.epub"
     epub_path.write_bytes(original)
     publication = studio.project / "outputs/publication"
-    publication.mkdir()
+    publication.mkdir(exist_ok=True)
     classification_bytes = json.dumps(classification, ensure_ascii=False).encode()
     (publication / "novel-classification.json").write_bytes(classification_bytes)
     (publication / "novel-serialization.json").write_text(json.dumps(serialization))
@@ -267,7 +269,7 @@ def test_failed_epub_rebuild_preserves_selection_and_old_zip_but_blocks_stale_do
     book = book_fixture("The Choice Was Hers")[0]
     original = render_epub(book, StyleSheet())
     deliverables = studio.project / "outputs/deliverables"
-    deliverables.mkdir(parents=True)
+    deliverables.mkdir(parents=True, exist_ok=True)
     epub_path = deliverables / "book.epub"
     epub_path.write_bytes(original)
     _, first = generate(studio)

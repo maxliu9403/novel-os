@@ -25,12 +25,8 @@ from tests.test_cover_models_v2 import two_character_fixture
 
 
 def _jpeg(marker: bytes) -> bytes:
-    return (
-        b"\xff\xd8\xff\xc0\x00\x11\x08\x0c\x00\x08\x00"
-        + b"\x03\x01\x11\x00\x02\x11\x00\x03\x11\x00"
-        + marker
-        + b"\xff\xd9"
-    )
+    from tests.test_cover_service import _jpeg as real_jpeg
+    return real_jpeg(marker=marker)
 
 
 class ImageClient:
@@ -250,6 +246,8 @@ def _write_pending_cover_sources(project_path) -> None:
 def test_generate_lists_and_downloads_project_cover_package(tmp_path, monkeypatch) -> None:
     client, image_client = _client(tmp_path, monkeypatch)
     project = client.post("/api/projects", json={"title": "API Cover", "genre": "Drama"}).json()
+    from tests.h5_fixtures import compiled_book
+    compiled_book(tmp_path / 'projects' / project['id'])
 
     response = client.post(f"/api/projects/{project['id']}/covers/generate", json={
         "brief": _brief(), "concepts": _concepts(),

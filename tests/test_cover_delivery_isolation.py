@@ -18,7 +18,13 @@ from core.cover_director import CoverArtDirector
 from core.cover_prompt_compiler import scene_to_cover_concept
 from core.cover_quality import CoverVisualEvaluator
 from tests.test_cover_director import _brief as _brief_v2, director_fixture
-from tests.test_cover_service import _brief, _concepts, _jpeg, _service
+from tests.test_cover_service import _brief, _concepts, _jpeg, _service as _image_service
+from tests.h5_fixtures import compiled_book
+
+
+def _service(tmp_path, outcomes):
+    compiled_book(tmp_path / 'project')
+    return _image_service(tmp_path, outcomes)
 
 
 def _assert_package(project, expected):
@@ -61,6 +67,7 @@ def test_new_unselected_batch_preserves_active_selection_and_delivery(tmp_path):
     assert CoverStore(project).active().cover_set_id == first.cover_set_id
     assert CoverStore(project).active().revision == 1
     assert (project / "outputs/deliverables/covers/selected-cover.jpg").read_bytes() == images[0]
+
     assert set(item.relative_path for item in first.candidates).isdisjoint(
         item.relative_path for item in second.candidates)
     assert all((project / item.relative_path).read_bytes() == images[i + 4]
@@ -78,6 +85,24 @@ def test_new_unselected_batch_preserves_active_selection_and_delivery(tmp_path):
         expected_revision=selected.revision, expected_active_revision=2)
     _assert_package(project, reactivated)
     assert (project / "outputs/deliverables/covers/selected-cover.jpg").read_bytes() == images[0]
+
+
+def test_cover_selection_survives_missing_manuscript_and_can_export_after_compile(tmp_path):
+    from core.cover_delivery import delivery_status, read_current_package
+    project = tmp_path / 'project'
+    images = [_jpeg(marker=f'selection-{i}'.encode()) for i in range(4)]
+    service, _, _ = _image_service(tmp_path, images)
+    generated = service.generate('project-one', project, _brief(), _concepts())
+    selected = service.select_candidate(project, generated.cover_set_id, generated.candidates[1].candidate_id,
+        expected_revision=generated.revision, expected_active_revision=0)
+    assert CoverStore(project).load(CoverStore(project).active().cover_set_id).selected_candidate_id == selected.selected_candidate_id
+    assert (project / 'outputs/deliverables/covers/selected-cover.jpg').read_bytes() == images[1]
+    assert delivery_status(project)['status'] == 'failed'
+    assert 'EPUB' in delivery_status(project)['error']
+    assert not (project / 'outputs/deliverables/book-package.zip').exists()
+    compiled_book(project)
+    service._rebuild_delivery(project, selected)
+    assert read_current_package(project).startswith(b'PK')
 
 
 def test_legacy_shared_pending_paths_restore_each_selected_batch_from_media(tmp_path):

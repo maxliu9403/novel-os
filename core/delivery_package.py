@@ -22,12 +22,16 @@ try:  # Package import in API/tests; top-level import in the legacy CLI path.
     from .novel_classification import NovelClassification
     from .narrative_format import validate_serialization
     from .h5_import import build_h5_import, RELATIVE_PATH as H5_IMPORT_PATH, object_digest
+    from .h5_contract import PROFILE, ContractError, bound, checked_archive, verify_image
+    from .safe_project_io import read_project_bytes
 except ImportError:  # pragma: no cover - exercised through pipeline integration
     from cover_models import CoverCandidate, CoverSet
     from cover_store import CoverStore
     from novel_classification import NovelClassification
     from narrative_format import validate_serialization
     from h5_import import build_h5_import, RELATIVE_PATH as H5_IMPORT_PATH, object_digest
+    from h5_contract import PROFILE, ContractError, bound, checked_archive, verify_image
+    from safe_project_io import read_project_bytes
 
 
 _ARCHIVE_NAME = "book-package.zip"
@@ -106,13 +110,11 @@ def build_delivery_package(
 ) -> PackageResult:
     with delivery_lock(project_path):
         try:
-            from .cover_delivery import delivery_selection, tracks_delivery, record_delivery
+            from .cover_delivery import delivery_selection, record_delivery
         except ImportError:
-            from cover_delivery import delivery_selection, tracks_delivery, record_delivery
+            from cover_delivery import delivery_selection, record_delivery
         selected = delivery_selection(project_path, cover_set)
-        tracked = tracks_delivery(selected)
-        if tracked:
-            record_delivery(project_path, selected, "pending")
+        record_delivery(project_path, selected, "pending")
         try:
             result = _build_delivery_package(
                 project_path, cover_set=cover_set,
@@ -121,15 +123,146 @@ def build_delivery_package(
                 serialization_path=serialization_path, h5_root=h5_root,
             )
         except Exception as exc:
-            if tracked:
-                record_delivery(project_path, selected, "failed", error=exc)
+            record_delivery(project_path, selected, "failed", error=exc)
             raise
-        if tracked:
-            record_delivery(project_path, selected, "ready", archive_sha256=result.archive_sha256)
+        record_delivery(project_path, selected, "ready", archive_sha256=result.archive_sha256)
         return result
 
 
 def _build_delivery_package(
+    project_path: str | Path, *, cover_set: CoverSet | None = None,
+    publication_copy_path: Path | None | object = _AUTO,
+    classification_path: Path | None | object = _AUTO,
+    serialization_path: Path | None | object = _AUTO,
+    h5_root: Path | None | object = _AUTO,
+) -> PackageResult:
+    """Freeze sources, assemble privately, validate actual ZIP, then publish."""
+    try:
+        from .h5_acceptance import inspect_package
+        from .project_identity import ensure_project_instance_id
+    except ImportError:
+        from h5_acceptance import inspect_package
+        from project_identity import ensure_project_instance_id
+    project = Path(project_path).resolve()
+    destination = project / "outputs/deliverables"
+    destination.mkdir(parents=True, exist_ok=True)
+    ensure_project_instance_id(project)
+    try:
+        from .compiled_source import compilation_binding, COMPILED_SOURCE
+    except ImportError:
+        from compiled_source import compilation_binding, COMPILED_SOURCE
+    compiled = compilation_binding(project)
+    store = CoverStore(project)
+    active = store.active()
+    if active.cover_set_id:
+        cover_set = store.load(active.cover_set_id)
+    elif cover_set is None:
+        raw_cover = read_project_bytes(project, ('outputs', 'deliverables', 'covers', 'cover-set.json'),
+                                       missing_ok=True, max_bytes=PROFILE.document_bytes)
+        if raw_cover is not None:
+            cover_set = CoverSet.from_dict(json.loads(raw_cover))
+    paths = {
+        "publication_copy_path": _resolve_project_artifact(project, publication_copy_path, "outputs/publication/publication-copy.json"),
+        "classification_path": _resolve_project_artifact(project, classification_path, "outputs/publication/novel-classification.json"),
+        "serialization_path": _resolve_project_artifact(project, serialization_path, "outputs/publication/novel-serialization.json"),
+    }
+    root = _discover_current_h5_root(destination) if h5_root is _AUTO else h5_root
+    files = list(_payload_files(destination, include_publication_copy=paths['publication_copy_path'] is not None,
+                               include_classification=paths['classification_path'] is not None,
+                               include_serialization=paths['serialization_path'] is not None,
+                               h5_root=root, cover_set=cover_set))
+    bound(len(files) + 2, PROFILE.zip_entries, "archive_entries")
+    frozen = {}
+
+    def capture(path, *, missing=False, limit=PROFILE.zip_expanded):
+        relative = Path(path).absolute().relative_to(project)
+        value = read_project_bytes(project, relative.parts, missing_ok=missing, max_bytes=limit)
+        frozen[relative] = None if value is None else hashlib.sha256(value).hexdigest()
+        return value
+
+    identity_inputs = {relative: capture(project / relative, missing=True) for relative in (
+        'outputs/state/story_state.json', 'outputs/state/project_identity.json')}
+    capture(project / 'outputs/covers/index.json', missing=True)
+    captured_binding = capture(project / COMPILED_SOURCE, missing=True)
+    if captured_binding is not None and json.loads(captured_binding) != compiled:
+        raise ContractError('compile_source_changed', path=COMPILED_SOURCE)
+    if compiled:
+        for relative, expected in compiled['sources'].items():
+            capture(project / relative, missing=True)
+            if frozen[Path(relative)] != expected:
+                raise ContractError('compile_source_changed', path=relative)
+    if active.cover_set_id:
+        capture(project / f"outputs/covers/sets/{active.cover_set_id}.json")
+    with tempfile.TemporaryDirectory(prefix=".delivery-", dir=project / "outputs") as folder:
+        staging = Path(folder) / "deliverables"
+        staging.mkdir()
+        authority = Path(folder) / 'authority'
+        for relative, raw in identity_inputs.items():
+            if raw is not None:
+                target = authority / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(raw)
+        total = 0
+        for path in files:
+            raw = capture(path)
+            total += len(raw)
+            bound(total, PROFILE.zip_expanded, "archive_expanded")
+            target = staging / path.relative_to(destination)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(raw)
+        staged_paths = {}
+        for key, source in paths.items():
+            if source is None:
+                staged_paths[key] = None
+            else:
+                target = Path(folder) / key
+                target.write_bytes(capture(source, limit=PROFILE.document_bytes))
+                staged_paths[key] = target
+        staged_root = staging / Path(root).relative_to(destination) if root is not None else None
+        result = _assemble_delivery_package(project, cover_set=cover_set, **staged_paths,
+                                            h5_root=staged_root, deliverables=staging, identity_root=authority)
+        report = inspect_package(result.archive_path)
+        if compiled and (report['versions']['content_sha256'] != compiled['content_sha256']
+                         or report['versions']['front_matter_sha256'] != compiled['front_matter_sha256']
+                         or report['chapter_count'] != compiled['chapter_count']):
+            raise ContractError('compiled_epub_changed: 请重新编译正文')
+        # A verified old snapshot must never be presented as the current book.
+        for relative, expected in frozen.items():
+            raw = read_project_bytes(project, relative.parts, missing_ok=True, max_bytes=PROFILE.zip_expanded)
+            actual = None if raw is None else hashlib.sha256(raw).hexdigest()
+            if actual != expected:
+                raise ContractError("delivery_source_changed", path=relative.as_posix())
+        source_hash = object_digest({str(path): value for path, value in frozen.items()})
+        receipt = {"schema_version": "novel-h5-export-receipt.v1", "target_profile": PROFILE.id,
+                   "validator_revision": PROFILE.validator_revision,
+                   "catalog_sha256": PROFILE.catalog_sha256, "source_snapshot_sha256": source_hash,
+                   "sources": {str(path): value for path, value in frozen.items()},
+                   "package_sha256": result.archive_sha256, "engine_contract_status": "passed",
+                   "external_import_status": report["external_import_status"]}
+        # Publish metadata projections before the ZIP commit point. The durable
+        # pending status prevents downloads throughout this transaction/crash.
+        for relative in ("book.epub", "meta/h5-import.json", "meta/novel-classification.json",
+                         "meta/novel-serialization.json", "meta/publication-copy.json", "covers/cover-set.json",
+                         _MANIFEST_NAME):
+            source = staging / relative
+            if source.is_file():
+                (destination / relative).parent.mkdir(parents=True, exist_ok=True)
+                _atomic_copy(source, destination / relative)
+                # Track final projections, not their pre-build contents.
+                key = (destination / relative).relative_to(project).as_posix()
+                receipt['sources'][key] = hashlib.sha256(source.read_bytes()).hexdigest()
+        receipt['source_snapshot_sha256'] = object_digest(receipt['sources'])
+        if compiled and frozen.get(Path(COMPILED_SOURCE)) is None:
+            _atomic_write_json(project / COMPILED_SOURCE, compiled)
+            receipt['sources'][COMPILED_SOURCE] = hashlib.sha256((project / COMPILED_SOURCE).read_bytes()).hexdigest()
+            receipt['source_snapshot_sha256'] = object_digest(receipt['sources'])
+        _atomic_write_json(project / "outputs/publication/export-validation.json", receipt)
+        os.replace(result.archive_path, destination / _ARCHIVE_NAME)
+        return PackageResult(destination / _MANIFEST_NAME, destination / _ARCHIVE_NAME,
+                             result.archive_sha256, result.file_count)
+
+
+def _assemble_delivery_package(
     project_path: str | Path,
     *,
     cover_set: CoverSet | None = None,
@@ -137,9 +270,10 @@ def _build_delivery_package(
     classification_path: Path | None | object = _AUTO,
     serialization_path: Path | None | object = _AUTO,
     h5_root: Path | None | object = _AUTO,
+    deliverables: Path,
+    identity_root: Path,
 ) -> PackageResult:
     project = Path(project_path).resolve()
-    deliverables = project / "outputs" / "deliverables"
     deliverables.mkdir(parents=True, exist_ok=True)
 
     # Cover generation and selection rebuild the same archive after publication.
@@ -163,16 +297,8 @@ def _build_delivery_package(
     if h5_root is _AUTO:
         h5_root = _discover_current_h5_root(deliverables)
 
-    # A new unselected batch must not replace the active human selection's
-    # metadata while selected-cover still contains that earlier batch's image.
+    # Cover selection was resolved and frozen by the transaction wrapper.
     store = CoverStore(project)
-    active = store.active()
-    if active.cover_set_id:
-        cover_set = store.load(active.cover_set_id)
-    elif cover_set is None and (deliverables / "covers/cover-set.json").is_file():
-        cover_set = CoverSet.from_dict(json.loads(
-            (deliverables / "covers/cover-set.json").read_text(encoding="utf-8")
-        ))
 
     if cover_set is not None:
         if cover_set.repair_lineage:
@@ -187,15 +313,24 @@ def _build_delivery_package(
                 cover_set.compiler_version.startswith("skeleton-poster")
                 or any(c.scene_plan.get("_poster_recipe") for c in cover_set.concepts)):
             try:
-                from .cover_epub import sync_selected_epub
+                from .cover_epub import embed_cover
             except ImportError:  # Legacy compiler imports modules at top level.
-                from cover_epub import sync_selected_epub
+                from cover_epub import embed_cover
             selected = next(c for c in cover_set.candidates if c.candidate_id == cover_set.selected_candidate_id)
             candidate_path = project / selected.relative_path
             if candidate_path.is_symlink() or not candidate_path.resolve().is_relative_to(project):
                 raise ValueError("Selected cover path escapes its project")
-            sync_selected_epub(project, candidate_path.read_bytes(), title=cover_set.brief.title,
-                               expected_sha256=selected.sha256)
+            epub = deliverables / "book.epub"
+            if epub.is_file():
+                image = deliverables / Path(selected.relative_path).relative_to("outputs/deliverables")
+                if not image.is_file():
+                    image = next(iter(deliverables.glob("covers/selected-cover.*")), image)
+                epub_raw, image_raw = epub.read_bytes(), image.read_bytes()
+                with checked_archive(epub_raw, epub=True):
+                    pass
+                verify_image(image_raw, selected.content_type, image.name)
+                epub.write_bytes(embed_cover(epub_raw, image_raw, title=cover_set.brief.title,
+                                             expected_sha256=selected.sha256))
         _atomic_write_json(
             deliverables / "covers" / "cover-set.json",
             cover_set.to_dict(),
@@ -268,8 +403,9 @@ def _build_delivery_package(
     ))
     entries = [_manifest_entry(deliverables, path, cover_set) for path in files]
     import_payload = build_h5_import(
-        project, classification=classification_payload,
+        identity_root, classification=classification_payload,
         serialization=serialization_payload, files=entries, cover_set=cover_set,
+        deliverables=deliverables,
     )
     import_path = deliverables / H5_IMPORT_PATH
     _atomic_write_json(import_path, import_payload)
@@ -391,6 +527,14 @@ def _payload_files(
         if path.is_symlink() or not path.is_file():
             continue
         relative = path.relative_to(deliverables)
+        public = (relative.parent == Path('.') and path.name.startswith('book.') and path.suffix.lower() in _BOOK_FORMATS
+                  or relative.as_posix() in {'covers/cover-set.json', 'meta/publication-copy.json',
+                                             'meta/novel-classification.json', 'meta/novel-serialization.json'}
+                  or relative.as_posix().startswith(('covers/pending/', 'covers/selected-cover.', 'h5-publication/')))
+        if not public:
+            continue
+        if cover_set is None and relative.is_relative_to('covers/pending'):
+            continue  # No owner metadata means these bytes cannot be candidate evidence.
         if cover_set is not None:
             if relative.is_relative_to("covers/pending"):
                 candidate = _pending_candidate(cover_set, relative.as_posix())

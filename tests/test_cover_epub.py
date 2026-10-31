@@ -80,10 +80,11 @@ def test_embedding_preserves_every_original_member_except_opf_and_maps_cover_for
     after_index = epub_index(updated, serialization, classification)
     assert after_index["chapter_count"] == 2
     assert after_index["content_sha256"] == before_index["content_sha256"]
-    assert after_index["chapters"][0]["epub"]["spine_index"] == before_index["chapters"][0]["epub"]["spine_index"] + 1
-    cover_page = after_index["non_chapter_items"][0]
-    assert cover_page["kind"] == "title_page" and cover_page["epub"]["spine_index"] == 0
-    page = ET.fromstring(after[cover_page["epub"]["zip_path"]])
+    assert after_index["chapters"] == before_index["chapters"]
+    assert after_index["non_chapter_items"] == before_index["non_chapter_items"]
+    cover_ref = opf.find("opf:guide/opf:reference", NS)
+    cover_path = posixpath.join(posixpath.dirname(opf_path), cover_ref.get("href"))
+    page = ET.fromstring(after[cover_path])
     assert page.find("{*}head/{*}title").text == TITLE
     assert page.find("{*}body/{*}img").get("alt") == TITLE
     assert embedded_cover(updated)[0] == image

@@ -11,8 +11,14 @@ from zipfile import BadZipFile, ZipFile
 
 try:
     from .cover_store import CoverStore
+    from .delivery_validation import validated_package_sha, ARCHIVE
+    from .safe_project_io import read_project_bytes
+    from .h5_contract import PROFILE
 except ImportError:
     from cover_store import CoverStore
+    from delivery_validation import validated_package_sha, ARCHIVE
+    from safe_project_io import read_project_bytes
+    from h5_contract import PROFILE
 
 
 class DeliveryUnavailable(ValueError):
@@ -36,9 +42,7 @@ def _binding(cover_set):
 
 
 def tracks_delivery(cover_set):
-    return bool(cover_set and cover_set.selected_candidate_id and (
-        cover_set.compiler_version.startswith("skeleton-poster")
-        or any(item.scene_plan.get("_poster_recipe") for item in cover_set.concepts)))
+    return bool(cover_set and cover_set.selected_candidate_id)
 
 
 def record_delivery(project_path, cover_set, status, *, error="", archive_sha256=""):
@@ -100,7 +104,12 @@ def delivery_status(project_path):
         value.update(status="stale", retryable=True,
                      error="交付包尚未同步当前封面，请重新生成交付包。旧 ZIP 已保留。")
     else:
-        value.update(status="ready", retryable=False, error="")
+        try:
+            validated_package_sha(project)
+            value.update(status="ready", retryable=False, error="")
+        except (ValueError, OSError) as exc:
+            value.update(status="stale", retryable=True,
+                         error=f"交付包需要重新校验或生成：{exc}")
     return value
 
 
@@ -111,7 +120,16 @@ def read_current_package(project_path):
         raise FileNotFoundError("Delivery package not found")
     if value["status"] != "ready":
         raise DeliveryUnavailable(value)
-    data = (Path(project_path) / "outputs/deliverables/book-package.zip").read_bytes()
+    project = Path(project_path)
+    try:
+        expected = validated_package_sha(project)
+        data = read_project_bytes(project, ARCHIVE, max_bytes=PROFILE.zip_bytes)
+    except (OSError, ValueError) as exc:
+        raise DeliveryUnavailable({**value, 'status': 'stale', 'retryable': True,
+            'error': '交付包或来源已变化，请重新生成交付包。'}) from exc
+    if sha256(data).hexdigest() != expected:
+        raise DeliveryUnavailable({**value, "status": "stale", "retryable": True,
+            "error": "交付包文件已变化，请重新生成交付包。"})
     if value.get("archive_sha256") and sha256(data).hexdigest() != value["archive_sha256"]:
         raise DeliveryUnavailable({**value, "status": "stale", "retryable": True,
             "error": "交付包文件已变化，请重新生成交付包。"})

@@ -1,0 +1,15 @@
+{
+  "files": {
+    "archive.go": "b42e56fef81e4bf36835a122bbb771dd31743ff4e0200a584a2a466ec25ebfa2",
+    "catalog.go": "e6010a19e9972000978ca2db90e48cf59d8f5952f716cb5da599582e99cbd0fc",
+    "classification-catalog.2026-09.json": "e0285858df0dae9c08d7ad352394bc0001ffd4f6385d68b2f5589d0b462a4efe",
+    "classification-catalog.json": "f629048c79c235caf5fda427f32c7ba0ff38e54c6674581e0f10cec1362fef4d",
+    "covers.go": "38522685cb54559dda4f29002bcfdcfbec2d469abe37dc735d42a5e83fbe7e27",
+    "epub.go": "4923c210aba923411c9fbdd771e1041c77765b21fd3d1f0573b4afd26031386e",
+    "metadata.go": "26e44ad7f0977092daf6f99dfd2f5f34ce1579e34c96e832082d9f6a5516e20e",
+    "parser.go": "b6ed7ec3dbe4210a9969423e54bb667b247a860433626205e25d7bb99aabc017",
+    "types.go": "31e3816a66eab67c787aafd6f1fb30b6d41aa5bda2e0bbf2a8bfda6a382ef30e"
+  },
+  "revision": "ea4e76903789d5885a39a9e07c9772db50a9f732",
+  "source_subdirectory": "apps/api/internal/studio/zipimport"
+}

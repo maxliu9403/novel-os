@@ -233,6 +233,9 @@ class PipelineRunner:
 
     @scoped_usage("manuscript", lambda a: a["spec"].project_path)
     def run(self, spec: RunSpec) -> RunManifest:
+        from h5_contract import PROFILE, bound
+        if spec.num_chapters is not None:
+            bound(spec.num_chapters, PROFILE.spine_items, 'h5_chapter_limit')
         project = Path(spec.project_path).resolve()
         spec.project_path = str(project)
         if spec.prompt_path != "-":
@@ -2677,6 +2680,8 @@ class PipelineRunner:
         )
         if manifest.spec.num_chapters < 1:
             raise PipelineError("Resolved chapter count must be at least 1")
+        from h5_contract import PROFILE, bound
+        bound(manifest.spec.num_chapters, PROFILE.spine_items, 'h5_chapter_limit')
         if manifest.spec.target_words < manifest.spec.num_chapters:
             raise PipelineError("Resolved target words must be at least the chapter count")
         store.save(manifest)
@@ -4005,6 +4010,9 @@ class PipelineRunner:
 
         from book_author import ensure_project_author
         ensure_project_author(project)
+        from compiled_source import source_digest, verify_sources, COMPILED_SOURCE
+        state_digest = source_digest(project, 'outputs/state/story_state.json')
+        publication_digest = source_digest(project, 'outputs/publication/publication-copy.json')
         state = StoryState(str(project))
         classification = classification_from_metadata(state.metadata)
         classification_payload = classification.to_dict()
@@ -4030,14 +4038,22 @@ class PipelineRunner:
             else None
         )
         chapters = []
+        compiled_sources = {name: source_digest(project, name) for name in (
+            'outputs/state/story_state.json', 'outputs/artifacts/heads.json',
+            'outputs/publication/novel-classification.json', 'outputs/publication/novel-serialization.json',
+        )}
+        compiled_sources['outputs/state/story_state.json'] = state_digest
+        compiled_sources['outputs/publication/publication-copy.json'] = publication_digest
         for number in range(1, manifest.spec.num_chapters + 1):
             path = project / self._chapter_stage(number, "final")
             try:
                 head = artifacts.get_head(number, "final")
                 if head is not None:
                     text = artifacts.read_text(head.revision_id)
+                    source_path = f'outputs/artifacts/sha256/{artifacts.get_revision(head.revision_id).sha256}'
                 elif not require_publication_copy and path.is_file():
-                    text = path.read_text(encoding="utf-8")
+                    text = path.read_bytes().decode("utf-8")
+                    source_path = str(path.relative_to(project))
                 else:
                     raise PipelineError(
                         f"Chapter {number} has no approved final artifact; "
@@ -4055,6 +4071,7 @@ class PipelineRunner:
                     blocked=True,
                 )
             chapter = state.get_chapter(number)
+            compiled_sources[source_path] = hashlib.sha256(text.encode('utf-8')).hexdigest()
             chapter_record = {
                 "number": number,
                 "title": chapter.title if chapter else f"Chapter {number}",
@@ -4082,10 +4099,19 @@ class PipelineRunner:
         sheet = StyleSheet.from_dict(state.compile_styles)
         output_dir = project / "outputs/deliverables"
         output_dir.mkdir(parents=True, exist_ok=True)
-        for fmt in manifest.spec.output_formats:
+        verify_sources(project, compiled_sources)
+        for fmt in dict.fromkeys([*manifest.spec.output_formats, 'epub']):
             extension = self._format_extension(fmt)
             output = output_dir / f"book.{extension}"
             output.write_bytes(render_bytes(book, sheet, fmt))
+        from h5_import import epub_index
+        index = epub_index((output_dir / 'book.epub').read_bytes(), serialization, classification_payload)
+        verify_sources(project, compiled_sources)
+        self._atomic_json(project / COMPILED_SOURCE, {
+            'schema_version': 'novel-compiled-source.v1', 'sources': compiled_sources,
+            'chapter_count': len(chapters), 'content_sha256': index['content_sha256'],
+            'front_matter_sha256': index['front_matter_sha256'],
+        })
         return True
 
     def _deliver_package(

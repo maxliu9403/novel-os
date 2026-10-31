@@ -69,8 +69,9 @@ def embed_cover(epub: bytes, image: bytes, *, title: str, expected_sha256: str =
 
     Existing unused cover assets stay present rather than risking shared images
     referenced by chapters. There is exactly one active cover-image declaration.
-    A supported chapter map gains one non-chapter title-page entry. Its chapter,
-    classification and serialization bindings are preserved.
+    The cover stays a manifest/guide resource outside the reading spine. H5
+    supports only a leading Introduction and chapters, never a cover/title page.
+    Chapter, classification and serialization bindings are preserved.
     """
     if len(epub) > _MAX_EPUB_BYTES or len(image) > 40 * 1024 * 1024:
         raise ValueError("EPUB or selected cover exceeds its byte limit")
@@ -177,11 +178,9 @@ def embed_cover(epub: bytes, image: bytes, *, title: str, expected_sha256: str =
         for itemref in list(spine):
             if itemref.get("idref") == page_id:
                 spine.remove(itemref)
-        spine.insert(0, ET.Element(_tag("itemref"), {"idref": page_id, "linear": "yes"}))
         if mapping is not None:
             entries = mapping["non_chapter_items"]
             entries[:] = [entry for entry in entries if entry["item_id"] != page_id]
-            entries.insert(0, {"item_id": page_id, "href": page_href, "kind": "title_page"})
             mappings[0].text = json.dumps(mapping, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         if guide is None:
             guide = ET.SubElement(opf, _tag("guide"))

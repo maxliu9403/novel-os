@@ -20,14 +20,12 @@ SHA = "a" * 64
 
 
 def _jpeg(width: int = 2048, height: int = 3072, marker: bytes = b"") -> bytes:
-    return (
-        b"\xff\xd8\xff\xc0\x00\x11\x08"
-        + height.to_bytes(2, "big")
-        + width.to_bytes(2, "big")
-        + b"\x03\x01\x11\x00\x02\x11\x00\x03\x11\x00"
-        + marker
-        + b"\xff\xd9"
-    )
+    from io import BytesIO
+    from hashlib import sha256
+    from PIL import Image
+    output = BytesIO()
+    Image.new('RGB', (width, height), tuple(sha256(marker).digest()[:3])).save(output, 'JPEG', comment=marker)
+    return output.getvalue()
 
 
 def _webp(width: int = 2048, height: int = 3072, marker: bytes = b"") -> bytes:

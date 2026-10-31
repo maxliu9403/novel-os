@@ -4,6 +4,8 @@ import hashlib
 import json
 import zipfile
 from pathlib import Path
+from io import BytesIO
+from PIL import Image
 
 import pytest
 
@@ -20,6 +22,12 @@ from styles import StyleSheet
 
 
 SHA = "a" * 64
+
+
+def _image(index=1):
+    output = BytesIO()
+    Image.new("RGB", (200, 300), (index * 30, 60, 90)).save(output, format="JPEG")
+    return output.getvalue()
 
 
 def _cover_set(selected: bool = False) -> CoverSet:
@@ -53,7 +61,7 @@ def _cover_set(selected: bool = False) -> CoverSet:
         concept_id=item.concept_id,
         status="selected" if selected and index == 1 else "ready",
         relative_path=f"outputs/deliverables/covers/pending/cover-{index:02d}.jpg",
-        media_id=f"media-{index}", sha256=hashlib.sha256(f"cover:{index}".encode()).hexdigest(), width=2048, height=3072,
+        media_id=f"media-{index}", sha256=hashlib.sha256(_image(index)).hexdigest(), width=200, height=300,
         content_type="image/jpeg", provider="openai_compatible", model="gpt-image-2",
         request_id=f"req-{index}", generation_prompt=concepts[index - 1].generation_prompt,
         safe_request_parameters={"size": "2048x3072"},
@@ -65,6 +73,7 @@ def _cover_set(selected: bool = False) -> CoverSet:
             "concepts": tuple(concepts),
             "candidates": candidates,
             "status": "selected" if selected else "ready",
+            "revision": 1,
             "selected_candidate_id": candidates[0].candidate_id if selected else "",
         }
     )
@@ -83,10 +92,10 @@ def _payloads(project: Path, selected: bool = False) -> None:
     ), StyleSheet()))
     for index in range(1, 5):
         (deliverables / f"covers/pending/cover-{index:02d}.jpg").write_bytes(
-            f"cover:{index}".encode()
+            _image(index)
         )
     if selected:
-        (deliverables / "covers/selected-cover.jpg").write_bytes(b"cover:1")
+        (deliverables / "covers/selected-cover.jpg").write_bytes(_image())
 
 
 def test_package_contains_common_exports_pending_covers_and_metadata(tmp_path) -> None:
@@ -172,7 +181,7 @@ def test_package_uses_active_selection_even_when_another_batch_is_passed(tmp_pat
     assert json.loads((project / "outputs/deliverables/covers/cover-set.json").read_text())["cover_set_id"] == selected.cover_set_id
 
 
-def test_package_omits_other_batches_and_corrupted_legacy_candidate_bytes(tmp_path) -> None:
+def test_package_rejects_missing_ready_candidate_without_attributing_other_batches(tmp_path) -> None:
     project = tmp_path / "project"
     _payloads(project)
     deliverables = project / "outputs/deliverables"
@@ -181,14 +190,9 @@ def test_package_omits_other_batches_and_corrupted_legacy_candidate_bytes(tmp_pa
     unrelated.parent.mkdir()
     unrelated.write_bytes(b"unrelated")
 
-    result = build_delivery_package(project, cover_set=_cover_set())
-
-    manifest = json.loads(result.manifest_path.read_text())
-    candidates = [entry for entry in manifest["files"] if entry["role"] == "cover_candidate"]
-    assert [entry["path"] for entry in candidates] == [f"covers/pending/cover-{i:02d}.jpg" for i in range(2, 5)]
-    with zipfile.ZipFile(result.archive_path) as archive:
-        assert "covers/pending/cover-01.jpg" not in archive.namelist()
-        assert "covers/pending/other-batch/cover-01.jpg" not in archive.namelist()
+    with pytest.raises(ValueError, match="cover_candidate"):
+        build_delivery_package(project, cover_set=_cover_set())
+    assert not (deliverables / "book-package.zip").exists()
 
 
 def test_unselected_package_does_not_import_leftover_selected_cover(tmp_path) -> None:
@@ -252,6 +256,12 @@ def test_manifest_includes_publication_copy_and_only_the_current_h5_root(
         ) + "\n",
         encoding="utf-8",
     )
+    (project / "outputs/deliverables/book.epub").write_bytes(render_epub(gather(
+        title="The Door Is Mine", author="", genre="", chapters=[
+            {"number": i, "title": f"Chapter {i}", "text": f"Chapter content {i}."}
+            for i in range(1, 5)
+        ], classification=classification_value.to_dict(), serialization=json.loads(serialization.read_text()),
+    ), StyleSheet()))
     h5_base = project / "outputs/deliverables/h5-publication"
     current = h5_base / "pkg-run-current-aaaaaaaaaaaa"
     stale = h5_base / "pkg-run-stale-bbbbbbbbbbbb"
@@ -433,13 +443,21 @@ def test_mime_only_repackage_preserves_payloads_and_import_identity(tmp_path, mo
             entry["media_type"] = "application/octet-stream"
         return entry
 
-    # Simulate the deployed legacy packager, not a newly invented book identity.
-    with monkeypatch.context() as legacy:
-        legacy.setattr(delivery_package, "_manifest_entry", legacy_entry)
-        result = build_delivery_package(project, cover_set=_cover_set(selected=True))
+    result = build_delivery_package(project, cover_set=_cover_set(selected=True))
     with zipfile.ZipFile(result.archive_path) as archive:
         old_members = {name: archive.read(name) for name in archive.namelist()}
     old_manifest = json.loads(old_members["package-manifest.json"])
+    # A legacy package may already exist, but the new gate cannot create one.
+    with monkeypatch.context() as legacy:
+        legacy.setattr(delivery_package, "_manifest_entry", legacy_entry)
+        with pytest.raises(ValueError, match="epub_media_type"):
+            build_delivery_package(project, cover_set=_cover_set(selected=True))
+    next(item for item in old_manifest['files'] if item['path'] == 'book.epub')['media_type'] = 'application/octet-stream'
+    old_manifest['package_revision_sha256'] = object_digest(old_manifest['files'])
+    old_members['package-manifest.json'] = json.dumps(old_manifest).encode()
+    with zipfile.ZipFile(result.archive_path, 'w') as archive:
+        for name, raw in old_members.items():
+            archive.writestr(name, raw)
     old_sidecar = json.loads(old_members["meta/h5-import.json"])
 
     monkeypatch.setattr(delivery_package.mimetypes, "guess_type", lambda _: (None, None))

@@ -88,6 +88,8 @@ def test_image_provider_failures_do_not_save_credentials_in_candidate_or_attempt
 
 def test_incremental_images_are_directly_selectable_while_other_slots_are_pending(tmp_path):
     project, service, images, poster, created = setup(tmp_path)
+    from tests.h5_fixtures import compiled_book
+    compiled_book(project)
     observations = []
     def progress(event):
         if event["phase"] == "candidate_saved":
