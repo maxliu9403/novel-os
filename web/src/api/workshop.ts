@@ -6,6 +6,42 @@ const ROOT = "/api/workshop/sessions";
 export type NarrativeMode = "short_novel" | "standalone_long" | "multi_volume" | "series_installment";
 export type WorkshopDeliveryStage = "story_design" | "chapter_plan" | "assembly";
 export type WorkshopTurnIntent = "discuss" | "deliver";
+export type WorkshopDecisionStatus = "accepted" | "rejected" | "revised" | "deferred";
+
+export interface WorkshopProposal {
+  id: string;
+  title: string;
+  story: string;
+  tradeoff: string;
+  recommended: boolean;
+  genre_roles: Array<{ selection: string; role: "world" | "conflict" | "relationship" | "tone" | "audience"; contribution: string }>;
+  mechanisms: Array<{ selection: string; name: string; rule: string; boundary: string; cost: string;
+    choice: string; consequence: string; payoff: string; removal_effect: string }>;
+}
+
+export interface WorkshopDesignRound {
+  source_revision: number;
+  message_index: number;
+  status: "recorded" | "unavailable";
+  proposals: WorkshopProposal[];
+  notice?: string;
+  recommendation_reason?: string;
+  assumptions?: string[];
+  conflicts?: string[];
+  next_focus?: { topic: string; why: string };
+}
+
+export interface WorkshopDesign {
+  schema: string;
+  policy_sha256: string;
+  policy: { guidance: {
+    version: string;
+    selections: Array<{ selection: string; coverage: "specialized_guidance" | "general_guidance" }>;
+  } };
+  rounds: WorkshopDesignRound[];
+  decisions: Array<{ proposal_id: string; status: WorkshopDecisionStatus; note: string; source: "author_action";
+    revision: number; message_index: number; created_at: string }>;
+}
 
 export interface WorkshopAssemblyProgress {
   completed_parts: number;
@@ -94,6 +130,7 @@ export interface WorkshopSession {
   last_error: string | null;
   job_id: string | null;
   skill_version: string;
+  creative_design?: WorkshopDesign;
   prepared: null | {
     revision: number;
     command: string;
@@ -160,6 +197,8 @@ export const workshopApi = {
   get: (id: string) => request<WorkshopSession>(sessionPath(id)),
   turn: (id: string, message: string, revision: number, intent: WorkshopTurnIntent = "discuss") =>
     request<JobStatus>(`${sessionPath(id)}/turns`, { message, revision, intent }),
+  decide: (id: string, revision: number, proposal_id: string, status: WorkshopDecisionStatus, note = "") =>
+    request<WorkshopSession>(`${sessionPath(id)}/decisions`, { revision, proposal_id, status, note }),
   pause: (id: string, revision: number, job_id: string) =>
     request<WorkshopSession>(`${sessionPath(id)}/pause`, { revision, job_id }),
   resume: (id: string, revision: number) =>

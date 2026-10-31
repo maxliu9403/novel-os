@@ -34,6 +34,7 @@ from .routes import get_service
 from .services import ProjectService
 from .workshop_contract_repair import normalize_workshop_contracts
 from .workshop_diagnostics import diagnostic_error_category, make_diagnostic_callback, runtime_progress
+from .workshop_design import DecisionStatus, apply_decision, design_rules, new_design, record_round
 
 LOG = logging.getLogger("uvicorn.error.workshop")
 REPO = Path(__file__).resolve().parents[1]
@@ -95,6 +96,12 @@ class RevisionInput(BaseModel):
 class TurnInput(RevisionInput):
     message: str = Field(min_length=1)
     intent: Literal["discuss", "deliver"] = "discuss"
+
+
+class DecisionInput(RevisionInput):
+    proposal_id: str = Field(min_length=1, max_length=80)
+    status: DecisionStatus
+    note: str = Field(default="", max_length=6000)
 
 
 class PauseInput(RevisionInput):
@@ -411,7 +418,7 @@ If the message asks for a complete artifact in this discussion operation, explai
 briefly and still give a useful current design proposal. Do not claim to have generated it.
 """
 
-    system = build_system()
+    system = build_system() + design_rules(session)
     context = author_context(session)
     if delivering and session.get("_previous_candidate"):
         context["previous_unvalidated_skeleton"] = session["_previous_candidate"]
@@ -467,12 +474,12 @@ briefly and still give a useful current design proposal. Do not claim to have ge
                 "Complete only assembly_part using its dedicated JSON schema. The application assembles "
                 "the final skeleton from saved parts and unchanged story/chapter text. Do not return "
                 "the full skeleton or the four public response fields in this part request.")
-            return (rules + _narrative_contract_reference(narrative_mode)
+            return (rules + design_rules(session) + _narrative_contract_reference(narrative_mode)
                     + _commercial_contract_reference() + assembly.rules(assembly_part),
                     json.dumps(part_context, ensure_ascii=False))
         # Early stages have creative guidance but no 17-section schema burden.
         rules = _skill_bundle("exploration")[0] if "--- SKILL.md ---" in skill else skill
-        return rules + plan.rules(), json.dumps(plan.context(context), ensure_ascii=False)
+        return rules + design_rules(session) + plan.rules(), json.dumps(plan.context(context), ensure_ascii=False)
 
     if plan is not None:
         system, user = stage_request()
@@ -688,7 +695,7 @@ briefly and still give a useful current design proposal. Do not claim to have ge
                 context["previous_unvalidated_skeleton"] = data["prompt_md"]
                 profile = "delivery"
                 narrative_mode = plan.mode if plan is not None else _skeleton_mode(data["prompt_md"]) or narrative_mode
-                system = build_system()
+                system = build_system() + design_rules(session)
             context.update(
                 previous_model_response=text,
                 validation_error=("Response is not valid JSON." if isinstance(exc, json.JSONDecodeError) else str(exc)),
@@ -975,7 +982,7 @@ class WorkshopService:
                 "messages": [], "prompt_md": "", "questions": [], "status": "draft",
                 "last_error": None, "job_id": None, "skill_version": version, "prepared": None,
                 "project_id": None, "logs": [], "created_at": _now(), "updated_at": _now(),
-                "ready_for_confirmation": False}
+                "ready_for_confirmation": False, "creative_design": new_design(body.model_dump())}
         self._save(data)
         return data
 
@@ -1072,6 +1079,9 @@ class WorkshopService:
             phase = "revision" if data["prompt_md"] else "design" if data["messages"] or complete_input else "intake"
             skill, version = _skill_bundle(phase)
             timeout = _timeout()
+            # Explicit new work may adopt M1; GET/resume never migrate old turns.
+            if "creative_design" not in data:
+                data["creative_design"] = new_design(data["input"])
             data["revision"] += 1
             data["messages"].append({"role": "user", "content": body.message.strip()})
             data.update(status="running", last_error=None, prepared=None, skill_version=version,
@@ -1083,6 +1093,29 @@ class WorkshopService:
                 data["naming"].update(source_sha256="", confirmed_title=None, candidates=[])
             self._log(data, "turn_started", "模型正在按小说骨架 Skill 处理本轮意见。", timeout_seconds=timeout)
             return self._submit_inference(data, skill=skill)
+
+    def decide(self, session_id: str, body: DecisionInput) -> dict:
+        with self._locked(session_id) as data:
+            self._available(data, body.revision)
+            if data.get("restart_required"):
+                raise HTTPException(409, "基础设定已变更，请先确认从头推导；旧方案仅供回看。")
+            try:
+                message = apply_decision(data, proposal_id=body.proposal_id, status=body.status,
+                                         note=body.note, now=_now())
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from None
+            data["revision"] += 1
+            data["messages"].append({"role": "user", "content": message})
+            data.update(status="draft", prepared=None, ready_for_confirmation=False, last_error=None,
+                        active_operation="brainstorm", turn_intent="discuss", paused_at=None,
+                        design_needs_revision=True,
+                        delivery_run_id=None, delivery_source_revision=None, delivery_published_run_id=None)
+            if data.get("naming"):
+                data["naming"].update(source_sha256="", confirmed_title=None, candidates=[])
+            self._log(data, "design_decision", "已保存方案决定；继续讨论或生成骨架时生效，尚未调用模型。",
+                      proposal_id=body.proposal_id, decision=body.status)
+            self._save(data)
+            return data
 
     def restart(self, session_id: str, body: RevisionInput) -> dict:
         """Start a new reasoning round only after the author confirms saved basics."""
@@ -1123,6 +1156,8 @@ class WorkshopService:
             data["revision"] += 1
             data.update(messages=[{"role": "user", "content": "请只依据当前基础设定，从头开始头脑风暴；提出有因果差异的故事方向并完善人物、冲突与结局。"}],
                         turn_intent="discuss",
+                        creative_design=new_design(data["input"]),
+                        design_needs_revision=False,
                         prompt_md="", questions=[], naming=None, prepared=None, logs=[], history=history,
                         initial_input=json.loads(json.dumps(data["input"])), status="running", last_error=None,
                         skill_version=version, turn_timeout_seconds=_timeout(), active_operation="brainstorm",
@@ -1252,8 +1287,8 @@ class WorkshopService:
             result, route = _complete(snapshot, skill)
             if cancel_event.is_set():
                 return
-            if snapshot.get("input_needs_revision") and result["ready_for_confirmation"] and result.get("prompt_md") is None:
-                raise ModelResponseError("基础设定已修改，模型尚未返回更新后的完整骨架。请继续推导。")
+            if (snapshot.get("input_needs_revision") or snapshot.get("design_needs_revision")) and result["ready_for_confirmation"] and result.get("prompt_md") is None:
+                raise ModelResponseError("基础设定或创作决定已修改，模型尚未返回更新后的完整骨架。请继续推导。")
             if result.get("prompt_md") is not None:
                 candidate = self._path(session_id) / "candidates" / f'{snapshot["revision"]}.md'
                 _atomic(candidate, result["prompt_md"])
@@ -1269,10 +1304,12 @@ class WorkshopService:
                 if result.get("prompt_md") is not None:
                     data["prompt_md"] = result["prompt_md"]
                     data["input_needs_revision"] = False
+                    data["design_needs_revision"] = False
                     data["pending_input_fields"] = []
                     _atomic(self._path(session_id) / "versions" / f'{data["revision"]}.md', data["prompt_md"])
                 data["messages"].append({"role": "assistant", "content": result["reply"],
                                          "questions": list(result["questions"])})
+                record_round(data, result, source_revision=snapshot["revision"])
                 data.update(questions=result["questions"], ready_for_confirmation=result["ready_for_confirmation"],
                             status="ready" if result["ready_for_confirmation"] else "draft", last_error=None)
                 self._log(data, "turn_completed", "本轮讨论已完成。", elapsed_seconds=round(time.monotonic()-started, 2), **route)
@@ -1517,6 +1554,11 @@ def get_session(session_id: str, service: WorkshopService = Depends(get_workshop
 @router.post("/sessions/{session_id}/turns", status_code=202)
 def add_turn(session_id: str, body: TurnInput, service: WorkshopService = Depends(get_workshop_service)):
     return service.turn(session_id, body)
+
+
+@router.post("/sessions/{session_id}/decisions")
+def decide_proposal(session_id: str, body: DecisionInput, service: WorkshopService = Depends(get_workshop_service)):
+    return service.decide(session_id, body)
 
 
 @router.post("/sessions/{session_id}/pause")

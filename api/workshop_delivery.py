@@ -35,9 +35,10 @@ class DeliveryError(ValueError):
 
 
 def author_context(session: dict) -> dict:
+    from .workshop_design import design_context
     return {"initial_brief": session["input"], "conversation": session["messages"],
             "previous_pending_questions": session.get("questions", []),
-            "current_complete_skeleton": session.get("prompt_md", "")}
+            "current_complete_skeleton": session.get("prompt_md", ""), **design_context(session)}
 
 
 def checkpoint_fingerprint(session: dict, skill_version: str) -> str:
@@ -45,6 +46,7 @@ def checkpoint_fingerprint(session: dict, skill_version: str) -> str:
         "context_start_revision": session.get("context_start_revision", 0),
         "pending_input_fields": session.get("pending_input_fields", []),
         "input_needs_revision": bool(session.get("input_needs_revision")),
+        **({"design_needs_revision": bool(session.get("design_needs_revision"))} if session.get("creative_design") else {}),
     }, skill_version)
 
 

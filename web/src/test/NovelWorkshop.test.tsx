@@ -5,6 +5,7 @@ import { afterEach, beforeEach, vi } from "vitest";
 import { api } from "../api/client";
 import { workshopApi, type WorkshopRuntimeProgress, type WorkshopSession } from "../api/workshop";
 import NovelWorkshop, { type WorkshopSeed } from "../components/NovelWorkshop";
+import { workshopDesign } from "./workshopDesignFixture";
 
 const seed: WorkshopSeed = { title: "Nora 的记忆", author: "Terry", genres: ["Fantasy"], premise: "Nora 是流亡的档案员，要找回家人的记忆。", method_mode: "off" };
 const markdown = "# Nora 的记忆\n\n## 人物身份\n\n| 人物 | 代词 |\n| --- | --- |\n| Nora | she/her |\n\n## 第一章\n她保留证据，暂不对质。";
@@ -26,6 +27,28 @@ beforeEach(() => {
   vi.spyOn(api, "studioModels").mockRejectedValue(new Error("No configured route"));
 });
 afterEach(() => vi.restoreAllMocks());
+
+test("saving a creative decision preserves unsent text and next discussion uses the saved revision", async () => {
+  const current = session({ status: "draft", prompt_md: "", ready_for_confirmation: false, creative_design: workshopDesign() });
+  const updated = { ...current, revision: 3, creative_design: { ...current.creative_design!, decisions: [
+    { proposal_id: "r1:p1", status: "accepted" as const, note: "", source: "author_action" as const, revision: 3, message_index: 1, created_at: "now" },
+  ] } };
+  vi.spyOn(workshopApi, "get").mockResolvedValue(current);
+  const decide = vi.spyOn(workshopApi, "decide").mockResolvedValue(updated);
+  const turn = vi.spyOn(workshopApi, "turn").mockResolvedValue({ job_id: "next", kind: "workshop", status: "running", error: null });
+  vi.spyOn(api, "getJob").mockResolvedValue({ job_id: "next", kind: "workshop", status: "running", error: null });
+  const user = userEvent.setup();
+  render(<MemoryRouter><NovelWorkshop open seed={seed} initialSessionId={current.id} onClose={vi.fn()} onBack={vi.fn()} /></MemoryRouter>);
+  await screen.findByText("下一步建议 · 旧敌为何愿意结盟");
+  await user.type(screen.getByLabelText(/补充、回答或修改设定/), "继续发展联盟");
+  await user.click(screen.getByText(/本轮方案与取舍/));
+  await user.click(screen.getByRole("button", { name: "采用这条" }));
+  await waitFor(() => expect(decide).toHaveBeenCalledWith(current.id, 2, "r1:p1", "accepted", ""));
+  expect(turn).not.toHaveBeenCalled();
+  expect(screen.getByLabelText(/补充、回答或修改设定/)).toHaveValue("继续发展联盟");
+  await user.click(screen.getByRole("button", { name: "发送并继续推导" }));
+  expect(turn).toHaveBeenCalledWith(current.id, "继续发展联盟", 3, "discuss");
+});
 
 test("creates an asynchronous workshop with the explicit continuous mode and original review preference", async () => {
   const initial = session({ revision: 0, prompt_md: "", messages: [], status: "draft", ready_for_confirmation: false });

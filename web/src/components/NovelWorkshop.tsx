@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, type JobStatus } from "../api/client";
-import { workshopApi, type NarrativeMode, type WorkshopInput, type WorkshopRuntimeProgress, type WorkshopSession, type WorkshopTurnIntent } from "../api/workshop";
+import { workshopApi, type NarrativeMode, type WorkshopInput, type WorkshopRuntimeProgress, type WorkshopSession, type WorkshopTurnIntent, type WorkshopDecisionStatus } from "../api/workshop";
 import { GENRE_OPTIONS, genreLabel, mergeGenres } from "../lib/genres";
 import { Field, fieldClass, textareaClass } from "./Modal";
 import GenreChips from "./GenreChips";
@@ -12,6 +12,7 @@ import WorkshopSessions from "./WorkshopSessions";
 import GenerationCostPanel from "./GenerationCostPanel";
 import { DELIVERY_STAGE_LABELS } from "../lib/workshopProgress";
 import { WorkshopDeliveryCheckpoints, WorkshopRuntimeStatus } from "./WorkshopProgress";
+import { WorkshopDesignContext, WorkshopDesignRoundView } from "./WorkshopDesign";
 
 export interface WorkshopSeed { title: string; author: string; genres: string[]; premise: string; method_mode?: "off" | "advisory" }
 
@@ -21,7 +22,7 @@ const MODES: Array<[NarrativeMode, string]> = [
   ["short_novel", "短篇 · 连续章节"], ["standalone_long", "长篇 · 连续章节"],
   ["multi_volume", "单本分卷 · 章号连续"], ["series_installment", "多本系列 · 当前分册"],
 ];
-const INITIAL_MESSAGE = "请基于我的基础提示开始头脑风暴。保留已明确的设定，先补问关键缺项，提出可选择的故事方向；持续完善人物心理、章节因果、伏笔和钩子。篇幅允许合理浮动。";
+const INITIAL_MESSAGE = "请基于我的基础提示开始头脑风暴。保留已明确的设定，先提出具体、有因果差异的故事方向与取舍，推荐下一步；只补问影响走线的关键缺项。让所选类型实际影响人物选择、代价和回报，持续完善人物心理、章节因果、伏笔和钩子。篇幅允许合理浮动。";
 const DELIVERY_MESSAGE = "请根据已确认的故事设计生成完整小说骨架。保留既有设定和决定。";
 const messageOf = (error: unknown) => error instanceof Error ? error.message : String(error);
 const titleOf = (session: WorkshopSession) => session.prompt_md.match(/^\s*(?:[-*]\s*)?(?:\*\*)?Title(?:\*\*)?\s*:[ \t]*(.+)$/im)?.[1].trim() || session.input.title || "未命名故事";
@@ -54,7 +55,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
   const [step, setStep] = useState<"details" | "discussion" | "preview" | "sessions">("details");
   const [showSessions, setShowSessions] = useState(false);
   const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState<"create" | "send" | "prepare" | "launch" | "restore" | "titles" | "input" | "pause" | "resume" | "restart" | null>(initialSessionId ? "restore" : null);
+  const [busy, setBusy] = useState<"create" | "send" | "prepare" | "launch" | "restore" | "titles" | "input" | "pause" | "resume" | "restart" | "decision" | null>(initialSessionId ? "restore" : null);
   const [editingBasics, setEditingBasics] = useState(false);
   const [restartChoice, setRestartChoice] = useState(true);
   const [namingDrafts, setNamingDrafts] = useState<Record<string, { title: string; hints: string }>>({});
@@ -262,6 +263,20 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
     } finally {
       if (mounted.current) setBusy(null);
     }
+  }
+
+  async function decideProposal(id: string, status: WorkshopDecisionStatus, note = ""): Promise<boolean> {
+    if (!session || busy || running || launched || session.restart_required) return false;
+    setBusy("decision"); setError(null);
+    try {
+      const current = await workshopApi.decide(session.id, session.revision, id, status, note);
+      if (mounted.current) setSession(current);
+      return true;
+    } catch (failure) {
+      if (mounted.current) setError(messageOf(failure));
+      try { const current = await workshopApi.get(session.id); if (mounted.current) setSession(current); } catch { /* Keep the unsent note. */ }
+      return false;
+    } finally { if (mounted.current) setBusy(null); }
   }
 
   async function controlRequest(action: "pause" | "resume") {
@@ -648,7 +663,8 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
                     expanded={expanded[inputKey] ?? false} onToggle={() => toggle(inputKey, expanded[inputKey] ?? false)}>
                     <InitialBrief input={session.initial_input ?? session.input} />
                   </ConversationCard>
-                  {session.messages.length === 0 && <div className="my-8 max-w-xl rounded-2xl border border-paper-line bg-white/60 p-5 text-[14px] leading-relaxed text-ink-muted">已保存你的构想。模型会先识别已确定的设定，再补问关键缺项；你可以随时增加限制或改变方向。</div>}
+                  {session.creative_design && <WorkshopDesignContext design={session.creative_design} />}
+                  {session.messages.length === 0 && <div className="my-8 max-w-xl rounded-2xl border border-paper-line bg-white/60 p-5 text-[14px] leading-relaxed text-ink-muted">已保存你的构想。模型会提出具体走线、取舍和下一步建议；你可以随时增加限制或改变方向。</div>}
                   <div className="mt-4 space-y-4">{session.messages.map((message, index) => {
                     const isOpen = expanded[messageKey(index)] ?? index === lastAssistant;
                     const fullSource = message.questions?.length
@@ -663,6 +679,9 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
                         {message.questions && message.questions.length > 0 && <div className="mt-5 border-t border-paper-line pt-4">
                           <h3 className="mb-3 text-[14px] font-semibold text-violet">本轮待确认</h3><QuestionList questions={message.questions} />
                         </div>}
+                        {session.creative_design?.rounds.filter((round) => round.message_index === index).map((round) => <WorkshopDesignRoundView
+                          key={round.source_revision} round={round} design={session.creative_design!}
+                          disabled={disabled || launched || Boolean(session.restart_required)} onDecide={decideProposal} />)}
                       </ConversationCard>
                     </article>;
                   })}</div>

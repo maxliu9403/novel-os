@@ -33,6 +33,16 @@ The Novel OS repository owns classification generation and publication. The H5
 application consumes the published contract through a separately scheduled
 integration.
 
+## Creative genre design and workshop decisions
+
+- **Genre guidance snapshot**: versioned general principles plus optional specialist packs, frozen with their exact content and hash in a discussion. It is creative guidance, not a publication classification or proof of reader quality. Initial packs cover werewolf, contemporary family fiction and mystery/suspense; other selections retain explicitly marked general guidance.
+- **Book mechanism proposal**: a proposed rule with trigger/scope, limits/exceptions, cost, character choice, consequence, payoff and a removal counterfactual. A catalog tag or model proposal alone does not adopt that mechanism.
+- **Design round**: a nonblocking companion to a saved discussion reply, with concrete alternatives, tradeoffs, assumptions, unresolved conflicts and a next focus. Malformed companion data does not trigger another model call or discard the discussion.
+- **Author decision action**: an optional, revision-bound acceptance, rejection, revision or deferral of a server-identified proposal. It saves without inference and never authorizes skeleton delivery. Natural-language direction remains valid in the full conversation and does not require button confirmation.
+- **Current adopted proposal projection**: proposals whose latest explicit action is acceptance or revision, paired with the author's exact note. Later natural-language changes remain authoritative. Historical alternatives remain available, but are not all repeated as adopted facts in delivery context.
+
+Existing discussions acquire this policy on an explicit new turn; reads and paused-turn recovery do not migrate it. Confirmed restart archives the old policy/rounds/decisions with the prior discussion. The resource and decision records do not add H5 export fields or alter classification caps.
+
 ## Narrative methods
 
 - **Method policy**: a private, versioned selection of writing methods and review scope; P1 supports off and advisory only.
