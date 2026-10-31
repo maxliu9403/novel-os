@@ -7,6 +7,9 @@ import { workshopApi, type WorkshopRuntimeProgress, type WorkshopSession } from 
 import NovelWorkshop, { type WorkshopSeed } from "../components/NovelWorkshop";
 import { workshopDesign } from "./workshopDesignFixture";
 
+import { creativeTypesApi } from '../api/creativeTypes';
+import { typeLibrary } from './creativeTypesFixture';
+
 const seed: WorkshopSeed = { title: "Nora 的记忆", author: "Terry", genres: ["Fantasy"], premise: "Nora 是流亡的档案员，要找回家人的记忆。", method_mode: "off" };
 const markdown = "# Nora 的记忆\n\n## 人物身份\n\n| 人物 | 代词 |\n| --- | --- |\n| Nora | she/her |\n\n## 第一章\n她保留证据，暂不对质。";
 function session(patch: Partial<WorkshopSession> = {}): WorkshopSession {
@@ -24,6 +27,7 @@ function view(value = seed) {
 
 beforeEach(() => {
   localStorage.clear();
+  vi.spyOn(creativeTypesApi, "list").mockResolvedValue(typeLibrary());
   vi.spyOn(api, "studioModels").mockRejectedValue(new Error("No configured route"));
 });
 afterEach(() => vi.restoreAllMocks());
@@ -65,6 +69,7 @@ test("creates an asynchronous workshop with the explicit continuous mode and ori
   await user.click(screen.getByRole("button", { name: "开始头脑风暴" }));
   await screen.findByText("可以把记忆的代价作为人物的内心冲突。");
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ mode: "standalone_long", chapters: 80, words_per_chapter: 1000, method_mode: "off", premise: seed.premise }));
+  expect(create.mock.calls[0][0].creative_types).toEqual([expect.objectContaining({profile_id:"ct_fantasy",version:1})]);
   expect(turn).toHaveBeenCalledWith("session-1", expect.any(String), 0, "discuss");
   expect(screen.getByText(/不限讨论次数/)).toBeInTheDocument();
   expect(localStorage.getItem("novel-os.workshop.active-session")).toBe("session-1");

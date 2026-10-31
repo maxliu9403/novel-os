@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>作品类型维护 · Novel OS 设计稿</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="data.js" defer></script><script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#editor">跳到类型编辑</a>
+  <aside class="sidebar">
+    <a href="../project-workspace-v2/library.html" class="brand"><img src="../project-workspace-v2/assets/novel-os-logo.svg" alt="Novel OS"><span>Novel OS</span></a>
+    <nav aria-label="主导航">
+      <a href="../project-workspace-v2/library.html"><span aria-hidden="true">▤</span><b>作品库</b></a>
+      <button data-action="brainstorm"><span aria-hidden="true">✧</span><b>头脑风暴</b></button>
+      <a href="#" class="active" aria-current="page"><span aria-hidden="true">◈</span><b>作品类型</b></a>
+      <a href="../deepseek-provider/index.html"><span aria-hidden="true">⚙</span><b>设置</b></a>
+    </nav>
+    <div class="sidebar-note"><span class="mini-dot"></span> 创作资料库<p>让类型成为故事的动力。</p></div>
+  </aside>
+  <main>
+    <header class="page-head">
+      <div><div class="eyebrow">创作资料 <span class="demo-tag">交互设计稿</span></div><h1>作品类型维护</h1><p>把读者期待，写成可执行的故事规则。</p></div>
+      <div class="head-actions"><button class="button secondary" data-action="brainstorm">预览创作选择 <span aria-hidden="true">↗</span></button><button class="button primary" data-action="new">＋ 新建类型</button></div>
+    </header>
+    <div class="demo-note">本页为独立原型。编辑仅保存在当前浏览器，不连接真实资料库或模型。<button data-action="reset">重置演示</button></div>
+    <div class="workspace">
+      <aside class="library" aria-label="作品类型列表">
+        <div class="library-tools"><label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="搜索类型、别名或关键词" aria-label="搜索作品类型"></label>
+          <label class="dimension-filter"><span>创作维度</span><select id="dimension-filter" aria-label="筛选创作维度"></select></label>
+          <div class="filter-row"><span id="library-count"></span><select id="status-filter" aria-label="筛选状态"><option value="all">全部状态</option><option value="enabled">已启用</option><option value="draft">草稿</option><option value="disabled">已停用</option></select></div>
+        </div>
+        <div id="type-list" class="type-list"></div>
+        <div class="library-foot">含婚姻背叛、出轨等女频主题。<br>所有说明均可编辑，也可自行新增。</div>
+      </aside>
+      <section id="editor" class="editor" aria-label="作品类型编辑">
+        <header class="editor-head"><button class="back-mobile" data-action="back">← 返回类型列表</button><div class="editor-title"><div class="type-mark" id="type-mark">狼</div><div><div class="title-line"><h2 id="type-title"></h2><span id="type-state"></span></div><p id="type-subtitle"></p></div></div><div class="editor-actions"><button class="button ghost" data-action="duplicate">复制类型</button><button class="button ghost" id="disable-button" data-action="disable">停用</button></div></header>
+        <nav class="tabs" role="tablist" aria-label="类型说明标签">
+          <button id="tab-core" role="tab" data-tab="core" aria-controls="panel" aria-selected="true">核心体验</button>
+          <button id="tab-mechanisms" role="tab" data-tab="mechanisms" aria-controls="panel" aria-selected="false">故事机制</button>
+          <button id="tab-voice" role="tab" data-tab="voice" aria-controls="panel" aria-selected="false">人物与文风</button>
+          <button id="tab-checks" role="tab" data-tab="checks" aria-controls="panel" aria-selected="false">检查与融合</button>
+          <button id="tab-preview" role="tab" data-tab="preview" aria-controls="panel" aria-selected="false">模型预览与版本</button>
+        </nav>
+        <div id="panel" class="editor-body" role="tabpanel" aria-labelledby="tab-core" tabindex="0"></div>
+        <footer class="savebar"><div><span class="save-dot"></span><b id="save-state"></b><p id="save-detail"></p></div><div class="save-actions"><button class="button secondary" id="save-draft" data-action="save">保存草稿</button><button class="button primary" id="activate" data-action="activate">保存并启用 <span aria-hidden="true">↗</span></button></div></footer>
+      </section>
+    </div>
+  </main>
+  <dialog id="brainstorm-dialog" aria-labelledby="brainstorm-title"><div class="dialog-head"><div><span class="eyebrow">头脑风暴 · 基础设定</span><h2 id="brainstorm-title">这本书，想带来什么体验？</h2></div><button class="button ghost" data-action="close-dialog" aria-label="关闭创作选择预览">✕</button></div><p>类型选项来自你维护的资料库。只有已启用版本可用于新讨论。</p><div id="brainstorm-content"></div><div class="dialog-foot"><span>演示不会创建任务或调用模型。</span><button class="button primary" data-action="demo-start">开始头脑风暴 ↗</button></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

@@ -18,6 +18,7 @@ const RelationshipChart = lazy(() => import("./routes/RelationshipChart"));
 const ResearchMoodboard = lazy(() => import("./routes/ResearchMoodboard"));
 const CoverStudio = lazy(() => import("./routes/CoverStudioRoute"));
 const WorkshopLibrary = lazy(() => import("./routes/WorkshopLibrary"));
+const CreativeTypes = lazy(() => import("./routes/CreativeTypes"));
 
 function AnimatedRoutes() {
   const location = useLocation();
@@ -36,6 +37,7 @@ function AnimatedRoutes() {
             <Route path="/" element={<ProjectsList />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/workshop" element={<WorkshopLibrary />} />
+            <Route path="/creative-types" element={<CreativeTypes />} />
             <Route path="/projects/:id" element={<ProjectDashboard />} />
             <Route path="/projects/:id/read" element={<BookReader />} />
             <Route path="/projects/:id/chart" element={<RelationshipChart />} />

@@ -15,7 +15,7 @@ export function WorkshopDesignContext({ design }: { design: WorkshopDesign }) {
     <summary className="cursor-pointer">题材与创作决定 · {current.size} 项已记录</summary>
     <p className="mt-3 leading-relaxed">题材资料用于提出选择，不会自动成为本书设定。方案卡选择与原始对话一起保留；后续明确修改以你的最新意见为准。</p>
     <div className="mt-3 flex flex-wrap gap-2">{design.policy.guidance.selections.map((item, index) => <span key={`${index}:${item.selection}`} className="rounded-full bg-violet-soft px-3 py-1 text-violet">
-      {genreLabel(item.selection)} · {item.coverage === "specialized_guidance" ? "专项指导" : "通用指导"}
+      {genreLabel(item.selection)} · {item.coverage === "specialized_guidance" ? "专项指导" : item.coverage === 'user_guidance' ? '所选资料' : "通用指导"}
     </span>)}</div>
     <p className="mt-2 text-[11px]">资料版本 {design.policy.guidance.version} · 设计指导尚未经过读者效果验证</p>
     {current.size > 0 ? <ul className="mt-3 space-y-2">{[...current.values()].map((decision) => <li key={decision.proposal_id} className="rounded-lg bg-white p-3">

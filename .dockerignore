@@ -17,3 +17,6 @@ prompt
 tests
 venv
 web
+
+# User-owned creative drafts and version history
+creative_types

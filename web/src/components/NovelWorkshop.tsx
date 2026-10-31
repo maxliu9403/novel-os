@@ -4,9 +4,11 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, type JobStatus } from "../api/client";
 import { workshopApi, type NarrativeMode, type WorkshopInput, type WorkshopRuntimeProgress, type WorkshopSession, type WorkshopTurnIntent, type WorkshopDecisionStatus } from "../api/workshop";
-import { GENRE_OPTIONS, genreLabel, mergeGenres } from "../lib/genres";
+import { genreLabel, mergeGenres } from "../lib/genres";
 import { Field, fieldClass, textareaClass } from "./Modal";
-import GenreChips from "./GenreChips";
+import CreativeTypePicker from "./CreativeTypePicker";
+import { bindCreativeSelection } from '../api/creativeTypes';
+import WorkshopTypeSnapshot from './WorkshopTypeSnapshot';
 import Icon from "./Icon";
 import WorkshopSessions from "./WorkshopSessions";
 import GenerationCostPanel from "./GenerationCostPanel";
@@ -355,7 +357,8 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
     if (busy || !input.premise.trim()) return;
     setBusy("create"); setError(null);
     try {
-      const current = await workshopApi.create({ ...input, genres: mergeGenres(input.genres, otherGenre), title: input.title.trim(), premise: input.premise.trim() });
+      const selectedInput = await bindCreativeSelection({ ...input, genres: mergeGenres(input.genres, otherGenre), title: input.title.trim(), premise: input.premise.trim() });
+      const current = await workshopApi.create(selectedInput);
       if (!mounted.current) return;
       remember(current.id); setSaved(null); setSession(current); setStep("discussion");
       await submitTurn(current, INITIAL_MESSAGE, "discuss");
@@ -376,8 +379,8 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
     const generation = sessionGeneration.current;
     setBusy("input"); setError(null);
     try {
-      const current = await workshopApi.updateInput(session.id, session.revision,
-        { ...input, genres: mergeGenres(input.genres, otherGenre), premise: input.premise.trim(), title: input.title.trim() });
+      const selectedInput = await bindCreativeSelection({ ...input, genres: mergeGenres(input.genres, otherGenre), premise: input.premise.trim(), title: input.title.trim() });
+      const current = await workshopApi.updateInput(session.id, session.revision, selectedInput);
       if (!mounted.current) return;
       if (generation !== sessionGeneration.current) return;
       setSession(current); setEditingBasics(false); setRestartChoice(true); setStep("details");
@@ -465,7 +468,6 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
   }
 
   if (!open) return null;
-  const customGenres = input.genres.filter((genre) => !GENRE_OPTIONS.some((option) => option.toLowerCase() === genre.toLowerCase()));
   const disabled = Boolean(busy || running || launched);
   const storedPrepared = session?.prepared?.revision === session?.revision ? session?.prepared : null;
   const titleChanged = Boolean(storedPrepared && namingDraft.title.trim() !== String(storedPrepared.validation.title ?? session?.naming?.confirmed_title ?? ""));
@@ -595,17 +597,8 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
                 </div>
                 <fieldset className="mb-4 min-w-0">
                   <legend className="mb-1.5 text-[12px] font-medium tracking-[-0.01em] text-ink-muted">作品类型</legend>
-                  <GenreChips selected={input.genres} onChange={(genres) => setInput((current) => ({ ...current, genres }))}
+                  <CreativeTypePicker selected={input.genres} refs={input.creative_types} onChange={(genres,creative_types) => setInput((current) => ({ ...current, genres, creative_types }))}
                     other={otherGenre} onOtherChange={setOtherGenre} />
-                  {customGenres.length > 0 && (
-                    <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-ink-muted">
-                      <span>已带入的自定义类型：</span>
-                      {customGenres.map((genre) => (
-                        <button key={genre} type="button" aria-label={`移除类型 ${genre}`} className="rounded-full bg-violet-soft px-3 py-1.5 font-medium text-violet"
-                          onClick={() => setInput((current) => ({ ...current, genres: current.genres.filter((value) => value !== genre) }))}>{genre}<span className="ml-2" aria-hidden="true">×</span></button>
-                      ))}
-                    </div>
-                  )}
                   <p className="mt-2 text-[12px] leading-relaxed text-ink-muted">可以多选、组合类型，也可以填写其他类型；尚未确定可留空，在讨论中继续完善。</p>
                 </fieldset>
                 <Field label="故事构想或已有框架"><textarea className={textareaClass} rows={5} value={input.premise} onChange={(e) => setInput({ ...input, premise: e.target.value })} placeholder="粘贴故事背景、人物设定或已有细纲。还没想清楚的地方，我们一起补齐。" required /></Field>
@@ -664,6 +657,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
                     <InitialBrief input={session.initial_input ?? session.input} />
                   </ConversationCard>
                   {session.creative_design && <WorkshopDesignContext design={session.creative_design} />}
+                  {session.creative_design?.policy.type_snapshot && <WorkshopTypeSnapshot session={session} disabled={Boolean(busy)||running||launched||Boolean(session.restart_required)} onUpdate={setSession}/>}
                   {session.messages.length === 0 && <div className="my-8 max-w-xl rounded-2xl border border-paper-line bg-white/60 p-5 text-[14px] leading-relaxed text-ink-muted">已保存你的构想。模型会提出具体走线、取舍和下一步建议；你可以随时增加限制或改变方向。</div>}
                   <div className="mt-4 space-y-4">{session.messages.map((message, index) => {
                     const isOpen = expanded[messageKey(index)] ?? index === lastAssistant;

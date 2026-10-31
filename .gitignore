@@ -54,6 +54,7 @@ ChatGPT Image *.png
 
 # --- Local Novel OS projects (user data, not source) ---
 /projects/
+/creative_types/
 
 # --- Local novel prompts (user-authored source material) ---
 /prompt/

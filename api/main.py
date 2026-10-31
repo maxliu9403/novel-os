@@ -75,6 +75,12 @@ def create_app(projects_root: Optional[Path] = None, db_url: Optional[str] = Non
         pass
 
     app = FastAPI(title="Novel OS API", version=__version__)
+    from core.creative_types import CreativeTypeError
+    from .creative_types import router as creative_types_router
+    async def creative_type_error(_request, error: CreativeTypeError):
+        return JSONResponse(status_code=error.status, content={'detail': str(error)})
+    app.add_exception_handler(CreativeTypeError, creative_type_error)
+    app.include_router(creative_types_router)
     for error_type in (
         PromotionConflict,
         PromotionIntegrityFailure,

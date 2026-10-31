@@ -1,0 +1,156 @@
+{
+  "schema": "creative-type-profile.v1",
+  "profile_id": "ct_marriage_betrayal",
+  "version": 1,
+  "name": "婚姻背叛",
+  "aliases": [
+    "婚姻危机",
+    "背叛婚姻",
+    "marital betrayal"
+  ],
+  "dimension": "marriage",
+  "summary": "共同承诺被打破后，人物重新判断信任、利益和自己的生活选择。",
+  "applicability": {
+    "readers": [],
+    "markets": [],
+    "languages": [],
+    "lengths": []
+  },
+  "reader_promises": [
+    {
+      "id": "promise_01",
+      "text": "从日常裂缝走向有依据的真相，而非只靠突然出现的恶人。",
+      "importance": "recommended",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ]
+    },
+    {
+      "id": "promise_02",
+      "text": "在亲情、共同生活与个人尊严之间，看见有代价的选择。",
+      "importance": "recommended",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ]
+    }
+  ],
+  "mechanisms": [
+    {
+      "id": "marriage_betrayal_mechanism",
+      "name": "承诺破裂与生活依赖",
+      "principle": "经济、照护或社会承诺的背离改变主角可依赖的人和资源。",
+      "importance": "recommended",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ],
+      "trigger": [
+        "一个既有承诺与可核实的行为发生矛盾。"
+      ],
+      "scope": [
+        "先明确背叛的是忠诚、财务透明、照护责任还是共同决定；不默认全部成立。"
+      ],
+      "limits": [
+        "怀疑与事实分开，主角不能凭直觉知道所有隐情。"
+      ],
+      "costs": [
+        "追问或退出可能失去稳定、支持网络或对共同过去的理解。"
+      ],
+      "choices": [
+        "选择核实、设立边界、暂时协作或离开，并承担相应后果。"
+      ],
+      "payoffs": [
+        "结局回应主角如何重新决定关系与生活，不只惩罚背叛者。"
+      ],
+      "exceptions": []
+    }
+  ],
+  "character_dynamics": [
+    {
+      "id": "character_01",
+      "text": "伴侣、亲人和盟友有不同利益，不把所有配角写成同一阵营。",
+      "importance": "recommended",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ]
+    }
+  ],
+  "voice_guidance": [
+    {
+      "id": "voice_01",
+      "text": "用日常分工、回避与具体行动承载情绪，减少反复控诉。",
+      "importance": "recommended",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ]
+    }
+  ],
+  "pitfalls": [
+    {
+      "id": "pitfall_01",
+      "text": "将一切矛盾归罪于第三者，或用一次道歉抹掉长期伤害。",
+      "importance": "recommended",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ]
+    }
+  ],
+  "diagnostics": [
+    {
+      "id": "check_01",
+      "text": "拿掉背叛，主角的重要选择和终局变化是否仍原样成立？",
+      "importance": "recommended",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "review"
+      ]
+    }
+  ],
+  "combinations": [
+    {
+      "with_profile_id": "ct_female_awakening",
+      "opportunities": [
+        "让信任破裂引出价值重估与自主选择。"
+      ],
+      "tensions": [
+        "不能让主角只在感情上换一个依赖对象，其他选择不变。"
+      ]
+    }
+  ],
+  "publication_mapping": {
+    "status": "mapped",
+    "catalog_version": "novel-types.2026-10",
+    "primary_genre_ids": [
+      "family_drama"
+    ],
+    "facet_ids": [
+      "marriage_crisis",
+      "domestic_betrayal"
+    ]
+  }
+}

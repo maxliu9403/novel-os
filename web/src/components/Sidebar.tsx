@@ -89,6 +89,7 @@ export default function Sidebar() {
         </button>
         <SideLink to="/" label="作品库" hint="全部作品" icon="library" end collapsed={compact} />
         <SideLink to="/workshop" label="头脑风暴" hint="讨论档案" icon="sparkles" collapsed={compact} />
+        <SideLink to="/creative-types" label="作品类型" hint="创作资料" icon="library" collapsed={compact} />
         <SideLink to="/settings" label="设置" hint="模型配置" icon="sparkles" collapsed={compact} />
         {projectPath && (
           <>

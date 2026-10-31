@@ -1,0 +1,236 @@
+{
+  "schema": "creative-type-profile.v1",
+  "profile_id": "ct_werewolf",
+  "version": 2,
+  "name": "狼人",
+  "aliases": [
+    "Werewolf",
+    "wolf shifter"
+  ],
+  "dimension": "world",
+  "summary": "让非人身份、族群规则与个人自由真正改变人物选择。",
+  "applicability": {
+    "readers": [],
+    "markets": [],
+    "languages": [],
+    "lengths": []
+  },
+  "reader_promises": [
+    {
+      "id": "promise_01",
+      "text": "非人身份带来的归属与自由冲突。",
+      "importance": "recommended",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ]
+    },
+    {
+      "id": "promise_02",
+      "text": "能力有边界，重要选择必须付出可见代价。",
+      "importance": "recommended",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ]
+    },
+    {
+      "id": "promise_03",
+      "text": "关系变化来自人物行动，命定羁绊不能替代自主选择。",
+      "importance": "recommended",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ]
+    }
+  ],
+  "mechanisms": [
+    {
+      "id": "pack_refuge",
+      "name": "族群庇护与个人义务",
+      "principle": "庇护与资源需要具体交换，拒绝义务会改变人物的可选行动。",
+      "importance": "recommended",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ],
+      "trigger": [
+        "主角需要安全、身份认可或稀缺资源时。"
+      ],
+      "scope": [
+        "由作者为本书明确谁控制庇护、谁依赖它，以及资源的范围。"
+      ],
+      "limits": [
+        "领袖依赖成员与资源支持，不能无所不知或任意控制所有人。"
+      ],
+      "exceptions": [
+        "打破旧规则要有联盟、交换或早已建立的条件。"
+      ],
+      "costs": [
+        "失去安全、资源、关系或时间；代价需落到本书人物。"
+      ],
+      "choices": [
+        "保护一个人，还是履行不公的义务换取庇护？"
+      ],
+      "payoffs": [
+        "高潮用建立过的规则改变权力关系，或带着真实损失离开。"
+      ]
+    },
+    {
+      "id": "limited_shift",
+      "name": "有代价的变身",
+      "principle": "能力的触发与恢复条件改变策略，不用临时升级解决高潮。",
+      "importance": "optional",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ],
+      "trigger": [
+        "由本书选择主动、月相或危险等触发条件，不默认全部采用。"
+      ],
+      "scope": [
+        "身体能力、暴露身份及行动窗口。"
+      ],
+      "limits": [
+        "持续时间与控制能力有限。"
+      ],
+      "exceptions": [],
+      "costs": [
+        "救人时可能暴露身份或失去下一次行动机会。"
+      ],
+      "choices": [
+        "立即使用能力，还是保留能力等待更危险的时刻？"
+      ],
+      "payoffs": [
+        "早期限制在高潮被创造性利用，代价不会凭空消失。"
+      ]
+    }
+  ],
+  "character_dynamics": [
+    {
+      "id": "char_01",
+      "text": "让主角有独立于族群标签的能力、欲望与底线。",
+      "importance": "recommended",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ]
+    },
+    {
+      "id": "char_02",
+      "text": "对手有具体利益和限制，会根据主角策略改变行动。",
+      "importance": "recommended",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ]
+    }
+  ],
+  "voice_guidance": [
+    {
+      "id": "voice_01",
+      "text": "通过人物感知与行动展现非人体验，避免连续设定讲解。",
+      "importance": "recommended",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ]
+    },
+    {
+      "id": "voice_02",
+      "text": "紧张与安静回报交替；不同角色的对白体现权力关系。",
+      "importance": "recommended",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ]
+    }
+  ],
+  "pitfalls": [
+    {
+      "id": "avoid_01",
+      "text": "删去狼人名词后仍完全成立的普通家庭争执。",
+      "importance": "essential",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ]
+    },
+    {
+      "id": "avoid_02",
+      "text": "用命定关系代替同意与人物选择；用无代价升级解决冲突。",
+      "importance": "recommended",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "chapter_plan",
+        "draft",
+        "review"
+      ]
+    }
+  ],
+  "diagnostics": [
+    {
+      "id": "check_01",
+      "text": "若删除族群与能力机制，主角的关键选择及高潮会失去什么？",
+      "importance": "essential",
+      "stages": [
+        "brainstorm",
+        "story_design",
+        "review"
+      ]
+    }
+  ],
+  "combinations": [
+    {
+      "with_profile_id": "ct_revenge",
+      "opportunities": [
+        "让复仇策略利用族群规则与能力边界。"
+      ],
+      "tensions": [
+        "复仇胜利是否伤害主角希望保护的群体？"
+      ]
+    }
+  ],
+  "publication_mapping": {
+    "status": "mapped",
+    "catalog_version": "novel-types.2026-10",
+    "primary_genre_ids": [
+      "supernatural",
+      "fantasy"
+    ],
+    "facet_ids": [
+      "werewolf"
+    ]
+  }
+}

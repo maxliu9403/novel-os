@@ -74,10 +74,14 @@ class DeliveryTimeoutError(TimeoutError):
         super().__init__("Workshop delivery task timeout" if task_expired else "Workshop delivery request timeout")
 
 
+from core.creative_types import TypeRef, compile_snapshot, digest as type_digest
+
+
 class SessionInput(BaseModel):
     title: str = ""
     author: str = ""
     genres: list[str] = Field(default_factory=list)
+    creative_types: list[TypeRef] | None = Field(default=None, max_length=60)
     premise: str = ""
     chapters: int | None = Field(default=None, ge=1)
     words_per_chapter: int | None = Field(default=None, ge=1)
@@ -119,6 +123,11 @@ class PrepareInput(RevisionInput):
 
 class UpdateInput(RevisionInput):
     input: SessionInput
+
+
+class TypeSnapshotInput(RevisionInput):
+    refs: list[TypeRef] = Field(max_length=60)
+    operation_id: str = Field(min_length=8, max_length=100, pattern=r'^[a-zA-Z0-9_-]+$')
 
 
 def _now() -> str:
@@ -460,6 +469,11 @@ briefly and still give a useful current design proposal. Do not claim to have ge
     def stage_request():
         nonlocal assembly, assembly_part
         assert plan is not None
+        stage_context = context
+        type_snapshot = (session.get('creative_design') or {}).get('policy', {}).get('type_snapshot')
+        if type_snapshot is not None and plan.stage == 'chapter_plan':
+            stage_context = {**context, 'creative_design': {**context['creative_design'],
+                'genre_context': compile_snapshot(type_snapshot, 'chapter_plan')}}
         if plan.stage == "assembly":
             if "assembly" in plan.record["completed"]:
                 return "", ""  # Saved final artifacts are verified locally.
@@ -469,7 +483,7 @@ briefly and still give a useful current design proposal. Do not claim to have ge
             if assembly_part is None:
                 return "", ""  # All pieces are saved; do not ask the model to copy them.
             rules = _skill_bundle("delivery")[0] if "--- SKILL.md ---" in skill else skill
-            part_context = assembly.context(plan.context(context), assembly_part)
+            part_context = assembly.context(plan.context(stage_context), assembly_part)
             part_context["delivery_instruction"] = (
                 "Complete only assembly_part using its dedicated JSON schema. The application assembles "
                 "the final skeleton from saved parts and unchanged story/chapter text. Do not return "
@@ -479,7 +493,7 @@ briefly and still give a useful current design proposal. Do not claim to have ge
                     json.dumps(part_context, ensure_ascii=False))
         # Early stages have creative guidance but no 17-section schema burden.
         rules = _skill_bundle("exploration")[0] if "--- SKILL.md ---" in skill else skill
-        return rules + design_rules(session) + plan.rules(), json.dumps(plan.context(context), ensure_ascii=False)
+        return rules + design_rules(session) + plan.rules(), json.dumps(plan.context(stage_context), ensure_ascii=False)
 
     if plan is not None:
         system, user = stage_request()
@@ -529,9 +543,25 @@ briefly and still give a useful current design proposal. Do not claim to have ge
                     if plan is not None:
                         raise DeliveryTimeoutError(timeout, task_expired=True)
                     raise TimeoutError("Workshop delivery exhausted the turn timeout")
+                type_context = json.loads(user).get('creative_design', {}).get('genre_context')
+                receipt = None
+                if type_context is not None:
+                    request_bytes = len(system.encode('utf-8')) + len(user.encode('utf-8'))
+                    if request_bytes > 2 * 1024 * 1024:
+                        from core.creative_types import CreativeTypeError
+                        raise CreativeTypeError(f'本次完整请求为 {request_bytes} 字节，超过 2 MiB 工程上限；请精简输入，未截断资料或对话。')
+                    receipt = {'revision': session['revision'], 'attempt': attempt, 'stage': type_context['stage'],
+                               'context': type_context, 'context_sha256': type_digest(type_context),
+                               'user_sha256': hashlib.sha256(user.encode('utf-8')).hexdigest(),
+                               'system_sha256': hashlib.sha256(system.encode('utf-8')).hexdigest(),
+                               'request_bytes': request_bytes, 'submitted_at': _now(), 'status': 'adapter_invocation_started'}
+                    if session.get('_save_type_request'):
+                        session['_save_type_request'](receipt)
                 client = LLMClient(**client_options, timeout_seconds=remaining,
                                    **({"diagnostic_callback": diagnostic} if diagnostic is not None else {}))
                 text = client.complete(system, user).strip()
+                if receipt is not None and session.get('_save_type_request'):
+                    session['_save_type_request']({**receipt, 'status': 'response_received'})
         except Exception as exc:
             category = diagnostic_error_category(exc)
             if diagnostic is not None:
@@ -976,15 +1006,88 @@ class WorkshopService:
 
     def create(self, body: SessionInput) -> dict:
         _, version = _skill_bundle()
+        initial_input = body.model_dump()
+        snapshot = self._type_snapshot(initial_input)
         session_id = uuid.uuid4().hex
         self._path(session_id).mkdir(parents=True)
-        data = {"schema": SCHEMA, "id": session_id, "revision": 0, "input": body.model_dump(),
+        data = {"schema": SCHEMA, "id": session_id, "revision": 0, "input": initial_input,
                 "messages": [], "prompt_md": "", "questions": [], "status": "draft",
                 "last_error": None, "job_id": None, "skill_version": version, "prepared": None,
                 "project_id": None, "logs": [], "created_at": _now(), "updated_at": _now(),
-                "ready_for_confirmation": False, "creative_design": new_design(body.model_dump())}
+                "ready_for_confirmation": False, "creative_design": new_design(initial_input, snapshot)}
         self._save(data)
         return data
+
+    def _type_snapshot(self, initial_input: dict) -> dict | None:
+        refs = initial_input.get('creative_types')
+        if refs is None:
+            return None
+        from .creative_types import store_for
+        snapshot = store_for(self.projects).snapshot([TypeRef.model_validate(r) for r in refs])
+        # Retain custom/legacy labels. The selected stable profiles also have an
+        # exact display name in the brief for M1 proposal attribution.
+        profiles = [r['profile'] for r in snapshot['profiles']]
+        names = []
+        for label in initial_input.get('genres', []):
+            matches = [p for p in profiles if label.strip().casefold() in {s.casefold() for s in [p['name'], *p['aliases']]}]
+            if len(matches) > 1:
+                raise HTTPException(422, f'类型别名“{label}”不唯一，请明确选择对应资料。')
+            names.append(matches[0]['name'] if matches else label)
+        initial_input['genres'] = list(dict.fromkeys([*names, *[p['name'] for p in profiles]]))
+        return snapshot
+
+    def type_context(self, session_id: str) -> dict:
+        from .creative_types import store_for, summary
+        with self._locked(session_id) as data:
+            snapshot = (data.get('creative_design') or {}).get('policy', {}).get('type_snapshot')
+            contexts = {stage: compile_snapshot(snapshot, stage) for stage in ('brainstorm', 'story_design', 'chapter_plan')} if snapshot else {}
+            latest = store_for(self.projects).records()
+            return {'snapshot': snapshot, 'contexts': contexts,
+                    'context_sha256': {k: type_digest(v) for k, v in contexts.items()},
+                    'latest': [summary(latest[r['profile']['profile_id']]) for r in (snapshot or {}).get('profiles', [])
+                               if r['profile']['profile_id'] in latest],
+                    'revision': data['revision'], 'last_request': data.get('last_type_request')}
+
+    def _save_type_request(self, snapshot: dict, receipt: dict):
+        with self._locked(snapshot['id']) as data:
+            if not self._current_operation(data, snapshot):
+                raise RuntimeError('类型请求已被新的讨论版本替代。')
+            _atomic(self._path(data['id']) / 'type_requests' / f"{receipt['revision']}-{receipt['attempt']}.json",
+                    json.dumps(receipt, ensure_ascii=False, indent=2))
+            data['last_type_request'] = receipt
+            self._save(data)
+
+    def adopt_types(self, session_id: str, body: TypeSnapshotInput) -> dict:
+        with self._locked(session_id) as data:
+            request_hash = type_digest(body.model_dump())
+            operations = data.get('type_update_operations', {})
+            if body.operation_id in operations:
+                if operations[body.operation_id] != request_hash:
+                    raise HTTPException(409, '同一更新标识不能用于不同资料选择。')
+                return data
+            self._available(data, body.revision)
+            if data.get('restart_required'):
+                raise HTTPException(409, '请先处理已保存的基础设定修改。')
+            old = data.get('creative_design')
+            previous_snapshot = (old or {}).get('policy', {}).get('type_snapshot')
+            initial_input = dict(data['input'])
+            initial_input['creative_types'] = [r.model_dump() for r in body.refs]
+            previous_names = {r['profile']['name'] for r in (previous_snapshot or {}).get('profiles', [])}
+            initial_input['genres'] = [g for g in initial_input['genres'] if g not in previous_names]
+            snapshot = self._type_snapshot(initial_input)
+            updated = new_design(initial_input, snapshot)
+            if old:
+                updated.update(rounds=old['rounds'], decisions=old['decisions'])
+            data.setdefault('type_snapshot_history', []).append({'revision': data['revision'], 'design': old})
+            data.update(input=initial_input, creative_design=updated, revision=data['revision'] + 1,
+                        prepared=None, ready_for_confirmation=False, design_needs_revision=True,
+                        delivery_run_id=None, delivery_source_revision=None, delivery_published_run_id=None,
+                        resumed_from_revision=None, paused_at=None, status='draft', turn_intent='discuss')
+            data.setdefault('type_update_operations', {})[body.operation_id] = request_hash
+            data['messages'].append({'role': 'user', 'content': '已明确更新本书的类型说明版本。保留既有作者决定；下一轮讨论请结合新说明指出需要协调的变化，不自动改写骨架。'})
+            self._log(data, 'types_updated', '类型说明已更新，尚未调用模型；旧快照与讨论已保留。')
+            self._save(data)
+            return data
 
     def get(self, session_id: str) -> dict:
         with self._locked(session_id) as data:
@@ -1156,7 +1259,7 @@ class WorkshopService:
             data["revision"] += 1
             data.update(messages=[{"role": "user", "content": "请只依据当前基础设定，从头开始头脑风暴；提出有因果差异的故事方向并完善人物、冲突与结局。"}],
                         turn_intent="discuss",
-                        creative_design=new_design(data["input"]),
+                        creative_design=new_design(data["input"], data.get('pending_type_snapshot')),
                         design_needs_revision=False,
                         prompt_md="", questions=[], naming=None, prepared=None, logs=[], history=history,
                         initial_input=json.loads(json.dumps(data["input"])), status="running", last_error=None,
@@ -1268,6 +1371,7 @@ class WorkshopService:
         snapshot["_candidate_path"] = self._path(session_id) / "candidates" / f"{revision}.md"
         snapshot["_inference_lock_path"] = self._path(session_id) / ".inference.lock"
         snapshot["_save_delivery_checkpoint"] = lambda record: self._save_delivery_checkpoint(snapshot, record, cancel_event)
+        snapshot['_save_type_request'] = lambda receipt: self._save_type_request(snapshot, receipt)
         try:
             snapshot["_delivery_record"] = self._load_delivery_checkpoint(snapshot)
             try:
@@ -1330,6 +1434,7 @@ class WorkshopService:
         with self._locked(session_id) as data:
             self._available(data, body.revision)
             new_input = body.input.model_dump()
+            pending_snapshot = self._type_snapshot(new_input)
             changes = {key: {"before": data["input"].get(key), "after": value}
                        for key, value in new_input.items() if data["input"].get(key) != value}
             if not changes:
@@ -1341,6 +1446,7 @@ class WorkshopService:
             data.setdefault("initial_input", json.loads(json.dumps(data["input"])))
             data["pending_input_fields"] = sorted(set(data.get("pending_input_fields", [])) | set(changes))
             data["input"] = new_input
+            data['pending_type_snapshot'] = pending_snapshot
             data["revision"] += 1
             data.update(status="draft", last_error=None, prepared=None, ready_for_confirmation=False,
                         active_operation="brainstorm", input_needs_revision=True, restart_required=True,
@@ -1559,6 +1665,16 @@ def add_turn(session_id: str, body: TurnInput, service: WorkshopService = Depend
 @router.post("/sessions/{session_id}/decisions")
 def decide_proposal(session_id: str, body: DecisionInput, service: WorkshopService = Depends(get_workshop_service)):
     return service.decide(session_id, body)
+
+
+@router.get('/sessions/{session_id}/type-context')
+def get_type_context(session_id: str, service: WorkshopService = Depends(get_workshop_service)):
+    return service.type_context(session_id)
+
+
+@router.post('/sessions/{session_id}/type-snapshot')
+def adopt_type_snapshot(session_id: str, body: TypeSnapshotInput, service: WorkshopService = Depends(get_workshop_service)):
+    return service.adopt_types(session_id, body)
 
 
 @router.post("/sessions/{session_id}/pause")

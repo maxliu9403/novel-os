@@ -1,5 +1,6 @@
 import type { JobStatus } from "./client";
 import { API_BASE as BASE } from "./base";
+import type { CreativeTypeRef, TypeSnapshot } from './creativeTypes';
 
 const ROOT = "/api/workshop/sessions";
 
@@ -34,9 +35,9 @@ export interface WorkshopDesignRound {
 export interface WorkshopDesign {
   schema: string;
   policy_sha256: string;
-  policy: { guidance: {
+  policy: { type_snapshot?: TypeSnapshot; guidance: {
     version: string;
-    selections: Array<{ selection: string; coverage: "specialized_guidance" | "general_guidance" }>;
+    selections: Array<{ selection: string; coverage: "specialized_guidance" | "general_guidance" | "user_guidance" }>;
   } };
   rounds: WorkshopDesignRound[];
   decisions: Array<{ proposal_id: string; status: WorkshopDecisionStatus; note: string; source: "author_action";
@@ -65,6 +66,7 @@ export interface WorkshopInput {
   title: string;
   author: string;
   genres: string[];
+  creative_types?: CreativeTypeRef[] | null;
   premise: string;
   chapters?: number;
   words_per_chapter?: number;

@@ -1,0 +1,543 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "profile_id",
+    "version",
+    "name",
+    "aliases",
+    "dimension",
+    "summary",
+    "applicability",
+    "reader_promises",
+    "character_dynamics",
+    "voice_guidance",
+    "pitfalls",
+    "diagnostics",
+    "mechanisms",
+    "combinations",
+    "publication_mapping"
+  ],
+  "properties": {
+    "schema": {
+      "const": "creative-type-profile.v1"
+    },
+    "profile_id": {
+      "type": "string",
+      "pattern": "^ct_[a-z0-9][a-z0-9_-]{1,76}$"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "aliases": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 20,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      }
+    },
+    "dimension": {
+      "enum": [
+        "marriage",
+        "family",
+        "growth",
+        "world",
+        "conflict",
+        "relationship",
+        "tone",
+        "audience"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 600
+    },
+    "applicability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "readers",
+        "markets",
+        "languages",
+        "lengths"
+      ],
+      "properties": {
+        "readers": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1600
+          }
+        },
+        "markets": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1600
+          }
+        },
+        "languages": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1600
+          }
+        },
+        "lengths": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1600
+          }
+        }
+      }
+    },
+    "reader_promises": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "$ref": "#/definitions/guidance"
+      }
+    },
+    "character_dynamics": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "$ref": "#/definitions/guidance"
+      }
+    },
+    "voice_guidance": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "$ref": "#/definitions/guidance"
+      }
+    },
+    "pitfalls": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "$ref": "#/definitions/guidance"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "$ref": "#/definitions/guidance"
+      }
+    },
+    "mechanisms": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "$ref": "#/definitions/mechanism"
+      }
+    },
+    "combinations": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "with_profile_id",
+          "opportunities",
+          "tensions"
+        ],
+        "properties": {
+          "with_profile_id": {
+            "type": "string",
+            "pattern": "^ct_[a-z0-9][a-z0-9_-]{1,76}$"
+          },
+          "opportunities": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1600
+            }
+          },
+          "tensions": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1600
+            }
+          }
+        }
+      }
+    },
+    "publication_mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "catalog_version",
+        "primary_genre_ids",
+        "facet_ids"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "mapped",
+            "unmapped"
+          ]
+        },
+        "catalog_version": {
+          "const": "novel-types.2026-10"
+        },
+        "primary_genre_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 4,
+          "items": {
+            "enum": [
+              "romance",
+              "womens_fiction",
+              "family_drama",
+              "mystery",
+              "thriller",
+              "fantasy",
+              "xuanhuan",
+              "horror",
+              "supernatural",
+              "contemporary_realism",
+              "young_adult",
+              "general_fiction"
+            ]
+          }
+        },
+        "facet_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 12,
+          "items": {
+            "enum": [
+              "sweet_romance",
+              "ceo_romance",
+              "dark_romance",
+              "revenge",
+              "second_chance",
+              "mafia",
+              "werewolf",
+              "royal_intrigue",
+              "domestic_betrayal",
+              "marriage_crisis",
+              "ethical_dilemma",
+              "female_growth",
+              "male_growth",
+              "celebrity",
+              "abuse_survival",
+              "queen_empress",
+              "love_at_first_sight",
+              "office_romance",
+              "workplace_comedy",
+              "same_sex_romance",
+              "single_parent",
+              "billionaire",
+              "pregnancy",
+              "apocalypse",
+              "angst",
+              "sweet",
+              "dark",
+              "suspenseful",
+              "passionate",
+              "emotional_realism",
+              "contemporary_urban",
+              "social_life",
+              "family_domestic",
+              "royal_court",
+              "western",
+              "post_apocalyptic"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://novel-os.local/schemas/creative-type-profile.v1.schema.json",
+  "title": "Creative type immutable enabled profile (design contract)",
+  "definitions": {
+    "guidance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "text",
+        "importance",
+        "stages"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{1,79}$"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1600
+        },
+        "importance": {
+          "enum": [
+            "essential",
+            "recommended",
+            "optional"
+          ]
+        },
+        "stages": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "brainstorm",
+              "story_design",
+              "chapter_plan",
+              "draft",
+              "review"
+            ]
+          }
+        }
+      }
+    },
+    "mechanism": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "principle",
+        "importance",
+        "stages",
+        "trigger",
+        "scope",
+        "limits",
+        "exceptions",
+        "costs",
+        "choices",
+        "payoffs"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{1,79}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "principle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1600
+        },
+        "importance": {
+          "enum": [
+            "essential",
+            "recommended",
+            "optional"
+          ]
+        },
+        "stages": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "brainstorm",
+              "story_design",
+              "chapter_plan",
+              "draft",
+              "review"
+            ]
+          }
+        },
+        "trigger": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1600
+          }
+        },
+        "scope": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1600
+          }
+        },
+        "limits": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1600
+          }
+        },
+        "exceptions": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1600
+          }
+        },
+        "costs": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1600
+          }
+        },
+        "choices": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1600
+          }
+        },
+        "payoffs": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1600
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "anyOf": [
+        {
+          "properties": {
+            "reader_promises": {
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "properties": {
+            "character_dynamics": {
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "properties": {
+            "voice_guidance": {
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "properties": {
+            "pitfalls": {
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "properties": {
+            "diagnostics": {
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "properties": {
+            "mechanisms": {
+              "minItems": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "if": {
+        "properties": {
+          "publication_mapping": {
+            "properties": {
+              "status": {
+                "const": "unmapped"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "publication_mapping": {
+            "properties": {
+              "primary_genre_ids": {
+                "maxItems": 0
+              },
+              "facet_ids": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "publication_mapping": {
+            "anyOf": [
+              {
+                "properties": {
+                  "primary_genre_ids": {
+                    "minItems": 1
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "facet_ids": {
+                    "minItems": 1
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
