@@ -1463,10 +1463,13 @@ class WorkshopService:
                                    edit_mode="line", approval_policy="auto", quality_policy="evidence_v1",
                                    max_retries=5, max_quality_repairs=2, output_formats=FORMATS,
                                    method_policy=policy.to_dict())
-                    job_id = runner.submit("novel.run", lambda: PipelineRunner().run(spec),
-                                           {"project_id": project_id, "project_path": str(project_path)},
+                    from .project_tasks import _result_meta
+                    cancellation = threading.Event()
+                    run_id = uuid.uuid4().hex[:12]
+                    job_id = runner.submit("novel.run", lambda: PipelineRunner(cancellation_event=cancellation, run_id=run_id).run(spec),
+                                           {"project_id": project_id, "project_path": str(project_path), "run_id": run_id},
                                            unique_key=f"workshop-launch:{self._path(session_id)}",
-                                           result_mapper=lambda result: {"run_id": result.run_id, "run_status": result.status})
+                                           result_mapper=_result_meta, cancel_event=cancellation, defer_cancel_completion=True)
             except (FileExistsError, ProjectMutationBlocked) as exc:
                 raise HTTPException(409, "项目路径已存在或正在删除，请勿重复启动。") from exc
             except Exception as exc:

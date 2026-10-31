@@ -32,7 +32,7 @@ test("opens the project using one native keyboard-accessible card link", async (
     <ProjectCard p={project} /><CurrentLocation />
   </MemoryRouter>);
   const link = screen.getByRole("link", { name: "打开作品" });
-  expect(screen.getAllByRole("link").filter((item) => item.getAttribute("href") === "/projects/last-signal")).toHaveLength(1);
+  expect(screen.getAllByRole("link").filter((item) => item.getAttribute("href") === "/projects/last-signal?tab=overview")).toHaveLength(1);
   expect(link.querySelector("button, details, a")).toBeNull();
   await user.tab();
   expect(link).toHaveFocus();
@@ -108,7 +108,7 @@ test("shows the full task ID and task start time instead of the last update", ()
   const task = screen.getByText(project.task_id!);
   expect(task).toHaveAttribute("title", project.task_id);
   expect(task).toHaveClass("break-all");
-  expect(screen.getByRole("link", { name: "打开作品" })).toHaveAttribute("href", "/projects/last-signal");
+  expect(screen.getByRole("link", { name: "打开作品" })).toHaveAttribute("href", "/projects/last-signal?tab=overview");
 
   const time = container.querySelector("time");
   expect(time).toHaveAttribute("datetime", project.task_started_at);
@@ -176,7 +176,7 @@ test.each([
   expect(screen.getByText("已完成")).toBeInTheDocument();
   expect(screen.getByText(label)).toHaveAttribute("data-status", status);
   expect(screen.getByRole("link", { name: action })).toHaveAttribute("href", "/projects/last-signal/covers");
-  expect(screen.getByRole("link", { name: "打开作品" })).toHaveAttribute("href", "/projects/last-signal");
+  expect(screen.getByRole("link", { name: "打开作品" })).toHaveAttribute("href", "/projects/last-signal?tab=overview");
 });
 
 test("identifies candidate preview and keeps its review status after image failure", () => {

@@ -60,6 +60,13 @@ export interface ProjectCoverSummary {
   candidate_count: number;
 }
 
+export interface ProjectDeliverySummary {
+  status: "ready" | "pending" | "missing" | "stale" | "failed";
+  retryable?: boolean;
+  error?: string | null;
+  updated_at?: string | null;
+}
+
 export interface ProjectSummary {
   id: string; title: string; genre: string; chapter_count: number; status: string;
   author?: string; word_count?: number; drafted_count?: number;
@@ -69,6 +76,7 @@ export interface ProjectSummary {
   genres?: string[]; premise?: string;
   target_word_count?: number; session_word_target?: number;
   cover?: ProjectCoverSummary;
+  delivery?: ProjectDeliverySummary;
 }
 
 export interface ChapterSummary {
@@ -78,6 +86,7 @@ export interface ChapterSummary {
 export interface ChapterDetail extends ChapterSummary {
   outline: string | null; draft: string | null;
 }
+
 export interface ProjectDetail {
   id: string; title: string; genre: string; author: string;
   chapter_count: number; status: string; style: Record<string, string>;
@@ -87,6 +96,7 @@ export interface ProjectDetail {
   task_id?: string | null; task_started_at?: string | null;
   task_can_resume?: boolean; task_error?: string | null; task_phase?: string | null;
   cover?: ProjectCoverSummary;
+  delivery?: ProjectDeliverySummary;
 }
 
 export interface ProjectTaskStageFailure {
@@ -99,6 +109,60 @@ export interface ProjectTaskStageFailure {
   status?: string;
 }
 
+export interface ProjectTaskStage {
+  phase: string;
+  chapter: number | null;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  attempt?: number;
+}
+
+export interface PipelineProgress {
+  schema_version: 1;
+  execution_id: string;
+  run_id: string;
+  status: string;
+  phase: string | null;
+  chapter: number | null;
+  started_at: string | null;
+  updated_at: string | null;
+  phase_started_at: string | null;
+  heartbeat_at: string | null;
+  last_upstream_activity_at: string | null;
+  last_model_activity_at: string | null;
+  last_output_at: string | null;
+  request_timeout_seconds: number;
+  stage_timeout_seconds: number;
+  message?: string;
+  next_action?: string;
+  request: {
+    request_id: string;
+    provider: string;
+    model: string;
+    started_at: string | null;
+    status: string;
+    output_chars: number;
+    model_activity_count: number;
+    error_type: string | null;
+    timeout_seconds: number;
+  } | null;
+  milestones: Array<{ at: string; phase: string; chapter: number | null; status: string; message: string }>;
+}
+
+export interface ProjectTaskPlanning {
+  status: string;
+  active_step: string | null;
+  updated_at: string | null;
+  completed_batches: number;
+  total_batches: number;
+  chapter_count: number;
+  message?: string;
+  next_action?: string;
+  steps: Array<{ id: string; label: string; status: string; summary?: string }>;
+  milestones: Array<{ id: string; time: string; label: string; summary?: string }>;
+}
+
 export interface ProjectTaskDetail {
   run_id: string;
   status: string;
@@ -109,6 +173,13 @@ export interface ProjectTaskDetail {
   error: string | null;
   failed_stages: ProjectTaskStageFailure[];
   can_resume: boolean;
+  can_upgrade_planning?: boolean;
+  can_pause?: boolean;
+  cancel_requested?: boolean;
+  active_job_id?: string | null;
+  progress?: PipelineProgress | null;
+  planning?: ProjectTaskPlanning | null;
+  stages?: ProjectTaskStage[];
   resume_job_id?: string | null;
   resume_job_status?: string | null;
   resume_job_error?: string | null;
@@ -1097,8 +1168,10 @@ export const api = {
   project: (id: string) => get<ProjectDetail>(`/api/projects/${id}`),
   projectTask: (id: string, runId: string) =>
     get<ProjectTaskDetail>(`/api/projects/${encodeURIComponent(id)}/tasks/${encodeURIComponent(runId)}`),
-  resumeProjectTask: (id: string, runId: string) =>
-    send<ProjectTaskResumeResult>(`/api/projects/${encodeURIComponent(id)}/tasks/${encodeURIComponent(runId)}/resume`, "POST"),
+  resumeProjectTask: (id: string, runId: string, options?: { outline_planning_mode: "staged" }) =>
+    send<ProjectTaskResumeResult>(`/api/projects/${encodeURIComponent(id)}/tasks/${encodeURIComponent(runId)}/resume`, "POST", options),
+  pauseProjectTask: (id: string, runId: string, jobId: string) =>
+    send<ProjectTaskDetail>(`/api/projects/${encodeURIComponent(id)}/tasks/${encodeURIComponent(runId)}/pause`, "POST", { job_id: jobId }),
   projectDeletionPreview: (id: string) =>
     get<ProjectDeletionPreview>(`/api/projects/${encodeURIComponent(id)}/deletion-preview`),
   deleteProject: (id: string, confirmTitle: string) =>

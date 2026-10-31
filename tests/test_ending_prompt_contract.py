@@ -88,6 +88,8 @@ def test_roles_and_guardian_task_share_ending_fields_and_separate_blocks(tmp_pat
         for field in ("Payoff_Events", "Arc_State_Updates", "Ending_Evidence"):
             assert f"`{field}`" in contract
             assert f"\n{field}:\n" in contract
+        assert "omit the entire outcome field" in contract
+        assert "never emit an empty `outcome=` or `outcome_state=`" in contract
     project = _project(tmp_path)
     prompt = NovelOrchestrator(str(project))._generate_validation_prompt(15, "The client decides.")
     assert prompt.count("[CONTINUITY_REPORT]") == 1
@@ -115,6 +117,8 @@ def test_pre_finale_can_record_already_delivered_professional_outcome(tmp_path):
         assert '"main_conflict"' not in prompt
         assert '"emotional_contract"' not in prompt
         assert "outcome=<canonical outcome value from ending_contract>" in prompt
+        assert "omit the entire outcome field" in prompt
+        assert "never emit an empty `outcome=` or `outcome_state=`" in prompt
 
 
 def test_context_cast_includes_stable_character_id(tmp_path):

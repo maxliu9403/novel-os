@@ -1,0 +1,7 @@
+.delivery-package { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 6px; position: relative; z-index: 2; max-width: 100%; }
+.delivery-package > button, .delivery-package > a { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 9px 17px; border: 1px solid #dfe4f2; border-radius: 999px; background: #ffffffbf; color: #344467; font-size: 12px; font-weight: 600; text-decoration: none; cursor: pointer; }
+.delivery-package > button:hover:not(:disabled), .delivery-package > a:hover { border-color: #aaa8f5; color: #6867ea; background: #f7f7ff; }
+.delivery-package > button:disabled { opacity: .65; cursor: wait; }
+.delivery-package > button:focus-visible, .delivery-package > a:focus-visible { outline: 3px solid #aaa8f5; outline-offset: 3px; }
+.delivery-package--compact > button, .delivery-package--compact > a { padding: 4px 0; min-height: 28px; border: 0; background: transparent; font-size: 11px; }
+.delivery-package__error { color: #ad3359; font-size: 11px; line-height: 1.6; max-width: 300px; }

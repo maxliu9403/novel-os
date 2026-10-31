@@ -106,7 +106,7 @@ test("renders project cards in the task-start order returned by the API", async 
   expect(screen.getByText(/已写 0\/3 章/)).toBeInTheDocument();
   expect(screen.getByText("按任务启动时间倒序排列")).toBeInTheDocument();
   expect(screen.getAllByRole("article").map((article) => article.querySelector("a")?.getAttribute("href")))
-    .toEqual(["/projects/the-last-signal", "/projects/older-book"]);
+    .toEqual(["/projects/the-last-signal?tab=overview", "/projects/older-book?tab=overview"]);
   expect(screen.getByText("latest-run")).toBeInTheDocument();
   expect(screen.getByText("已完成")).toBeInTheDocument();
   expect(screen.getByText("已暂停")).toBeInTheDocument();

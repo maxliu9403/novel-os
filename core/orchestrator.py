@@ -489,15 +489,18 @@ class NovelOrchestrator:
         
         # Save outline
         outline_path = self.outputs_dir / "outline.json"
-        with open(outline_path, 'w', encoding='utf-8') as f:
-            json.dump(outline, f, indent=2)
+        if getattr(self, "outline_planning_mode", "legacy") != "staged" or dry_run:
+            with open(outline_path, 'w', encoding='utf-8') as f:
+                json.dump(outline, f, indent=2)
 
         raw_prompt_path = self.outputs_dir / "input" / "prompt.md"
         brief_path = self.outputs_dir / "input" / "brief.json"
-        raw_prompt = raw_prompt_path.read_text(encoding="utf-8") if raw_prompt_path.exists() else ""
+        raw_prompt_bytes = raw_prompt_path.read_bytes() if raw_prompt_path.exists() else None
+        brief_bytes = brief_path.read_bytes() if brief_path.exists() else None
+        raw_prompt = raw_prompt_bytes.decode("utf-8") if raw_prompt_bytes is not None else ""
         brief_data = (
-            json.loads(brief_path.read_text(encoding="utf-8"))
-            if brief_path.exists()
+            json.loads(brief_bytes.decode("utf-8"))
+            if brief_bytes is not None
             else {}
         )
         try:
@@ -563,6 +566,17 @@ class NovelOrchestrator:
                 != approved_commercial_story.contract_id
             ):
                 raise ValueError("brief commercial story contract id is invalid")
+        if getattr(self, "outline_planning_mode", "legacy") == "staged" and not dry_run:
+            return self._plan_outline_staged(
+                raw_prompt=raw_prompt,
+                brief_data=brief_data,
+                num_chapters=num_chapters,
+                target_words=target_words,
+                narrative_format=narrative_format,
+                approved_commercial_story=approved_commercial_story,
+                input_hashes={path: hashlib.sha256(data).hexdigest() if data is not None else None
+                              for path, data in ((raw_prompt_path, raw_prompt_bytes), (brief_path, brief_bytes))},
+            )
         prompt_brief = dict(brief_data)
         prompt_brief.pop("commercial_story_contract", None)
         prompt_brief.pop("commercial_story_contract_id", None)
@@ -766,6 +780,99 @@ genre-appropriate assumptions rather than asking questions.
         print(f"\n📝 Next: Review outline.json and run 'plan chapter --number 1'")
 
         return result if result is not None else outline
+
+    @scoped_usage("manuscript", lambda a: a["self"].project_path)
+    def _plan_outline_staged(
+        self,
+        *,
+        raw_prompt: str,
+        brief_data: Dict[str, Any],
+        num_chapters: int,
+        target_words: int,
+        narrative_format: NarrativeFormat,
+        approved_commercial_story: CommercialStoryContract | None,
+        input_hashes: Dict[Path, str | None],
+    ) -> str:
+        """Publish only a reviewed, validated staged candidate as the foundation."""
+        from outline_planning import (
+            OutlinePlanningError,
+            StagedOutlinePlanner,
+            atomic_write,
+            render_foundation,
+        )
+        from pipeline_runtime import check_cancelled
+
+        run_id = str(getattr(self, "pipeline_run_id", "") or "")
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", run_id):
+            raise OutlinePlanningError("Staged planning requires a valid pipeline run identity")
+        def source_guard() -> None:
+            check_cancelled()
+            for path, expected in input_hashes.items():
+                actual = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+                if actual != expected:
+                    raise OutlinePlanningError(
+                        "Adopted skeleton or approved brief changed during planning; "
+                        "saved candidates are retained but cannot be published under the old source"
+                    )
+
+        def validate(candidate: Dict[str, Any]) -> Dict[str, Any]:
+            # Reuse the established parser and long-form gate. The authoritative
+            # length/suitability and commercial metadata are already bound by
+            # code, rather than reconstructed from a fallible model echo.
+            foundation = self._parse_story_foundation(
+                "[STORY_FOUNDATION_JSON]\n"
+                + json.dumps(candidate, ensure_ascii=False)
+                + "\n[/STORY_FOUNDATION_JSON]",
+                num_chapters, approved_commercial_story, narrative_format,
+            )
+            report = evaluate_foundation_plan(foundation)
+            source_guard()
+            write_long_form_report(self.project_path, report)
+            if report.status == "blocked":
+                raise OutlinePlanningError("Long-form plan quality gate blocked: " + "; ".join(
+                    item.message for item in report.blockers
+                ))
+            return foundation
+
+        planner = StagedOutlinePlanner(
+            directory=self.outputs_dir / "runs" / run_id / "planning",
+            source=raw_prompt,
+            brief=brief_data,
+            chapter_count=num_chapters,
+            target_words=target_words,
+            client=self._get_llm("architect"),
+            narrative_format=narrative_format.to_dict(),
+            commercial_contract=approved_commercial_story.to_dict() if approved_commercial_story else None,
+            commercial_contract_id=approved_commercial_story.contract_id if approved_commercial_story else None,
+            volume_template=volume_contract_template(narrative_format),
+            final_validator=validate,
+            source_guard=source_guard,
+        )
+        foundation = planner.run()
+        text = render_foundation(foundation)
+        source_guard()
+        atomic_write(self.outputs_dir / "outline.md", text, guard=source_guard)
+        atomic_write(
+            self.outputs_dir / "input" / "foundation.json",
+            json.dumps(foundation, ensure_ascii=False, indent=2) + "\n",
+            guard=source_guard,
+        )
+        # Update the legacy UI scaffold with actual saved chapter summaries.
+        atomic_write(self.outputs_dir / "outline.json", json.dumps({
+            "metadata": {"title": foundation["title"], "target_chapters": num_chapters,
+                         "target_word_count": target_words, "planning_mode": "staged"},
+            "acts": foundation["act_beat_map"],
+            "chapter_summaries": foundation["chapters"],
+        }, ensure_ascii=False, indent=2) + "\n", guard=source_guard)
+        from ending_quality import ensure_quality_ledgers
+
+        source_guard()
+        ensure_quality_ledgers(self.project_path, foundation["ending_contract"])
+        if self.state_update_mode == "legacy_apply":
+            source_guard()
+            self._apply_story_foundation(foundation, target_words)
+        planner.published()
+        return text
 
     @staticmethod
     def _parse_story_foundation(
@@ -1180,11 +1287,28 @@ genre-appropriate assumptions rather than asking questions.
         """
         pack_md = format_context_pack(build_context_pack(self.state, chapter.number, purpose="architect"))
         master_outline_path = self.outputs_dir / "outline.md"
-        master_outline = (
-            master_outline_path.read_text(encoding="utf-8")[:50000]
-            if master_outline_path.exists()
-            else "[No full-book outline available]"
-        )
+        if getattr(self, "outline_planning_mode", "legacy") == "staged":
+            foundation_path = self.outputs_dir / "input" / "foundation.json"
+            foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
+            plans = foundation.get("chapters")
+            if not isinstance(plans, list) or not any(
+                item.get("number") == chapter.number for item in plans if isinstance(item, dict)
+            ):
+                raise ValueError("Validated staged foundation is missing the current chapter plan")
+            # Preserve the entire global design and chapter commitments, plus
+            # complete current/adjacent scene plans. Truncating the first 50k
+            # characters of a long book would discard its later chapter plans.
+            chapter_context = {key: value for key, value in foundation.items() if key != "chapters"}
+            chapter_context["chapters"] = [
+                item for item in plans if abs(item["number"] - chapter.number) <= 1
+            ]
+            master_outline = json.dumps(chapter_context, ensure_ascii=False, indent=2)
+        else:
+            master_outline = (
+                master_outline_path.read_text(encoding="utf-8")[:50000]
+                if master_outline_path.exists()
+                else "[No full-book outline available]"
+            )
 
         ending_context = self._ending_contract_context(chapter.number)
         serialization_context = self._narrative_chapter_context(chapter.number)
@@ -2112,19 +2236,23 @@ certifies delivery after the candidate is reviewed.
             return (
                 "`<character_id or full name> | "
                 "stage=<beginning|middle|climax|resolution> | progress=<0-100> | "
-                "outcome=<canonical outcome value from ending_contract> | "
                 "evidence=<choice or observable state>`; `stage` is lifecycle "
                 "position, while `outcome` is the contract result such as "
                 "independence or accountability. Keep narrative explanation in "
-                "`evidence`. Record an outcome only after its observable choice or "
+                "`evidence`. Append `outcome=<canonical outcome value from ending_contract>` "
+                "only after its observable choice or "
                 "duty has occurred; pre-finale tracking never authorizes a future "
-                "choice or disclosure early."
+                "choice or disclosure early. If the outcome has not been achieved, "
+                "omit the entire outcome field; never emit an empty `outcome=` or "
+                "`outcome_state=`. Keep the supported stage, progress and evidence."
             )
         return (
             "`<character_id or full name> | "
             "stage=<beginning|middle|climax|resolution> | progress=<0-100> | "
             "evidence=<choice or observable state>`; semantic outcome is required "
-            "only in the finale window. Keep narrative explanation in `evidence`."
+            "only in the finale window. Keep narrative explanation in `evidence`. "
+            "If the outcome has not been achieved, omit the entire outcome field; "
+            "never emit an empty `outcome=` or `outcome_state=` or invent a result."
         )
     
     # ===== Writing Phase =====
@@ -3432,6 +3560,8 @@ Examples:
                             choices=['legacy', 'evidence_v1'],
                             help='Select legacy projection or evidence-backed promotion')
     run_parser.add_argument('--max-retries', type=int, default=5)
+    run_parser.add_argument('--outline-planning-mode', choices=['legacy', 'staged'], default='staged',
+                            help='Use validated staged outline planning, or explicitly fall back to legacy planning')
     run_parser.add_argument('--method-mode', choices=['off', 'advisory'], default=None,
                             help='Read-only narrative review; inherits project policy (new default: advisory)')
     run_parser.add_argument('--retry-backoff', type=float, default=2.0,
@@ -3448,6 +3578,8 @@ Examples:
     resume_parser.add_argument('--project', required=True, help='Novel project directory')
     resume_parser.add_argument('--run-id', required=True)
     resume_parser.add_argument('--approval', choices=['review_required', 'auto'], default=None)
+    resume_parser.add_argument('--outline-planning-mode', choices=['staged'], default=None,
+                               help='Explicitly upgrade an eligible uncommitted legacy outline; otherwise preserve its saved mode')
     resume_parser.add_argument('--approve-chapter', type=int, default=None,
                                help='Record human approval for one waiting candidate and continue')
 
@@ -3521,6 +3653,7 @@ Examples:
                     edit_mode=args.edit_mode,
                     approval_policy=args.approval,
                     quality_policy=args.quality_policy,
+                    outline_planning_mode=args.outline_planning_mode,
                     method_policy=({'mode': args.method_mode} if args.method_mode else None),
                     max_retries=args.max_retries,
                     max_quality_repairs=args.max_quality_repairs,
@@ -3536,6 +3669,7 @@ Examples:
                     args.project,
                     approval_policy=args.approval,
                     approve_chapter=args.approve_chapter,
+                    **({'outline_planning_mode': args.outline_planning_mode} if args.outline_planning_mode else {}),
                 )
             elif args.command == 'retry':
                 manifest = runner.retry(

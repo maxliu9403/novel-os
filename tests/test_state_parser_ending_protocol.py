@@ -45,6 +45,82 @@ Arc_State_Updates:
     ]
 
 
+def test_scribe_blank_optional_outcome_is_omitted_without_inventing_completion(tmp_path):
+    state = StoryState(str(tmp_path / "project"))
+    state.add_character(Character(id="char_riley", full_name="Riley", role="supporting"))
+    declaration = (
+        "char_riley | stage=beginning | progress=15 | outcome= | "
+        "evidence=Riley refuses intimidation without apologizing despite continued "
+        "dependence on the cabin."
+    )
+    output = f"""[SCRIBE_STATE_UPDATE]
+Arc_State_Updates:
+  - {declaration}
+[/SCRIBE_STATE_UPDATE]"""
+
+    parsed = parse_scribe(output)
+
+    assert parsed["arc_state_updates"] == [
+        "char_riley | stage=beginning | progress=15 | "
+        "evidence=Riley refuses intimidation without apologizing despite continued "
+        "dependence on the cabin."
+    ]
+    ingest_agent_output(state, 1, "scribe", output)
+    character = state.characters["char_riley"]
+    assert character.arc_stage == "beginning"
+    assert character.arc_progress == 15
+    assert character.outcome_state == ""
+    assert state.chapters[1].arc_state_updates == [{
+        "character_id": "char_riley",
+        "chapter": 1,
+        "stage": "beginning",
+        "progress": 15,
+        "outcome": "",
+        "evidence": (
+            "Riley refuses intimidation without apologizing despite continued "
+            "dependence on the cabin."
+        ),
+    }]
+
+
+def test_guardian_blank_optional_outcome_preserves_existing_completed_outcome(tmp_path):
+    state = StoryState(str(tmp_path / "project"))
+    state.add_character(Character(id="char_riley", full_name="Riley", role="supporting"))
+    ingest_agent_output(state, 20, "scribe", """[SCRIBE_STATE_UPDATE]
+Arc_State_Updates:
+  - char_riley | stage=resolution | progress=100 | outcome=secure_independence | evidence=Riley signs the cabin deed in her own name.
+[/SCRIBE_STATE_UPDATE]""")
+    output = """[CONTINUITY_STATE_UPDATE]
+Arc_State_Updates:
+  - char_riley | stage=resolution | progress=100 | outcome_state=   | evidence=Riley refuses a final demand and keeps the cabin.
+[/CONTINUITY_STATE_UPDATE]"""
+
+    parsed = parse_continuity(output)
+
+    assert parsed["arc_state_updates"] == [
+        "char_riley | stage=resolution | progress=100 | "
+        "evidence=Riley refuses a final demand and keeps the cabin."
+    ]
+    ingest_agent_output(state, 21, "continuity_guardian", output)
+    character = state.characters["char_riley"]
+    assert character.outcome_state == "secure_independence"
+    assert character.outcome_evidence == "Riley signs the cabin deed in her own name."
+    assert state.chapters[21].arc_state_updates[0]["outcome"] == "secure_independence"
+
+
+def test_populated_outcome_declaration_is_not_rewritten():
+    declaration = (
+        "char_riley | stage=climax | progress=90 | outcome=defiant_dependence | "
+        "evidence=Riley resists while the cabin remains beyond her control."
+    )
+    output = f"""[SCRIBE_STATE_UPDATE]
+Arc_State_Updates:
+  - {declaration}
+[/SCRIBE_STATE_UPDATE]"""
+
+    assert parse_scribe(output)["arc_state_updates"] == [declaration]
+
+
 def test_empty_later_block_does_not_erase_events_from_report():
     parsed = parse_continuity("""[CONTINUITY_REPORT]
 Payoff_Events:
@@ -139,6 +215,7 @@ New_Facts_Established:
 
 @pytest.mark.parametrize(("field", "declaration"), [
     ("Payoff_Events", "payoff_004 | status=paid"),
+    ("Payoff_Events", "payoff_004 | status= | evidence=Paid invoice"),
     ("Payoff_Events", "payoff_004 | status=complete | evidence=Paid invoice"),
     ("Payoff_Events", "payoff_004 | statuz=paid | evidence=Paid invoice"),
     ("Payoff_Events", "payoff_004 | status=paid | evidence=None"),
@@ -148,6 +225,11 @@ New_Facts_Established:
     ("Arc_State_Updates", "L01 | stage=finished | evidence=Delivers notices"),
     ("Arc_State_Updates", "L01 | stage=resolution | arc_stage=beginning | evidence=Delivers notices"),
     ("Arc_State_Updates", "L01 | progress=101 | evidence=Delivers notices"),
+    ("Arc_State_Updates", "L01 | stage=middle | evidence="),
+    ("Arc_State_Updates", "L01 | stage=middle | outcome=accountability | outcome_state=independence | evidence=Delivers notices"),
+    ("Arc_State_Updates", "L01 | stage=middle | outcome=accountability | outcome=independence | evidence=Delivers notices"),
+    ("Arc_State_Updates", "L01 | stage=middle | outcome= | outcome_state=accountability | evidence=Delivers notices"),
+    ("Arc_State_Updates", "L01 | stage=middle | outcome=accountability | outcome= | evidence=Delivers notices"),
     ("Arc_State_Updates", "L01 | stage=resolution | outcome=bounded_counsel_delivered"),
     ("Arc_State_Updates", "L01 | evidence=Delivers notices"),
 ])

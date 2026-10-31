@@ -31,6 +31,7 @@ from typing import Any, Callable, Dict, Optional
 import fcntl
 
 from artifacts import ArtifactError, ArtifactStore
+from pipeline_runtime import PipelineRuntime, PipelineStopped, check_cancelled, is_execution_stop, runtime_stage
 from canon import CanonDeltaProposal
 from commercial_story import CommercialStoryContract
 from contracts import AuthorIntent, ChapterContract, StoryContract
@@ -209,10 +210,12 @@ def _project_execution_lock(project: Path, run_id: str):
 
 class PipelineRunner:
     def __init__(self, project_path: str | Path | None = None, *, orchestrator_factory: Optional[Callable[[str], Any]] = None,
-                 method_client_factory: Optional[Callable[[], Any]] = None):
+                 method_client_factory: Optional[Callable[[], Any]] = None, cancellation_event=None, run_id=None):
         self.project_path = Path(project_path) if project_path else None
         self._orchestrator_factory = orchestrator_factory or self._default_orchestrator
         self._method_client_factory = method_client_factory
+        self._cancellation_event = cancellation_event
+        self._new_run_id = run_id
 
     @staticmethod
     def _default_orchestrator(project_path: str):
@@ -234,7 +237,7 @@ class PipelineRunner:
         spec.project_path = str(project)
         if spec.prompt_path != "-":
             spec.prompt_path = str(Path(spec.prompt_path).resolve())
-        manifest = RunManifest.new(spec)
+        manifest = RunManifest.new(spec, self._new_run_id)
         store = self._store(project, manifest.run_id)
         with _project_execution_lock(project, manifest.run_id):
             method_policy_error = ""
@@ -262,6 +265,7 @@ class PipelineRunner:
         *,
         approval_policy: Optional[str] = None,
         approve_chapter: Optional[int] = None,
+        outline_planning_mode: Optional[str] = None,
     ) -> RunManifest:
         project = Path(project_path or self.project_path or ".").resolve()
         with _project_execution_lock(project, run_id):
@@ -270,6 +274,7 @@ class PipelineRunner:
                 project,
                 approval_policy=approval_policy,
                 approve_chapter=approve_chapter,
+                outline_planning_mode=outline_planning_mode,
             )
 
     def _resume_locked(
@@ -279,10 +284,28 @@ class PipelineRunner:
         *,
         approval_policy: Optional[str] = None,
         approve_chapter: Optional[int] = None,
+        outline_planning_mode: Optional[str] = None,
     ) -> RunManifest:
         store = self._store(project, run_id)
         manifest = store.load()
         manifest.spec.project_path = str(project)
+        if outline_planning_mode is not None:
+            from planning_upgrade import can_upgrade_planning
+            if outline_planning_mode != "staged" or not can_upgrade_planning(project, manifest.to_dict()):
+                raise PipelineError("Cannot upgrade planning after story foundation or chapter work has started")
+            # Keep the exact prior manifest and all model replies for diagnosis.
+            # Mode changes never rewrite story state or discard failed artifacts.
+            backup = store.path.parent / "pre-staged-planning-run.json"
+            if backup.is_symlink():
+                raise PipelineError("Planning upgrade record cannot be an alias")
+            if backup.exists():
+                if ManifestStore(backup).load().to_dict() != manifest.to_dict():
+                    raise PipelineError("Planning upgrade record differs; inspect the preserved run before retrying")
+            else:
+                ManifestStore(backup).save(manifest)
+            manifest.spec.outline_planning_mode = "staged"
+            store.save(manifest)
+            self._event(manifest, "run.planning_upgraded", from_mode="legacy", to_mode="staged")
         print(f"Checking saved checkpoints for run {run_id}...", flush=True)
         try:
             reconciled_promotions = self._reconcile_committed_promotions(
@@ -667,6 +690,25 @@ class PipelineRunner:
         self._event(manifest, "run.started")
 
     def _execute(self, manifest: RunManifest, project: Path, store: ManifestStore) -> RunManifest:
+        try:
+            with PipelineRuntime(project, manifest.run_id, cancellation_event=self._cancellation_event) as runtime:
+                result = self._execute_scoped(manifest, project, store)
+                runtime.finish(result.status)
+                return result
+        except Exception as exc:
+            # Invalid runtime limits / a failed progress write must not leave
+            # a durable run falsely marked running after its worker exits.
+            # Once the canonical manifest is terminal, diagnostics cannot
+            # reverse completion or replace the original actionable failure.
+            if manifest.status in {"completed", "paused", "failed"}:
+                try:
+                    self._event(manifest, "run.progress_unavailable", error_type=type(exc).__name__)
+                except OSError:
+                    pass
+                return manifest
+            return self._record_resume_failure(manifest, store, exc, event="run.runtime_failed")
+
+    def _execute_scoped(self, manifest: RunManifest, project: Path, store: ManifestStore) -> RunManifest:
         # If one completed checkpoint is stale, every later stage is derived
         # from stale input and must be replayed as well.
         self._rerun_started = False
@@ -703,6 +745,7 @@ class PipelineRunner:
             setattr(orchestrator, "state_update_mode", "proposal_only")
             setattr(orchestrator, "quality_policy", manifest.spec.quality_policy)
             setattr(orchestrator, "pipeline_run_id", manifest.run_id)
+            setattr(orchestrator, "outline_planning_mode", manifest.spec.outline_planning_mode)
             self._active_orchestrator = orchestrator
             self._stage(
                 manifest,
@@ -1373,7 +1416,17 @@ class PipelineRunner:
             f"{report_text}"
         )
 
-    def _stage(
+    def _stage(self, manifest, project, store, phase, chapter, operation, validator, artifacts, **kwargs):
+        try:
+            # Staged planning gives each validated batch its own absolute
+            # budget. A long novel is not limited to one hour for all batches.
+            bounded = not (phase == "outline" and manifest.spec.outline_planning_mode == "staged")
+            with runtime_stage(phase, chapter, bounded=bounded):
+                return self._stage_scoped(manifest, project, store, phase, chapter, operation, validator, artifacts, **kwargs)
+        except PipelineStopped as exc:
+            raise PipelineError(str(exc), blocked=True) from exc
+
+    def _stage_scoped(
         self,
         manifest: RunManifest,
         project: Path,
@@ -1505,7 +1558,9 @@ class PipelineRunner:
                     attempt=attempt,
                 )
                 value = operation()
+                check_cancelled()
                 validator(value)
+                check_cancelled()
                 result.status = "done"
                 result.finished_at = self._now()
                 result.artifact_paths = [path for path in artifacts if (project / path).exists()]
@@ -1559,8 +1614,10 @@ class PipelineRunner:
             except Exception as exc:  # noqa: BLE001 - retryable classification is centralized here
                 last_error = f"{type(exc).__name__}: {exc}"
                 result.error = last_error
-                result.retryable = attempt < max_attempts and self._is_retryable(exc)
-                result.status = "retryable" if result.retryable else "failed"
+                result.retryable = (attempt < max_attempts and self._is_retryable(exc)
+                                    and not (phase == "outline" and manifest.spec.outline_planning_mode == "staged"))
+                stopped = is_execution_stop(exc)
+                result.status = "blocked" if stopped else ("retryable" if result.retryable else "failed")
                 result.finished_at = self._now()
                 self._save_stage(manifest, project, store, result)
                 self._event(manifest, "stage.retry" if result.retryable else "stage.failed", phase=phase, chapter=chapter, error=last_error)
@@ -1570,9 +1627,12 @@ class PipelineRunner:
                         30.0,
                     )
                     if delay:
-                        time.sleep(delay)
+                        end = time.monotonic() + delay
+                        while time.monotonic() < end:
+                            check_cancelled()
+                            time.sleep(min(.1, max(0, end - time.monotonic())))
                 else:
-                    raise PipelineError(last_error) from exc
+                    raise PipelineError(last_error, blocked=stopped) from exc
         raise PipelineError(last_error or f"Stage {phase} failed")
 
     def _reassert_state_authority(
@@ -1787,6 +1847,8 @@ class PipelineRunner:
         }
         if _is_repair_phase(phase):
             inputs[phase] = []
+        if phase == "chapter.plan" and manifest is not None and manifest.spec.outline_planning_mode == "staged":
+            inputs[phase].append("outputs/input/foundation.json")
         if _is_commercial_repair_phase(phase):
             inputs[phase] = [
                 PipelineRunner._chapter_stage(chapter or 0, "candidate_final"),
@@ -3287,6 +3349,8 @@ class PipelineRunner:
     def _is_retryable(exc: Exception) -> bool:
         from book_author import AuthorGenerationError
 
+        if is_execution_stop(exc):
+            return False
         if isinstance(exc, AuthorGenerationError) and isinstance(exc.__cause__, Exception):
             return PipelineRunner._is_retryable(exc.__cause__)
         text = str(exc).lower()
@@ -3301,6 +3365,7 @@ class PipelineRunner:
             "unknown provider",
             "agent prompt not found",
             "missing [",
+            "architect output contract failed",
             "empty revised chapter",
             "unauthorized",
             "403 forbidden",

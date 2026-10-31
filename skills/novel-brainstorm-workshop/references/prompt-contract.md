@@ -567,11 +567,15 @@ Emotional_Shifts: ...
 New_Information_Revealed: ...
 Foreshadowing_Planted: ...
 Payoff_Events: <payoff_id> | status=<recalled|paid|intentional_open> | evidence=<observable change> | chapter=<number>
-Arc_State_Updates: <character_id> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<canonical outcome value from ending_contract> | evidence=<choice or observable state>
+Arc_State_Updates: <character_id> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | evidence=<choice or observable state>
 Personality_State_Updates: <character_id> | trait=<性格特征> | pressure_response=<压力下反应> | evidence=<具体行为>
 Ending_Evidence: irreversible_change=<observable final state>; emotional_payoff=<reader-facing closure>
 [/SCRIBE_STATE_UPDATE]
 ```
+
+For `Arc_State_Updates`, append `outcome=<canonical outcome value from ending_contract>`
+only after that result has occurred on-page. Otherwise omit the entire outcome
+field; never emit an empty `outcome=` or `outcome_state=` or invent completion.
 
 Keep those blocks, the `story_lead_contract`, the user-confirmed
 `audience_profile`, the `workshop_trace`,

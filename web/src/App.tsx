@@ -12,6 +12,7 @@ import { ConfirmProvider } from "./components/Confirm";
 const ProjectsList = lazy(() => import("./routes/ProjectsList"));
 const ProjectDashboard = lazy(() => import("./routes/ProjectDashboard"));
 const ChapterView = lazy(() => import("./routes/ChapterView"));
+const BookReader = lazy(() => import("./routes/BookReader"));
 const Settings = lazy(() => import("./routes/Settings"));
 const RelationshipChart = lazy(() => import("./routes/RelationshipChart"));
 const ResearchMoodboard = lazy(() => import("./routes/ResearchMoodboard"));
@@ -36,6 +37,7 @@ function AnimatedRoutes() {
             <Route path="/settings" element={<Settings />} />
             <Route path="/workshop" element={<WorkshopLibrary />} />
             <Route path="/projects/:id" element={<ProjectDashboard />} />
+            <Route path="/projects/:id/read" element={<BookReader />} />
             <Route path="/projects/:id/chart" element={<RelationshipChart />} />
             <Route path="/projects/:id/research" element={<ResearchMoodboard />} />
             <Route path="/projects/:id/covers" element={<CoverStudio />} />

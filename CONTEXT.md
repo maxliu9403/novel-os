@@ -1,5 +1,13 @@
 # Novel OS domain language
 
+## Full-book planning and execution
+
+- **Adopted source conversion**: translate the complete author-approved skeleton into an execution design while preserving confirmed choices; fill implementation gaps rather than redesigning the story.
+- **Staged outline candidate**: a hash-bound global design and chapter batches saved before canon commitment. Structural validation and saved progress do not imply that whole-book semantic review or manuscript quality gates have passed.
+- **Planning checkpoint**: a completed response or validated result bound to source, configuration and upstream dependencies. Explicit recovery reuses matching results; a failed bounded correction is not permission for unlimited new calls.
+- **Full-book execution observation**: public request/activity metadata belonging to a specific run execution. Worker heartbeat, transport events, observed content and a complete reply are different signals; none implies uninterrupted remote reasoning.
+- **Safe planning upgrade**: an explicit legacy-to-staged change allowed only before foundation or chapter work, rechecked under the project execution lock. It preserves old artifacts and never upgrades an already written book implicitly.
+
 ## Novel classification
 
 - **Novel classification**: the engine-owned, versioned metadata contract for a
@@ -39,6 +47,7 @@ Method sidecars are private diagnostics, not canon and not H5 publication metada
 - **Method experiment**: an isolated, budget-confirmed comparison of frozen Scribe prompt variants; it has no promotion authority.
 - **Blind pair**: both planned multi-chapter samples and their shared design, exported without arm or model labels; failures remain in the denominator.
 - **H5 acceptance receipt**: externally supplied importer/database observations bound to exact package bytes; local consistency checks do not prove external execution.
+- **H5 target export contract**: the mandatory, code-enforced publication profile in `docs/design/2026-10-31-h5-export-contract-gate.md`. New books use Manifest V4 / `novel-h5-import.v1` / `ready`, EPUB-only content, the current pinned catalog and verified PNG/JPEG covers. This proposed gate is independent of advisory literary evaluation; target parser acceptance and business-import receipts remain distinct evidence.
 
 ## Creation workspace lifecycle
 
@@ -80,3 +89,10 @@ Legacy Studio directions use cover-profiles.v11 and cover-compiler.v18 for expli
 - **Current delivery package**: image selection and ZIP/EPUB synchronization are distinct outcomes. Failed delivery never invalidates a completed selected image, but a ZIP bound to an earlier choice is not offered as current. Explicit local rebuilding can recover delivery without a model call.
 
 - **Direct cover selection**: the user may choose any completed candidate, including one previously rejected, without submitting an acceptance reason or waiting for other candidates to pass. Selection and model quality status are independent; preserve the original report and historical notes. Existing image/source/recipe integrity checks still apply.
+
+## Project workspace and read-only reading
+
+- **Adopted story projection**: deterministic, source-cited view of the adopted skeleton's complete sections, JSON, chapter plans and explicit character relations. Displaying it never calls a model or changes source facts; unknown fields and original source remain available.
+- **Legacy skeleton adapter**: bounded structural interpretation of a known Markdown/table/JSON profile form. Code examples and chapter-internal lists never establish new story entities; state supplies identity mapping only, not source facts. Ambiguous and partially recognized ledgers retain an original-text view. Story, reader and delivery share the same safe project-file boundary.
+- **Read-only manuscript reader**: independently reads complete saved prose, prioritizing validated canonical heads over legacy stages. An intentionally empty canonical draft stays empty; reading never ingests, promotes or writes manuscript state.
+- **Library delivery summary**: lightweight cached download readiness, invalidated by file dependencies. A pending package with an active delivery writer stays pending; an orphan pending is exposed as interrupted/stale for explicit recovery.

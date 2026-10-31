@@ -1,5 +1,7 @@
 # H5 ZIP 导入交接：EPUB 正文、分类、分卷与独立更新
 
+> 2026-10-31 目标核对：新小说固定 Manifest V4 + `novel-h5-import.v1` + `ready`，使用 `novel-types.2026-10`；正文只来自 EPUB。当前 H5 仅支持 PNG/JPEG 封面及至多一篇开头 Introduction。旧版本样包保留原证据，不只改版本字段。[完整代码强制验收方案](design/2026-10-31-h5-export-contract-gate.md) 列出实际 H5 限制与待补齐的引擎实现；不要把本文规格当作引擎已经完成全部校验。
+
 本文取代早期对接说明中关于正文优先级、`serialization_id` 唯一索引、仅凭 MD snapshot 去重的建议。按当前引擎实现编写，接入方为 H5 开发团队。
 
 ## 1. 已锁定的产品行为
@@ -39,7 +41,7 @@ book-package.zip
 | `meta/h5-import.json.schema_version` | `novel-h5-import.v1` | EPUB 正文入口和章节映射 |
 | EPUB `novel-os:chapter-map.schema_version` | `novel-epub-map.v1` | 编译器写入的正文/非正文显式映射 |
 | 分类 `schema_version` | `novel-classification.v1` | 分类字段 |
-| 分类 `catalog_version` | `novel-types.2026-09` | 允许的标准 ID 字典 |
+| 分类 `catalog_version` | `novel-types.2026-10` | 新包当前目标；历史 `2026-09` 按原字典校验，不改写原证据 |
 | 序列化 `schema_version` | `novel-serialization.v1` | 出版结构包装 |
 | `serialization.format.schema_version` | `narrative-format.v1` | 用户确认的篇幅与分卷 |
 | 旧 `publication_package.json.version` | `3` | 原有 MD 投影，继续保留 |
@@ -118,9 +120,11 @@ Novel OS 集成入口：
 | DOCX | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` |
 | PNG | `image/png` |
 | JPG / JPEG | `image/jpeg` |
-| WebP | `image/webp` |
+| WebP（引擎通用媒体能力） | `image/webp`；当前 H5 封面不接受 |
 
 未知附件保留系统推断，识别不到时使用 `application/octet-stream`；它不是已知 EPUB 或封面格式的合格替代值。MIME 是类型声明，不替代实际 EPUB / 图片解析和文件摘要校验。
+
+以上 MIME 表不表示 H5 接受每一种媒体作为封面。当前 H5 封面限定真实可解码的 PNG/JPEG，WebP 必须在导出前明确生成受支持的派生图片并同步所有引用与摘要，或报告不支持；不能只修改后缀/MIME。
 
 如果旧包只有 `book.epub` 的 MIME 声明错误，应由引擎更新后重新打包，并重算 `package_revision_sha256`，不要直接修改 JSON 后沿用旧摘要。仅这一字段修正时，正文、封面、分类、卷和章节身份均保持不变，`import_revision_sha256` 不变，package revision 和 ZIP 原始字节摘要改变。若同时修正其他嵌套文件描述项，按实际变更重新计算相关文件及包摘要。
 
@@ -376,7 +380,7 @@ package_revision_sha256 = SHA256(canonical(manifest.files))
 | 候选状态 | `pending/ready/failed/rejected/selected` |
 | 集合状态 | `generating/partial/ready/selected/failed/stale` |
 | 路径 | candidate 的 `relative_path` 是项目相对路径，通常以 `outputs/deliverables/` 开头；ZIP 内删除这个固定前缀。优先使用 manifest 按 `candidate_id` 查到的 ZIP 路径 |
-| 已选文件 | 唯一的 `role=selected_cover`，独立于 pending 目录；用实际 media_type 和路径，支持 jpg/png/webp |
+| 已选文件 | 唯一的 `role=selected_cover`，独立于 pending 目录；用实际 media_type 和路径；当前 H5 仅支持 PNG/JPEG |
 | 哈希对应 | 有选中候选时，候选 `sha256` 应等于独立 selected 文件的 `sha256` |
 | 未选中 | `selected_candidate_id=""`；仅候选不自动替换读者封面 |
 | 无独立封面 | `selection_action=keep_existing`，保留 H5 原封面；合同没有隐式删除封面的含义 |
@@ -392,6 +396,10 @@ package_revision_sha256 = SHA256(canonical(manifest.files))
 数据库按标准 ID 查询，`display_labels` 用于展示。推广指数本次不接入。导入时保存原始分类 JSON 和 catalog_version，便于后续重新投影标签。
 
 ## 9. 兼容、冲突与异常
+
+当前 H5 的 V4 ZIP 校验器只接受 `ready` 和 `metadata_only`；新小说必须 `ready`。下面旧 EPUB 回退说明只适用于独立的历史 EPUB 导入入口，不代表 V4 ZIP 校验器会接受或升级 `legacy_epub`。
+
+H5 硬上限：ZIP 压缩 64 MiB / 解压 128 MiB / 1,024 条目；EPUB 压缩 16 MiB / 解压 32 MiB / 600 条目 / 512 spine（包括 Introduction）；单 JSON/XHTML 4 MiB；JSON/XML 深度 64/128；单封面 8 MiB、每边 8,192 px、总像素不超过 `16 * 1024 * 1024`、最多 24 候选。不得截正文或删章绕过限制。精确检查与测试见[强制验收方案](design/2026-10-31-h5-export-contract-gate.md)。
 
 | 输入或异常 | 处理规则 |
 |---|---|

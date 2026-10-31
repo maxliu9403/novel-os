@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Novel OS · 作品库设计稿</title><link rel="stylesheet" href="styles.css"></head>
+<body><a class="skip-link" href="#workspace">跳到作品内容</a><div class="app-shell">      <aside class="sidebar" aria-label="主导航">
+        <a class="brand" href="#" data-demo="这是设计稿中的首页入口" aria-label="Novel OS 首页">
+          <img class="brand-logo" src="assets/novel-os-logo.svg" alt="" />
+          <span><b>NOVEL OS</b><small>Story Production</small></span>
+        </a>
+
+        <nav class="primary-nav">
+          <a href="library.html" aria-current="page"><span class="nav-icon">⌂</span><span>作品库</span></a>
+          <a href="#" data-demo="这是设计稿中的导航入口"><span class="nav-icon">✦</span><span>头脑风暴</span></a>
+          <a href="#" data-demo="这是设计稿中的导航入口"><span class="nav-icon">◫</span><span>模型设置</span></a>
+        </nav>
+
+        <div class="sidebar-project">
+          <span class="sidebar-label">当前作品</span>
+          <a href="index.html?tab=overview" class="sidebar-project-card">
+            <img class="book-mini" src="assets/cover.png" alt="Boots by the Door 封面" />
+            <span><b>Boots by the Door</b><small>作品工作台</small></span>
+          </a>
+          <a href="index.html?tab=overview" class="sub-link"><span>◉</span> 作品详情</a>
+          <a href="#" data-demo="这是设计稿中的导航入口" class="sub-link"><span>▤</span> 封面工作室</a>
+        </div>
+
+      </aside>
+
+
+<main id="workspace" class="workspace"><section class="workspace-card">
+<header class="book-header"><div><span class="eyebrow">所有作品</span><div class="title-row"><h1>作品库</h1><span class="prototype-chip">静态设计稿</span></div><p class="book-deck">继续创作、阅读正文，或导出作品交付包。</p></div><button class="primary-button" data-demo="新建作品入口演示">＋ 新建作品</button></header>
+<div class="panel-wrap library-preview"><div class="chapter-toolbar"><label class="search-field"><span aria-hidden="true">⌕</span><input id="library-search" type="search" placeholder="搜索书名或作者" aria-label="搜索书名或作者"></label></div>
+<p class="prototype-note">本稿展示 1 部作品；卡片可点击进入详情，交付包也可直接从这里导出。</p>
+<div class="library-design-grid"><article class="library-design-card" id="sample-book">
+<img src="assets/cover.png" alt="Boots by the Door 选定封面" class="library-design-cover">
+<div class="library-design-copy"><span class="eyebrow">当代剧情</span><h2><a class="library-card-link" href="index.html?tab=overview">Boots by the Door</a></h2><p>Audrey Ellingford</p><div class="library-card-stats"><span>20 / 20 章</span><span>17,692 字</span></div><div class="library-card-status"><span class="status-pill status-ready">正文已完成</span><span class="status-pill status-ready">封面已选定</span></div><div class="library-card-actions"><a href="index.html?tab=overview" class="text-button">进入作品 →</a><button class="soft-button" data-demo="正式版本导出与封面工作室一致的 book-package.zip；设计稿不下载文件">↓ 导出交付包</button></div></div>
+</article></div><p id="library-empty" class="empty-filter" hidden>没有匹配的作品。</p>
+</div></section></main></div><div class="demo-toast" id="demo-toast" role="status" aria-live="polite"></div><script src="library.js"></script></body></html>

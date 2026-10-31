@@ -269,7 +269,7 @@ In `[CONTINUITY_STATE_UPDATE]`:
 - `Character_References` bulleted list using `<character_id or full name> | chapter=<number> | note=<reference or documented off-page absence>`; a reference is not a physical appearance
 - `Foreshadowing_Resolved` may use the ledger id form `id=chN:fsM | note=<payoff>` so semantic payoffs are recorded without copying setup text
 - `Payoff_Events` bulleted list of `<payoff_id> | status=<recalled|paid|intentional_open> | evidence=<observable event> | chapter=<number>` using the supplied directory. A reminder is `recalled`, not `paid`.
-- `Arc_State_Updates` bulleted list of `<character_id or full name> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | outcome=<canonical contract value, when achieved> | evidence=<observable choice or state>`. A supporting character's completed duty can be recorded before the finale, only after it occurs on-page. Do not invent or accelerate a future outcome.
+- `Arc_State_Updates` bulleted list of `<character_id or full name> | stage=<beginning|middle|climax|resolution> | progress=<0-100> | evidence=<observable choice or state>`. Append `outcome=<canonical contract value>` only when achieved on-page. Otherwise omit the entire outcome field; never emit an empty `outcome=` or `outcome_state=`. A supporting character's completed duty can be recorded before the finale, only after it occurs on-page. Do not invent or accelerate a future outcome.
 - `Ending_Evidence` bulleted list of `irreversible_change=<observable final state>` and `emotional_payoff=<reader-facing closure>` when delivered in the finale; use `[None]` otherwise.
 
 All state fields belong in `[CONTINUITY_STATE_UPDATE]`, each with its own

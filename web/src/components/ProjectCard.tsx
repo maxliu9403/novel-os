@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, type ProjectSummary, type ProjectCoverSummary } from "../api/client";
 import StatusPill from "./StatusPill";
 import Icon from "./Icon";
+import DeliveryPackageButton from "./DeliveryPackageButton";
 import { formatProjectTaskTime, projectTaskStatusLabel } from "../lib/projectTasks";
 import { COVER_STATUS_LABELS } from "../lib/projectCovers";
 import "../styles/library.css";
@@ -15,10 +16,11 @@ function jacketFor(id: string) {
   return JACKET_TONES[Array.from(id).reduce((sum, char) => sum + char.charCodeAt(0), 0) % JACKET_TONES.length];
 }
 
-export default function ProjectCard({ p, onDelete, onResume }: {
+export default function ProjectCard({ p, onDelete, onResume, onDeliveryChanged }: {
   p: ProjectSummary;
   onDelete?: (project: ProjectSummary) => void;
   onResume?: (project: ProjectSummary) => Promise<void>;
+  onDeliveryChanged?: () => void | Promise<void>;
 }) {
   const menuRef = useRef<HTMLDetailsElement>(null);
   const resumeLock = useRef(false);
@@ -70,8 +72,9 @@ export default function ProjectCard({ p, onDelete, onResume }: {
         {p.cover?.detail && <p className="library-book__cover-note">{p.cover.detail}</p>}
         <div className="library-book__actions">
           {/* This native link covers the card in CSS; sibling controls stay above it. */}
-          <Link to={`/projects/${p.id}`} className="library-book__open">打开作品 <Icon name="chevron-right" className="h-3.5 w-3.5" /></Link>
+          <Link to={`/projects/${encodeURIComponent(p.id)}?tab=overview`} className="library-book__open">打开作品 <Icon name="chevron-right" className="h-3.5 w-3.5" /></Link>
           <Link to={`/projects/${p.id}/covers`} className="library-book__cover-link">{COVER_ACTIONS[coverStatus]}</Link>
+          <DeliveryPackageButton projectId={p.id} delivery={p.delivery} onChanged={onDeliveryChanged} compact />
         </div>
         {onResume && p.task_id && (p.task_can_resume || resuming || resumeError) && (
           <div className="library-book__recovery">

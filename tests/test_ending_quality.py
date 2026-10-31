@@ -185,6 +185,26 @@ Ending_Evidence:
     assert len(state.chapters[4].ending_evidence) == 2
 
 
+def test_empty_optional_outcome_does_not_satisfy_required_ending_result(tmp_path: Path):
+    contract = _contract()
+    arc = contract["character_arcs"][0]
+    arc.pop("required_end_state")
+    arc.update(required_arc_stage="resolution", required_outcome="independence")
+    project = _project(tmp_path, contract=contract)
+    state = StoryState(str(project))
+
+    ingest_agent_output(state, 4, "scribe", """[SCRIBE_STATE_UPDATE]
+Arc_State_Updates:
+  - char_001 | stage=resolution | progress=100 | outcome= | evidence=Mara refuses intimidation while still dependent on the cabin.
+[/SCRIBE_STATE_UPDATE]""")
+    state.save_state()
+
+    assert not state.characters["char_001"].outcome_state
+    report = evaluate_ending(project, as_of_chapter=4)
+    assert report.status == "fail"
+    assert any(item["category"] == "character_outcome_unclosed" for item in report.critical)
+
+
 def test_semantic_character_outcome_is_distinct_from_arc_stage(tmp_path: Path):
     contract = _contract(arc_state="accountability")
     project = _project(tmp_path, contract=contract)

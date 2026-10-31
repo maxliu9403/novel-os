@@ -13,6 +13,13 @@ class ProjectCoverSummary(BaseModel):
     candidate_count: int = 0
 
 
+class ProjectDeliverySummary(BaseModel):
+    status: Literal["ready", "pending", "missing", "stale", "failed"] = "missing"
+    retryable: bool = True
+    error: str | None = None
+    updated_at: str | None = None
+
+
 class ProjectSummary(BaseModel):
     id: str
     title: str
@@ -37,6 +44,7 @@ class ProjectSummary(BaseModel):
     classification: dict = {}
     narrative_format: dict = {}
     cover: ProjectCoverSummary = Field(default_factory=ProjectCoverSummary)
+    delivery: ProjectDeliverySummary = Field(default_factory=ProjectDeliverySummary)
 
 
 class ProjectDetail(BaseModel):
@@ -62,6 +70,7 @@ class ProjectDetail(BaseModel):
     classification: dict = {}
     narrative_format: dict = {}
     cover: ProjectCoverSummary = Field(default_factory=ProjectCoverSummary)
+    delivery: ProjectDeliverySummary = Field(default_factory=ProjectDeliverySummary)
 
 
 class ProjectDeletionInventory(BaseModel):

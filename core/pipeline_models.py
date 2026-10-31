@@ -57,6 +57,7 @@ class RunSpec:
     dry_run: bool = False
     model: str = ""
     quality_policy: str = "legacy"
+    outline_planning_mode: str = "staged"
     method_policy: Optional[Dict[str, Any]] = None
 
     def __post_init__(self) -> None:
@@ -86,6 +87,8 @@ class RunSpec:
             raise ValueError(f"Unknown approval policy '{self.approval_policy}'")
         if self.quality_policy not in QUALITY_POLICIES:
             raise ValueError(f"Unknown quality policy '{self.quality_policy}'")
+        if self.outline_planning_mode not in {"legacy", "staged"}:
+            raise ValueError("Unknown outline planning mode")
 
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)
@@ -94,7 +97,7 @@ class RunSpec:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RunSpec":
-        return cls(**data)
+        return cls(**{"outline_planning_mode": "legacy", **data})
 
 
 @dataclass

@@ -17,6 +17,7 @@ from .models import (
 from .project_operations import ProjectMutationBlocked, project_operations
 from .project_task_summary import parse_task_time, project_task_summary
 from .project_cover_summary import project_cover_summary
+from .project_delivery_summary import project_delivery_summary
 
 # core/ modules import each other by top-level name; put core/ on the path once.
 _CORE = Path(__file__).resolve().parent.parent / "core"
@@ -42,6 +43,7 @@ from artifacts import (  # noqa: E402
     ArtifactStore,
     StaleArtifactHead,
 )
+from .project_artifact_summary import final_chapter_texts  # noqa: E402
 from canon import CanonDeltaProposal  # noqa: E402
 from canon_ledger import (  # noqa: E402
     CanonCommitUncertain,
@@ -227,19 +229,19 @@ class ProjectService:
     def _hydrate_chapter_progress(project: Path, state: StoryState) -> None:
         """Project operational progress from the best available prose authority."""
         artifacts = ArtifactStore(project)
+        try:
+            final_texts = final_chapter_texts(
+                artifacts,
+                (chapter.number for chapter in state.chapters.values()),
+            )
+        except (ArtifactCorruptionError, ArtifactIntegrityError) as exc:
+            raise PromotionIntegrityFailure(str(exc)) from exc
         for chapter in state.chapters.values():
             number = chapter.number
             nnn = f"{number:03d}"
             manuscript = project / "outputs" / "manuscript"
-            text: str | None = None
-            final_exists = False
-            try:
-                head = artifacts.get_head(number, "final")
-                if head is not None:
-                    text = artifacts.read_text(head.revision_id)
-                    final_exists = True
-            except (ArtifactCorruptionError, ArtifactIntegrityError) as exc:
-                raise PromotionIntegrityFailure(str(exc)) from exc
+            text = final_texts.get(number)
+            final_exists = text is not None
             if text is None:
                 final = manuscript / f"chapter_{nnn}_final.md"
                 text = _read(final)
@@ -305,6 +307,7 @@ class ProjectService:
             task_resume_job_id=task.task_resume_job_id,
             cover=project_cover_summary(self._project_dir(project_id), project_id,
                 workspace_id=self.workspace.id if self.workspace else tenancy.DEFAULT_WORKSPACE_ID),
+            delivery=project_delivery_summary(self._project_dir(project_id)),
             author=s.metadata.get("author", ""),
             word_count=words,
             drafted_count=drafted,
@@ -348,6 +351,7 @@ class ProjectService:
             task_resume_job_id=task.task_resume_job_id,
             cover=project_cover_summary(self._project_dir(project_id), project_id,
                 workspace_id=self.workspace.id if self.workspace else tenancy.DEFAULT_WORKSPACE_ID),
+            delivery=project_delivery_summary(self._project_dir(project_id)),
             style={
                 "tone": s.style_profile.tone,
                 "point_of_view": s.style_profile.point_of_view,

@@ -1,131 +1,125 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { motion } from "motion/react";
-import {
-  api,
-  type CodexEntry,
-  type CodexEntryType,
-  type ContinuityReport,
-  type ProjectDetail,
-  type ChapterSummary,
-  type RelationshipEdge,
-} from "../api/client";
-import ChapterBoard from "../components/ChapterBoard";
-import { badgesFromFindings } from "../lib/chapterBadges";
-import Outliner from "../components/Outliner";
-import WritingTargets from "../components/WritingTargets";
-import ManuscriptStats from "../components/ManuscriptStats";
-import CollectionsPanel from "../components/CollectionsPanel";
-import Modal, { Field, fieldClass, textareaClass } from "../components/Modal";
-import Scene from "../components/Scene";
+import { api, type ChapterSummary, type ProjectDeliverySummary, type ProjectDetail } from "../api/client";
+import { projectStoryApi, type ProjectStory } from "../api/projectStory";
 import ChoiceGroup from "../components/ChoiceGroup";
-import AddRelationshipModal from "../components/AddRelationshipModal";
-import Icon from "../components/Icon";
-import CodexImageButton from "../components/CodexImageButton";
-import CodexProposals from "../components/CodexProposals";
-import EditCodexModal from "../components/EditCodexModal";
-import ModeSwitch from "../components/ModeSwitch";
-import BookShape from "../components/BookShape";
 import CompilePanel from "../components/CompilePanel";
-import TaskStatusPanel from "../components/TaskStatusPanel";
+import DeliveryPackageButton from "../components/DeliveryPackageButton";
 import GenerationCostPanel from "../components/GenerationCostPanel";
-import { useStudioMode } from "../hooks/useStudioMode";
-import { getStudioMode } from "../lib/studioMode";
-import { useToast } from "../components/toastContext";
+import {
+  ProjectChaptersTab,
+  ProjectCharactersTab,
+  ProjectStoryTab,
+  WorkspacePanel,
+} from "../components/ProjectStoryWorkspace";
+import Scene from "../components/Scene";
+import TaskStatusPanel from "../components/TaskStatusPanel";
+import WritingTargets from "../components/WritingTargets";
 import { useRunPhase } from "../hooks/useRunPhase";
-import type { IconName } from "../icons/registry";
+import { chapterHasProse } from "../lib/chapterProse";
+import { useToast } from "../components/toastContext";
+import "../styles/project-workspace.css";
 
-const ROLE_OPTIONS = (["protagonist", "antagonist", "supporting", "minor"] as const).map((r) => ({
-  value: r,
-  label: ({
-    protagonist: "主角",
-    antagonist: "反派",
-    supporting: "配角",
-    minor: "次要角色",
-  })[r],
-}));
-
-const CODEX_FILTERS: { id: "all" | CodexEntryType; label: string; icon: IconName }[] = [
-  { id: "all", label: "全部", icon: "layers" },
-  { id: "character", label: "人物", icon: "users" },
-  { id: "location", label: "地点", icon: "map-pin" },
-  { id: "worldbuilding", label: "世界设定", icon: "landmark" },
-  { id: "item", label: "物件", icon: "package" },
+type WorkspaceTab = "overview" | "chapters" | "story" | "characters" | "delivery";
+const TABS: Array<{ id: WorkspaceTab; label: string }> = [
+  { id: "overview", label: "作品概览" },
+  { id: "chapters", label: "章节" },
+  { id: "story", label: "故事骨架" },
+  { id: "characters", label: "人物关系" },
+  { id: "delivery", label: "费用与交付" },
 ];
 
-const TYPE_OPTIONS: { value: CodexEntryType; label: string; icon: IconName; hint: string }[] = [
-  { value: "character", label: "人物", icon: "users", hint: "角色与人物" },
-  { value: "location", label: "地点", icon: "map-pin", hint: "场所与区域" },
-  { value: "worldbuilding", label: "世界设定", icon: "landmark", hint: "规则与体系" },
-  { value: "item", label: "物件", icon: "package", hint: "道具与物品" },
-];
-
-const CODEX_TYPE_LABELS: Record<CodexEntryType, string> = {
-  character: "人物",
-  location: "地点",
-  worldbuilding: "世界设定",
-  item: "物件",
+const PROJECT_STATUS: Record<string, string> = {
+  completed: "已完成", complete: "已完成", running: "创作中", in_progress: "创作中",
+  pending: "等待开始", queued: "等待开始", paused: "已暂停", failed: "需处理",
+  interrupted: "已中断", draft: "草稿",
 };
 
-const ROLE_LABELS: Record<string, string> = Object.fromEntries(
-  ROLE_OPTIONS.map((option) => [option.value, option.label]),
-);
+const STORY_TABS = new Set<WorkspaceTab>(["chapters", "story", "characters"]);
 
-const SEVERITY_LABELS: Record<string, string> = {
-  critical: "严重",
-  warning: "警告",
-  info: "提示",
-};
+function tabFromSearch(searchParams: URLSearchParams): WorkspaceTab {
+  if (searchParams.has("codex")) return "characters";
+  const requested = searchParams.get("tab") as WorkspaceTab | null;
+  if (requested && TABS.some((tab) => tab.id === requested)) return requested;
+  return "chapters";
+}
 
 export default function ProjectDashboard() {
   const { id = "" } = useParams();
-  const [searchParams] = useSearchParams();
-  const focusCodexId = searchParams.get("codex");
-  const toast = useToast();
-  const [project, setProject] = useState<ProjectDetail | null>(null);
-  const [chapters, setChapters] = useState<ChapterSummary[]>([]);
-  const [codex, setCodex] = useState<CodexEntry[]>([]);
-  const [edges, setEdges] = useState<RelationshipEdge[]>([]);
-  const [continuity, setContinuity] = useState<ContinuityReport | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = tabFromSearch(searchParams);
+  const focusCharacterId = searchParams.get("codex");
+  const [coreResult, setCoreResult] = useState<{ projectId: string; project: ProjectDetail; chapters: ChapterSummary[] } | null>(null);
+  const [coreFailure, setCoreFailure] = useState<{ projectId: string; message: string } | null>(null);
   const [externalRefreshKey, setExternalRefreshKey] = useState(0);
-  const [entryOpen, setEntryOpen] = useState(false);
-  const [editing, setEditing] = useState<CodexEntry | null>(null);
-  const [linkOpen, setLinkOpen] = useState(false);
-  const [linkSource, setLinkSource] = useState<string | undefined>();
-  const [codexFilter, setCodexFilter] = useState<"all" | CodexEntryType>("all");
-  // Plan mode is about structure, so it opens on the Outliner rather than the
-  // corkboard. Switching mode re-picks the default; picking a view by hand wins.
-  const [mode] = useStudioMode();
-  const [chapterView, setChapterView] = useState<"board" | "outline">(
-    () => (getStudioMode() === "plan" ? "outline" : "board"),
-  );
-  const [lastMode, setLastMode] = useState(mode);
-  if (mode !== lastMode) {
-    setLastMode(mode);
-    setChapterView(mode === "plan" ? "outline" : "board");
-  }
+  const coreRequest = useRef(0);
+  const [storyLoad, setStoryLoad] = useState<{
+    projectId: string;
+    status: "loading" | "ready" | "error";
+    data: ProjectStory | null;
+    error: string | null;
+  } | null>(null);
+  const storyRequest = useRef(0);
+  const storyAbort = useRef<AbortController | null>(null);
+  const project = coreResult?.projectId === id ? coreResult.project : null;
+  const chapters = coreResult?.projectId === id ? coreResult.chapters : [];
+  const coreError = coreFailure?.projectId === id ? coreFailure.message : null;
+  const story = storyLoad?.projectId === id ? storyLoad.data : null;
+  const storyStatus = storyLoad?.projectId === id ? storyLoad.status : "idle";
+  const storyError = storyLoad?.projectId === id ? storyLoad.error : null;
 
-  const refreshContinuity = useCallback(() => {
-    api.continuity(id).then(setContinuity).catch(() => setContinuity(null));
-  }, [id]);
-
-  const load = useCallback(() => {
-    api.project(id).then(setProject).catch((e) => setError(String(e)));
-    api.chapters(id).then(setChapters).catch((e) => setError(String(e)));
-    api.codex(id).then(setCodex).catch(() => setCodex([]));
-    api.relationships(id).then(setEdges).catch(() => setEdges([]));
-    api.continuity(id).then(setContinuity).catch(() => setContinuity(null));
+  const loadCore = useCallback(async () => {
+    const request = ++coreRequest.current;
+    try {
+      const [nextProject, nextChapters] = await Promise.all([api.project(id), api.chapters(id)]);
+      if (request !== coreRequest.current) return;
+      setCoreResult({ projectId: id, project: nextProject, chapters: nextChapters });
+      setCoreFailure(null);
+    } catch (error) {
+      if (request !== coreRequest.current) return;
+      setCoreFailure({ projectId: id, message: error instanceof Error ? error.message : String(error) });
+    }
   }, [id]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    const timer = window.setTimeout(() => void loadCore(), 0);
+    return () => {
+      window.clearTimeout(timer);
+      coreRequest.current += 1;
+    };
+  }, [loadCore]);
+
+  const loadStory = useCallback(async () => {
+    const request = ++storyRequest.current;
+    storyAbort.current?.abort();
+    const controller = new AbortController();
+    storyAbort.current = controller;
+    setStoryLoad({ projectId: id, status: "loading", data: null, error: null });
+    try {
+      const data = await projectStoryApi.get(id, controller.signal);
+      if (request !== storyRequest.current || controller.signal.aborted) return;
+      setStoryLoad({ projectId: id, status: "ready", data, error: null });
+    } catch (error) {
+      if (request !== storyRequest.current || controller.signal.aborted) return;
+      setStoryLoad({ projectId: id, status: "error", data: null, error: error instanceof Error ? error.message : String(error) });
+    }
+  }, [id]);
+
+  useEffect(() => {
+    return () => storyAbort.current?.abort();
+  }, [id]);
+
+  useEffect(() => {
+    if (!STORY_TABS.has(activeTab) || storyStatus !== "idle") return;
+    const timer = window.setTimeout(() => void loadStory(), 0);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, loadStory, storyStatus]);
 
   const refreshExternalProgress = useCallback(() => {
-    load();
+    void loadCore();
     setExternalRefreshKey((value) => value + 1);
-  }, [load]);
+  }, [loadCore]);
 
   useEffect(() => {
     let lastRefresh = Number.NEGATIVE_INFINITY;
@@ -135,9 +129,7 @@ export default function ProjectDashboard() {
       lastRefresh = now;
       refreshExternalProgress();
     };
-    const refreshVisible = () => {
-      if (document.visibilityState === "visible") refresh();
-    };
+    const refreshVisible = () => { if (document.visibilityState === "visible") refresh(); };
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refreshVisible);
     return () => {
@@ -146,649 +138,131 @@ export default function ProjectDashboard() {
     };
   }, [refreshExternalProgress]);
 
-  // Deep link (?codex=…) switches the filter to that entry's type. Adjusted
-  // during render so the entry is already on screen when we scroll to it.
-  const focusEntry = focusCodexId ? codex.find((e) => e.id === focusCodexId) : undefined;
-  const [lastFocus, setLastFocus] = useState<string | undefined>(undefined);
-  if (focusEntry && focusEntry.id !== lastFocus) {
-    setLastFocus(focusEntry.id);
-    setCodexFilter(focusEntry.entry_type);
-  }
-
-  useEffect(() => {
-    if (!focusCodexId || codex.length === 0) return;
-    const el = document.getElementById(`codex-${focusCodexId}`);
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [focusCodexId, codex]);
-
   const { run, runningStage, isRunning } = useRunPhase(id, refreshExternalProgress);
 
-  const filtered = useMemo(
-    () => (codexFilter === "all" ? codex : codex.filter((e) => e.entry_type === codexFilter)),
-    [codex, codexFilter],
-  );
-  const characters = useMemo(
-    () => codex.filter((e) => e.entry_type === "character"),
-    [codex],
-  );
+  function activateTab(tab: WorkspaceTab, focus = false) {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("tab", tab);
+      if (tab !== "characters") next.delete("codex");
+      return next;
+    }, { replace: true });
+    if (focus) window.requestAnimationFrame(() => document.getElementById(`pw-tab-${tab}`)?.focus());
+  }
 
-  if (error)
-    return (
-      <Scene>
-        <div className="workspace-page">
-          <div className="glass-panel px-4 py-3 text-[13px] text-ink-text">
-            加载失败：{error}
-          </div>
-        </div>
-      </Scene>
-    );
-  if (!project)
-    return (
-      <Scene>
-        <div className="workspace-page">
-          <div className="glass-shell p-4">
-            <div className="glass-panel p-8">
-              <div className="h-3.5 w-24 animate-pulse rounded bg-white/50" />
-              <div className="mt-4 h-10 w-2/3 animate-pulse rounded bg-white/50" />
-              <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                {[0, 1, 2].map((i) => (
-                  <div key={i} className="h-28 animate-pulse rounded-2xl bg-white/40" />
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </Scene>
-    );
+  function onTabKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+    let next: number;
+    if (event.key === "ArrowRight") next = (index + 1) % TABS.length;
+    else if (event.key === "ArrowLeft") next = (index - 1 + TABS.length) % TABS.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = TABS.length - 1;
+    else return;
+    event.preventDefault();
+    activateTab(TABS[next].id, true);
+  }
 
-  const words = chapters.reduce((s, c) => s + c.word_count, 0);
-  const drafted = chapters.filter((c) => c.status !== "planned").length;
-  const nextChapter = chapters.length ? Math.max(...chapters.map((c) => c.number)) + 1 : 1;
+  if (!project && !coreError) return <ProjectWorkspaceLoading />;
+  if (!project && coreError) {
+    return <Scene quiet><div className="project-workspace"><div className="pw-shell"><div className="pw-core-error" role="alert"><strong>作品详情加载失败</strong><p>{coreError || "找不到这个作品。"}</p><button type="button" className="pw-soft-button" onClick={() => void loadCore()}>重新加载</button></div></div></div></Scene>;
+  }
+  if (!project) return <ProjectWorkspaceLoading />;
+
+  const drafted = chapters.filter(chapterHasProse).length;
+  const words = project.word_count ?? chapters.reduce((sum, chapter) => sum + chapter.word_count, 0);
+  const nextChapter = chapters.length ? Math.max(...chapters.map((chapter) => chapter.number)) + 1 : 1;
+  const coverUrl = api.assetUrl(project.cover?.image_url);
+  const delivery = project.delivery;
+  const projectStatusTone = ["failed", "interrupted"].includes(project.status)
+    ? "danger"
+    : ["pending", "queued", "paused"].includes(project.status)
+      ? "neutral"
+      : "ready";
 
   return (
-    <Scene>
-      <div className="workspace-page">
-        <motion.div
-          initial={{ opacity: 0, y: 18, scale: 0.97 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.45, ease: [0.2, 0.8, 0.2, 1] }}
-          className="glass-shell p-3 sm:p-4"
-        >
-          <div className="glass-panel px-5 py-7 sm:px-8 sm:py-9 lg:px-10">
-            <Link
-              to="/"
-              className="mb-6 inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-muted transition-colors hover:text-[var(--color-violet)]"
-            >
-              ← 作品库
-            </Link>
-
-            <header className="mb-9">
-              <p className="eyebrow">{project.genre}</p>
-              <h1 className="font-display text-[32px] font-semibold leading-tight tracking-[-0.035em] text-ink-text text-balance sm:text-[38px]">
-                {project.title}
-              </h1>
-              <p className="mt-2 text-[14px] text-ink-muted">作者：{project.author || "未知"}</p>
-              {project.premise ? (
-                <p className="mt-3 max-w-2xl text-[13.5px] leading-relaxed text-ink-muted">
-                  {project.premise}
-                </p>
-              ) : null}
-
-              <div className="mt-6">
-                <ModeSwitch />
-              </div>
-
-              <div className="mt-7 flex flex-wrap gap-8">
-                <Stat label="章节" value={String(project.chapter_count)} />
-                <Stat label="已完成" value={`${drafted}/${project.chapter_count || 0}`} />
-                <Stat label="字数" value={words.toLocaleString("zh-CN")} />
-              </div>
-
-              <div className="mt-7 flex flex-wrap items-center gap-2.5">
-                <Action onClick={() => run("plan_outline", { chapters: 12, words: 24000 })}
-                        busy={runningStage === "plan_outline"} disabled={isRunning}>
-                  规划大纲
-                </Action>
-                <Action onClick={() => run("plan_chapter", { number: nextChapter })}
-                        busy={runningStage === "plan_chapter"} disabled={isRunning}>
-                  规划第 {nextChapter} 章
-                </Action>
-                <a href={api.exportUrl(id)} download={`${id}.md`} className="btn-secondary">
-                  导出
-                </a>
-                <Link to={`/projects/${id}/covers`} className="btn-secondary inline-flex items-center gap-1.5">
-                  <Icon name="image" className="h-4 w-4" /> 封面工作室
-                </Link>
-                <ChoiceGroup
-                  label="内容分级"
-                  variant="segmented"
-                  size="sm"
-                  value={(project.content_rating === "mature" ? "mature" : "general") as "general" | "mature"}
-                  onChange={async (next) => {
-                    try {
-                      const p = await api.updateProject(id, { content_rating: next });
-                      setProject(p);
-                      toast(next === "mature" ? "已标记为成人内容" : "已标记为普通内容", "success");
-                    } catch (e) {
-                      toast(e instanceof Error ? e.message : String(e), "error");
-                    }
-                  }}
-                  options={[
-                    { value: "general", label: "普通" },
-                    { value: "mature", label: "成人" },
-                  ]}
-                />
-                {isRunning && (
-                  <span className="ml-1 inline-flex items-center gap-2 text-[12.5px] text-ink-muted" aria-live="polite">
-                    <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-violet)]" />
-                    智能体运行中…
-                  </span>
-                )}
-              </div>
-            </header>
-
-            {project.task_id && (
-              <TaskStatusPanel
-                key={`${id}:${project.task_id}`}
-                projectId={id}
-                runId={project.task_id}
-                onTaskChanged={refreshExternalProgress}
-              />
-            )}
-
-            <GenerationCostPanel owner={id} refreshKey={externalRefreshKey} />
-
-            {/* Revise leads with the state of the book; Plan and Write lead
-                with where you are against your targets. */}
-            {/* Structure is what Plan and Revise are for; Write keeps the
-                dashboard quiet so the writer goes to the manuscript. */}
-            {mode !== "write" && (
-              <BookShape projectId={id} refreshKey={externalRefreshKey} />
-            )}
-
-            {mode === "revise" ? (
-              <>
-                <ContinuityHealth report={continuity} onRefresh={refreshContinuity} />
-                {/* Compiling is the last thing you do, and only in Revise. */}
-                <CompilePanel projectId={id} />
-                <ManuscriptStats projectId={id} refreshKey={externalRefreshKey} />
-                <WritingTargets
-                  projectId={id}
-                  project={project}
-                  wordCount={words}
-                  onUpdated={setProject}
-                />
-              </>
-            ) : (
-              <>
-                <WritingTargets
-                  projectId={id}
-                  project={project}
-                  wordCount={words}
-                  onUpdated={setProject}
-                />
-                <ManuscriptStats projectId={id} refreshKey={externalRefreshKey} />
-                <ContinuityHealth report={continuity} onRefresh={refreshContinuity} />
-              </>
-            )}
-
-            <div className="mt-6">
-              <CollectionsPanel projectId={id} />
-            </div>
-
-            <div className="mb-5 mt-10 flex items-center justify-between">
-              <h2 className="font-display text-[22px] font-semibold tracking-tight text-ink-text">
-                章节
-              </h2>
-              <div className="flex overflow-hidden rounded-full border border-[rgba(96,112,153,0.16)] bg-white/45 p-0.5">
-                {(["board", "outline"] as const).map((v) => (
-                  <button key={v} type="button" onClick={() => setChapterView(v)}
-                          className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium capitalize transition-colors ${
-                            chapterView === v
-                              ? "bg-[var(--color-violet)] text-white shadow-[0_6px_16px_rgba(104,103,234,0.28)]"
-                              : "text-ink-muted hover:text-ink"}`}>
-                    {v === "outline" ? "大纲" : "章节看板"}
-                  </button>
-                ))}
+    <Scene quiet>
+      <div className="project-workspace">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="pw-shell">
+          <header className="pw-book-header">
+            <div className="pw-book-header__copy">
+              <Link to="/" className="pw-back-link">← 返回作品库</Link>
+              <div className="pw-book-identity">
+                {coverUrl ? <img className="pw-book-cover" src={coverUrl} alt={`${project.title} 当前封面`} /> : <div className="pw-book-cover pw-book-cover--empty" aria-label="尚未选择封面">{project.title.trim().slice(0, 1) || "书"}</div>}
+                <div className="pw-book-copy">
+                  <div className="pw-title-row"><div><span className="pw-eyebrow">{project.genre || "类型未注明"}</span><h1>{project.title}</h1></div><span className={`pw-status-pill pw-status-pill--${projectStatusTone}`}>{PROJECT_STATUS[project.status] ?? project.status}</span></div>
+                  <p className="pw-book-author">{project.author || "作者未注明"}</p>
+                  <p className="pw-book-deck">{project.premise || "这部作品尚未填写简介。"}</p>
+                  <div className="pw-book-meta" aria-label="作品状态"><span><strong>{drafted} / {project.chapter_count || chapters.length}</strong> 章已有正文</span><i /><span><strong>{words.toLocaleString("zh-CN")}</strong> 字</span><i /><span>{project.cover?.status === "selected" ? "正式封面已选定" : project.cover?.detail || "封面尚未选定"}</span></div>
+                </div>
               </div>
             </div>
-            {chapterView === "board"
-              ? <ChapterBoard chapters={chapters} continuityBadges={badgesFromFindings(continuity?.findings)} />
-              : chapters.length > 0
-                ? <Outliner id={id} chapters={chapters} />
-                : <ChapterBoard chapters={chapters} continuityBadges={badgesFromFindings(continuity?.findings)} />}
-
-            <div className="mt-12 mb-5 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="font-display text-[22px] font-semibold tracking-tight text-ink-text">
-                  设定库
-                </h2>
-                <p className="mt-1 text-[13px] text-ink-muted">
-                  点击头像可添加人物肖像、地点照片或物件图片。
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Link to={`/projects/${id}/research`} className="btn-ghost inline-flex items-center gap-1.5">
-                  <Icon name="image" className="h-3.5 w-3.5" /> 素材库
-                </Link>
-                <Link to={`/projects/${id}/chart`} className="btn-ghost inline-flex items-center gap-1.5">
-                  <Icon name="waypoints" className="h-3.5 w-3.5" /> 关系图
-                </Link>
-                <button type="button" onClick={() => setEntryOpen(true)} className="btn-secondary">
-                  + 添加条目
-                </button>
-              </div>
+            <div className="pw-header-actions">
+              <DeliveryPackageButton projectId={id} delivery={delivery} onChanged={refreshExternalProgress} />
+              <Link className="pw-primary-button" to={`/projects/${encodeURIComponent(id)}/read`}>阅读全文</Link>
+              <Link className="pw-soft-button" to={`/projects/${encodeURIComponent(id)}/covers`}>封面工作室</Link>
             </div>
+          </header>
 
-            <CodexProposals projectId={id} onAccepted={load} />
+          <nav className="pw-tabs" role="tablist" aria-label="作品详情标签页">
+            {TABS.map((tab, index) => <button key={tab.id} id={`pw-tab-${tab.id}`} type="button" role="tab" aria-selected={activeTab === tab.id} aria-controls={`pw-panel-${tab.id}`} tabIndex={activeTab === tab.id ? 0 : -1} onClick={() => activateTab(tab.id)} onKeyDown={(event) => onTabKeyDown(event, index)}><span>{String(index + 1).padStart(2, "0")}</span>{tab.label}</button>)}
+          </nav>
 
-            <div className="mb-4 flex flex-wrap gap-1.5">
-              {CODEX_FILTERS.map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => setCodexFilter(f.id)}
-                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] font-medium transition-colors ${
-                    codexFilter === f.id
-                      ? "bg-[var(--color-violet)] text-white shadow-[0_6px_16px_rgba(104,103,234,0.28)]"
-                      : "bg-white/55 text-ink-muted hover:text-ink"
-                  }`}
-                >
-                  <Icon name={f.icon} className="h-3.5 w-3.5" />
-                  {f.label}
-                </button>
-              ))}
-            </div>
-
-            {filtered.length === 0 ? (
-              <div className="rounded-[24px] border border-dashed border-[rgba(74,91,133,0.18)] bg-white/45 px-8 py-10 text-center text-[13.5px] text-ink-muted">
-                暂无条目。添加人物、地点和世界规则，供连续性守卫核对。
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-                {filtered.map((entry) => (
-                  <div
-                    key={`${entry.entry_type}-${entry.id}`}
-                    id={`codex-${entry.id}`}
-                    className={focusCodexId === entry.id ? "rounded-[28px] ring-2 ring-[rgba(104,103,234,0.45)]" : undefined}
-                  >
-                  <CodexCard
-                    projectId={id}
-                    entry={entry}
-                    edges={edges.filter(
-                      (e) => e.source_id === entry.id || e.target_id === entry.id,
-                    )}
-                    onUpdated={load}
-                    onEdit={() => setEditing(entry)}
-                    onAddLink={
-                      entry.entry_type === "character"
-                        ? () => {
-                            setLinkSource(entry.id);
-                            setLinkOpen(true);
-                          }
-                        : undefined
-                    }
-                  />
-                  </div>
-                ))}
-              </div>
-            )}
+          <div className="pw-panel-wrap">
+            {coreError && <div className="pw-refresh-error" role="alert"><span>作品进度刷新失败：{coreError}</span><button type="button" className="pw-text-button" onClick={() => void loadCore()}>重试</button></div>}
+            {project.task_id && activeTab !== "overview" && <details className="pw-task-drawer">
+              <summary><span>创作任务</span><strong>查看状态、暂停或恢复</strong></summary>
+              <TaskStatusPanel key={`${project.id}:${project.task_id}`} projectId={project.id} runId={project.task_id} onTaskChanged={refreshExternalProgress} />
+            </details>}
+            <WorkspacePanel id={`pw-panel-${activeTab}`} labelledBy={`pw-tab-${activeTab}`}>
+              {activeTab === "overview" && <ProjectOverview project={project} chapters={chapters} words={words} drafted={drafted} isRunning={isRunning} runningStage={runningStage} nextChapter={nextChapter} onRun={(stage, payload) => run(stage, payload)} onProject={(nextProject) => setCoreResult({ projectId: id, project: nextProject, chapters })} onTaskChanged={refreshExternalProgress} onGo={activateTab} />}
+              {activeTab === "chapters" && <ProjectChaptersTab projectId={id} chapters={chapters} story={story} loading={storyStatus === "loading" || storyStatus === "idle"} error={storyError} onRetry={() => void loadStory()} isRunning={isRunning} onPlanChapter={(number) => run("plan_chapter", { number })} />}
+              {activeTab === "story" && <ProjectStoryTab projectId={id} story={story} loading={storyStatus === "loading" || storyStatus === "idle"} error={storyError} onRetry={() => void loadStory()} />}
+              {activeTab === "characters" && <ProjectCharactersTab story={story} loading={storyStatus === "loading" || storyStatus === "idle"} error={storyError} onRetry={() => void loadStory()} focusCharacterId={focusCharacterId} />}
+              {activeTab === "delivery" && <ProjectDeliveryTab projectId={id} delivery={delivery} refreshKey={externalRefreshKey} onChanged={refreshExternalProgress} />}
+            </WorkspacePanel>
           </div>
         </motion.div>
       </div>
-
-      <AddCodexModal id={id} open={entryOpen} onClose={() => setEntryOpen(false)} onAdded={load} />
-      <EditCodexModal
-        projectId={id}
-        entry={editing}
-        open={editing != null}
-        onClose={() => setEditing(null)}
-        onSaved={load}
-      />
-      <AddRelationshipModal
-        open={linkOpen}
-        onClose={() => { setLinkOpen(false); setLinkSource(undefined); }}
-        characters={characters}
-        projectId={id}
-        onAdded={load}
-        prefill={linkSource ? { source: linkSource } : null}
-      />
     </Scene>
   );
 }
 
-function ContinuityHealth({
-  report, onRefresh,
-}: { report: ContinuityReport | null; onRefresh: () => void }) {
-  const critical = report?.critical ?? 0;
-  const warning = report?.warning ?? 0;
-  const info = report?.info ?? 0;
-  const total = report?.findings.length ?? 0;
-  const healthy = report != null && critical === 0 && warning === 0;
-
-  return (
-    <div className="rounded-[24px] border border-[rgba(74,91,133,0.12)] bg-white/55 p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
-            !report ? "bg-white/70 text-ink-muted"
-              : critical > 0 ? "bg-[#ffeaf1] text-[#c85177]"
-                : warning > 0 ? "bg-[#fff2dc] text-[#c47a1b]"
-                  : "bg-[#e9f7ef] text-[#2f8a57]"
-          }`}>
-            <Icon
-              name={!report ? "shield" : critical > 0 ? "shield-alert" : healthy ? "circle-check" : "triangle-alert"}
-              className="h-4 w-4"
-            />
-          </span>
-          <div>
-            <h3 className="font-display text-[17px] font-semibold tracking-tight text-ink-text">
-              连续性状态
-            </h3>
-            <p className="mt-0.5 text-[13px] text-ink-muted">
-              {!report
-                ? "正在运行确定性检查…"
-                : healthy
-                  ? total === 0
-                    ? "未发现问题，故事圣经保持一致。"
-                    : `${info} 条提示；没有阻塞问题。`
-                  : `${critical} 个严重问题 · ${warning} 个警告 · ${info} 条提示`}
-            </p>
-          </div>
-        </div>
-        <button type="button" onClick={onRefresh} className="btn-ghost text-[12.5px]">
-          刷新
-        </button>
-      </div>
-      {report && report.findings.length > 0 && (
-        <ul className="mt-4 space-y-2">
-          {report.findings.slice(0, 4).map((f, i) => (
-            <li key={`${f.category}-${i}`} className="flex gap-2 text-[13px] text-ink-text">
-              <Icon
-                name={f.severity === "critical" ? "circle-alert" : f.severity === "warning" ? "triangle-alert" : "circle-check"}
-                className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-muted"
-              />
-              <span>
-                <span className="capitalize text-ink-muted">{SEVERITY_LABELS[f.severity] || f.severity}</span>
-                {" · "}
-                {f.message}
-              </span>
-            </li>
-          ))}
-          {report.findings.length > 4 && (
-            <li className="text-[12.5px] text-ink-muted">
-              另有 {report.findings.length - 4} 条，请打开章节“笔记 → 连续性”查看。
-            </li>
-          )}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function CodexCard({
-  projectId, entry, edges, onUpdated, onEdit, onAddLink,
-}: {
-  projectId: string;
-  entry: CodexEntry;
-  edges: RelationshipEdge[];
-  onUpdated: () => void;
-  onEdit: () => void;
-  onAddLink?: () => void;
+function ProjectOverview({ project, chapters, words, drafted, isRunning, runningStage, nextChapter, onRun, onProject, onTaskChanged, onGo }: {
+  project: ProjectDetail; chapters: ChapterSummary[]; words: number; drafted: number; isRunning: boolean;
+  runningStage: string | null; nextChapter: number; onRun: (stage: string, payload: Record<string, unknown>) => void;
+  onProject: (project: ProjectDetail) => void; onTaskChanged: () => void; onGo: (tab: WorkspaceTab, focus?: boolean) => void;
 }) {
   const toast = useToast();
-  const typeIcon: IconName =
-    entry.entry_type === "location" ? "map-pin"
-      : entry.entry_type === "worldbuilding" ? "landmark"
-        : entry.entry_type === "item" ? "package"
-          : "users";
-  const isPerson = entry.entry_type === "character";
-
+  const total = project.chapter_count || chapters.length;
+  const percent = total > 0 ? Math.min(100, Math.round((drafted / total) * 100)) : 0;
   return (
-    <div className={`glass-card flex gap-3 p-4 ${isPerson ? "flex-col" : "items-center"}`}>
-      <div className={`flex gap-3 ${isPerson ? "sm:flex-row sm:items-center" : "items-center"}`}>
-        <CodexImageButton
-          projectId={projectId}
-          entry={entry}
-          onUpdated={onUpdated}
-          size={isPerson ? "lg" : "md"}
-          shape={isPerson || entry.entry_type === "location" ? (isPerson ? "circle" : "rounded") : "rounded"}
-          label={
-            entry.entry_type === "location" ? "地点照片"
-              : entry.entry_type === "item" ? "物件图片"
-                : entry.entry_type === "worldbuilding" ? "参考图片"
-                  : "人物肖像"
-          }
-        />
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-display text-[15px] font-medium text-ink-text">{entry.name}</p>
-          <p className="mt-0.5 flex items-center gap-1 text-[12px] capitalize text-ink-muted">
-            <Icon name={typeIcon} className="h-3 w-3" />
-            {CODEX_TYPE_LABELS[entry.entry_type]}
-            {entry.role ? ` · ${ROLE_LABELS[entry.role] || entry.role}` : ""}
-          </p>
-          {entry.summary ? (
-            <p className="mt-1 line-clamp-2 text-[12px] text-ink-muted">{entry.summary}</p>
-          ) : null}
-        </div>
-        <button
-          type="button"
-          onClick={onEdit}
-          aria-label={`编辑${entry.name}`}
-          title="编辑"
-          className="shrink-0 self-start rounded-lg p-1.5 text-ink-muted transition-colors hover:bg-[rgba(104,103,234,0.08)] hover:text-[var(--color-violet)]"
-        >
-          <Icon name="pencil" className="h-3.5 w-3.5" />
-        </button>
+    <section aria-labelledby="pw-overview-title">
+      <div className="pw-section-heading"><div><span className="pw-eyebrow">作品进度</span><h2 id="pw-overview-title">作品概览</h2><p>查看全书进度、故事简介和当前创作任务。</p></div><div className="pw-heading-actions"><Link className="pw-primary-button" to={`/projects/${encodeURIComponent(project.id)}/read`}>阅读全文</Link><button type="button" className="pw-soft-button" onClick={() => onGo("delivery", true)}>查看交付</button></div></div>
+      <div className="pw-metric-grid"><article><span>章节进度</span><strong>{drafted} / {total}</strong><p>{percent}% 已有正文</p></article><article><span>当前字数</span><strong>{words.toLocaleString("zh-CN")}</strong><p>{project.target_word_count ? `目标 ${project.target_word_count.toLocaleString("zh-CN")} 字` : "目标字数未设置"}</p></article><article><span>作品状态</span><strong>{PROJECT_STATUS[project.status] ?? project.status}</strong><p>{project.task_id ? "创作任务记录可查看" : "没有关联中的创作任务"}</p></article></div>
+      <div className="pw-progress-line" aria-label={`章节进度 ${percent}%`}><span style={{ width: `${percent}%` }} /></div>
+      {project.task_id && <TaskStatusPanel key={`${project.id}:${project.task_id}`} projectId={project.id} runId={project.task_id} onTaskChanged={onTaskChanged} />}
+      <div className="pw-overview-grid"><article className="pw-quiet-card"><span className="pw-eyebrow">故事简介</span><h3>{project.title}</h3><p>{project.premise || "尚未填写作品简介。故事骨架中的内容会在“故事骨架”标签按来源展示。"}</p><button type="button" className="pw-text-button" onClick={() => onGo("story", true)}>查看故事骨架 →</button></article><article className="pw-quiet-card"><span className="pw-eyebrow">继续创作</span><h3>规划与设置</h3><p>规划操作会启动创作任务；章节阅读和编辑使用各自独立入口。</p><div className="pw-card-actions"><button type="button" className="pw-soft-button" disabled={isRunning} onClick={() => onRun("plan_outline", { chapters: total || 12, words: project.target_word_count || 24000 })}>{runningStage === "plan_outline" ? "正在规划…" : "规划全书大纲"}</button><button type="button" className="pw-soft-button" disabled={isRunning} onClick={() => onRun("plan_chapter", { number: nextChapter })}>{runningStage === "plan_chapter" ? "正在规划…" : `规划第 ${nextChapter} 章`}</button></div></article></div>
+      <div className="pw-overview-settings">
+        <WritingTargets projectId={project.id} project={project} wordCount={words} onUpdated={onProject} />
+        <section className="pw-rating-setting" aria-label="内容分级"><div><strong>内容分级</strong><p>用于封面、发布和阅读提示。</p></div><ChoiceGroup label="内容分级" variant="segmented" size="sm" value={project.content_rating === "mature" ? "mature" : "general"} onChange={async (next) => {
+          try { onProject(await api.updateProject(project.id, { content_rating: next })); toast(next === "mature" ? "已标记为成人内容" : "已标记为普通内容", "success"); }
+          catch (error) { toast(error instanceof Error ? error.message : String(error), "error"); }
+        }} options={[{ value: "general", label: "普通" }, { value: "mature", label: "成人" }]} /></section>
       </div>
-
-      {isPerson && (
-        <div className="border-t border-[rgba(74,91,133,0.1)] pt-3">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="text-[11.5px] font-medium tracking-[-0.01em] text-ink-muted">人物关系</p>
-            {onAddLink && (
-              <button type="button" onClick={onAddLink} className="btn-ghost px-2 py-0.5 text-[11.5px]">
-                + 添加关系
-              </button>
-            )}
-          </div>
-          {edges.length === 0 ? (
-            <p className="text-[12px] text-paper-muted">暂无人物关系</p>
-          ) : (
-            <ul className="space-y-1.5">
-              {edges.slice(0, 4).map((e) => {
-                const other =
-                  e.source_id === entry.id
-                    ? (e.target_name || e.target_id)
-                    : (e.source_name || e.source_id);
-                return (
-                  <li key={e.id} className="flex items-center justify-between gap-2 text-[12.5px]">
-                    <span className="min-w-0 truncate text-ink-text">
-                      <span className="capitalize text-ink-muted">{e.label}</span>
-                      {" · "}
-                      <span className="font-medium">{other}</span>
-                    </span>
-                    <button
-                      type="button"
-                      className="shrink-0 text-[11px] text-ink-muted hover:text-[#c85177]"
-                      aria-label={`删除与${other}的关系`}
-                      onClick={async () => {
-                        try {
-                          await api.deleteRelationship(projectId, e.id);
-                          toast("关系已删除", "success");
-                          onUpdated();
-                        } catch (err) {
-                          toast(err instanceof Error ? err.message : String(err), "error");
-                        }
-                      }}
-                    >
-                      删除
-                    </button>
-                  </li>
-                );
-              })}
-              {edges.length > 4 && (
-                <li className="text-[11.5px] text-ink-muted">关系图中还有 {edges.length - 4} 条</li>
-              )}
-            </ul>
-          )}
-        </div>
-      )}
-    </div>
+    </section>
   );
 }
 
-function Action({
-  children, onClick, busy, disabled, variant = "primary",
-}: {
-  children: React.ReactNode; onClick: () => void; busy?: boolean; disabled?: boolean;
-  variant?: "primary" | "ghost";
-}) {
+function ProjectDeliveryTab({ projectId, delivery, refreshKey, onChanged }: { projectId: string; delivery?: ProjectDeliverySummary; refreshKey: number; onChanged: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={variant === "primary" ? "btn-primary disabled:opacity-40" : "btn-secondary disabled:opacity-40"}
-    >
-      {busy ? "运行中…" : children}
-    </button>
+    <section aria-labelledby="pw-delivery-title">
+      <div className="pw-section-heading"><div><span className="pw-eyebrow">交付</span><h2 id="pw-delivery-title">费用与交付</h2><p>查看制作费用、Token 用量与可下载文件。</p></div><DeliveryPackageButton projectId={projectId} delivery={delivery} onChanged={onChanged} /></div>
+      <GenerationCostPanel owner={projectId} refreshKey={refreshKey} />
+      <div className="pw-compile-wrap"><CompilePanel projectId={projectId} /></div>
+      <section className="pw-delivery-note"><div><span className="pw-eyebrow">交付包</span><h3>与正式封面保持同步</h3><p>ZIP 只有在交付状态就绪且内容与当前选定封面一致时才可下载。其他格式由上方编译工具单独生成，不会冒充交付包。</p></div><DeliveryPackageButton projectId={projectId} delivery={delivery} onChanged={onChanged} /></section>
+    </section>
   );
 }
 
-function AddCodexModal({
-  id, open, onClose, onAdded,
-}: { id: string; open: boolean; onClose: () => void; onAdded: () => void }) {
-  const toast = useToast();
-  const [name, setName] = useState("");
-  const [entryType, setEntryType] = useState<CodexEntryType>("character");
-  const [role, setRole] = useState("protagonist");
-  const [summary, setSummary] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  function pickFile(f: File | undefined) {
-    if (!f) return;
-    setFile(f);
-    setPreview(URL.createObjectURL(f));
-  }
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim()) return;
-    setBusy(true);
-    try {
-      const list = await api.addCodexEntry(id, {
-        entry_type: entryType,
-        name: name.trim(),
-        role,
-        summary: summary.trim(),
-      });
-      const created = list.find(
-        (x) => x.name.toLowerCase() === name.trim().toLowerCase() && x.entry_type === entryType,
-      ) ?? list[list.length - 1];
-      if (file && created) {
-        const kind = entryType === "location" ? "location" : entryType === "character" ? "portrait" : "general";
-        const media = await api.uploadMedia(id, file, kind, name.trim());
-        await api.setPortrait(id, created.id, media.id, entryType);
-      }
-      toast(`已添加${name}`, "success");
-      setName("");
-      setSummary("");
-      setFile(null);
-      setPreview(null);
-      onAdded();
-      onClose();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal open={open} onClose={onClose} title="添加设定库条目">
-      <form onSubmit={submit}>
-        <Field label="类型">
-          <ChoiceGroup
-            label="类型"
-            variant="cards"
-            value={entryType}
-            onChange={setEntryType}
-            options={TYPE_OPTIONS}
-          />
-        </Field>
-        <Field label="名称">
-          <input autoFocus className={fieldClass} value={name}
-                 onChange={(e) => setName(e.target.value)} placeholder="例如：林澈" />
-        </Field>
-        {entryType === "character" && (
-          <Field label="角色定位">
-            <ChoiceGroup
-              label="角色定位"
-              variant="chips"
-              value={role}
-              onChange={setRole}
-              options={ROLE_OPTIONS}
-            />
-          </Field>
-        )}
-        {entryType !== "character" && (
-          <Field label="简介">
-            <textarea
-              className={`${textareaClass} min-h-[72px]`}
-              value={summary}
-              onChange={(e) => setSummary(e.target.value)}
-              placeholder="用一两句话写明可供连续性守卫核对的事实"
-            />
-          </Field>
-        )}
-        <Field label="图片（可选）">
-          <div className="flex items-center gap-3">
-            <label className="flex h-16 w-16 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border border-dashed border-[rgba(74,91,133,0.25)] bg-white/50 text-ink-muted hover:border-[var(--color-violet)]">
-              {preview ? (
-                <img src={preview} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <Icon name="image" className="h-5 w-5" />
-              )}
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp,image/gif"
-                className="hidden"
-                onChange={(e) => pickFile(e.target.files?.[0])}
-              />
-            </label>
-            <p className="text-[12.5px] text-ink-muted">
-              {entryType === "character" ? "人物肖像"
-                : entryType === "location" ? "地点照片"
-                  : "参考图片"}
-              。之后仍可在卡片中添加或更换。
-            </p>
-          </div>
-        </Field>
-        <div className="mt-6 flex justify-end gap-3">
-          <button type="button" onClick={onClose} className="btn-ghost">
-            取消
-          </button>
-          <button type="submit" disabled={!name.trim() || busy} className="btn-primary disabled:opacity-40">
-            {busy ? "添加中…" : "添加"}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="nums font-display text-[26px] font-semibold leading-none text-ink-text">
-        {value}
-      </div>
-      <div className="mt-1 text-[12px] font-medium tracking-[-0.01em] text-ink-muted">
-        {label}
-      </div>
-    </div>
-  );
+function ProjectWorkspaceLoading() {
+  return <Scene quiet><div className="project-workspace"><div className="pw-shell pw-loading" role="status" aria-label="正在加载作品详情"><div className="pw-loading-cover" /><div className="pw-loading-copy"><span /><strong /><p /><p /></div></div></div></Scene>;
 }

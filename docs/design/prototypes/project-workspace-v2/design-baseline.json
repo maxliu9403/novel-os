@@ -1,0 +1,49 @@
+{
+  "schema_version": "novel-os.design-baseline.v1",
+  "version": "1.0",
+  "confirmed_date": "2026-10-24",
+  "timezone": "Asia/Shanghai",
+  "status": "user_confirmed_design_not_deployed",
+  "specification": "../../2026-10-24-project-workspace-design-baseline.md",
+  "approved_pending": [
+    "JSON business display",
+    "production data integration",
+    "read-only full-book reader",
+    "shared delivery-package status",
+    "library performance release"
+  ],
+  "files": {
+    "index.html": {
+      "bytes": 19842,
+      "sha256": "64bf746e62f20fbb586fb48fd590a87f16c3a449b4d71ebc4abd7404e25d70db"
+    },
+    "library.html": {
+      "bytes": 3637,
+      "sha256": "df648edc20567bb799679f9b1420efdee9ea2b376f52699a3849817022e8fa22"
+    },
+    "styles.css": {
+      "bytes": 38762,
+      "sha256": "c855bbef25128f1a92646b51ae16b40e379ba3b3d097f196b9f2b21972f215d5"
+    },
+    "app.js": {
+      "bytes": 7636,
+      "sha256": "5a7746b7fbe8b2e5a571a5e6f35f2ba105c44e8be25585251d1283ebbe782da0"
+    },
+    "library.js": {
+      "bytes": 744,
+      "sha256": "32ec1f0430c1f110aba24515ad0a01a5fe5665afdfedb84cd7b4b856cb56fe5e"
+    },
+    "skeleton.js": {
+      "bytes": 9754,
+      "sha256": "b093430679229020e48c346a8359a33d949e8e3a2eb7457665b4f72443d45769"
+    },
+    "assets/novel-os-logo.svg": {
+      "bytes": 11696,
+      "sha256": "720817fa46f5933449e2e3d7bdfc5909a1c5645e20e5332b7ef4dc328965e834"
+    }
+  },
+  "excluded": [
+    "assets/private/ (full novel source)",
+    "assets/cover.png (book-specific image, not a UI style constraint)"
+  ]
+}

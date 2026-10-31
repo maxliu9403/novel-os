@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -32,16 +33,35 @@ print(json.dumps({'type':'item.completed','item':{'type':'reasoning','text':'PRI
 
 def test_cli_timeout_retains_progress_and_result_metadata_without_content(tmp_path, monkeypatch):
     stub_cli(tmp_path, monkeypatch, PRELUDE + '''
-print('Reconnecting... 1/5 HTTP 503 Bearer AUTH_SECRET', file=sys.stderr, flush=True)
 output.write_text('PARTIAL_OUTPUT_SECRET')
+print('Reconnecting... 1/5 HTTP 503 Bearer AUTH_SECRET', file=sys.stderr, flush=True)
 time.sleep(10)
 ''')
     events = []
+    # This case tests retaining already-observed metadata at the deadline, not
+    # whether a fresh Python interpreter starts within two wall-clock seconds.
+    # Advance only this module's clock after the partial result and both output
+    # streams exist. Subprocess polling and CLIDiagnostics retain real clocks.
+    now = [100.0]
+    monkeypatch.setattr(llm_client, "time", SimpleNamespace(monotonic=lambda: now[0]))
+
+    def observe(entry):
+        events.append(entry)
+        if entry["event"] == "retry" and entry["stdout_bytes"] > 0:
+            now[0] = 103.0
+
+    cancel = threading.Event()
+    startup_guard = threading.Timer(10, cancel.set)
     client = LLMClient(provider="codex", model="local-stub", reasoning_effort="ultra",
-                       timeout_seconds=2, cancellation_event=threading.Event(),
-                       diagnostic_callback=events.append)
-    with pytest.raises(LLMError, match="timed out"):
-        client.complete("SYSTEM_SECRET", "AUTHOR_SECRET")
+                       timeout_seconds=2, cancellation_event=cancel,
+                       diagnostic_callback=observe)
+    startup_guard.start()
+    try:
+        with pytest.raises(LLMError, match="timed out"):
+            client.complete("SYSTEM_SECRET", "AUTHOR_SECRET")
+    finally:
+        startup_guard.cancel()
+        startup_guard.join()
 
     names = [entry["event"] for entry in events]
     assert names[0] == "request.start"
@@ -49,6 +69,7 @@ time.sleep(10)
     assert "first_cli_event" in names
     assert names[-2:] == ["cli.timeout", "request.timeout"]
     timeout = events[-2]
+    assert timeout["timeout_seconds"] == 2
     assert timeout["stdout_bytes"] > 0 and timeout["stderr_bytes"] > 0
     assert timeout["first_output_seconds"] is not None
     assert timeout["last_output_seconds"] is not None

@@ -36,6 +36,12 @@ from __future__ import annotations
 
 from contextvars import copy_context
 try:
+    from core.pipeline_runtime import current_runtime, client_scope, is_execution_stop
+except ModuleNotFoundError as exc:
+    if exc.name != "core":
+        raise
+    from pipeline_runtime import current_runtime, client_scope, is_execution_stop
+try:
     from core.usage_tracking import current_request, http_attempt_started, observe_usage, tracking_enabled, usage_request
 except ModuleNotFoundError as exc:
     if exc.name != "core":
@@ -174,6 +180,14 @@ class LLMClient:
         cancellation_event: threading.Event | None = None,
         diagnostic_callback: Callable[[dict], None] | None = None,
     ):
+        self._configured_timeout_seconds = timeout_seconds
+        runtime = current_runtime()
+        if runtime is not None:
+            runtime.check()
+            cancellation_event = runtime.cancel
+            # Backend defaults must not freeze a nearly exhausted stage's
+            # remaining seconds into a client cached for later chapters.
+            timeout_seconds = min(timeout_seconds, runtime.request_timeout) if timeout_seconds else runtime.request_timeout
         if timeout_seconds is not None and timeout_seconds <= 0:
             raise ValueError("LLM timeout must be positive")
         self.cancellation_event = cancellation_event
@@ -385,14 +399,16 @@ class LLMClient:
         return self.provider_name in IMAGE_INPUT_PROVIDERS
 
     def complete(self, system: str, user: str) -> str:
-        self._check_cancelled()
-        with usage_request(self.provider_name, self.model):
-            return self._complete_observed(system, user)
+        with client_scope(self):
+            self._check_cancelled()
+            with usage_request(self.provider_name, self.model):
+                return self._complete_observed(system, user)
 
-    def _complete_observed(self, system: str, user: str) -> str:
+    def _complete_observed(self, system: str, user: str, *, operation=None) -> str:
         """Single-turn message → assistant text."""
+        call = operation or (lambda: self._complete_text(system, user))
         if getattr(self, "diagnostic_callback", None) is None:
-            return self._complete_text(system, user)
+            return call()
         started = time.monotonic()
         self._record_diagnostic("request.start", provider=self.provider_name, model=self.model,
                                 reasoning_effort=self.reasoning_effort, timeout_seconds=self.timeout_seconds,
@@ -403,12 +419,12 @@ class LLMClient:
                                 system_chars=len(system), user_chars=len(user),
                                 system_bytes=len(system.encode("utf-8")), user_bytes=len(user.encode("utf-8")))
         try:
-            result = self._complete_text(system, user)
+            result = call()
         except BaseException as exc:
             event = "request.failed"
             if isinstance(exc, LLMCancelledError):
                 event = "request.cancelled"
-            elif isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)) or isinstance(
+            elif is_execution_stop(exc) or isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)) or isinstance(
                 exc.__cause__, (TimeoutError, subprocess.TimeoutExpired)
             ) or "timeout" in type(exc).__name__.lower():
                 event = "request.timeout"
@@ -488,20 +504,27 @@ class LLMClient:
         # this local wait; close() usually interrupts transport I/O. A remote
         # provider may still finish the request, whose late result is discarded.
         threading.Thread(target=copy_context().run, args=(request,), daemon=True, name="llm-http-request").start()
+        timeout = getattr(self, "timeout_seconds", None)
+        deadline = time.monotonic() + timeout if timeout else None
         while True:
             done = completed.wait(0.05)
             if event.is_set():
                 self._close_cancelled_http()
                 raise LLMCancelledError("Model request was cancelled; remote completion may still be running")
+            if deadline is not None and time.monotonic() >= deadline:
+                self._close_cancelled_http()
+                raise TimeoutError("Model request exceeded its local timeout; late output will be discarded")
             if done:
                 if "error" in result:
                     raise result["error"]
                 return result["value"]
 
     def complete_with_images(self, system: str, user: str, images) -> str:
-        self._check_cancelled()
-        with usage_request(self.provider_name, self.model):
-            return self._complete_with_images_observed(system, user, images)
+        with client_scope(self):
+            self._check_cancelled()
+            with usage_request(self.provider_name, self.model):
+                return self._complete_observed(system, user,
+                    operation=lambda: self._complete_with_images_observed(system, user, images))
 
     def _complete_with_images_observed(
         self,
@@ -911,6 +934,8 @@ class LLMClient:
         if cancellable:
             self._active_stream = stream
         parts = []
+        output_chars = 0
+        last_diagnostic = 0.0
         print("   Response stream started", end="", flush=True)
         progress_started = True
         last_progress = time.monotonic()
@@ -931,6 +956,10 @@ class LLMClient:
                 if not content:
                     continue
                 parts.append(content)
+                output_chars += len(content)
+                if now - last_diagnostic >= 1:
+                    self._record_diagnostic('content.progress', model_output_chars=output_chars)
+                    last_diagnostic = now
         except Exception:
             if progress_started:
                 print(" interrupted", flush=True)
@@ -975,12 +1004,20 @@ class LLMClient:
 
     def _complete_gemini(self, system: str, user: str) -> str:
         from google.genai import types  # type: ignore
+        options = {}
+        if getattr(self, 'cancellation_event', None) is not None:
+            timeout = getattr(self, 'timeout_seconds', None)
+            options['http_options'] = types.HttpOptions(
+                timeout=int(timeout * 1000) if timeout else None,
+                retry_options=types.HttpRetryOptions(attempts=1),
+            )
         resp = self._backend.models.generate_content(
             model=self.model,
             contents=user,
             config=types.GenerateContentConfig(
                 system_instruction=system,
                 max_output_tokens=self.max_tokens,
+                **options,
             ),
         )
         observe_usage(getattr(resp, "usage_metadata", None), provider="gemini", observed_model=getattr(resp, "model_version", None))

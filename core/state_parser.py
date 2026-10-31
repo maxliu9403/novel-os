@@ -128,6 +128,32 @@ def _append_ending_values(out: Dict[str, Any], key: str, values: List[str]) -> N
             existing.append(value)
 
 
+def _normalize_ending_declaration(key: str, value: str) -> str:
+    """Omit explicitly blank optional arc outcomes from the parsed projection."""
+    if key != "arc_state_updates":
+        return value
+
+    parts = [part.strip() for part in value.split("|")]
+    outcome_values: List[str] = []
+    retained: List[str] = []
+    for part in parts:
+        name, separator, content = part.partition("=")
+        if separator and _normalize_key(name) in {"outcome", "outcome_state"}:
+            outcome_values.append(content.strip())
+            if not content.strip():
+                continue
+        retained.append(part)
+
+    if any(not outcome for outcome in outcome_values) and any(outcome for outcome in outcome_values):
+        raise EndingProtocolError(
+            "ending_protocol: arc_state_updates: blank outcome cannot be mixed with a "
+            f"populated outcome alias; declaration={value!r}"
+        )
+    if outcome_values and all(not outcome for outcome in outcome_values):
+        return " | ".join(retained)
+    return value
+
+
 def _validate_ending_declaration(key: str, value: str) -> None:
     if key == "ending_evidence":
         return  # This field intentionally accepts literal evidence text.
@@ -199,6 +225,7 @@ def _store_parsed_field(out: Dict[str, Any], key: str, value: Any) -> None:
         if target in _ENDING_FIELDS:
             routed = True
             for declaration in _as_list(normalized):
+                declaration = _normalize_ending_declaration(target, declaration)
                 _validate_ending_declaration(target, declaration)
                 _append_ending_values(out, target, [declaration])
             continue

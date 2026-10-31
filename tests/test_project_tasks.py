@@ -45,6 +45,60 @@ def _wait_job(jobs, job_id):
     pytest.fail("test resume worker did not finish")
 
 
+def test_pause_requires_exact_native_run_and_waits_for_worker_exit(tmp_path, monkeypatch):
+    from api import project_tasks, project_task_summary
+    project, manifest, path = _seed(tmp_path)
+    manifest.status = 'running'
+    path.write_text(json.dumps(manifest.to_dict()))
+    jobs = JobRunner()
+    monkeypatch.setattr(project_tasks, 'runner', jobs)
+    monkeypatch.setattr(project_task_summary, 'runner', jobs)
+    cancel, release = threading.Event(), threading.Event()
+    def worker():
+        release.wait(3)
+        manifest.status = 'paused'
+        path.write_text(json.dumps(manifest.to_dict()))
+    job_id = jobs.submit('novel.run', worker,
+        {'project_id': 'book', 'project_path': str(project.resolve()), 'run_id': manifest.run_id},
+        cancel_event=cancel, defer_cancel_completion=True)
+    client = _client(tmp_path)
+    url = f'/api/projects/book/tasks/{manifest.run_id}'
+    try:
+        assert client.get(url).json()['can_pause'] is True
+        assert client.post(url + '/pause', json={'job_id': 'stale-job'}).status_code == 409
+        assert not cancel.is_set()
+        paused = client.post(url + '/pause', json={'job_id': job_id})
+        assert paused.status_code == 202
+        assert paused.json()['status'] == 'running'
+        assert paused.json()['cancel_requested'] is True
+        assert paused.json()['can_resume'] is False
+        assert jobs.get(job_id)['status'] == 'running'
+        assert cancel.is_set()
+    finally:
+        release.set()
+    _wait_job(jobs, job_id)
+    assert client.get(url).json()['status'] == 'paused'
+    assert client.get(url).json()['can_resume'] is True
+
+
+def test_old_running_job_does_not_claim_native_pause(tmp_path, monkeypatch):
+    from api import project_tasks, project_task_summary
+    project, manifest, _ = _seed(tmp_path)
+    jobs = JobRunner()
+    monkeypatch.setattr(project_tasks, 'runner', jobs)
+    monkeypatch.setattr(project_task_summary, 'runner', jobs)
+    release = threading.Event()
+    job_id = jobs.submit('novel.run', lambda: release.wait(3),
+        {'project_id': 'book', 'project_path': str(project.resolve()), 'run_id': manifest.run_id})
+    try:
+        client = _client(tmp_path)
+        url = f'/api/projects/book/tasks/{manifest.run_id}'
+        assert client.get(url).json()['can_pause'] is False
+        assert client.post(url + '/pause', json={'job_id': job_id}).status_code == 409
+    finally:
+        release.set()
+
+
 def test_task_details_and_cards_expose_actual_failure(tmp_path):
     project, manifest, _ = _seed(tmp_path)
     client = _client(tmp_path)
@@ -153,6 +207,28 @@ def test_other_project_job_blocks_resume(tmp_path, monkeypatch):
         client = _client(tmp_path)
         assert client.post(f"/api/projects/book/tasks/{manifest.run_id}/resume").status_code == 409
         assert client.get(f"/api/projects/book/tasks/{manifest.run_id}").json()["can_resume"] is False
+    finally:
+        release.set()
+
+
+def test_resume_never_presents_crashed_execution_as_current_activity(tmp_path, monkeypatch):
+    from api import project_tasks, project_task_summary
+    project, manifest, path = _seed(tmp_path)
+    progress = path.parent / "progress.json"
+    progress.write_text(json.dumps({"schema_version": 1, "run_id": manifest.run_id,
+        "execution_id": "old-execution", "status": "running", "started_at": "2020-01-01T00:00:00Z",
+        "request": {"request_id": "old-request", "status": "running", "output_chars": 999}}))
+    jobs = JobRunner()
+    monkeypatch.setattr(project_tasks, "runner", jobs)
+    monkeypatch.setattr(project_task_summary, "runner", jobs)
+    release = threading.Event()
+    jobs.submit("novel.resume", lambda: release.wait(3), {"project_id": "book",
+        "project_path": str(project.resolve()), "run_id": manifest.run_id})
+    try:
+        result = _client(tmp_path).get(f"/api/projects/book/tasks/{manifest.run_id}").json()
+        assert result["status"] == "running"
+        assert result["progress"] is None
+        assert json.loads(progress.read_text())["request"]["output_chars"] == 999
     finally:
         release.set()
 

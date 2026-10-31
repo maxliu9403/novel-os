@@ -24,6 +24,12 @@ from proposals import ProposalStore
 from state_manager import StoryState
 
 
+def _legacy_spec(**values):
+    """Existing fixtures speak the original single-response Architect protocol."""
+    values.setdefault("outline_planning_mode", "legacy")
+    return RunSpec(**values)
+
+
 class PipelineLLM:
     provider = "fake"
     model = "fake-fiction-model"
@@ -256,7 +262,7 @@ def _one_chapter_spec(project: Path, prompt: Path, **overrides):
         "approval_policy": "auto",
     }
     values.update(overrides)
-    return RunSpec(**values)
+    return _legacy_spec(**values)
 
 
 def test_completed_plan_checkpoint_refreshes_proposal_runtime_state(tmp_path: Path):
@@ -285,7 +291,7 @@ def test_completed_plan_checkpoint_refreshes_proposal_runtime_state(tmp_path: Pa
     outline.parent.mkdir(parents=True, exist_ok=True)
     outline.write_text("# Chapter 2\n", encoding="utf-8")
 
-    spec = RunSpec(
+    spec = _legacy_spec(
         project_path=str(project),
         num_chapters=2,
         target_words=2,
@@ -424,7 +430,7 @@ def test_real_orchestrator_pipeline_completes_two_chapters(tmp_path: Path):
     prompt = tmp_path / "prompt.md"
     prompt.write_text("# One Prompt Book\n\nMara chooses a new life.", encoding="utf-8")
     project = tmp_path / "project"
-    spec = RunSpec(
+    spec = _legacy_spec(
         project_path=str(project),
         prompt_path=str(prompt),
         num_chapters=2,
@@ -473,6 +479,67 @@ def test_real_orchestrator_pipeline_completes_two_chapters(tmp_path: Path):
         }
 
 
+def test_default_staged_pipeline_completes_two_chapters_with_real_foundation_and_ending_gates(tmp_path):
+    from test_outline_planning import PlanningModel
+
+    class StagedPipelineLLM(PipelineLLM):
+        def __init__(self):
+            self.planner = PlanningModel()
+
+        def complete(self, *, system, user):
+            if system.startswith("You are Novel OS's story architect"):
+                raw = self.planner.complete(system, user)
+                value = json.loads(raw)
+                if user.startswith("STAGE: global_design"):
+                    value["characters"][0].update(id="char_001", name="Mara Vale")
+                    value["plot_threads"][0].update(id="plot_001", name="Second Chance")
+                    value["ending_contract"]["main_conflict"].update(thread_id="plot_001", protagonist_choice="Mara opens the studio")
+                    value["ending_contract"]["character_arcs"][0].update(
+                        character_id="char_001", required_outcome="independence", required_choice="Mara opens the studio")
+                for chapter in value.get("chapters", []):
+                    chapter["pov"] = "Mara Vale"
+                    chapter["target_words"] = 30
+                    for scene in chapter["scenes"]:
+                        scene["pov"] = "Mara Vale"
+                return json.dumps(value)
+            return super().complete(system=system, user=user)
+
+        def run_agent(self, agent_name, prompt):
+            response = super().run_agent(agent_name, prompt)
+            if agent_name == "scribe" and "Chapter 2" in prompt:
+                response = response.replace("status=active | milestone=Mara advances the studio opening",
+                                            "status=resolved | milestone=Mara opens the studio")
+                response = response.replace("[/SCRIBE_STATE_UPDATE]", """Arc_State_Updates: [char_001 | stage=resolution | progress=100 | outcome=independence | evidence=Mara opens the studio in her own name]
+Ending_Evidence: [irreversible_change=Mara assumes the lease; emotional_payoff=She chooses a self-directed life]
+[/SCRIBE_STATE_UPDATE]""")
+            return response
+
+    client = StagedPipelineLLM()
+
+    def factory(project_path):
+        orchestrator = NovelOrchestrator(project_path)
+        orchestrator._llm = client
+        return orchestrator
+
+    prompt = tmp_path / "skeleton.md"
+    prompt.write_text("# One Prompt Book\n\nMara Vale chooses a new life and independent studio work. She keeps the studio and opens it in chapter 2.")
+    project = tmp_path / "staged-project"
+    spec = RunSpec(project_path=str(project), prompt_path=str(prompt), num_chapters=2,
+                   target_words=60, approval_policy="auto", quality_policy="evidence_v1")
+    assert spec.outline_planning_mode == "staged"
+    manifest = PipelineRunner(orchestrator_factory=factory).run(spec)
+    assert manifest.status == "completed", manifest.error
+    for phase in ("outline", "foundation.commit", "ending.review", "book.check", "compile", "delivery.package"):
+        assert manifest.get(phase).status == "done"
+    assert [phase for phase, _ in client.planner.calls] == ["global", "batch", "review"]
+    foundation = json.loads((project / "outputs/input/foundation.json").read_text())
+    assert len(foundation["chapters"]) == 2
+    assert foundation["ending_contract"]["enforce"] is True
+    progress = json.loads((project / "outputs/runs" / manifest.run_id / "planning/progress.json").read_text())
+    assert progress["status"] == "complete" and progress["completed_batches"] == 1
+    assert StoryState(str(project)).characters["char_001"].outcome_state == "independence"
+
+
 def test_real_orchestrator_commercial_pipeline_persists_originality_gate(
     tmp_path: Path,
 ):
@@ -509,7 +576,7 @@ def test_real_orchestrator_commercial_pipeline_persists_originality_gate(
     project = tmp_path / "projects/commercial-book"
 
     manifest = PipelineRunner(orchestrator_factory=factory).run(
-        RunSpec(
+        _legacy_spec(
             project_path=str(project),
             prompt_path=str(prompt),
             num_chapters=2,
@@ -759,7 +826,7 @@ Maintained_Characteristics: [intimate resolve]
     )
     project = tmp_path / "projects/the-last-signed-measure"
     manifest = PipelineRunner(orchestrator_factory=factory).run(
-        RunSpec(
+        _legacy_spec(
             project_path=str(project),
             prompt_path=str(prompt),
             num_chapters=4,
@@ -870,7 +937,7 @@ Ending_Evidence: [irreversible_change=Mara assumes the lease; emotional_payoff=S
     project = tmp_path / "project"
 
     manifest = PipelineRunner(orchestrator_factory=factory).run(
-        RunSpec(
+        _legacy_spec(
             project_path=str(project),
             prompt_path=str(prompt),
             num_chapters=2,
@@ -928,7 +995,7 @@ def test_evidence_run_restores_committed_tail_before_next_promotion(tmp_path: Pa
     project = tmp_path / "project"
 
     manifest = PipelineRunner(orchestrator_factory=factory).run(
-        RunSpec(
+        _legacy_spec(
             project_path=str(project),
             prompt_path=str(prompt),
             num_chapters=2,
@@ -1109,7 +1176,7 @@ def test_resume_blocks_planning_drift_before_regenerating_committed_story(tmp_pa
     prompt.write_text("# One Prompt Book\n\nMara chooses a new life.", encoding="utf-8")
     project = tmp_path / "project"
     runner = PipelineRunner(orchestrator_factory=_real_orchestrator_with_fake_llm)
-    manifest = runner.run(RunSpec(
+    manifest = runner.run(_legacy_spec(
         project_path=str(project),
         prompt_path=str(prompt),
         num_chapters=2,
@@ -1242,7 +1309,7 @@ def test_reconcile_historical_receipt_when_state_is_before_ledger_tail(tmp_path:
     prompt.write_text("# One Prompt Book\n\nMara chooses a new life.", encoding="utf-8")
     project = tmp_path / "project"
     runner = PipelineRunner(orchestrator_factory=_real_orchestrator_with_fake_llm)
-    manifest = runner.run(RunSpec(
+    manifest = runner.run(_legacy_spec(
         project_path=str(project),
         prompt_path=str(prompt),
         num_chapters=2,
@@ -1289,7 +1356,7 @@ def test_multi_chapter_evidence_promotion_commits_all_agent_proposals(
 
     manifest = PipelineRunner(
         orchestrator_factory=_real_orchestrator_with_fake_llm
-    ).run(RunSpec(
+    ).run(_legacy_spec(
         project_path=str(project),
         prompt_path=str(prompt),
         num_chapters=2,

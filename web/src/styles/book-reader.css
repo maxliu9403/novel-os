@@ -1,0 +1,39 @@
+.book-reader { --reader-ink: #17213f; color: var(--reader-ink); padding: 28px; height: 100%; display: flex; flex-direction: column; gap: 24px; }
+.book-reader__header { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-shrink: 0; }
+.book-reader__back { color: #7885a6; font-size: 12px; }
+.book-reader h1 { font-size: clamp(20px, 2vw, 28px); font-weight: 700; margin: 12px 0 6px; }
+.book-reader__header p { color: #7885a6; font-size: 12px; }
+.book-reader__controls { display: flex; background: #fff9; padding: 5px; border: 1px solid #e0e5f2; border-radius: 999px; flex-shrink: 0; }
+.book-reader__controls button { border-radius: 999px; padding: 10px 16px; font-size: 12px; color: #7885a6; }
+.book-reader__controls button[aria-pressed=true] { color: white; background: #17213f; box-shadow: 0 4px 12px #17213f20; }
+.book-reader button:focus-visible, .book-reader a:focus-visible { outline: 3px solid #aaa8f5; outline-offset: 3px; }
+.book-reader__layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 20px; min-height: 0; flex: 1; }
+.book-reader__directory { padding: 20px 12px; border: 1px solid #e0e5f2; border-radius: 24px; background: #ffffffa8; overflow: auto; }
+.book-reader__directory h2 { display: flex; justify-content: space-between; padding: 0 10px 18px; font-size: 14px; font-weight: 700; }
+.book-reader__directory h2 span { color: #7885a6; font-size: 11px; font-weight: 400; }
+.book-reader__directory button { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 4px; padding: 12px; border-radius: 14px; margin-bottom: 4px; }
+.book-reader__directory button:hover { background: #f2f4fc; }
+.book-reader__directory button[aria-current] { background: #efefff; color: #6867ea; }
+.book-reader__directory button span, .book-reader__directory small { font-size: 10px; color: #7885a6; }
+.book-reader__directory strong { font-size: 12px; font-weight: 600; line-height: 1.6; }
+.book-reader__viewport { border: 1px solid #e0e5f2; border-radius: 28px; background: #ffffffdd; overflow: auto; min-width: 0; scroll-behavior: smooth; }
+.book-reader__chapter { max-width: 850px; margin: auto; padding: 48px 46px; scroll-margin-top: 18px; }
+.book-reader__chapter + .book-reader__chapter { border-top: 1px solid #e4e8f3; }
+.book-reader__chapter h2 { font-size: 26px; font-weight: 700; line-height: 1.4; margin: 18px 0 30px; }
+.book-reader__chapter-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; font-size: 10px; color: #7885a6; letter-spacing: .06em; }
+.book-reader__chapter-meta a { margin-left: auto; color: #6867ea; }
+.book-reader__version { background: #efefff; color: #6867ea; padding: 4px 8px; border-radius: 999px; }
+.book-reader__prose { color: #344467; font-size: 16px; line-height: 2; overflow-wrap: anywhere; }
+.book-reader__prose p { margin-bottom: 1.4em; }
+.book-reader__prose h1, .book-reader__prose h2, .book-reader__prose h3 { font-size: 22px; font-weight: 700; margin: 1.4em 0 .8em; }
+.book-reader__prose blockquote { border-left: 3px solid #c9c5f4; padding-left: 20px; }
+.book-reader__prose ul, .book-reader__prose ol { padding-left: 24px; list-style: revert; }
+.book-reader__prose pre { white-space: pre-wrap; }
+.book-reader__prose table { display: block; overflow: auto; }
+.book-reader__empty, .book-reader__notice { padding: 24px; color: #7885a6; background: #ffffff80; border-radius: 18px; line-height: 1.8; }
+.book-reader__notice button, .book-reader__chapter [role=alert] button { display: block; color: #6867ea; padding: 10px 0; }
+.book-reader__progress { padding: 16px 24px; color: #7885a6; font-size: 12px; border-bottom: 1px solid #e4e8f3; }
+.book-reader__pagination { display: flex; justify-content: space-between; align-items: center; max-width: 850px; margin: auto; padding: 0 46px 40px; font-size: 12px; color: #7885a6; }
+.book-reader__pagination button { border: 1px solid #e0e5f2; border-radius: 999px; padding: 10px 18px; color: #6867ea; }
+.book-reader__pagination button:disabled { opacity: .4; }
+@media (max-width: 850px) { .book-reader { padding: 18px; height: auto; min-height: 100%; } .book-reader__header { flex-wrap: wrap; } .book-reader__layout { display: block; } .book-reader__directory { max-height: 220px; margin-bottom: 16px; } .book-reader__viewport { overflow: visible; } .book-reader__chapter { padding: 28px 22px; } .book-reader__pagination { padding: 10px 22px 28px; } }

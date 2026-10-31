@@ -81,7 +81,7 @@ export default function ProjectsList() {
     return () => { cancelled = true; };
   }, []);
 
-  const hasRunningTasks = projects?.some((project) => isProjectTaskRunning(project.status) || project.cover?.status === "processing") ?? false;
+  const hasRunningTasks = projects?.some((project) => isProjectTaskRunning(project.status) || project.cover?.status === "processing" || project.delivery?.status === "pending") ?? false;
   useEffect(() => {
     if (!hasRunningTasks) return;
     let cancelled = false;
@@ -321,7 +321,11 @@ export default function ProjectsList() {
                 >
                   {filteredProjects.map((p) => (
                     <motion.div key={p.id} variants={card}>
-                      <ProjectCard p={p} onDelete={openDelete} onResume={resumeProject} />
+                      <ProjectCard p={p} onDelete={openDelete} onResume={resumeProject} onDeliveryChanged={async () => {
+                        const version = ++requestVersion.current;
+                        const next = await api.projects();
+                        if (version === requestVersion.current) setProjects(next);
+                      }} />
                     </motion.div>
                   ))}
                 </motion.div>

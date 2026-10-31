@@ -213,6 +213,7 @@ class JobRunner:
     @staticmethod
     def _copy_job(job: dict) -> dict:
         result = dict(job)
+        result['cancel_supported'] = job.get('_cancel_event') is not None and bool(job.get('_defer_cancel_completion'))
         result.pop("_unique_key", None)
         result.pop("_cancel_event", None)
         result.pop("_cancelled", None)

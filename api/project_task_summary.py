@@ -74,8 +74,10 @@ def task_runtime(project: Path, manifest: dict, *, is_latest: bool) -> dict:
             # A later CLI resume can supersede this process-local attempt.
             resume = None
     resuming = bool(resume and resume["status"] == "running")
+    matching = next((job for job in active if job.get('kind') in {'novel.run', 'novel.resume'}
+                     and job.get('run_id') == manifest['run_id']), None)
     return {
-        "status": "running" if resuming else manifest["status"],
+        "status": "running" if resuming or matching else manifest["status"],
         "can_resume": bool(
             is_latest and manifest["status"] in RESUMABLE_STATUSES
             and not manifest["spec"].get("dry_run") and not active
@@ -84,7 +86,53 @@ def task_runtime(project: Path, manifest: dict, *, is_latest: bool) -> dict:
         "resume_job_id": resume["job_id"] if resume else None,
         "resume_job_status": resume["status"] if resume else None,
         "resume_job_error": resume.get("error") if resume else None,
+        "active_job_id": matching['job_id'] if matching else None,
+        "can_pause": bool(matching and matching.get('cancel_supported') and not matching.get('cancel_requested')),
+        "cancel_requested": bool(matching and matching.get('cancel_requested')),
     }
+
+
+def task_sidecar(project: Path, run_id: str, relative: str) -> dict | None:
+    """Read bounded diagnostics only from the validated task directory."""
+    root = project / 'outputs' / 'runs' / run_id
+    path = root / relative
+    try:
+        if path.resolve() != path.absolute() or not path.is_file() or path.stat().st_size > 512_000:
+            return None
+        data = json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(data, dict) or data.get('run_id') != run_id or data.get('schema_version') != 1:
+            return None
+        if relative == 'progress.json':
+            # Do not expose arbitrary extra fields added to an on-disk file.
+            allowed = {'schema_version', 'execution_id', 'run_id', 'status', 'phase', 'chapter',
+                       'started_at', 'updated_at', 'phase_started_at', 'heartbeat_at',
+                       'last_upstream_activity_at', 'last_model_activity_at', 'last_output_at',
+                       'request_timeout_seconds', 'stage_timeout_seconds', 'message', 'next_action'}
+            safe = {key: data[key] for key in allowed if key in data and isinstance(data[key], (str, int, float, type(None)))}
+            request = data.get('request')
+            safe['request'] = {key: request[key] for key in ('request_id', 'provider', 'model', 'started_at', 'status',
+                'output_chars', 'model_activity_count', 'error_type', 'timeout_seconds') if key in request
+                and isinstance(request[key], (str, int, float, type(None)))} if isinstance(request, dict) else None
+            milestones = data.get('milestones') if isinstance(data.get('milestones'), list) else []
+            safe['milestones'] = [{key: entry[key] for key in ('at', 'phase', 'chapter', 'status', 'message') if key in entry
+                and isinstance(entry[key], (str, int, type(None)))} for entry in milestones[-80:] if isinstance(entry, dict)]
+            return safe
+        if relative == 'planning/progress.json':
+            safe = {key: data[key] for key in ('schema_version', 'planning_schema', 'run_id', 'identity_hash',
+                'status', 'active_step', 'updated_at', 'completed_batches', 'total_batches', 'chapter_count',
+                'message', 'next_action') if key in data and isinstance(data[key], (str, int, type(None)))}
+            for name, fields, limit in (('steps', ('id', 'label', 'status', 'summary'), 20),
+                                        ('milestones', ('id', 'time', 'label', 'summary'), 100)):
+                entries = data.get(name) if isinstance(data.get(name), list) else []
+                safe[name] = [{key: entry[key][:2000] for key in fields if isinstance(entry.get(key), str)}
+                              for entry in entries[-limit:] if isinstance(entry, dict)]
+            reuse = data.get('workshop_reuse')
+            safe['workshop_reuse'] = {key: reuse[key] for key in ('used', 'reason') if key in reuse
+                and isinstance(reuse[key], (bool, str))} if isinstance(reuse, dict) else None
+            return safe
+        return None
+    except (OSError, ValueError, TypeError):
+        return None
 
 
 def parse_task_time(value: object) -> datetime | None:
