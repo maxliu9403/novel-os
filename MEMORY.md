@@ -1,5 +1,11 @@
 # Novel OS 项目记忆
 
+## 2026-11-01：类型维护与作品库统一为单面板，已更新 5174
+
+用户指出类型维护页标题裸露、左右分散卡片与作品库不一致。现复用 `Scene quiet`、`workspace-page`、`glass-shell` 和 `glass-panel`，标题/操作/筛选/列表/编辑/保存收进同一白色面板，左右仅细线分隔，保留原有编辑与冻结版本逻辑。桌面 1600×1050、手机 390×844 已验证，无页面横向溢出；移动类型切换/标签/保存区可用。现有 6 项页面交互测试、构建、ESLint 与 diff 检查通过。
+
+仅以 `docker compose up --detach --no-deps --no-build --wait frontend` 更新前端，5174 healthy；部署前后后端容器 ID 与启动时间完全相同。未写用户资料、未调用模型。前端回退标签 `novel-os-frontend:rollback-types-panel-20261101`；截图 `/private/tmp/novelos-types-panel-live.png`。此前三套资料/H5 分类实现保持。无关 pelican 文件未触碰。
+
 ## 2026-11-01：新建小说统一 H5 题材与创作方向，已部署 5174
 
 用户要求取消普通新建前置页、先选 H5 题材再选创作方向、简化维护页并只保留狼人/婚姻背叛/女性觉醒三套内置参考。已在 `codex/novel-quality-optimization` 完成并部署，作品库「新建小说」直接打开 `/workshop?new=1`。新协议 `h5_guided.v1` 必须有合法主类型；分类与可多选创作资料分开，狼人属于 H5 故事类型而非主类型。维护分类前置、同字典分组，15px 输入正文、14px 标签；常用三页加模型预览/版本，复杂字段折叠保留。

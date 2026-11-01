@@ -1,18 +1,32 @@
 .ct-page {
-  height: 100%;
+  height: 100dvh;
   min-height: 640px;
   display: flex;
-  flex-direction: column;
-  padding: 28px 30px 24px;
-  color: var(--color-ink, #17213f);
+  color: var(--color-ink-text);
   font-size: 15px;
   min-width: 0;
 }
+.ct-page > .ct-shell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.ct-shell > .ct-surface {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  padding: 36px 40px 28px;
+}
 .ct-page h1 {
-  font-size: 29px;
-  font-weight: 650;
+  font-family: var(--font-display);
+  font-size: clamp(30px, 3vw, 38px);
+  line-height: 1.2;
+  font-weight: 600;
   letter-spacing: -0.035em;
-  margin: 6px 0;
+  margin: 8px 0 12px;
 }
 .ct-page h2 {
   font-size: 22px;
@@ -44,10 +58,13 @@
 }
 .ct-page-head {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 20px;
-  margin-bottom: 22px;
+  flex-shrink: 0;
+  margin-bottom: 26px;
+  padding-bottom: 26px;
+  border-bottom: 1px solid var(--color-paper-line);
 }
 .ct-actions {
   display: flex;
@@ -60,24 +77,21 @@
   min-height: 0;
   display: grid;
   grid-template-columns: 270px minmax(0, 1fr);
-  gap: 16px;
+  gap: 0;
 }
 .ct-library,
 .ct-editor {
   min-height: 0;
-  background: #ffffffc4;
-  border: 1px solid #fff;
-  border-radius: 26px;
-  box-shadow: 0 12px 35px #3c539008;
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 .ct-library {
-  padding: 17px 12px 14px;
+  padding-right: 20px;
+  border-right: 1px solid var(--color-paper-line);
 }
 .ct-library-tools {
-  padding: 0 4px 12px;
+  padding-bottom: 12px;
 }
 .ct-filters {
   display: flex;
@@ -174,7 +188,7 @@
   gap: 15px;
   align-items: center;
   flex-wrap: wrap;
-  padding: 23px 27px 18px;
+  padding: 0 0 18px 28px;
 }
 .ct-editor-title {
   display: flex;
@@ -199,7 +213,7 @@
 .ct-tabs {
   display: flex;
   gap: 6px;
-  padding: 0 26px 15px;
+  padding: 0 0 15px 28px;
   overflow: auto;
   flex-shrink: 0;
   border-bottom: 1px solid #4b5b8520;
@@ -222,7 +236,7 @@
   overflow: auto;
   flex: 1;
   min-height: 0;
-  padding: 25px 28px;
+  padding: 25px 4px 25px 28px;
   scrollbar-width: thin;
 }
 .ct-form {
@@ -491,8 +505,7 @@
   margin-top: 5px;
 }
 .ct-savebar {
-  padding: 17px 27px;
-  background: #ffffffd4;
+  padding: 17px 0 0 28px;
   border-top: 1px solid #4b5b8520;
   display: flex;
   justify-content: space-between;
@@ -534,7 +547,7 @@
     grid-template-columns: 300px minmax(0, 1fr);
   }
   .ct-body {
-    padding: 30px 38px;
+    padding: 30px 4px 30px 38px;
   }
   .ct-form {
     max-width: 1280px;
@@ -545,28 +558,30 @@
   }
 }
 @media (max-width: 1200px) {
-  .ct-page {
-    padding: 22px 18px;
+  .ct-shell > .ct-surface {
+    padding: 28px 24px 20px;
   }
   .ct-workspace {
     grid-template-columns: 225px minmax(0, 1fr);
-    gap: 12px;
+  }
+  .ct-library {
+    padding-right: 16px;
   }
   .ct-editor-head {
-    padding: 20px;
+    padding-left: 20px;
   }
   .ct-tabs {
-    padding-inline: 15px;
+    padding-left: 20px;
     gap: 0;
   }
   .ct-tabs button {
     padding-inline: 10px;
   }
   .ct-body {
-    padding: 22px;
+    padding: 22px 4px 22px 20px;
   }
   .ct-savebar {
-    padding: 15px 20px;
+    padding: 15px 0 0 20px;
     flex-wrap: wrap;
   }
   .ct-savebar .ct-actions {
@@ -584,7 +599,7 @@
     margin-left: auto;
   }
   .ct-page-head h1 {
-    font-size: 25px;
+    font-size: 30px;
   }
   .ct-page-head .btn-secondary {
     display: none;
@@ -598,16 +613,25 @@
 }
 @media (max-width: 700px) {
   .ct-page {
-    padding: 17px 11px;
     min-height: 580px;
+  }
+  .ct-page > .ct-shell {
+    padding: 6px;
+    border-radius: 26px;
+  }
+  .ct-shell > .ct-surface {
+    padding: 20px 12px;
+    border-radius: 20px;
   }
   .ct-page-head {
     align-items: flex-start;
     gap: 8px;
     margin-bottom: 17px;
+    padding-bottom: 20px;
+    flex-wrap: wrap;
   }
   .ct-page h1 {
-    font-size: 22px;
+    font-size: 28px;
   }
   .ct-page-head p {
     font-size: 13px;
@@ -621,7 +645,8 @@
   }
   .ct-library {
     height: 100%;
-    padding: 16px;
+    padding: 0;
+    border-right: 0;
   }
   .ct-filters {
     flex-direction: row;
@@ -648,7 +673,7 @@
     padding-bottom: 10px;
   }
   .ct-editor-head {
-    padding: 17px 16px 12px;
+    padding: 0 0 12px;
   }
   .ct-page h2 {
     font-size: 19px;
@@ -669,10 +694,10 @@
     font-size: 12px;
   }
   .ct-body {
-    padding: 19px 16px;
+    padding: 19px 2px;
   }
   .ct-savebar {
-    padding: 12px 15px;
+    padding: 12px 0 0;
     gap: 10px;
   }
   .ct-savebar .ct-actions {
@@ -697,6 +722,9 @@
   .ct-tabs button {
     font-size: 13px;
     padding: 8px;
+  }
+  .ct-tabs {
+    padding-left: 0;
   }
   .ct-preview-controls > div {
     flex-wrap: wrap;

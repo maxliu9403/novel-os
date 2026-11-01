@@ -12,6 +12,7 @@ import {
   type Mechanism,
 } from "../api/creativeTypes";
 import CreativeProfileDiff from "../components/CreativeProfileDiff";
+import Scene from "../components/Scene";
 import "../styles/creative-types.css";
 
 const stageNames: Record<CreativeStage, string> = {
@@ -478,7 +479,10 @@ export default function CreativeTypes() {
           .includes(search.trim().toLowerCase()),
     ) || [];
   return (
-    <div className={`ct-page ${mobileDetail ? "ct-detail" : ""}`}>
+    <Scene quiet>
+    <div className="workspace-page ct-page">
+    <div className="glass-shell ct-shell p-3 sm:p-4">
+    <div className={`glass-panel ct-surface ${mobileDetail ? "ct-detail" : ""}`}>
       <header className="ct-page-head">
         <div>
           <span className="ct-eyebrow">创作资料库</span>
@@ -1282,5 +1286,8 @@ export default function CreativeTypes() {
         </section>
       </div>
     </div>
+    </div>
+    </div>
+    </Scene>
   );
 }
