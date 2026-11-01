@@ -479,7 +479,8 @@ def test_real_orchestrator_pipeline_completes_two_chapters(tmp_path: Path):
         }
 
 
-def test_default_staged_pipeline_completes_two_chapters_with_real_foundation_and_ending_gates(tmp_path):
+@pytest.mark.parametrize("creative", [False, True])
+def test_default_staged_pipeline_completes_two_chapters_with_real_foundation_and_ending_gates(tmp_path, creative):
     from test_outline_planning import PlanningModel
 
     class StagedPipelineLLM(PipelineLLM):
@@ -487,6 +488,12 @@ def test_default_staged_pipeline_completes_two_chapters_with_real_foundation_and
             self.planner = PlanningModel()
 
         def complete(self, *, system, user):
+            if "\n\n[CREATIVE_EXECUTION_CONTEXT]\n" in user:
+                user = user.split("\n\n[CREATIVE_EXECUTION_CONTEXT]\n", 1)[0]
+                if not system.startswith("You are Novel OS's story architect"):
+                    agent = next(name for name in ("architect", "scribe", "editor", "continuity_guardian", "style_curator")
+                                 if f"THE {name.upper().replace('_', ' ')}" in system.splitlines()[0])
+                    return self.run_agent(agent, user)
             if system.startswith("You are Novel OS's story architect"):
                 raw = self.planner.complete(system, user)
                 value = json.loads(raw)
@@ -524,8 +531,11 @@ Ending_Evidence: [irreversible_change=Mara assumes the lease; emotional_payoff=S
     prompt = tmp_path / "skeleton.md"
     prompt.write_text("# One Prompt Book\n\nMara Vale chooses a new life and independent studio work. She keeps the studio and opens it in chapter 2.")
     project = tmp_path / "staged-project"
+    from creative_execution import make_handoff
+    handoff = make_handoff(source=prompt.read_text(), origin={"workshop_id": "fixture"}) if creative else None
     spec = RunSpec(project_path=str(project), prompt_path=str(prompt), num_chapters=2,
-                   target_words=60, approval_policy="auto", quality_policy="evidence_v1")
+                   target_words=60, approval_policy="auto", quality_policy="evidence_v1",
+                   creative_handoff=handoff)
     assert spec.outline_planning_mode == "staged"
     manifest = PipelineRunner(orchestrator_factory=factory).run(spec)
     assert manifest.status == "completed", manifest.error

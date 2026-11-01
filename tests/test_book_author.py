@@ -112,11 +112,13 @@ def test_failure_does_not_persist_placeholder_or_lose_input(tmp_path, monkeypatc
 
 
 @pytest.mark.parametrize("cause, retryable", [
-    (TimeoutError("model timed out"), True),
+    # Bounded execution treats a timeout as a stop, including wrapped author
+    # calls. Recovery is explicit; only transient connection failure retries.
+    (TimeoutError("model timed out"), False),
     (ConnectionError("connection interrupted"), True),
     (LLMError("unexpected status 401 Unauthorized"), False),
 ])
-def test_author_failure_retains_pipeline_retry_policy(cause, retryable):
+def test_author_failure_retains_pipeline_stop_and_retry_policy(cause, retryable):
     def failed(*_):
         raise cause
 

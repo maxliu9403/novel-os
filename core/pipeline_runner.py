@@ -749,6 +749,18 @@ class PipelineRunner:
             setattr(orchestrator, "quality_policy", manifest.spec.quality_policy)
             setattr(orchestrator, "pipeline_run_id", manifest.run_id)
             setattr(orchestrator, "outline_planning_mode", manifest.spec.outline_planning_mode)
+            if manifest.spec.creative_handoff is not None:
+                from creative_execution import CreativeExecution
+                started = manifest.creative_snapshot_started
+                manifest.creative_snapshot_started = True
+                store.save(manifest)
+                creative = CreativeExecution.open(
+                    project=project, run_id=manifest.run_id, handoff=manifest.spec.creative_handoff,
+                    expected_sha256=manifest.creative_lock_sha256, already_started=started,
+                )
+                manifest.creative_lock_sha256 = creative.lock_sha256
+                store.save(manifest)
+                setattr(orchestrator, "creative_execution", creative)
             self._active_orchestrator = orchestrator
             self._stage(
                 manifest,
@@ -1720,6 +1732,10 @@ class PipelineRunner:
                 # the run before intake can fail during author generation.
                 self._atomic_text(run_prompt, raw_prompt)
                 source = str(run_prompt)
+        if manifest.spec.creative_handoff is not None:
+            from creative_execution import CreativeExecutionError
+            if hashlib.sha256(Path(source).read_bytes()).hexdigest() != manifest.spec.creative_handoff["source_sha256"]:
+                raise CreativeExecutionError("Input skeleton differs from frozen creative handoff; intake stopped before author generation")
         result = ingest_prompt(
             project,
             source,
@@ -1861,6 +1877,16 @@ class PipelineRunner:
             for relative in inputs.get(phase, [])
             if (project / relative).is_file()
         }
+        if manifest is not None and manifest.spec.creative_handoff is not None and (
+            phase == "outline" or phase.startswith("chapter.")
+        ):
+            file_hashes["creative_lock_sha256"] = manifest.creative_lock_sha256
+            if chapter is not None:
+                from creative_execution import prior_context_hash
+                file_hashes["creative_prior_context_sha256"] = prior_context_hash(project, chapter)
+                relative = "outputs/input/foundation.json"
+                if (project / relative).is_file():
+                    file_hashes[relative] = PipelineRunner._sha256(project / relative)
         if phase == "ending.review":
             from ending_evidence import EndingEvidenceStore
 

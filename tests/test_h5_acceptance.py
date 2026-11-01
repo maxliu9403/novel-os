@@ -182,10 +182,16 @@ def test_empty_self_checksummed_plan_is_not_external_acceptance():
                                       'plan_sha256': plan['plan_sha256'], 'importer': None, 'results': []})
 
 
-def test_indexed_private_debug_json_disguised_as_book_export_is_rejected(tmp_path):
+@pytest.mark.parametrize("private", [
+    {"method_lock_sha256": "private", "raw_critique": "private"},
+    {"creative_handoff": {"source_sha256": "private"}},
+    {"creative_lock_sha256": "private"},
+    {"schema": "creative-execution.v1", "context": "private"},
+])
+def test_indexed_private_debug_json_disguised_as_book_export_is_rejected(tmp_path, private):
     from hashlib import sha256
     def mutate(files):
-        raw = b'{"method_lock_sha256":"private","raw_critique":"private"}'
+        raw = json.dumps(private).encode()
         files['meta/debug.json'] = raw
         m = json.loads(files['package-manifest.json'])
         m['files'].append({'path': 'meta/debug.json', 'size': len(raw), 'sha256': sha256(raw).hexdigest(),

@@ -1583,6 +1583,13 @@ class WorkshopService:
             from core.prompt_intake import ingest_prompt
             from core.narrative_methods import MethodPolicy
             from core.narrative_methods.store import MethodStore
+            from .workshop_design import execution_handoff
+            try:
+                handoff = execution_handoff(data)
+            except ValueError as exc:
+                # Deterministic source/budget failures must not allocate a job
+                # or be presented as a transient "retry launch" error.
+                raise HTTPException(409, str(exc)) from exc
             job_id = None
             created = False
             try:
@@ -1605,7 +1612,7 @@ class WorkshopService:
                                    num_chapters=validated["chapters"], target_words=validated["target_words"],
                                    edit_mode="line", approval_policy="auto", quality_policy="evidence_v1",
                                    max_retries=5, max_quality_repairs=2, output_formats=FORMATS,
-                                   method_policy=policy.to_dict())
+                                   method_policy=policy.to_dict(), creative_handoff=handoff)
                     from .project_tasks import _result_meta
                     cancellation = threading.Event()
                     run_id = uuid.uuid4().hex[:12]

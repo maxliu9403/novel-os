@@ -59,11 +59,17 @@ class RunSpec:
     quality_policy: str = "legacy"
     outline_planning_mode: str = "staged"
     method_policy: Optional[Dict[str, Any]] = None
+    creative_handoff: Optional[Dict[str, Any]] = None
 
     def __post_init__(self) -> None:
         self.project_path = str(self.project_path)
         self.prompt_path = str(self.prompt_path)
         self.output_formats = _as_tuple(self.output_formats)
+        if self.creative_handoff is not None:
+            from creative_execution import validate_handoff
+            self.creative_handoff = validate_handoff(self.creative_handoff)
+            if self.quality_policy != "evidence_v1":
+                raise ValueError("Creative execution requires evidence_v1 promoted manuscript sources")
         if self.method_policy is not None:
             from narrative_methods import MethodPolicy
             self.method_policy = MethodPolicy.from_dict(self.method_policy).to_dict()
@@ -154,6 +160,8 @@ class RunManifest:
     error: Optional[str] = None
     method_snapshot_started: bool = False
     method_lock_sha256: str = ""
+    creative_snapshot_started: bool = False
+    creative_lock_sha256: str = ""
 
     def __post_init__(self) -> None:
         if self.status not in RUN_STATUSES:
@@ -189,6 +197,8 @@ class RunManifest:
             "error": self.error,
             "method_snapshot_started": self.method_snapshot_started,
             "method_lock_sha256": self.method_lock_sha256,
+            "creative_snapshot_started": self.creative_snapshot_started,
+            "creative_lock_sha256": self.creative_lock_sha256,
         }
 
     @classmethod
@@ -208,6 +218,8 @@ class RunManifest:
             error=data.get("error"),
             method_snapshot_started=bool(data.get("method_snapshot_started", False)),
             method_lock_sha256=str(data.get("method_lock_sha256", "")),
+            creative_snapshot_started=bool(data.get("creative_snapshot_started", False)),
+            creative_lock_sha256=str(data.get("creative_lock_sha256", "")),
         )
 
 

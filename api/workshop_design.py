@@ -195,6 +195,27 @@ def design_rules(session: dict) -> str:
     return design["policy"]["delivery_rules" if session.get("turn_intent") == "deliver" else "rules"] if design else ""
 
 
+def execution_handoff(session: dict) -> dict:
+    """Freeze only adopted choices; final skeleton also carries natural-language decisions."""
+    from core.creative_execution import make_handoff
+
+    design = session.get("creative_design") or {}
+    policy = design.get("policy", {})
+    if design:
+        actual = hashlib.sha256(json.dumps(policy, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        if actual != design.get("policy_sha256"):
+            raise ValueError("Workshop creative policy hash mismatch")
+    context = design_context(session).get("creative_design", {})
+    return make_handoff(
+        source=session["prompt_md"],
+        origin={"workshop_id": session["id"], "revision": session["revision"],
+                "policy_sha256": design.get("policy_sha256", "")},
+        type_snapshot=policy.get("type_snapshot"),
+        adopted_proposals=context.get("adopted_proposals", []),
+        legacy_guidance=policy.get("guidance", {}) if policy.get("type_snapshot") is None else {},
+    )
+
+
 def record_round(data: dict, result: dict, *, source_revision: int) -> None:
     design = data.get("creative_design")
     if not design or data.get("turn_intent") != "discuss":

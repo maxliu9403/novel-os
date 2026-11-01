@@ -207,6 +207,9 @@ def test_launch_is_idempotent_and_project_is_immediately_visible(client, monkeyp
     assert spec.approval_policy == "auto" and spec.quality_policy == "evidence_v1"
     assert spec.method_policy["mode"] == "off"
     assert Path(spec.prompt_path).read_text() == data["prompt_md"]
+    from core.creative_execution import text_hash
+    assert spec.creative_handoff["source_sha256"] == text_hash(data["prompt_md"])
+    assert spec.creative_handoff["origin"]["workshop_id"] == data["id"]
     from api import db
     assert project_id in db.projects_for_workspace("default")
     assert client.post(f'/api/workshop/sessions/{data["id"]}/turns',
@@ -225,6 +228,20 @@ def test_failed_submit_cleans_only_new_project_and_can_retry(client, monkeypatch
     from core.pipeline_runner import PipelineRunner
     monkeypatch.setattr(PipelineRunner, "run", lambda *_: SimpleNamespace(run_id="retry", status="completed"))
     assert client.post(url, json={"revision": data["revision"]}).status_code == 202
+
+
+def test_invalid_creative_handoff_does_not_allocate_a_project_or_job(client, monkeypatch, tmp_path):
+    from api import workshop_design
+    data = ready(client, monkeypatch, tmp_path)
+    data = client.post(f'/api/workshop/sessions/{data["id"]}/prepare', json={"revision": data["revision"]}).json()
+    def invalid(_):
+        raise ValueError("Creative handoff exceeds 2 MiB; nothing was truncated")
+    monkeypatch.setattr(workshop_design, "execution_handoff", invalid)
+    monkeypatch.setattr(workshop.runner, "submit", lambda *a, **k: pytest.fail("invalid handoff allocated a job"))
+    response = client.post(f'/api/workshop/sessions/{data["id"]}/launch', json={"revision": data["revision"]})
+    assert response.status_code == 409 and "nothing was truncated" in response.json()["detail"]
+    assert not (tmp_path / "projects" / data["prepared"]["project_name"]).exists()
+    assert client.get(f'/api/workshop/sessions/{data["id"]}').json()["prompt_md"] == data["prompt_md"]
 
 
 def test_restart_marks_interrupted_without_losing_prompt(client, monkeypatch, tmp_path):

@@ -164,6 +164,21 @@ class NovelOrchestrator:
         llm = self._get_llm(agent_name)
         return str(llm.provider), str(llm.model)
 
+    def _context_pack(self, chapter_number: int, *, purpose: str, chapter_text: str = "") -> str:
+        if getattr(self, "creative_execution", None) is not None:
+            return "Creative execution context below separates planned design from committed events and approved prose."
+        return format_context_pack(build_context_pack(
+            self.state, chapter_number, purpose=purpose, chapter_text=chapter_text,
+        ))
+
+    def _creative_prompt(self, agent: str, prompt: str, chapter: Optional[int]):
+        runtime = getattr(self, "creative_execution", None)
+        return runtime.prepare(agent, prompt, chapter, self.state) if runtime else (prompt, None)
+
+    def _agent_complete(self, llm, agent: str, prompt: str, receipt):
+        runtime = getattr(self, "creative_execution", None)
+        return runtime.complete(llm, agent, prompt, receipt) if runtime else llm.run_agent(agent, prompt)
+
     @scoped_usage("manuscript", lambda a: a["self"].project_path)
     def _run_agent_or_save_prompt(
         self,
@@ -184,6 +199,7 @@ class NovelOrchestrator:
         self.last_canon_proposal_ids = []
         resolved_mode = self.state_update_mode if state_update_mode is None else state_update_mode
         self._validate_state_update_mode(resolved_mode)
+        user_prompt, receipt = self._creative_prompt(agent_name, user_prompt, chapter_number)
         prompt_path.write_text(user_prompt, encoding='utf-8')
         if dry_run:
             print(f"   [dry-run] Prompt saved: {prompt_path}")
@@ -191,7 +207,7 @@ class NovelOrchestrator:
         try:
             llm = self._get_llm(agent_name)
             print(f"   {label} ({llm.provider}:{llm.model})...")
-            result = llm.run_agent(agent_name, user_prompt)
+            result = self._agent_complete(llm, agent_name, user_prompt, receipt)
         except LLMError as e:
             print(f"❌ LLM call failed: {e}")
             print(f"   Prompt saved at {prompt_path} you can run it manually.")
@@ -847,6 +863,7 @@ genre-appropriate assumptions rather than asking questions.
             volume_template=volume_contract_template(narrative_format),
             final_validator=validate,
             source_guard=source_guard,
+            creative_execution=getattr(self, "creative_execution", None),
         )
         foundation = planner.run()
         text = render_foundation(foundation)
@@ -1285,9 +1302,15 @@ genre-appropriate assumptions rather than asking questions.
         This is deliberately distinct from `_generate_chapter_prompt` (the Scribe's
         drafting prompt). The Architect plans the chapter; the Scribe writes it.
         """
-        pack_md = format_context_pack(build_context_pack(self.state, chapter.number, purpose="architect"))
+        pack_md = self._context_pack(chapter.number, purpose="architect")
         master_outline_path = self.outputs_dir / "outline.md"
-        if getattr(self, "outline_planning_mode", "legacy") == "staged":
+        if getattr(self, "creative_execution", None) is not None:
+            master_outline = (
+                "Use planned_design in CREATIVE_EXECUTION_CONTEXT below: it supplies all global design "
+                "fields and the complete current/adjacent chapter plans with source coverage. "
+                "Keep future plans separate from committed events and POV knowledge."
+            )
+        elif getattr(self, "outline_planning_mode", "legacy") == "staged":
             foundation_path = self.outputs_dir / "input" / "foundation.json"
             foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
             plans = foundation.get("chapters")
@@ -1492,7 +1515,7 @@ After the Markdown outline, emit exactly one JSON object inside these tags:
         if not isinstance(total, int) or isinstance(total, bool) or total < 1:
             total = None
         guidance = chapter_craft_guidance(chapter_number, total)
-        if chapter_number == 1:
+        if chapter_number == 1 or getattr(self, "creative_execution", None) is not None:
             return guidance
         prior_number = chapter_number - 1
         prior = self.state.get_chapter(prior_number)
@@ -1759,6 +1782,7 @@ Do not substitute a repeated confrontation for an irreversible state change.
         prompt_path = self.feedback_dir / f"chapter_{chapter_number:03d}_style_prompt.md"
         report_path = self.feedback_dir / f"chapter_{chapter_number:03d}_style_report.md"
         candidate_path = self.manuscript_dir / f"chapter_{chapter_number:03d}_candidate_final.md"
+        prompt, receipt = self._creative_prompt("style_curator", prompt, chapter_number)
         prompt_path.write_text(prompt, encoding="utf-8")
         if dry_run:
             print(f"   [dry-run] Prompt saved: {prompt_path}")
@@ -1767,7 +1791,7 @@ Do not substitute a repeated confrontation for an irreversible state change.
         try:
             llm = self._get_llm("style_curator")
             print(f"   Style Curator polishing ({llm.provider}:{llm.model})...")
-            result = llm.run_agent("style_curator", prompt)
+            result = self._agent_complete(llm, "style_curator", prompt, receipt)
         except LLMError as exc:
             print(f"❌ LLM call failed: {exc}")
             print(f"   Prompt saved at {prompt_path} you can run it manually.")
@@ -1815,9 +1839,7 @@ Do not substitute a repeated confrontation for an irreversible state change.
 
     def _generate_style_prompt(self, chapter_number: int, chapter_text: str) -> str:
         """Generate the Style Curator prompt with its role-specific checks."""
-        pack_md = format_context_pack(build_context_pack(
-            self.state, chapter_number, purpose="guardian", chapter_text=chapter_text,
-        ))
+        pack_md = self._context_pack(chapter_number, purpose="guardian", chapter_text=chapter_text)
         return f"""# STYLE CURATOR TASK: Final Polish for Chapter {chapter_number}
 
 Polish this validated chapter while preserving every plot fact, character
@@ -1869,11 +1891,14 @@ or recommendations.
 
     def _generate_chapter_prompt(self, chapter: ChapterState) -> str:
         """Generate a detailed prompt for the Scribe agent."""
-        pack_md = format_context_pack(build_context_pack(self.state, chapter.number, purpose="scribe"))
+        pack_md = self._context_pack(chapter.number, purpose="scribe")
         ending_context = self._ending_contract_context(chapter.number)
         commercial_context = self._scribe_commercial_context(chapter.number)
 
         arc_state_update_instruction = self._arc_state_update_instruction(chapter.number)
+        sensory_instruction = ("Use purposeful, POV-specific sensory detail without a quota"
+                               if getattr(self, "creative_execution", None) is not None
+                               else "Include at least 3 sensory details")
         prompt = f"""# SCRIBE PROMPT: Chapter {chapter.number}
 
 ## Chapter Information
@@ -1897,7 +1922,7 @@ or recommendations.
 
 ## Writing Requirements
 - Maintain deep POV for {chapter.pov_character or '[POV character]'}
-- Include at least 3 sensory details
+- {sensory_instruction}
 - End with a concrete causal hook, or the closure required by the ending contract
 - Target: {chapter.target_word_count} words
 
@@ -2293,7 +2318,7 @@ certifies delivery after the candidate is reviewed.
 
         # Build Scribe user prompt: prefer expanded outline if present, else fall back.
         outline_path = self.outputs_dir / f"chapter_{chapter_number:03d}_outline.md"
-        pack_md = format_context_pack(build_context_pack(self.state, chapter_number, purpose="scribe"))
+        pack_md = self._context_pack(chapter_number, purpose="scribe")
         if outline_path.exists():
             user_prompt = (
                 outline_path.read_text(encoding="utf-8")
@@ -2472,7 +2497,7 @@ Do not replace the story with a summary or commentary.
 
 {to_context_block(blocking)}
 
-{format_context_pack(build_context_pack(self.state, chapter_number, purpose="guardian", chapter_text=chapter_text))}
+{self._context_pack(chapter_number, purpose="guardian", chapter_text=chapter_text)}
 {self._serial_craft_context(chapter_number)}
 {self._ending_contract_context(chapter_number)}
 
@@ -2509,9 +2534,14 @@ foreshadowing, timeline, or status facts.
     
     def _generate_edit_prompt(self, chapter: ChapterState, draft_text: str, mode: str) -> str:
         """Generate an editing prompt."""
-        pack_md = format_context_pack(build_context_pack(
-            self.state, chapter.number, purpose="guardian", chapter_text=draft_text,
-        ))
+        pack_md = self._context_pack(chapter.number, purpose="guardian", chapter_text=draft_text)
+        agency_check = (
+            "Check how the protagonist's responses shape consequences. An opposing character may cause the turn; "
+            "quiet aftermath may change trust or understanding without a new decision. Flag unsupported coincidence or rescue."
+            if getattr(self, "creative_execution", None) is not None else
+            "Ensure the protagonist causes the chapter's major turn; flag passive turns,\n"
+            "  coincidence, or an unsupported rescue that solves the conflict for them."
+        )
         return f"""# EDITOR PROMPT: Chapter {chapter.number}
 
 ## Editing Mode: {mode.upper()}
@@ -2535,8 +2565,7 @@ foreshadowing, timeline, or status facts.
 ## Editor Quality Checks
 - Detect repeated humiliation scenes and preserve escalation through a changed
   resource, relationship, or choice rather than simply increasing insults.
-- Ensure the protagonist causes the chapter's major turn; flag passive turns,
-  coincidence, or an unsupported rescue that solves the conflict for them.
+- {agency_check}
 - Check repeated hook mechanics: the ending hook should use a different
   mechanic from recent chapters when the current contract calls for rotation.
 - Keep contract labels and analysis terms out of reader-facing prose.
@@ -2819,7 +2848,7 @@ object and no Markdown, commentary, or state-update blocks.
 {contract_json}
 ```
 
-{format_context_pack(build_context_pack(self.state, chapter_number, purpose="guardian", chapter_text=candidate_text))}
+{self._context_pack(chapter_number, purpose="guardian", chapter_text=candidate_text)}
 {self._serial_craft_context(chapter_number)}
 {self._ending_contract_context(chapter_number)}
 
@@ -2909,6 +2938,7 @@ manuscript itself.
         )
         prompt_path = self.feedback_dir / f"chapter_{chapter_number:03d}_commercial_prompt.md"
         raw_path = self.feedback_dir / f"chapter_{chapter_number:03d}_commercial_report.json.raw"
+        prompt, receipt = self._creative_prompt("continuity_guardian", prompt, chapter_number)
         prompt_path.write_text(prompt, encoding="utf-8")
         if dry_run:
             print(f"   [dry-run] Prompt saved: {prompt_path}")
@@ -2916,7 +2946,7 @@ manuscript itself.
         try:
             llm = self.llm_for("continuity_guardian")
             print(f"   Commercial Guardian reviewing ({llm.provider}:{llm.model})...")
-            raw = llm.run_agent("continuity_guardian", prompt)
+            raw = self._agent_complete(llm, "continuity_guardian", prompt, receipt)
         except LLMError:
             if self.raise_llm_errors:
                 raise
@@ -3104,7 +3134,7 @@ unsupported reader-value delivery. Do not add commentary to the manuscript.
 
 {contracts_text}
 {delivery_checklist}
-{format_context_pack(build_context_pack(self.state, chapter_number, purpose="guardian", chapter_text=candidate_path.read_text(encoding='utf-8')))}
+{self._context_pack(chapter_number, purpose="guardian", chapter_text=candidate_path.read_text(encoding='utf-8'))}
 {self._serial_craft_context(chapter_number)}
 {self._ending_contract_context(chapter_number)}
 
@@ -3117,6 +3147,7 @@ Return `[EDITOR_ANALYSIS]`, the complete replacement inside
 `[REVISED_CHAPTER]...[/REVISED_CHAPTER]`, and `[EDITOR_STATE_UPDATE]`.
 """
         prompt_path = self.feedback_dir / f"chapter_{chapter_number:03d}_commercial_repair_{attempt:02d}_prompt.md"
+        prompt, receipt = self._creative_prompt("style_curator", prompt, chapter_number)
         prompt_path.write_text(prompt, encoding="utf-8")
         if dry_run:
             print(f"   [dry-run] Prompt saved: {prompt_path}")
@@ -3124,7 +3155,7 @@ Return `[EDITOR_ANALYSIS]`, the complete replacement inside
         try:
             llm = self.llm_for("style_curator")
             print(f"   Style Curator repairing commercial delivery (attempt {attempt}) ({llm.provider}:{llm.model})...")
-            raw = llm.run_agent("style_curator", prompt)
+            raw = self._agent_complete(llm, "style_curator", prompt, receipt)
         except LLMError:
             if self.raise_llm_errors:
                 raise
@@ -3161,11 +3192,7 @@ Return `[EDITOR_ANALYSIS]`, the complete replacement inside
         # Identity/causality errors can occur in the middle, not just at either
         # end. A continuity verdict must review the complete candidate chapter.
         body = chapter_text
-        pack_md = format_context_pack(
-            build_context_pack(
-                self.state, chapter_number, purpose="guardian", chapter_text=chapter_text,
-            )
-        )
+        pack_md = self._context_pack(chapter_number, purpose="guardian", chapter_text=chapter_text)
 
         prompt = f"""# CONTINUITY GUARDIAN PROMPT: Chapter {chapter_number}
 
