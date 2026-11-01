@@ -141,6 +141,10 @@ def test_concurrent_revisions_and_workspace_isolation(tmp_path):
 
 def test_real_api_saved_selection_reaches_adapter_and_updates_explicitly(client,monkeypatch):
     from core import llm_client
+    # The real route resolver needs an explicit configuration even with a stub
+    # transport; do not accidentally depend on the developer's local .env.
+    monkeypatch.setenv('NOVEL_OS_LLM_PROVIDER', 'codex')
+    monkeypatch.setenv('NOVEL_OS_MODEL', 'workshop-test-model')
     record=client.get(ROOT+'/ct_marriage_betrayal').json()
     ref=reference(record).model_dump()
     response=client.post('/api/workshop/sessions',json={'title':'独立验收','genres':['婚姻背叛'],'creative_types':[ref],'premise':'主角发现共同承诺出现裂缝。'})

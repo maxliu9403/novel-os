@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate } from "react-router-dom";
 import Modal from "./Modal";
 import { DEFAULT_REVIEW_OPTIONS, REVIEW_STATUS, readerReviewsApi, type ReaderReview, type ReviewOptions, type ReviewPreview } from "../api/readerReviews";
@@ -57,7 +58,8 @@ function NewReaderReview({ projectId, open, onClose }: { projectId: string; open
     } catch (e) { if (alive.current) setError(e instanceof Error ? e.message : "请求失败"); }
     finally { if (alive.current) setBusy(false); }
   }
-  return <Modal open={open} onClose={onClose} title="新建阅读评议">
+  // Workspace transforms and backdrop filters must not contain the fixed dialog.
+  return createPortal(<Modal open={open} onClose={onClose} title="新建阅读评议">
     <div className="rr-form"><p className="rr-note">使用当前阅读器选中的正文版本。已生成的草稿也可能进入范围，具体版本会保存在快照中。</p>
       <fieldset disabled={busy}><legend className="pw-sr-only">评议设置</legend>
         <div className="rr-form-grid"><label>起始章<input type="number" min="1" value={options.first_chapter} onChange={e => update({ first_chapter: Number(e.target.value) })} /></label><label>结束章（留空为全部）<input type="number" min={options.first_chapter} value={options.last_chapter ?? ""} onChange={e => update({ last_chapter: e.target.value ? Number(e.target.value) : null })} /></label></div>
@@ -82,5 +84,5 @@ function NewReaderReview({ projectId, open, onClose }: { projectId: string; open
       {error && <p className="rr-error" role="alert">{error}</p>}
       <div className="rr-actions"><button type="button" className="pw-soft-button" onClick={onClose}>取消</button><button type="button" className="pw-primary-button" disabled={busy} onClick={() => void run()}>{busy ? "正在处理…" : preview ? "开始评议" : "预览范围与预算"}</button></div>
     </div>
-  </Modal>;
+  </Modal>, document.body);
 }
