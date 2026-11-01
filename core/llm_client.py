@@ -489,6 +489,7 @@ class LLMClient:
             return call()
         self._check_cancelled()
         completed = threading.Event()
+        self._http_worker_completed = completed
         result = {}
 
         def request():
@@ -518,6 +519,15 @@ class LLMClient:
                 if "error" in result:
                     raise result["error"]
                 return result["value"]
+
+    def wait_for_local_completion(self, timeout_seconds: float | None = None) -> bool:
+        """Opt-in drain for durable job leases; it does not prove remote cancellation.
+
+        Ordinary callers retain their existing prompt cancellation behavior.
+        A reader-review worker keeps its lease until its local SDK thread exits.
+        """
+        completed = getattr(self, "_http_worker_completed", None)
+        return completed is None or completed.wait(timeout_seconds)
 
     def complete_with_images(self, system: str, user: str, images) -> str:
         with client_scope(self):

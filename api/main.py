@@ -100,6 +100,8 @@ def create_app(projects_root: Optional[Path] = None, db_url: Optional[str] = Non
     from .poster_studio import router as poster_studio_router
     app.include_router(poster_studio_router)
     app.include_router(project_reader_router)
+    from .reader_reviews import router as reader_reviews_router
+    app.include_router(reader_reviews_router)
     app.include_router(project_story_router)
     app.include_router(router)
     app.include_router(workshop_router)

@@ -5,7 +5,7 @@ import "./generation-costs.css";
 
 const stages: Record<CostStage, {label: string; detail: string; number: string}> = {
   brainstorming: {label: "头脑风暴", detail: "构思、讨论与骨架", number: "01"},
-  manuscript: {label: "正文创作", detail: "规划、写作与审校", number: "02"},
+  manuscript: {label: "正文创作", detail: "规划、写作、审校与阅读评议", number: "02"},
   cover: {label: "封面设计", detail: "方向、出图、精修与建议", number: "03"},
 };
 const coverActivities: Record<CoverCostActivity, string> = {
@@ -71,6 +71,11 @@ export default function GenerationCostPanel({owner, refreshKey = 0}: {owner: str
         <p>{tokens(stage)}</p><span className="generation-costs__description">{stages[stage.stage].detail}</span>
       </div>)}
     </div>
+    {!!data.manuscript_activities?.some(row => row.activity === "reader_review" && row.request_count > 0) && <div className="generation-costs__activities">
+      <div className="generation-costs__table-wrap"><table><caption>正文费用明细（已包含在总计中）</caption><thead><tr><th>用途</th><th>调用记录</th><th>Token</th><th>估算人民币</th></tr></thead><tbody>{data.manuscript_activities.map(row => <tr key={row.activity}>
+        <th scope="row">{row.activity === "reader_review" ? "阅读评议" : "正文创作与历史未细分"}</th><td>{row.request_count} 次</td><td>{tokens(row)}</td><td>{row.request_count ? money(row.estimated_cost_cny) : "—"}{!row.cost_complete && row.estimated_cost_cny !== null && <small>部分费用</small>}</td>
+      </tr>)}</tbody></table></div>
+    </div>}
     {!!data.cover_activities?.length && <div className="generation-costs__activities">
       <div className="generation-costs__table-wrap"><table><caption>封面制作明细</caption><thead><tr><th>步骤</th><th>调用记录</th><th>Token</th><th>估算人民币</th></tr></thead><tbody>{data.cover_activities.map(row => <tr key={row.activity}>
         <th scope="row">{coverActivities[row.activity] || row.activity}</th><td>{integer.format(row.request_count)} 次</td><td>{tokens(row)}{row.unknown_usage_requests > 0 && <small>用量不完整</small>}</td><td>{row.request_count ? money(row.estimated_cost_cny) : "—"}{!row.cost_complete && row.estimated_cost_cny !== null && <small>部分费用</small>}</td>

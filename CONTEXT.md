@@ -11,6 +11,15 @@
 - **Creative execution lock**: private run/project-bound references, rules and system prompts, hashed by the run manifest. Resume cannot rebuild a missing lock from a newer library. Chapter context separates global/current/adjacent plans, prior committed reports and the latest two promoted complete chapters; character knowledge is not inferred from future plans.
 - **Approved prose voice reference**: whole-paragraph samples from the promoted opening chapter with exact character intervals and revision/hash provenance. They support voice continuity without a separate model call. A disclosed sample is not a full-book review or a model-certified voice profile.
 
+## Independent reading experience
+
+- **Reader review**: an explicit, advisory task over a frozen readable manuscript range. It never rewrites prose, promotes artifacts, or blocks delivery. Simulated engagement is not measured reader retention.
+- **Review source snapshot**: the shared reader's authoritative final/revised/draft choice, raw/body SHA, cleaning version and exact Unicode codepoint mapping. A cleared final never falls back to an older draft. Legacy projects bind the directory instance without creating a project identity; subsequent normal identity initialization does not invalidate that snapshot.
+- **Reading coverage**: all ordered source units submitted and validated, separate from complete-book availability, evidence validity, task completion and human feedback. Prior facts and hierarchical synthesis are explicitly lossy; they are not full original text.
+- **Reader evidence**: an exact quote resolved against a frozen chapter body, using Unicode codepoints `[start,end)`. Repeated quotes require a position; cross-chapter findings need distinct chapters. Verified text does not certify the opinion.
+- **Review budget**: frozen application-call count, reference-token request limits, deadline including pause/wait, and optional RMB estimate reservations. Missing usage retains its reservation. CLI internal retries/output and provider billing are not hard-capped by this reference budget.
+- **Review worker lease**: held through local SDK drain; GET never resumes work. Explicit recovery reuses matching responses/checkpoints within the original budget, and never silently replays an interrupted unknown request.
+
 ## Novel classification
 
 - **Novel classification**: the engine-owned, versioned metadata contract for a

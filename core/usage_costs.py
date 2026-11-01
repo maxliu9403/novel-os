@@ -331,6 +331,9 @@ def costs_payload(records, pricing, **identity):
                     "request_snapshots_present": any("pricing_snapshot" in r for r in records)},
         "totals": summarize(records, pricing),
         "stages": [{"stage": stage, **summarize([r for r in records if r["stage"] == stage], pricing)} for stage in STAGES],
+        "manuscript_activities": [{"activity": activity, **summarize([r for r in records
+            if r["stage"] == "manuscript" and r.get("activity", "creation") == activity], pricing)}
+            for activity in ("creation", "reader_review")],
         "cover_activities": [{"activity": activity, **summarize([r for r in records
             if r["stage"] == "cover" and r.get("activity", "legacy") == activity], pricing)}
             for activity in (*POSTER_ACTIVITIES, "legacy")],

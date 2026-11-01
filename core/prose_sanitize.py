@@ -136,6 +136,44 @@ def strip_state_blocks(text: str) -> str:
     return _STATE_BLOCK_RE.sub("", text or "")
 
 
+def readable_prose_mapping(text: str) -> tuple[str, list[dict[str, int]]]:
+    """Reader cleaning with exact raw↔body spans, in linear passes.
+
+    Reuse the same expressions as the reader; no second legacy-format parser.
+    Offsets count Unicode codepoints. Removed headers/state blocks have no body span.
+    """
+    body = text
+    spans = [(0, len(text), 0)]  # current start/end, raw start
+    for expression in (_HTML_COMMENT_RE, _STATE_BLOCK_RE):
+        kept, start = [], 0
+        for match in expression.finditer(body):
+            kept.append((start, match.start()))
+            start = match.end()
+        kept.append((start, len(body)))
+        result, offset, index = [], 0, 0
+        for a, b in kept:
+            while index < len(spans) and spans[index][1] <= a:
+                index += 1
+            cursor = index
+            while cursor < len(spans) and spans[cursor][0] < b:
+                left, right, raw = spans[cursor]
+                x, y = max(left, a), min(right, b)
+                if x < y:
+                    result.append((offset + x - a, offset + y - a, raw + x - left))
+                cursor += 1
+            offset += b - a
+        body = "".join(body[a:b] for a, b in kept)
+        spans = result
+    start, end = len(body) - len(body.lstrip()), len(body.rstrip())
+    mapping = []
+    for a, b, raw in spans:
+        x, y = max(a, start), min(b, end)
+        if x < y:
+            mapping.append({"start": x - start, "end": y - start,
+                            "raw_start": raw + x - a, "raw_end": raw + y - a})
+    return body.strip(), mapping
+
+
 def sanitize_manuscript(text: str) -> Tuple[str, Dict[str, Any]]:
     """Full pipeline for agent manuscript output → clean prose + header meta.
 

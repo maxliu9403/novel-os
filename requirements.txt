@@ -6,6 +6,7 @@ openai>=1.50.0              # for openai, azure, kimi, groq, together, openroute
 google-genai>=0.3.0         # for provider=gemini
 python-dotenv>=1.0.0        # optional, for .env loading
 PyYAML>=6.0                 # structured facts in legacy Markdown prompts
+tiktoken>=0.9,<1            # reference tokenizer for reader-review request budgets
 
 # Web UI backend (optional only needed to run the dashboard)
 fastapi>=0.110.0

@@ -25,6 +25,8 @@ RUN ln -s ../lib/node_modules/@openai/codex/bin/codex.js /usr/local/bin/codex \
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+ENV TIKTOKEN_CACHE_DIR=/opt/tiktoken-cache
+RUN python -c 'import tiktoken; tiktoken.get_encoding("cl100k_base")'
 
 COPY api ./api
 COPY core ./core

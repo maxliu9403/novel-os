@@ -1127,6 +1127,7 @@ export interface GenerationCosts {
   stages: Array<CostTotals & {stage: CostStage}>;
   models: Array<CostTotals & {provider: string; model: string; stage: CostStage}>;
   cover_activities?: Array<CostTotals & {activity: CoverCostActivity}>;
+  manuscript_activities?: Array<CostTotals & {activity: "creation" | "reader_review"}>;
   notes: string[];
 }
 export interface ModelPricing {

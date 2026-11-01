@@ -109,7 +109,7 @@ def pricing_scope(snapshot):
 
 @contextmanager
 def usage_activity(activity):
-    if activity not in (*POSTER_ACTIVITIES, "typography"):
+    if activity not in (*POSTER_ACTIVITIES, "typography", "reader_review"):
         raise ValueError("Unknown cover activity")
     token = _activity.set(activity)
     try:
@@ -204,6 +204,8 @@ def record_usage(*, provider: str, model: str, usage=None, request_id: str,
             record["pricing_snapshot"] = _pricing.get()
         if stage == "cover" and _activity.get() in POSTER_ACTIVITIES:
             record["activity"] = _activity.get()
+        if stage == "manuscript" and _activity.get() == "reader_review":
+            record["activity"] = "reader_review"
         _write_record(root, record, replace_usage=replace_usage)
     except Exception:
         LOG.warning("Could not persist model usage observation", exc_info=False)

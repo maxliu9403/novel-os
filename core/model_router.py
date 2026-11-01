@@ -127,7 +127,7 @@ class ModelRouter:
                 "connection_id": str(getattr(client, "configuration_id", "") or "")}
 
     @staticmethod
-    def client_from_snapshot(snapshot: dict) -> LLMClient:
+    def client_from_snapshot(snapshot: dict, *, cancellation_event=None) -> LLMClient:
         """Restore public routing values; credentials stay in the provider store."""
         key = None
         if snapshot.get("connection_id"):
@@ -147,6 +147,7 @@ class ModelRouter:
             max_tokens=snapshot.get("max_tokens"),
             reasoning_effort=snapshot.get("reasoning_effort") or None,
             timeout_seconds=snapshot.get("timeout_seconds"),
+            cancellation_event=cancellation_event,
             **azure_options,
         )
         client.configuration_id = snapshot.get("connection_id", "")

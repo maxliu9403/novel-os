@@ -187,6 +187,8 @@ def test_empty_self_checksummed_plan_is_not_external_acceptance():
     {"creative_handoff": {"source_sha256": "private"}},
     {"creative_lock_sha256": "private"},
     {"schema": "creative-execution.v1", "context": "private"},
+    {"reader_reviews": {"observations": "private"}},
+    {"schema": "reader-experience.v1", "context": "private"},
 ])
 def test_indexed_private_debug_json_disguised_as_book_export_is_rejected(tmp_path, private):
     from hashlib import sha256

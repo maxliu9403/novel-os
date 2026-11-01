@@ -29,9 +29,10 @@ MEDIA = {'.epub': 'application/epub+zip', '.json': 'application/json', '.md': 't
          '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
 PRIVATE_KEYS = {'method_policy', 'method_lock', 'method_lock_sha256', 'raw_critique', 'secret_knowledge',
                 'method_reviews', 'knowledge_observations', 'run_method_lock', 'preference_id', 'raw_response',
-                'creative_handoff', 'creative_lock_sha256', 'creative_snapshot_started', 'creative_execution_context'}
+                'creative_handoff', 'creative_lock_sha256', 'creative_snapshot_started', 'creative_execution_context',
+                'reader_reviews', 'reader_review', 'reading_observations', 'review_snapshot'}
 PRIVATE_SCHEMAS = ('novel-method-', 'narrative-method', 'novel-knowledge', 'novel-preference', 'novel-experiment',
-                   'creative-handoff.', 'creative-execution.')
+                   'creative-handoff.', 'creative-execution.', 'reader-experience.')
 
 
 def _public_json(value):
