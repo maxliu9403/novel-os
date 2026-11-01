@@ -240,6 +240,8 @@ class CreativeTypeStore:
             for pid, record in data['records'].items():
                 if record['id'] != pid or record['draft']['profile_id'] != pid or record['status'] not in ('draft', 'enabled', 'disabled') or type(record['revision']) is not int or record['revision'] < 0:
                     raise ValueError()
+                if record.get('deleted_at') is not None and (not isinstance(record['deleted_at'], str) or not record['deleted_at'] or record['status'] != 'disabled'):
+                    raise ValueError()
                 validate_profile(record['draft'])
                 version_ids = [v['profile']['version'] for v in record['versions']]
                 if len(set(version_ids)) != len(version_ids) or (record['active_version'] is not None and record['active_version'] not in version_ids):
@@ -257,9 +259,9 @@ class CreativeTypeStore:
     def records(self) -> dict:
         return {**_initial_records(), **self._load()['records']}
 
-    def get(self, profile_id: str) -> dict:
+    def get(self, profile_id: str, *, include_deleted: bool = False) -> dict:
         record = self.records().get(profile_id)
-        if record is None:
+        if record is None or (record.get('deleted_at') and not include_deleted):
             raise CreativeTypeError('找不到此作品类型。', 404)
         return deepcopy(record)
 
@@ -318,6 +320,8 @@ class CreativeTypeStore:
                 record = deepcopy(records.get(profile_id))
                 if not record:
                     raise CreativeTypeError('找不到此作品类型。', 404)
+                if record.get('deleted_at'):
+                    raise CreativeTypeError('此作品类型已删除，请刷新列表。', 404)
                 if revision != record['revision']:
                     raise CreativeTypeError('资料已被修改，请先对照最新版本；当前草稿尚未覆盖。', 409)
                 if action in ('draft', 'activate'):
@@ -334,12 +338,19 @@ class CreativeTypeStore:
                     record['draft'] = p
                 elif action == 'disable':
                     record['status'] = 'disabled'
+                elif action == 'delete':
+                    # Keep immutable versions and the override, so snapshots survive
+                    # and a deleted built-in cannot reappear on the next read.
+                    record.update(status='disabled', deleted_at=now)
                 else:
                     raise CreativeTypeError('未知类型操作。')
             for c in record['draft']['combinations']:
                 if c['with_profile_id'] not in records:
                     raise CreativeTypeError('组合说明引用了不存在的类型。')
-            record.pop('retired', None)  # Explicit edits make a legacy reference user-maintained.
+            if action == 'delete':
+                record['retired'] = True  # Older readers also hide the tombstone by default.
+            else:
+                record.pop('retired', None)  # Explicit edits make a legacy reference user-maintained.
             record.update(revision=record['revision'] + 1, updated_at=now)
             data['records'][profile_id] = record
             data['operations'][operation_id] = {'request_sha256': payload_hash,

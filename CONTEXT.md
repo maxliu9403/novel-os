@@ -26,6 +26,7 @@ Deployment status (2026-11-01): M0–M3 and the H5-guided creation/profile simpl
 
 - **Author-selected publication classification**: a required canonical primary genre and optional supported dimensions for new `h5_guided.v1` discussions. Code validates the selection and rebinds skeleton classification metadata before adoption; the model cannot replace author-selected IDs. Editing the selection follows the confirmed restart flow. Unmarked legacy clients and historical sessions retain their prior protocol.
 - **Creative direction**: an optional, versioned writing profile selected after publication classification. Its H5 mapping describes applicability and suggests relevant references; it never silently changes the book's publication classification. A werewolf story type can be combined with different primary genres and creative directions.
+- **Deleted creative type**: a revision-checked, idempotent tombstone excluded from maintenance and new selections. Immutable versions and existing discussion snapshots remain readable; deletion does not erase or rewrite prior novel guidance, and bundled defaults cannot resurrect the deleted ID.
 - **Novel classification**: the engine-owned, versioned metadata contract for a
   story. It is stored as canonical ids and projected into publication outputs.
 - **Primary genre**: the single durable shelf for a novel.

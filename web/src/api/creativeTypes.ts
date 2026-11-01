@@ -81,6 +81,7 @@ export interface CreativeRecord {
   draft: CreativeProfile;
   active_version: number | null;
   versions: CreativeVersion[];
+  deleted_at?: string;
 }
 export interface CreativeSummary extends Omit<
   CreativeRecord,
@@ -201,7 +202,7 @@ export const creativeTypesApi = {
     request<CreativeRecord>(base, { operation_id, profile }),
   mutate: (
     id: string,
-    action: "draft" | "activate" | "disable",
+    action: "draft" | "activate" | "disable" | "delete",
     revision: number,
     operation_id: string,
     profile?: CreativeProfile,

@@ -70,6 +70,60 @@ def test_versions_drafts_conflict_replay_and_disable(tmp_path):
     assert ct.CreativeTypeStore(store.root).get(original['id'])['status'] == 'disabled'
 
 
+@pytest.mark.parametrize('builtin', [True, False])
+def test_delete_persists_without_resurrection_and_preserves_versions(tmp_path, builtin):
+    store = ct.CreativeTypeStore(tmp_path / 'types')
+    original = store.get('ct_werewolf') if builtin else store.mutate('create', None, revision=0, operation_id=operation())
+    versions = deepcopy(original['versions'])
+    frozen = store.snapshot([reference(original)]) if builtin else None
+    op = operation()
+    deleted = store.mutate('delete', original['id'], revision=original['revision'], operation_id=op)
+    assert deleted['status'] == 'disabled' and deleted['deleted_at']
+    assert deleted['retired'] is True
+    assert deleted['versions'] == versions
+    assert store.mutate('delete', original['id'], revision=original['revision'], operation_id=op) == deleted
+    loaded = ct.CreativeTypeStore(store.root)
+    with pytest.raises(ct.CreativeTypeError) as error:
+        loaded.get(original['id'])
+    assert error.value.status == 404
+    assert loaded.get(original['id'], include_deleted=True) == deleted
+    for action in ('draft', 'activate', 'disable'):
+        with pytest.raises(ct.CreativeTypeError, match='已删除'):
+            loaded.mutate(action, original['id'], revision=deleted['revision'], operation_id=operation(), raw=original['draft'])
+    if frozen:
+        assert ct.compile_snapshot(frozen, 'brainstorm')['profiles'][0]['profile_id'] == original['id']
+        with pytest.raises(ct.CreativeTypeError, match='已停用'):
+            loaded.snapshot([reference(original)])
+
+
+def test_delete_requires_current_revision_and_cannot_remove_concurrent_edit(tmp_path):
+    store = ct.CreativeTypeStore(tmp_path / 'types')
+    original = store.get('ct_werewolf')
+    saved = store.mutate('draft', original['id'], revision=0, operation_id=operation(), raw={**original['draft'], 'summary': '另一个窗口的修改'})
+    with pytest.raises(ct.CreativeTypeError, match='已被修改'):
+        store.mutate('delete', original['id'], revision=0, operation_id=operation())
+    assert store.get(original['id']) == saved
+
+
+def test_delete_api_hides_type_preserves_historical_version_and_workshop(client):
+    original = client.get(ROOT + '/ct_werewolf').json()
+    ref = reference(original).model_dump()
+    session = client.post('/api/workshop/sessions', json={'genres': ['Werewolf'], 'creative_types': [ref]}).json()
+    before = client.get(f"/api/workshop/sessions/{session['id']}/type-context").json()
+    body = {'revision': original['revision'], 'operation_id': operation()}
+    deleted = client.post(ROOT + '/ct_werewolf/delete', json=body)
+    assert deleted.status_code == 200
+    assert client.post(ROOT + '/ct_werewolf/delete', json=body).json() == deleted.json()
+    for suffix in ('', '?include_retired=true'):
+        assert 'ct_werewolf' not in {i['id'] for i in client.get(ROOT + suffix).json()['items']}
+    assert client.get(ROOT + '/ct_werewolf').status_code == 404
+    version = client.get(ROOT + f"/ct_werewolf/versions/{ref['version']}")
+    assert version.status_code == 200 and version.json()['sha256'] == ref['source_sha256']
+    after = client.get(f"/api/workshop/sessions/{session['id']}/type-context").json()
+    assert before['snapshot'] == after['snapshot'] and before['contexts'] == after['contexts']
+    assert client.post('/api/workshop/sessions', json={'creative_types': [ref]}).status_code == 409
+
+
 def test_create_incomplete_copy_restore_and_publication_boundaries(tmp_path):
     store = ct.CreativeTypeStore(tmp_path / 'types')
     op = operation()

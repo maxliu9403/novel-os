@@ -50,7 +50,7 @@ def summary(record: dict) -> dict:
 
 @router.get('')
 def list_types(include_retired: bool = False, store: CreativeTypeStore = Depends(get_store)):
-    return {'items': [summary(r) for r in store.records().values() if include_retired or not r.get('retired')], 'dimensions': DIMENSIONS,
+    return {'items': [summary(r) for r in store.records().values() if not r.get('deleted_at') and (include_retired or not r.get('retired'))], 'dimensions': DIMENSIONS,
             'publication_catalog': catalog_payload()}
 
 
@@ -81,7 +81,7 @@ def get_type(profile_id: str, store: CreativeTypeStore = Depends(get_store)):
 
 @router.get('/{profile_id}/versions/{version}')
 def get_version(profile_id: str, version: int, store: CreativeTypeStore = Depends(get_store)):
-    record = store.get(profile_id)
+    record = store.get(profile_id, include_deleted=True)
     for saved in record['versions']:
         if saved['profile']['version'] == version:
             return saved
@@ -89,6 +89,6 @@ def get_version(profile_id: str, version: int, store: CreativeTypeStore = Depend
 
 
 @router.post('/{profile_id}/{action}')
-def mutate_type(profile_id: str, action: Literal['draft', 'activate', 'disable'], body: Mutation,
+def mutate_type(profile_id: str, action: Literal['draft', 'activate', 'disable', 'delete'], body: Mutation,
                 store: CreativeTypeStore = Depends(get_store)):
     return store.mutate(action, profile_id, revision=body.revision, operation_id=body.operation_id, raw=body.profile)

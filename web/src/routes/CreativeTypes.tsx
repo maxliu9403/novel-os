@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { createPortal } from "react-dom";
 import {
   creativeTypesApi,
   CreativeApiError,
@@ -13,6 +14,7 @@ import {
 } from "../api/creativeTypes";
 import CreativeProfileDiff from "../components/CreativeProfileDiff";
 import Scene from "../components/Scene";
+import Modal from "../components/Modal";
 import "../styles/creative-types.css";
 
 const stageNames: Record<CreativeStage, string> = {
@@ -240,6 +242,8 @@ export default function CreativeTypes() {
     [conflict, setConflict] = useState(false),
     [showComparison, setShowComparison] = useState(false),
     [mobileDetail, setMobileDetail] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false),
+    [saveSuccess, setSaveSuccess] = useState("");
   const [previewResult, setPreviewResult] = useState<{
       key: string;
       value?: CreativePreview;
@@ -312,6 +316,10 @@ export default function CreativeTypes() {
   const active = record?.versions.find(
     (v) => v.profile.version === record.active_version,
   );
+  const canActivateSaved = Boolean(record && !dirty && (
+    record.status !== "enabled" || !active ||
+    JSON.stringify({ ...record.draft, version: active.profile.version }) !== JSON.stringify(active.profile)
+  ));
   const candidate = previewMode === "draft" ? draft : active?.profile;
   const previewKey = JSON.stringify([candidate, previewStage]);
   const preview =
@@ -381,7 +389,7 @@ export default function CreativeTypes() {
     }
   }
   async function mutate(
-    action: "draft" | "activate" | "disable" | "create" | "copy",
+    action: "draft" | "activate" | "disable" | "delete" | "create" | "copy",
   ) {
     if (busy) return;
     if (
@@ -419,10 +427,29 @@ export default function CreativeTypes() {
           action,
           record.revision,
           operation,
-          action === "disable" ? undefined : draft,
+          action === "disable" || action === "delete" ? undefined : draft,
         );
       }
       if (!mounted.current) return;
+      if (action === "delete") {
+        setConfirmDelete(false);
+        setLibrary((l) => l ? { ...l, items: l.items.filter((item) => item.id !== r.id) } : l);
+        setRecord(null);
+        setDraft(null);
+        setConflict(false);
+        pending.current = null;
+        setMobileDetail(false);
+        const remaining = await refresh();
+        const first = remaining.items[0];
+        if (first) {
+          const next = await creativeTypesApi.get(first.id);
+          if (mounted.current) {
+            accept(next);
+            setTab("core");
+          }
+        }
+        return;
+      }
       accept(r);
       setMobileDetail(true);
       if (action === "create" || action === "copy") {
@@ -438,9 +465,19 @@ export default function CreativeTypes() {
             ? "已停用；历史版本仍保留。"
             : "草稿已保存。",
       );
-      await refresh();
+      if (action === "draft" || action === "activate") {
+        setSaveSuccess(action === "activate"
+          ? "资料已保存并启用，新讨论将使用此版本。已有讨论保持原快照。"
+          : "草稿已保存。启用后，新讨论才会使用本次修改。");
+      }
+      try {
+        await refresh();
+      } catch {
+        if (mounted.current) setError("操作已成功，但列表刷新失败，请刷新页面查看最新列表。");
+      }
     } catch (e) {
       if (mounted.current) {
+        setConfirmDelete(false);
         setError(message(e));
         setConflict(e instanceof CreativeApiError && e.status === 409);
       }
@@ -662,6 +699,14 @@ export default function CreativeTypes() {
                       停用
                     </button>
                   )}
+                  {canActivateSaved && (
+                    <button className="btn-ghost" disabled={busy || conflict} onClick={() => void mutate("activate")}>
+                      {record.status === "disabled" ? "重新启用" : "启用此草稿"}
+                    </button>
+                  )}
+                  <button className="btn-ghost ct-delete" disabled={busy} onClick={() => setConfirmDelete(true)}>
+                    删除类型
+                  </button>
                 </div>
               </header>
               <nav className="ct-tabs" role="tablist" aria-label="类型说明标签">
@@ -1258,7 +1303,7 @@ export default function CreativeTypes() {
                   </strong>
                   <p>草稿不影响启用版本；已有讨论保持原快照。</p>
                 </div>
-                <div className="ct-actions">
+                {dirty && <div className="ct-actions">
                   <button
                     className="btn-secondary"
                     disabled={busy || !dirty || conflict}
@@ -1273,7 +1318,7 @@ export default function CreativeTypes() {
                   >
                     保存并启用 ↗
                   </button>
-                </div>
+                </div>}
               </footer>
             </>
           ) : (
@@ -1288,6 +1333,22 @@ export default function CreativeTypes() {
     </div>
     </div>
     </div>
+    {createPortal(<>
+      <Modal open={confirmDelete} onClose={() => { if (!busy) setConfirmDelete(false); }} title="删除类型">
+        <p className="text-sm leading-relaxed text-ink-muted">
+          删除「{record?.draft.name}」后，它将从类型列表和新小说的创作选项中移除。已有讨论和历史版本会保留。
+          {dirty && "当前未保存的修改将被放弃。"}
+        </p>
+        <div className="mt-6 flex justify-end gap-3">
+          <button className="btn-secondary" disabled={busy} onClick={() => setConfirmDelete(false)}>取消</button>
+          <button className="btn-primary" disabled={busy} onClick={() => void mutate("delete")}>{busy ? "正在删除…" : "确认删除"}</button>
+        </div>
+      </Modal>
+      <Modal open={Boolean(saveSuccess)} onClose={() => setSaveSuccess("")} title="已保存">
+        <p className="text-sm leading-relaxed text-ink-muted">{saveSuccess}</p>
+        <div className="mt-6 flex justify-end"><button autoFocus className="btn-primary" onClick={() => setSaveSuccess("")}>知道了</button></div>
+      </Modal>
+    </>, document.body)}
     </Scene>
   );
 }

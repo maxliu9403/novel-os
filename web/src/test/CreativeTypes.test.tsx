@@ -58,9 +58,12 @@ test("saves a draft, keeps enabled preview immutable, and publishes only on expl
       <CreativeTypes />
     </MemoryRouter>,
   );
-  fireEvent.change(await screen.findByLabelText("一句话说明"), {
+  const summary = await screen.findByLabelText("一句话说明");
+  expect(screen.queryByRole("button", { name: "保存并启用 ↗" })).not.toBeInTheDocument();
+  fireEvent.change(summary, {
     target: { value: "保留自我，实现新的关系选择" },
   });
+  expect(screen.getByRole("button", { name: "保存并启用 ↗" })).toBeEnabled();
   await user.click(screen.getByRole("button", { name: "保存草稿" }));
   expect(mutate).toHaveBeenCalledWith(
     original.id,
@@ -69,6 +72,9 @@ test("saves a draft, keeps enabled preview immutable, and publishes only on expl
     expect.any(String),
     expect.objectContaining({ summary: "保留自我，实现新的关系选择" }),
   );
+  expect(await screen.findByRole("dialog", { name: "已保存" })).toHaveTextContent("草稿已保存");
+  expect(screen.queryByRole("button", { name: "保存并启用 ↗" })).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "知道了" }));
   await user.click(screen.getByRole("tab", { name: "模型预览与版本" }));
   await waitFor(() =>
     expect(creativeTypesApi.preview).toHaveBeenCalledWith({
@@ -76,7 +82,7 @@ test("saves a draft, keeps enabled preview immutable, and publishes only on expl
       stage: "brainstorm",
     }),
   );
-  await user.click(screen.getByRole("button", { name: "保存并启用 ↗" }));
+  await user.click(screen.getByRole("button", { name: "启用此草稿" }));
   await waitFor(() =>
     expect(mutate).toHaveBeenLastCalledWith(
       original.id,
@@ -86,6 +92,7 @@ test("saves a draft, keeps enabled preview immutable, and publishes only on expl
       expect.objectContaining({ summary: "保留自我，实现新的关系选择" }),
     ),
   );
+  expect(await screen.findByRole("dialog", { name: "已保存" })).toHaveTextContent("资料已保存并启用");
 });
 
 test("concurrent-save conflict preserves local editing and requires latest revision before retry", async () => {
@@ -103,6 +110,7 @@ test("concurrent-save conflict preserves local editing and requires latest revis
   });
   fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("资料已被修改");
+  expect(screen.queryByRole("dialog", { name: "已保存" })).not.toBeInTheDocument();
   expect(screen.getByLabelText("类型名称")).toHaveValue("我的本地修改");
   expect(screen.getByRole("button", { name: "保存草稿" })).toBeDisabled();
   vi.mocked(creativeTypesApi.get).mockResolvedValue({
@@ -131,6 +139,63 @@ test("concurrent-save conflict preserves local editing and requires latest revis
   );
 });
 
+test("unchanged or reverted form has no save actions; successful activation shows confirmation", async () => {
+  const original = typeRecord();
+  const user = userEvent.setup();
+  vi.spyOn(creativeTypesApi, "mutate").mockImplementation(async (_id, _action, _revision, _op, profile) => ({
+    ...original, revision: 1, draft: profile!,
+  }));
+  render(<MemoryRouter><CreativeTypes /></MemoryRouter>);
+  const summary = await screen.findByLabelText("一句话说明");
+  expect(screen.queryByRole("button", { name: "保存并启用 ↗" })).not.toBeInTheDocument();
+  fireEvent.change(summary, { target: { value: "新说明" } });
+  expect(screen.getByRole("button", { name: "保存并启用 ↗" })).toBeVisible();
+  fireEvent.change(summary, { target: { value: original.draft.summary } });
+  expect(screen.queryByRole("button", { name: "保存并启用 ↗" })).not.toBeInTheDocument();
+  fireEvent.change(summary, { target: { value: "更新说明" } });
+  await user.click(screen.getByRole("button", { name: "保存并启用 ↗" }));
+  expect(await screen.findByRole("dialog", { name: "已保存" })).toHaveTextContent("资料已保存并启用");
+  expect(screen.queryByRole("button", { name: "保存并启用 ↗" })).not.toBeInTheDocument();
+});
+
+test("delete requires confirmation, retries the same request, and clears the final selected type", async () => {
+  const original = typeRecord();
+  const user = userEvent.setup();
+  const mutate = vi.spyOn(creativeTypesApi, "mutate").mockRejectedValueOnce(new Error("网络错误"));
+  render(<MemoryRouter><CreativeTypes /></MemoryRouter>);
+  await screen.findByLabelText("类型名称");
+  await user.click(screen.getByRole("button", { name: "删除类型" }));
+  expect(screen.getByRole("dialog", { name: "删除类型" })).toHaveTextContent("已有讨论和历史版本会保留");
+  await user.click(screen.getByRole("button", { name: "取消" }));
+  expect(mutate).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "删除类型" }));
+  await user.click(screen.getByRole("button", { name: "确认删除" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("网络错误");
+  expect(screen.getByLabelText("类型名称")).toHaveValue(original.draft.name);
+  mutate.mockResolvedValue({ ...original, status: "disabled", revision: 1, deleted_at: "now" });
+  vi.mocked(creativeTypesApi.list).mockResolvedValue(typeLibrary([]));
+  await user.click(screen.getByRole("button", { name: "删除类型" }));
+  await user.click(screen.getByRole("button", { name: "确认删除" }));
+  await screen.findByText("选择或新建一个类型，开始维护写作说明。");
+  expect(screen.queryByLabelText("类型名称")).not.toBeInTheDocument();
+  expect(mutate.mock.calls[0]).toEqual(mutate.mock.calls[1]);
+  expect(mutate.mock.calls[1]).toEqual([original.id, "delete", 0, expect.any(String), undefined]);
+});
+
+test("delete conflict preserves edits and does not silently switch records", async () => {
+  const original = typeRecord();
+  const user = userEvent.setup();
+  vi.spyOn(creativeTypesApi, "mutate").mockRejectedValue(new CreativeApiError("资料已被修改", 409));
+  render(<MemoryRouter><CreativeTypes /></MemoryRouter>);
+  fireEvent.change(await screen.findByLabelText("一句话说明"), { target: { value: "保留编辑" } });
+  await user.click(screen.getByRole("button", { name: "删除类型" }));
+  expect(screen.getByRole("dialog", { name: "删除类型" })).toHaveTextContent("当前未保存的修改将被放弃");
+  await user.click(screen.getByRole("button", { name: "确认删除" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("资料已被修改");
+  expect(screen.getByLabelText("类型名称")).toHaveValue(original.draft.name);
+  expect(screen.getByLabelText("一句话说明")).toHaveValue("保留编辑");
+});
+
 test("network retry reuses operation identity and history restores only a draft", async () => {
   const original = typeRecord();
   const mutate = vi
@@ -154,7 +219,8 @@ test("network retry reuses operation identity and history restores only a draft"
   fireEvent.click(screen.getByText("保存草稿"));
   await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2));
   expect(mutate.mock.calls[0][3]).toBe(mutate.mock.calls[1][3]);
-  await waitFor(() => expect(screen.getByText("保存草稿")).toBeDisabled());
+  await waitFor(() => expect(screen.queryByText("保存草稿")).not.toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "知道了" }));
   fireEvent.click(screen.getByRole("tab", { name: "模型预览与版本" }));
   fireEvent.click(screen.getByText("恢复为草稿"));
   fireEvent.click(screen.getByRole("tab", { name: "定位与分类" }));

@@ -72,6 +72,9 @@
   align-items: center;
   flex-wrap: wrap;
 }
+.ct-delete {
+  color: #a8324a;
+}
 .ct-workspace {
   flex: 1;
   min-height: 0;
