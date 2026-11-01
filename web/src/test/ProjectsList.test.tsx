@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, vi } from "vitest";
 import ProjectsList from "../routes/ProjectsList";
 import * as client from "../api/client";
@@ -64,27 +64,15 @@ test("polls active cover work after writing has completed", async () => {
   expect(list).toHaveBeenCalledTimes(2);
 });
 
-test("creates a manuscript with expanded hybrid themes and preserves every selection", async () => {
+test("new novel opens the workshop directly without the old creation form", async () => {
   vi.spyOn(client.api, "projects").mockResolvedValue([]);
   vi.spyOn(client.api, "studioLlm").mockRejectedValue(new Error("not configured"));
-  const create = vi.spyOn(client.api, "createProject").mockResolvedValue({
-    id: "new-door", title: "新的门", genre: "", chapter_count: 0, status: "draft",
-  });
-  const user = userEvent.setup();
-  render(<MemoryRouter><ProjectsList /></MemoryRouter>);
-  await user.click((await screen.findAllByRole("button", { name: /新建作品/ }))[0]);
-  for (const label of ["复仇", "伦理", "女性成长", "男性成长", "CEO", "黑手党", "狼人", "玄幻", "恐怖", "家庭背叛", "霸总", "名人明星", "受到虐待", "皇后女王", "一见钟情", "办公室恋情", "职场闹剧", "同性恋", "单身父母亲", "富豪", "怀孕", "末日降临"]) {
-    expect(screen.getByRole("button", { name: label, exact: true })).toBeInTheDocument();
-  }
-  await user.type(screen.getByPlaceholderText("例如：最后的信号"), "新的门");
-  for (const label of ["家庭背叛", "女性成长", "怀孕", "单身父母亲"]) {
-    await user.click(screen.getByRole("button", { name: label, exact: true }));
-  }
-  await user.click(screen.getByRole("button", { name: "创建作品" }));
-  await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({
-    title: "新的门",
-    genres: ["Domestic Betrayal", "Female Growth", "Pregnancy", "Single Parent"],
-  })));
+  const create = vi.spyOn(client.api, "createProject");
+  render(<MemoryRouter><Routes><Route path="/" element={<ProjectsList />} /><Route path="/workshop" element={<h1>一起把故事想完整</h1>} /></Routes></MemoryRouter>);
+  await userEvent.click((await screen.findAllByRole("button", { name: "新建小说" }))[0]);
+  expect(screen.getByRole("heading", { name: "一起把故事想完整" })).toBeInTheDocument();
+  expect(screen.queryByPlaceholderText("例如：最后的信号")).not.toBeInTheDocument();
+  expect(create).not.toHaveBeenCalled();
 });
 
 test("renders project cards in the task-start order returned by the API", async () => {

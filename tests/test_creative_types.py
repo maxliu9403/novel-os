@@ -58,7 +58,7 @@ def test_versions_drafts_conflict_replay_and_disable(tmp_path):
     with pytest.raises(ct.CreativeTypeError, match='已被修改'):
         store.mutate('activate', original['id'], revision=0, operation_id=operation(), raw=body)
     enabled = store.mutate('activate', original['id'], revision=1, operation_id=operation(), raw=body)
-    assert enabled['active_version'] == 2
+    assert enabled['active_version'] == original['active_version'] + 1
     assert store.snapshot([ref]) == snapshot
     assert '新的作者指导' not in json.dumps(ct.compile_snapshot(snapshot, 'brainstorm'), ensure_ascii=False)
     # Replaying a prior write after subsequent activation must return its original result.
@@ -66,7 +66,7 @@ def test_versions_drafts_conflict_replay_and_disable(tmp_path):
     store.mutate('disable', original['id'], revision=2, operation_id=operation())
     with pytest.raises(ct.CreativeTypeError, match='已停用'):
         store.snapshot([ref])
-    assert ct.compile_snapshot(snapshot, 'brainstorm')['profiles'][0]['version'] == 1
+    assert ct.compile_snapshot(snapshot, 'brainstorm')['profiles'][0]['version'] == ref.version
     assert ct.CreativeTypeStore(store.root).get(original['id'])['status'] == 'disabled'
 
 
@@ -189,7 +189,7 @@ def test_real_api_saved_selection_reaches_adapter_and_updates_explicitly(client,
 
 def test_api_draft_preview_cannot_change_snapshot_and_get_no_store(client,tmp_path):
     listing=client.get(ROOT)
-    assert listing.status_code==200 and len(listing.json()['items'])==55
+    assert listing.status_code==200 and len(listing.json()['items'])==3
     p=client.get(ROOT+'/ct_werewolf').json()['draft'];p['summary']='只在草稿中'
     preview=client.post(ROOT+'/preview',json={'profile':p,'stage':'brainstorm'})
     assert preview.status_code==200 and preview.json()['preview_only']
@@ -259,8 +259,8 @@ def test_editing_basics_freezes_saved_types_until_explicit_restart(client, monke
     saved=client.post(f"/api/workshop/sessions/{session['id']}/input",json={'revision':session['revision'],'input':revised_input})
     assert saved.status_code==200,saved.text
     data=saved.json()
-    assert data['restart_required'] and data['creative_design']['policy']['type_snapshot']['profiles'][0]['profile']['version']==1
-    assert data['pending_type_snapshot']['profiles'][0]['profile']['version']==2
+    assert data['restart_required'] and data['creative_design']['policy']['type_snapshot']['profiles'][0]['profile']['version']==r['active_version']
+    assert data['pending_type_snapshot']['profiles'][0]['profile']['version']==latest['active_version']
     client.post(ROOT+'/'+r['id']+'/activate',json={'revision':1,'operation_id':operation(),'profile':{**r['draft'],'summary':'后来另存的第三版'}})
     received=[]
     def complete(snapshot,*args,**kwargs):
@@ -273,4 +273,4 @@ def test_editing_basics_freezes_saved_types_until_explicit_restart(client, monke
     assert current['status']!='error',current.get('last_error')
     assert len(received)==1
     context=received[0]['creative_design']['genre_context']
-    assert context['profiles'][0]['version']==2 and context['profiles'][0]['content']['summary']=='存下的第二版'
+    assert context['profiles'][0]['version']==latest['active_version'] and context['profiles'][0]['content']['summary']=='存下的第二版'

@@ -90,7 +90,7 @@ export function typeLibrary(
     dimensions: { marriage: "婚姻与亲密关系", world: "类型与世界" },
     publication_catalog: {
       catalog_version: "novel-types.2026-10",
-      axes: { primary_genres: [], story_types: [], tones: [], settings: [] },
+      axes: { primary_genres: [{ id: "fantasy", labels: { "zh-CN": "奇幻" } }, { id: "romance", labels: { "zh-CN": "浪漫" } }], story_types: [{id: "werewolf", labels: { "zh-CN": "狼人" } }], tones: [], settings: [] },
     },
   };
 }

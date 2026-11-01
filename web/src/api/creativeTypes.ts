@@ -91,6 +91,8 @@ export interface CreativeSummary extends Omit<
   dimension: string;
   aliases: string[];
   mapping_status: string;
+  publication_mapping?: CreativeProfile['publication_mapping'];
+  retired?: boolean;
   source_sha256: string | null;
   has_draft_changes: boolean;
 }
@@ -100,6 +102,7 @@ export interface CreativeLibrary {
   publication_catalog: {
     catalog_version: string;
     axes: Record<string, Array<{ id: string; labels: Record<string, string> }>>;
+    combination_rules?: { primary_genre_count: number; secondary_genre_max: number; story_type_max: number; tone_max: number; setting_max: number; mutually_exclusive_story_types: string[][] };
   };
 }
 export interface CreativePreview {

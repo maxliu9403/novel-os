@@ -66,10 +66,12 @@ test("creates an asynchronous workshop with the explicit continuous mode and ori
   await user.type(screen.getByLabelText("计划章节数"), "80");
   await user.type(screen.getByLabelText("每章大约多少字／词"), "1000");
   await user.type(screen.getByLabelText("正文语言"), "English");
+  await user.click((await screen.findAllByRole("button", { name: "奇幻", exact: true }))[0]);
   await user.click(screen.getByRole("button", { name: "开始头脑风暴" }));
   await screen.findByText("可以把记忆的代价作为人物的内心冲突。");
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ mode: "standalone_long", chapters: 80, words_per_chapter: 1000, method_mode: "off", premise: seed.premise }));
-  expect(create.mock.calls[0][0].creative_types).toEqual([expect.objectContaining({profile_id:"ct_fantasy",version:1})]);
+  expect(create.mock.calls[0][0].creative_types).toEqual([]);
+  expect(create.mock.calls[0][0].publication_classification?.primary_genre_id).toBe("fantasy");
   expect(turn).toHaveBeenCalledWith("session-1", expect.any(String), 0, "discuss");
   expect(screen.getByText(/不限讨论次数/)).toBeInTheDocument();
   expect(localStorage.getItem("novel-os.workshop.active-session")).toBe("session-1");

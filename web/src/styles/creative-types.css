@@ -5,7 +5,7 @@
   flex-direction: column;
   padding: 28px 30px 24px;
   color: var(--color-ink, #17213f);
-  font-size: 13px;
+  font-size: 15px;
   min-width: 0;
 }
 .ct-page h1 {
@@ -33,13 +33,13 @@
 .ct-section-head p,
 .ct-savebar p {
   color: var(--color-ink-muted, #7885a6);
-  font-size: 12px;
+  font-size: 14px;
 }
 .ct-page small {
-  font-size: 11px;
+  font-size: 13px;
 }
 .ct-eyebrow {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--color-violet, #6867ea);
 }
 .ct-page-head {
@@ -86,7 +86,7 @@
 }
 .ct-filters select {
   width: 50%;
-  font-size: 11px !important;
+  font-size: 13px !important;
   padding: 7px !important;
 }
 .ct-type-list {
@@ -97,7 +97,7 @@
 .ct-type-list section > h3 {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: 13px;
   color: #7885a6;
   padding: 14px 13px 8px;
 }
@@ -124,7 +124,7 @@
 }
 .ct-type-item p {
   color: #7885a6;
-  font-size: 11px;
+  font-size: 13px;
   margin: 7px 0 10px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -138,11 +138,11 @@
   gap: 8px;
 }
 .ct-row strong {
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.6;
 }
 .ct-state {
-  font-size: 10px;
+  font-size: 12px;
   padding: 4px 8px;
   border-radius: 99px;
   white-space: nowrap;
@@ -164,7 +164,7 @@
 .ct-library-foot {
   border-top: 1px solid #4b5b8520;
   padding: 13px 12px 0;
-  font-size: 11px;
+  font-size: 13px;
   color: #7885a6;
   line-height: 1.8;
 }
@@ -210,7 +210,7 @@
   white-space: nowrap;
   color: #7885a6;
   border-radius: 11px;
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
 }
 .ct-tabs button[aria-selected="true"] {
@@ -249,7 +249,7 @@
 }
 .ct-field > span {
   display: block;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 550;
   margin-bottom: 8px;
 }
@@ -269,7 +269,7 @@
   background: #ffffffdc;
   border-radius: 11px;
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: 14px;
 }
 .ct-page textarea {
   resize: vertical;
@@ -311,7 +311,7 @@
 }
 .ct-guide-row > span {
   color: #6867ea;
-  font-size: 11px;
+  font-size: 13px;
   padding-top: 5px;
 }
 .ct-guide-row textarea {
@@ -322,9 +322,9 @@
   min-width: 0;
 }
 .ct-guide-row select {
-  width: 92px;
+  width: 110px;
   flex: none;
-  font-size: 10px;
+  font-size: 12px;
   padding: 6px;
 }
 .ct-guide-row button {
@@ -335,7 +335,7 @@
 }
 .ct-stages {
   color: #7885a6;
-  font-size: 10px;
+  font-size: 12px;
   margin: 8px 8px 12px;
 }
 .ct-stages summary {
@@ -354,7 +354,7 @@
 }
 .ct-text-button {
   color: #6867ea;
-  font-size: 12px;
+  font-size: 14px;
   padding: 10px 2px;
   cursor: pointer;
 }
@@ -363,7 +363,7 @@
   border: 1px solid #cecfff7a;
   border-radius: 14px;
   padding: 14px 16px;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.8;
   margin-top: 20px;
   color: #536386;
@@ -406,7 +406,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: 13px;
   padding: 8px;
   border: 1px solid #4b5b8520;
   border-radius: 10px;
@@ -435,7 +435,7 @@
   padding: 20px;
   background: white;
   margin-top: 17px;
-  font-size: 12px;
+  font-size: 14px;
 }
 .ct-preview-paper h3,
 .ct-preview-paper h4 {
@@ -467,7 +467,7 @@
   margin-top: 12px;
 }
 .ct-technical pre {
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.7;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -501,11 +501,11 @@
   flex-shrink: 0;
 }
 .ct-savebar strong {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 550;
 }
 .ct-savebar p {
-  font-size: 11px;
+  font-size: 13px;
   margin-top: 5px;
 }
 .ct-error {
@@ -518,7 +518,7 @@
   color: #973753;
   border-radius: 12px;
   padding: 13px 16px;
-  font-size: 12px;
+  font-size: 14px;
   margin-bottom: 15px;
 }
 .ct-empty {
@@ -610,10 +610,10 @@
     font-size: 22px;
   }
   .ct-page-head p {
-    font-size: 11px;
+    font-size: 13px;
   }
   .ct-page-head .btn-primary {
-    font-size: 11px;
+    font-size: 13px;
     padding: 10px;
   }
   .ct-workspace {
@@ -643,7 +643,7 @@
     display: block;
     width: 100%;
     text-align: left;
-    font-size: 11px;
+    font-size: 13px;
     color: #7885a6;
     padding-bottom: 10px;
   }
@@ -662,11 +662,11 @@
     gap: 9px;
   }
   .ct-editor-head .btn-ghost {
-    font-size: 10px;
+    font-size: 12px;
     padding: 6px;
   }
   .ct-editor-head p {
-    font-size: 10px;
+    font-size: 12px;
   }
   .ct-body {
     padding: 19px 16px;
@@ -681,21 +681,21 @@
   }
   .ct-savebar .ct-actions button {
     flex: 1;
-    font-size: 11px;
+    font-size: 13px;
   }
   .ct-guide-row {
     gap: 5px;
     padding: 9px;
   }
   .ct-guide-row select {
-    width: 70px;
-    font-size: 10px;
+    width: 100px;
+    font-size: 12px;
   }
   .ct-guide-row > span {
-    font-size: 10px;
+    font-size: 12px;
   }
   .ct-tabs button {
-    font-size: 11px;
+    font-size: 13px;
     padding: 8px;
   }
   .ct-preview-controls > div {
@@ -705,3 +705,13 @@
     margin-top: 10px;
   }
 }
+
+.ct-mapping-group { width: 100%; min-width: 0; margin-bottom: 12px; }
+.ct-mapping-group legend { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+.ct-mapping label:has(input:checked) { background: #eeefff; border-color: #bcbcf7; color: #514ed0; }
+.ct-advanced > summary { cursor: pointer; font-size: 14px; font-weight: 550; padding: 12px 0; }
+.ct-advanced[open] > summary { margin-bottom: 12px; }
+.ct-guide-row { flex-wrap: wrap; }
+.ct-guide-row textarea { flex-basis: 65%; font-size: 15px; line-height: 1.8; }
+.ct-field > span { font-size: 14px; }
+.ct-page :is(input:not([type=checkbox]), textarea, select) { font-size: 15px; }

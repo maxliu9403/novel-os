@@ -1,6 +1,6 @@
 # Novel OS domain language
 
-Deployment status (2026-11-01): M0–M3 are deployed at localhost:5174, through code commit `b9d29a3`. Engineering checks passed; no real-model or reader-effect experiment was run. Existing ZIPs without a target validation receipt need an explicit rebuild. See `docs/reports/2026-11-01-m03-deployment-5174.md`.
+Deployment status (2026-11-01): M0–M3 and the H5-guided creation/profile simplification are deployed at localhost:5174. Engineering checks passed; no real-model or reader-effect experiment was run. Existing ZIPs without a target validation receipt need an explicit rebuild. Latest verification and rollback: `docs/reports/2026-11-01-guided-creation-h5-types.md`.
 
 ## Full-book planning and execution
 
@@ -24,6 +24,8 @@ Deployment status (2026-11-01): M0–M3 are deployed at localhost:5174, through 
 
 ## Novel classification
 
+- **Author-selected publication classification**: a required canonical primary genre and optional supported dimensions for new `h5_guided.v1` discussions. Code validates the selection and rebinds skeleton classification metadata before adoption; the model cannot replace author-selected IDs. Editing the selection follows the confirmed restart flow. Unmarked legacy clients and historical sessions retain their prior protocol.
+- **Creative direction**: an optional, versioned writing profile selected after publication classification. Its H5 mapping describes applicability and suggests relevant references; it never silently changes the book's publication classification. A werewolf story type can be combined with different primary genres and creative directions.
 - **Novel classification**: the engine-owned, versioned metadata contract for a
   story. It is stored as canonical ids and projected into publication outputs.
 - **Primary genre**: the single durable shelf for a novel.
@@ -49,7 +51,7 @@ integration.
 
 ## Creative genre design and workshop decisions
 
-M1.1 (deployed at localhost:5174, 2026-11-01): user-maintained **creative type profiles** (`creative-type-profile.v1`) have editable drafts and immutable enabled versions. They are separate from the read-only H5 classification catalog. **Book type selection** binds selected IDs, versions, hashes and optional author-assigned roles. A **genre context** is the deterministic stage projection for one model request; source profiles remain guidance, not book facts or tool instructions. Only enabled selected versions enter a new discussion; existing discussions keep their actual snapshots until explicit adoption of an update. See `docs/design/2026-11-01-creative-type-maintenance.md`. The production route `/creative-types` and workspace API now implement these contracts with 55 editable initial profiles. Discussion, story-design and skeleton chapter-plan requests use saved stage projections; M2 now carries them into new Workshop-launched manuscript runs through the creative execution lock. The standalone HTML prototype remains an independent demo. See `docs/reports/2026-11-01-m11-creative-type-maintenance.md` and `docs/reports/2026-11-01-m2-creative-execution.md`.
+M1.1 (deployed at localhost:5174, 2026-11-01): user-maintained **creative type profiles** (`creative-type-profile.v1`) have editable drafts and immutable enabled versions. They are separate from the read-only H5 classification catalog. **Book type selection** binds selected IDs, versions, hashes and optional author-assigned roles. A **genre context** is the deterministic stage projection for one model request; source profiles remain guidance, not book facts or tool instructions. Only enabled selected versions enter a new discussion; existing discussions keep their actual snapshots until explicit adoption of an update. The current default library contains three curated references: werewolf v3, marriage betrayal v2 and female awakening v2. Other untouched built-ins are retired from the default list; all original 55 records/version hashes and user-owned overrides remain available. Discussion, story-design and skeleton chapter-plan requests use saved stage projections; M2 carries them into new Workshop-launched manuscript runs through the creative execution lock. The standalone HTML prototype remains an independent demo. See `docs/design/2026-11-01-guided-creation-standard.md` and `docs/reports/2026-11-01-m2-creative-execution.md`.
 
 - **Genre guidance snapshot**: versioned general principles plus optional specialist packs, frozen with their exact content and hash in a discussion. It is creative guidance, not a publication classification or proof of reader quality. Initial packs cover werewolf, contemporary family fiction and mystery/suspense; other selections retain explicitly marked general guidance.
 - **Book mechanism proposal**: a proposed rule with trigger/scope, limits/exceptions, cost, character choice, consequence, payoff and a removal counterfactual. A catalog tag or model proposal alone does not adopt that mechanism.

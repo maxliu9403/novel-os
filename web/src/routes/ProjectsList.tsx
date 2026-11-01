@@ -9,12 +9,9 @@ import {
 } from "../api/client";
 import ProjectCard from "../components/ProjectCard";
 import { COVER_STATUS_LABELS } from "../lib/projectCovers";
-import Modal, { Field, fieldClass, textareaClass } from "../components/Modal";
+import Modal, { Field, fieldClass } from "../components/Modal";
 import Scene from "../components/Scene";
 import Icon from "../components/Icon";
-import GenreChips from "../components/GenreChips";
-import NovelWorkshop, { type WorkshopSeed } from "../components/NovelWorkshop";
-import { mergeGenres } from "../lib/genres";
 import { useToast } from "../components/toastContext";
 import { isProjectTaskRunning, TASK_POLL_INTERVAL_MS } from "../lib/projectTasks";
 
@@ -28,7 +25,6 @@ export default function ProjectsList() {
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [llm, setLlm] = useState<StudioLlmStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   const [sampleBusy, setSampleBusy] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
@@ -210,8 +206,8 @@ export default function ProjectsList() {
                   故事、文稿与封面，在这里继续。
                 </p>
               </div>
-              <button type="button" onClick={() => setOpen(true)} className="btn-primary library-create">
-                <Icon name="plus" className="h-4 w-4" /> 新建作品
+              <button type="button" onClick={() => navigate("/workshop?new=1")} className="btn-primary library-create">
+                <Icon name="plus" className="h-4 w-4" /> 新建小说
               </button>
             </header>
 
@@ -224,7 +220,7 @@ export default function ProjectsList() {
                     </p>
                     <p className="mt-1.5 text-[13px] leading-relaxed text-ink-muted">
                       {llm.configured
-                        ? "先搭结构，再写正文，并始终守住连续性。新建作品、规划大纲，然后逐章创作。"
+                        ? "先搭结构，再写正文，并始终守住连续性。新建小说、规划大纲，然后逐章创作。"
                         : "智能创作需要可用的大语言模型。请前往设置选择质量、快速、本地（Ollama）或自带密钥模型。"}
                     </p>
                     <ol className="mt-3 list-decimal space-y-1 pl-4 text-[12.5px] text-ink-muted">
@@ -291,8 +287,8 @@ export default function ProjectsList() {
               <div className="rounded-[24px] border border-dashed border-[rgba(74,91,133,0.18)] bg-white/50 px-8 py-14 text-center">
                 <p className="font-display text-[18px] tracking-[-0.02em] text-ink-text">还没有作品</p>
                 <p className="mt-2 text-[13px] text-ink-muted">从书名和作品类型开始创作。</p>
-                <button type="button" onClick={() => setOpen(true)} className="btn-primary mt-5">
-                  新建作品
+                <button type="button" onClick={() => navigate("/workshop?new=1")} className="btn-primary mt-5">
+                  新建小说
                 </button>
                 <button
                   type="button"
@@ -335,7 +331,6 @@ export default function ProjectsList() {
         </motion.div>
       </div>
 
-      <NewProjectModal open={open} onClose={() => setOpen(false)} />
       <DeleteProjectModal
         target={deleteTarget}
         preview={deletePreview}
@@ -561,118 +556,6 @@ function TourModal({
         </div>
       </div>
     </Modal>
-  );
-}
-
-function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const navigate = useNavigate();
-  const toast = useToast();
-  const [title, setTitle] = useState("");
-  const [genres, setGenres] = useState<string[]>([]);
-  const [otherGenre, setOtherGenre] = useState("");
-  const [premise, setPremise] = useState("");
-  const [methodReview, setMethodReview] = useState(true);
-  const [author, setAuthor] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [workshopOpen, setWorkshopOpen] = useState(false);
-  const [workshopSeed, setWorkshopSeed] = useState<WorkshopSeed | null>(null);
-
-  async function create(e: React.FormEvent) {
-    e.preventDefault();
-    if (!title.trim()) return;
-    setBusy(true);
-    try {
-      const merged = mergeGenres(genres, otherGenre);
-      const p = await api.createProject({
-        title: title.trim(),
-        author: author.trim(),
-        genres: merged,
-        genre: merged.join(" · "),
-        premise: premise.trim(),
-        method_mode: methodReview ? "advisory" : "off",
-      });
-      toast("作品已创建", "success");
-      navigate(`/projects/${p.id}`);
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
-      setBusy(false);
-    }
-  }
-
-  return (
-    <>
-    <Modal open={open && !workshopOpen} onClose={onClose} title="新建作品">
-      <form onSubmit={create}>
-        <Field label="书名">
-          <input
-            autoFocus
-            className={fieldClass}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="例如：最后的信号"
-          />
-        </Field>
-        <Field label="作者">
-          <input
-            className={fieldClass}
-            value={author}
-            onChange={(e) => setAuthor(e.target.value)}
-            placeholder="留空则自动生成笔名"
-            autoComplete="name"
-          />
-        </Field>
-        <div className="mb-4">
-          <span className="mb-1.5 block text-[12px] font-medium tracking-[-0.01em] text-ink-muted">
-            作品类型
-          </span>
-          <GenreChips
-            selected={genres}
-            onChange={setGenres}
-            other={otherGenre}
-            onOtherChange={setOtherGenre}
-          />
-          <p className="mt-1.5 text-[11.5px] text-ink-muted">
-            可选择一个或多个类型，也可以组合类型。
-          </p>
-        </div>
-        <div className="mb-4">
-          <label htmlFor="manuscript-premise" className="mb-1.5 block text-[12px] font-medium tracking-[-0.01em] text-ink-muted">
-            故事构想
-          </label>
-          <textarea
-            id="manuscript-premise"
-            className={textareaClass}
-            value={premise}
-            onChange={(e) => setPremise(e.target.value)}
-            placeholder="一座被浓雾笼罩的港口，一只永远不指向北方的罗盘……"
-            rows={2}
-          />
-          <p className="mt-1.5 text-[11.5px] text-ink-muted">
-            选填。用两到四句话描述构想，架构师会以此规划故事。
-          </p>
-        </div>
-        <label className="flex items-start gap-2 rounded-lg bg-white/50 p-3 text-xs leading-relaxed text-ink-muted">
-          <input type="checkbox" checked={methodReview} onChange={e => setMethodReview(e.target.checked)} className="mt-1" />
-          <span>启用只读写作评审：检查英文表达与免费章节的选择、回报和阅读期待。
-            全书任务使用 Judge 路由，按已批准的免费窗口每章增加一次评审，格式修正最多一次；可能增加模型费用。
-            不自动修改正文，单阶段写作不触发。可在章节评审面板关闭未来运行的默认值。</span>
-        </label>
-        <div className="sticky bottom-0 -mx-1 mt-4 flex flex-wrap justify-end gap-2 border-t border-[rgba(74,91,133,0.08)] bg-gradient-to-t from-white/95 via-white/90 to-transparent px-1 pb-1 pt-4">
-          <button type="button" onClick={onClose} className="btn-ghost">
-            取消
-          </button>
-          <button type="submit" disabled={!title.trim() || busy} className="btn-secondary disabled:opacity-40">
-            {busy ? "正在创建…" : "创建作品"}
-          </button>
-          <button type="button" disabled={busy} className="btn-primary !bg-violet hover:!bg-[#5d5bd2] !shadow-[0_8px_20px_rgba(104,103,234,0.18)]" onClick={() => {
-            setWorkshopSeed({ title, author, genres: mergeGenres(genres, otherGenre), premise, method_mode: methodReview ? "advisory" : "off" });
-            setWorkshopOpen(true);
-          }}>头脑风暴完善</button>
-        </div>
-      </form>
-    </Modal>
-    {workshopSeed && <NovelWorkshop open={open && workshopOpen} seed={workshopSeed} onClose={onClose} onBack={() => setWorkshopOpen(false)} />}
-    </>
   );
 }
 

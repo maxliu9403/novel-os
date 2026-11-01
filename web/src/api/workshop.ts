@@ -67,6 +67,8 @@ export interface WorkshopInput {
   author: string;
   genres: string[];
   creative_types?: CreativeTypeRef[] | null;
+  creation_flow?: 'h5_guided.v1' | null;
+  publication_classification?: BookClassificationSelection | null;
   premise: string;
   chapters?: number;
   words_per_chapter?: number;
@@ -76,6 +78,16 @@ export interface WorkshopInput {
   market: string;
   constraints: string;
   method_mode?: "off" | "advisory";
+}
+
+export interface BookClassificationSelection {
+  catalog_version: 'novel-types.2026-10';
+  primary_genre_id: string;
+  secondary_genre_ids: string[];
+  story_type_ids: string[];
+  tone_ids: string[];
+  setting_ids: string[];
+  audience_channel: 'female' | 'male' | 'general';
 }
 
 export interface WorkshopRuntimeProgress {

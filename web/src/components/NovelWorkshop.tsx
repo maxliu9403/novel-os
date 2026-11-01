@@ -7,6 +7,7 @@ import { workshopApi, type NarrativeMode, type WorkshopInput, type WorkshopRunti
 import { genreLabel, mergeGenres } from "../lib/genres";
 import { Field, fieldClass, textareaClass } from "./Modal";
 import CreativeTypePicker from "./CreativeTypePicker";
+import PublicationTypePicker from "./PublicationTypePicker";
 import { bindCreativeSelection } from '../api/creativeTypes';
 import WorkshopTypeSnapshot from './WorkshopTypeSnapshot';
 import Icon from "./Icon";
@@ -49,7 +50,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
   onSessionChange?: (id: string) => void; onCreateNew?: () => void;
 }) {
   const navigate = useNavigate();
-  const [input, setInput] = useState<WorkshopInput>({ ...seed, language: "", mode: "", audience: "", market: "", constraints: "" });
+  const [input, setInput] = useState<WorkshopInput>({ ...seed, creation_flow: "h5_guided.v1", creative_types: [], language: "", mode: "", audience: "", market: "", constraints: "" });
   const [otherGenre, setOtherGenre] = useState("");
   const [session, setSession] = useState<WorkshopSession | null>(null);
   const [appliedSeed, setAppliedSeed] = useState(seed);
@@ -346,7 +347,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
     setRunError(null); setRunJob(null); setCopied(false); setShowSessions(false);
     setAcceptedTurn(null);
     setEditingBasics(false);
-    setInput({ title: "", author: "", genres: [], premise: "", language: "", mode: "", audience: "", market: "", constraints: "", method_mode: seed.method_mode });
+    setInput({ creation_flow: "h5_guided.v1", creative_types: [], title: "", author: "", genres: [], premise: "", language: "", mode: "", audience: "", market: "", constraints: "", method_mode: seed.method_mode });
     setOtherGenre("");
     setStep("details");
     onCreateNew?.();
@@ -354,7 +355,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
 
   async function start(event: FormEvent) {
     event.preventDefault();
-    if (busy || !input.premise.trim()) return;
+    if (busy || !input.publication_classification?.primary_genre_id || !input.premise.trim()) return;
     setBusy("create"); setError(null);
     try {
       const selectedInput = await bindCreativeSelection({ ...input, genres: mergeGenres(input.genres, otherGenre), title: input.title.trim(), premise: input.premise.trim() });
@@ -595,12 +596,13 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
                   <Field label="暂定书名"><input className={fieldClass} value={input.title} onChange={(e) => setInput({ ...input, title: e.target.value })} placeholder="选填，骨架确认后再由你决定正式书名" /></Field>
                   <Field label="作者"><input className={fieldClass} value={input.author} onChange={(e) => setInput({ ...input, author: e.target.value })} placeholder="留空则在创作时生成笔名" /></Field>
                 </div>
-                <fieldset className="mb-4 min-w-0">
-                  <legend className="mb-1.5 text-[12px] font-medium tracking-[-0.01em] text-ink-muted">作品类型</legend>
-                  <CreativeTypePicker selected={input.genres} refs={input.creative_types} onChange={(genres,creative_types) => setInput((current) => ({ ...current, genres, creative_types }))}
-                    other={otherGenre} onOtherChange={setOtherGenre} />
-                  <p className="mt-2 text-[12px] leading-relaxed text-ink-muted">可以多选、组合类型，也可以填写其他类型；尚未确定可留空，在讨论中继续完善。</p>
-                </fieldset>
+                <PublicationTypePicker value={input.publication_classification} required={!session || Boolean(input.creation_flow)} onChange={publication_classification => setInput(current => ({ ...current, creation_flow: 'h5_guided.v1', publication_classification }))} />
+                <section className="mb-6 rounded-2xl border border-paper-line bg-white/45 p-4 sm:p-5">
+                  <h3 className="mb-3 text-[16px] font-semibold">02 · 创作方向 <span className="ml-2 text-[13px] font-normal text-ink-muted">可选，支持组合</span></h3>
+                  {input.publication_classification?.primary_genre_id || (session && !input.creation_flow) ? <CreativeTypePicker selected={input.genres} refs={input.creative_types} publication={input.publication_classification}
+                    onChange={(genres,creative_types) => setInput(current => ({ ...current, genres, creative_types }))} other={otherGenre} onOtherChange={setOtherGenre} />
+                    : <p className="text-[14px] text-ink-muted">先确定上方题材，再选择人物、关系与成长的写作指导。</p>}
+                </section>
                 <Field label="故事构想或已有框架"><textarea className={textareaClass} rows={5} value={input.premise} onChange={(e) => setInput({ ...input, premise: e.target.value })} placeholder="粘贴故事背景、人物设定或已有细纲。还没想清楚的地方，我们一起补齐。" required /></Field>
                 <div className="grid gap-x-5 sm:grid-cols-2">
                   <Field label="计划章节数"><input type="number" min={1} step={1} className={fieldClass} value={input.chapters ?? ""} onChange={(e) => setInput({ ...input, chapters: e.target.value ? Number(e.target.value) : undefined })} placeholder="未确定可留空" /></Field>
@@ -623,11 +625,11 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
                 </fieldset>
               </div>
               <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-paper-line bg-white/65 px-5 py-4 sm:px-8">
-                <button type="button" className="btn-ghost" disabled={Boolean(busy)} onClick={() => session ? setStep(namingStage || launched ? "preview" : "discussion") : onBack()}>{session ? "返回当前讨论" : "返回普通创建"}</button>
+                <button type="button" className="btn-ghost" disabled={Boolean(busy)} onClick={() => session ? setStep(namingStage || launched ? "preview" : "discussion") : onBack()}>{session ? "返回当前讨论" : "返回作品库"}</button>
                 {session ? <div className="flex flex-wrap gap-2">{editingBasics && <button type="button" className="btn-ghost" disabled={Boolean(busy)} onClick={showBasics}>取消修改</button>}
-                  {!launched && (editingBasics ? <button key="save-basics" type="submit" className={PRIMARY} disabled={disabled || !input.premise.trim()}>{busy === "input" ? "正在保存…" : "保存基础设定"}</button>
+                  {!launched && (editingBasics ? <button key="save-basics" type="submit" className={PRIMARY} disabled={disabled || !input.premise.trim() || Boolean(input.creation_flow && !input.publication_classification?.primary_genre_id)}>{busy === "input" ? "正在保存…" : "保存基础设定"}</button>
                     : <button key="edit-basics" type="button" className="btn-secondary" disabled={disabled} onClick={(event) => { event.preventDefault(); setEditingBasics(true); }}>修改基础设定</button>)}</div>
-                  : <button type="submit" className={PRIMARY} disabled={Boolean(busy) || !input.premise.trim()}>{busy === "create" ? "正在保存设定…" : "开始头脑风暴"}<Icon name="chevron-right" /></button>}
+                  : <button type="submit" className={PRIMARY} disabled={Boolean(busy) || !input.premise.trim() || !input.publication_classification?.primary_genre_id}>{busy === "create" ? "正在保存设定…" : "开始头脑风暴"}<Icon name="chevron-right" /></button>}
               </footer>
             </form>
           )}

@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from .novel_classification import PRIMARY_GENRES, STORY_TYPES, TONES, SETTINGS, CATALOG_VERSION
 
 RESOURCE = Path(__file__).resolve().parents[1] / "resources/creative-types/v1.json"
+CURATED_RESOURCE = RESOURCE.with_name('curated-v2.json')
 PROFILE_LIMIT = 24 * 1024
 CONTEXT_LIMIT = 96 * 1024
 DIMENSIONS = {"marriage": "婚姻与亲密关系", "family": "家庭与代际", "growth": "成长与自我实现",
@@ -205,10 +206,17 @@ def _initial_records() -> dict:
     records = {}
     for entry in raw['profiles']:
         p = validate_profile(entry['profile'], enabled=True)
-        records[p['profile_id']] = {'id': p['profile_id'], 'revision': 0, 'status': 'enabled',
+        records[p['profile_id']] = {'id': p['profile_id'], 'revision': 0, 'status': 'disabled', 'retired': True,
             'origin': 'builtin', 'coverage': entry.get('coverage', 'specialized_guidance'),
             'updated_at': raw['created_at'], 'draft': p, 'active_version': p['version'],
             'versions': [{'profile': deepcopy(p), 'sha256': digest(p), 'created_at': raw['created_at']}]}
+    curated = json.loads(CURATED_RESOURCE.read_text(encoding='utf-8'))
+    for entry in curated['profiles']:
+        p = validate_profile(entry['profile'], enabled=True)
+        record = records[p['profile_id']]
+        record.update(status='enabled', retired=False, draft=p, active_version=p['version'],
+                      updated_at=curated['created_at'])
+        record['versions'].append({'profile': deepcopy(p), 'sha256': digest(p), 'created_at': curated['created_at']})
     return records
 
 
@@ -331,6 +339,7 @@ class CreativeTypeStore:
             for c in record['draft']['combinations']:
                 if c['with_profile_id'] not in records:
                     raise CreativeTypeError('组合说明引用了不存在的类型。')
+            record.pop('retired', None)  # Explicit edits make a legacy reference user-maintained.
             record.update(revision=record['revision'] + 1, updated_at=now)
             data['records'][profile_id] = record
             data['operations'][operation_id] = {'request_sha256': payload_hash,

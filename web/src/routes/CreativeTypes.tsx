@@ -29,10 +29,9 @@ const priorities = {
 };
 const stateNames = { enabled: "已启用", draft: "草稿", disabled: "已停用" };
 const tabs = {
-  core: "核心体验",
-  mechanisms: "故事机制",
-  voice: "人物与文风",
-  checks: "检查与融合",
+  core: "定位与分类",
+  mechanisms: "故事看点",
+  checks: "文风与检查",
   preview: "模型预览与版本",
 };
 type Tab = keyof typeof tabs;
@@ -755,14 +754,71 @@ export default function CreativeTypes() {
                         onChange={(v) => update("summary", v)}
                         multiline
                       />
+
+                      <section className="ct-block">
+                        <h3>
+                          关联 H5 题材 ·{" "}
+                          {draft.publication_mapping.catalog_version}
+                        </h3>
+                        <p>
+                          与创建小说使用相同的分类。勾选此资料适用的题材；本书最终分类由作者在创建时选择。
+                        </p>
+                        <div className="ct-mapping">
+                          {Object.entries(
+                            library?.publication_catalog.axes || {},
+                          ).map(([axis, items]) => <fieldset className="ct-mapping-group" key={axis}><legend>{({ primary_genres: '主类型', story_types: '故事类型', tones: '情绪与风格', settings: '故事背景' } as Record<string, string>)[axis] || axis}</legend><div className="ct-mapping">{items.map((item) => {
+                              const key =
+                                axis === "primary_genres"
+                                  ? "primary_genre_ids"
+                                  : "facet_ids";
+                              return (
+                                <label key={item.id}>
+                                  <input
+                                    type="checkbox"
+                                    checked={draft.publication_mapping[
+                                      key
+                                    ].includes(item.id)}
+                                    onChange={(e) => {
+                                      const values = e.target.checked
+                                        ? [
+                                            ...draft.publication_mapping[key],
+                                            item.id,
+                                          ]
+                                        : draft.publication_mapping[key].filter(
+                                            (v) => v !== item.id,
+                                          );
+                                      const next = {
+                                        ...draft.publication_mapping,
+                                        [key]: values,
+                                      };
+                                      update("publication_mapping", {
+                                        ...next,
+                                        status:
+                                          next.primary_genre_ids.length +
+                                          next.facet_ids.length
+                                            ? "mapped"
+                                            : "unmapped",
+                                      });
+                                    }}
+                                  />
+                                  {item.labels["zh-CN"] || item.id}
+                                </label>
+                              );
+                            })}</div></fieldset>)}
+                        </div>
+                        <p className="ct-hint">
+                          未映射的自定义类型可以参与创作。创作 ID
+                          不会写入发布分类；正式交付仍使用现有字典与校验规则。
+                        </p>
+                      </section>
+                      {group("reader_promises", "读者期待")}
+                      <details className="ct-block ct-advanced">
+                        <summary>别名、适用范围与读者限制 · 可选</summary>
                       <LinesField
                         label="别名"
                         value={draft.aliases}
                         onChange={(v) => update("aliases", v)}
                       />
-                      {group("reader_promises", "读者期待")}
-                      <section className="ct-block">
-                        <h3>适用范围 · 留空即未限定</h3>
                         <div className="ct-fields">
                           {(
                             [
@@ -785,7 +841,7 @@ export default function CreativeTypes() {
                             />
                           ))}
                         </div>
-                      </section>
+                      </details>
                       <p className="ct-hint">
                         类型资料是创作起点。常见机制需要落实为本书人物的具体选择，才能成为故事设定。
                       </p>
@@ -865,9 +921,7 @@ export default function CreativeTypes() {
                               {(
                                 [
                                   ["trigger", "触发条件"],
-                                  ["scope", "作用范围"],
                                   ["limits", "限制"],
-                                  ["exceptions", "例外"],
                                   ["costs", "代价"],
                                   ["choices", "人物选择"],
                                   ["payoffs", "回报"],
@@ -888,6 +942,9 @@ export default function CreativeTypes() {
                                 />
                               ))}
                             </div>
+                            <details className="ct-advanced"><summary>更多边界与适用阶段</summary><div className="ct-fields">
+                              {([['scope', '作用范围'], ['exceptions', '例外']] as const).map(([key,label]) => <LinesField key={key} label={label} value={m[key]} onChange={v => update('mechanisms', draft.mechanisms.map((x,j) => i === j ? { ...x, [key]: v } : x))} />)}
+                            </div>
                             <StagePicker
                               value={m.stages}
                               onChange={(v) =>
@@ -899,6 +956,7 @@ export default function CreativeTypes() {
                                 )
                               }
                             />
+                            </details>
                             <button
                               className="btn-ghost"
                               onClick={() =>
@@ -940,24 +998,15 @@ export default function CreativeTypes() {
                       </button>
                     </>
                   )}
-                  {tab === "voice" && (
-                    <>
-                      <div className="ct-section-head">
-                        <h3>人物如何行动，文字如何表达</h3>
-                        <p>
-                          以人物动力和可观察的表达偏好，替代抽象的质量口号。
-                        </p>
-                      </div>
-                      {group("character_dynamics", "人物与关系")}
-                      {group("voice_guidance", "文风偏好")}
-                    </>
-                  )}
                   {tab === "checks" && (
                     <>
+                      <div className="ct-section-head"><h3>让人物与文字服务故事</h3><p>检查提示用于讨论和修订，不是强制剧情或文学评分门。</p></div>
+                      {group("character_dynamics", "人物与关系")}
+                      {group("voice_guidance", "文风偏好")}
                       {group("pitfalls", "避免的问题")}
                       {group("diagnostics", "设计检查")}
-                      <section className="ct-block">
-                        <h3>与其他类型组合</h3>
+                      <details className="ct-block ct-advanced">
+                        <summary>多方向组合说明 · 可选</summary>
                         <p>只有本书同时选择对应类型时才读取这些说明。</p>
                         {draft.combinations.map((c, i) => (
                           <div
@@ -1054,66 +1103,8 @@ export default function CreativeTypes() {
                         >
                           ＋ 添加组合说明
                         </button>
-                      </section>
-                      <section className="ct-block">
-                        <h3>
-                          发行分类映射 ·{" "}
-                          {draft.publication_mapping.catalog_version}
-                        </h3>
-                        <p>
-                          使用后台已有分类作为候选，最终作品仍须通过 H5
-                          发布校验。
-                        </p>
-                        <div className="ct-mapping">
-                          {Object.entries(
-                            library?.publication_catalog.axes || {},
-                          ).flatMap(([axis, items]) =>
-                            items.map((item) => {
-                              const key =
-                                axis === "primary_genres"
-                                  ? "primary_genre_ids"
-                                  : "facet_ids";
-                              return (
-                                <label key={item.id}>
-                                  <input
-                                    type="checkbox"
-                                    checked={draft.publication_mapping[
-                                      key
-                                    ].includes(item.id)}
-                                    onChange={(e) => {
-                                      const values = e.target.checked
-                                        ? [
-                                            ...draft.publication_mapping[key],
-                                            item.id,
-                                          ]
-                                        : draft.publication_mapping[key].filter(
-                                            (v) => v !== item.id,
-                                          );
-                                      const next = {
-                                        ...draft.publication_mapping,
-                                        [key]: values,
-                                      };
-                                      update("publication_mapping", {
-                                        ...next,
-                                        status:
-                                          next.primary_genre_ids.length +
-                                          next.facet_ids.length
-                                            ? "mapped"
-                                            : "unmapped",
-                                      });
-                                    }}
-                                  />
-                                  {item.labels["zh-CN"] || item.id}
-                                </label>
-                              );
-                            }),
-                          )}
-                        </div>
-                        <p className="ct-hint">
-                          未映射的自定义类型可以参与创作。创作 ID
-                          不会写入发布分类；正式交付仍使用现有字典与校验规则。
-                        </p>
-                      </section>
+                      </details>
+
                     </>
                   )}
                   {tab === "preview" && (

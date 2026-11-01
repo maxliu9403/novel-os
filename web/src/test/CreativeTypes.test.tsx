@@ -157,7 +157,7 @@ test("network retry reuses operation identity and history restores only a draft"
   await waitFor(() => expect(screen.getByText("保存草稿")).toBeDisabled());
   fireEvent.click(screen.getByRole("tab", { name: "模型预览与版本" }));
   fireEvent.click(screen.getByText("恢复为草稿"));
-  fireEvent.click(screen.getByRole("tab", { name: "核心体验" }));
+  fireEvent.click(screen.getByRole("tab", { name: "定位与分类" }));
   expect(screen.getByLabelText("一句话说明")).toHaveValue(
     original.draft.summary,
   );

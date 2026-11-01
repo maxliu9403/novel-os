@@ -1,4 +1,4 @@
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import NovelWorkshop, { type WorkshopSeed } from "../components/NovelWorkshop";
 import WorkshopSessions from "../components/WorkshopSessions";
 import Icon from "../components/Icon";
@@ -9,6 +9,7 @@ const EMPTY_SEED: WorkshopSeed = { title: "", author: "", genres: [], premise: "
 
 export default function WorkshopLibrary() {
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const sessionId = params.get("session") ?? undefined;
   const creating = params.get("new") === "1";
   function close() { setParams({}); }
@@ -22,7 +23,7 @@ export default function WorkshopLibrary() {
     <div className="workshop-library-section"><h2>全部讨论</h2><span>保存的设定、骨架与推导记录</span></div>
     <WorkshopSessions studio busy={false} onSelect={(id) => setParams({ session: id })} />
     </div></div>
-    {(sessionId || creating) && <NovelWorkshop key={sessionId ?? "new"} open seed={EMPTY_SEED} initialSessionId={sessionId} onClose={close} onBack={close}
+    {(sessionId || creating) && <NovelWorkshop key={sessionId ?? "new"} open seed={EMPTY_SEED} initialSessionId={sessionId} onClose={close} onBack={() => creating ? navigate("/") : close()}
       onSessionChange={(id) => setParams({ session: id }, { replace: true })} onCreateNew={() => setParams({ new: "1" })} />}
   </div></Scene>;
 }

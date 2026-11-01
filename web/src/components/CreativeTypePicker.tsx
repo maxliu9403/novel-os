@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import type { BookClassificationSelection } from '../api/workshop';
 import {
   creativeTypesApi,
   creativeRef,
@@ -15,12 +16,14 @@ export default function CreativeTypePicker({
   onChange,
   other,
   onOtherChange,
+  publication,
 }: {
   selected: string[];
   refs?: CreativeTypeRef[] | null;
   onChange: (genres: string[], refs: CreativeTypeRef[]) => void;
   other: string;
   onOtherChange: (v: string) => void;
+  publication?: BookClassificationSelection | null;
 }) {
   const [library, setLibrary] = useState<CreativeLibrary | null>(null),
     [error, setError] = useState(""),
@@ -65,9 +68,12 @@ export default function CreativeTypePicker({
     );
     onChange(chosen.has(item.id) ? labels : [...labels, item.name], next);
   }
+  const catalogLabels = new Set(Object.values(library?.publication_catalog.axes || {}).flat().map(i => i.labels['zh-CN']));
   const unmatched = selected.filter(
-    (label) => !available.some((i) => matchesCreativeLabel(i, label)),
+    (label) => !(publication && catalogLabels.has(label)) && !available.some((i) => matchesCreativeLabel(i, label)),
   );
+  const publicationIds = publication ? [publication.primary_genre_id, ...publication.secondary_genre_ids, ...publication.story_type_ids, ...publication.tone_ids, ...publication.setting_ids] : [];
+  const related = (i: CreativeSummary) => i.publication_mapping && [...i.publication_mapping.primary_genre_ids, ...i.publication_mapping.facet_ids].some(id => publicationIds.includes(id));
   const shown = available.filter((i) =>
     [i.name, i.summary, ...i.aliases]
       .join(" ")
@@ -76,8 +82,8 @@ export default function CreativeTypePicker({
   );
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-ink-muted">
-        <span>读取已启用的写作说明；创建讨论时冻结版本。</span>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[14px] text-ink-muted">
+        <span>选择写作指导；不会改动上方 H5 分类。创建讨论时保存资料版本。</span>
         <Link
           to="/creative-types"
           target="_blank"
@@ -90,7 +96,7 @@ export default function CreativeTypePicker({
       {error ? (
         <p
           role="alert"
-          className="rounded-xl bg-rose-50 p-3 text-[12px] text-rose-700"
+          className="rounded-xl bg-rose-50 p-3 text-[14px] text-rose-700"
         >
           类型资料暂时无法读取：{error}{" "}
           <button type="button" onClick={() => setRefresh((v) => v + 1)}>
@@ -98,23 +104,23 @@ export default function CreativeTypePicker({
           </button>
         </p>
       ) : !library ? (
-        <p className="text-[12px] text-ink-muted">正在读取类型资料…</p>
+        <p className="text-[14px] text-ink-muted">正在读取类型资料…</p>
       ) : (
         <>
           <input
-            className="w-full rounded-xl border border-paper-line bg-white/70 px-3 py-2 text-[12px]"
+            className="w-full rounded-xl border border-paper-line bg-white/70 px-3 py-2 text-[14px]"
             aria-label="搜索可用作品类型"
             placeholder="搜索类型、主题或别名"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
+          <div className="space-y-3">
             {Object.entries(library.dimensions).map(([key, label]) => {
               const items = shown.filter((i) => i.dimension === key);
               return (
                 items.length > 0 && (
                   <fieldset key={key}>
-                    <legend className="mb-2 text-[11.5px] text-ink-muted">
+                    <legend className="mb-2 text-[13px] text-ink-muted">
                       {label}
                     </legend>
                     <div className="flex flex-wrap gap-1.5">
@@ -125,9 +131,10 @@ export default function CreativeTypePicker({
                           title={`${i.summary} · v${i.active_version}`}
                           aria-pressed={chosen.has(i.id)}
                           onClick={() => toggle(i)}
-                          className={`rounded-full px-3 py-1.5 text-[12px] ${chosen.has(i.id) ? "bg-violet text-white shadow-sm" : "border border-paper-line bg-white/60 text-ink-muted"}`}
+                          className={`rounded-full px-3 py-1.5 text-[14px] ${chosen.has(i.id) ? "bg-violet text-white shadow-sm" : "border border-paper-line bg-white/60 text-ink-muted"}`}
                         >
                           {i.name}
+                          {related(i) && <span className="ml-1 opacity-75"> · 题材相关</span>}
                         </button>
                       ))}
                     </div>
@@ -136,7 +143,7 @@ export default function CreativeTypePicker({
               );
             })}
             {!shown.length && (
-              <p className="text-[12px] text-ink-muted">
+              <p className="text-[14px] text-ink-muted">
                 没有匹配的已启用类型。
               </p>
             )}
@@ -144,7 +151,7 @@ export default function CreativeTypePicker({
         </>
       )}
       {inferred.length > 0 && (
-        <details className="rounded-xl border border-paper-line bg-white/50 p-3 text-[12px]">
+        <details className="rounded-xl border border-paper-line bg-white/50 p-3 text-[14px]">
           <summary className="cursor-pointer text-violet">
             已选类型与版本 · {inferred.length}
           </summary>
@@ -206,8 +213,9 @@ export default function CreativeTypePicker({
           </div>
         </details>
       )}
+      {publication && available.some(i => chosen.has(i.id) && !related(i)) && <p className="rounded-xl bg-violet-soft p-3 text-[13px] leading-relaxed text-ink-muted">部分方向尚未关联本书题材，可以跨题材组合。讨论时需明确它怎样服务本书人物与冲突；发行分类保持你的选择。</p>}
       {unmatched.length > 0 && (
-        <div className="flex flex-wrap gap-2 text-[12px] text-ink-muted">
+        <div className="flex flex-wrap gap-2 text-[14px] text-ink-muted">
           <span>已带入的自定义类型：</span>
           {unmatched.map((g) => (
             <button
@@ -227,7 +235,7 @@ export default function CreativeTypePicker({
           ))}
         </div>
       )}
-      <label className="block text-[12px] text-ink-muted">
+      <label className="block text-[14px] text-ink-muted">
         其他类型
         <input
           aria-label="其他类型"

@@ -43,13 +43,14 @@ def summary(record: dict) -> dict:
     return {k: record[k] for k in ('id', 'revision', 'status', 'origin', 'coverage', 'updated_at')} | {
         'name': p['name'], 'summary': p['summary'], 'dimension': p['dimension'], 'aliases': p['aliases'],
         'mapping_status': p['publication_mapping']['status'], 'active_version': record['active_version'],
+        'publication_mapping': p['publication_mapping'], 'retired': record.get('retired', False),
         'source_sha256': active['sha256'] if active else None,
         'has_draft_changes': bool(active and digest(record['draft'] | {'version': p['version']}) != active['sha256'])}
 
 
 @router.get('')
-def list_types(store: CreativeTypeStore = Depends(get_store)):
-    return {'items': [summary(r) for r in store.records().values()], 'dimensions': DIMENSIONS,
+def list_types(include_retired: bool = False, store: CreativeTypeStore = Depends(get_store)):
+    return {'items': [summary(r) for r in store.records().values() if include_retired or not r.get('retired')], 'dimensions': DIMENSIONS,
             'publication_catalog': catalog_payload()}
 
 

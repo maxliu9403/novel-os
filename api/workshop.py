@@ -25,7 +25,7 @@ import weakref
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .jobs import runner
 from . import db, tenancy
@@ -35,6 +35,7 @@ from .services import ProjectService
 from .workshop_contract_repair import normalize_workshop_contracts
 from .workshop_diagnostics import diagnostic_error_category, make_diagnostic_callback, runtime_progress
 from .workshop_design import DecisionStatus, apply_decision, design_rules, new_design, record_round
+from .workshop_classification import BookClassificationSelection, bind_classification, selection_labels
 
 LOG = logging.getLogger("uvicorn.error.workshop")
 REPO = Path(__file__).resolve().parents[1]
@@ -82,6 +83,8 @@ class SessionInput(BaseModel):
     author: str = ""
     genres: list[str] = Field(default_factory=list)
     creative_types: list[TypeRef] | None = Field(default=None, max_length=60)
+    creation_flow: Literal['h5_guided.v1'] | None = None
+    publication_classification: BookClassificationSelection | None = None
     premise: str = ""
     chapters: int | None = Field(default=None, ge=1)
     words_per_chapter: int | None = Field(default=None, ge=1)
@@ -91,6 +94,17 @@ class SessionInput(BaseModel):
     market: str = ""
     constraints: str = ""
     method_mode: Literal["off", "advisory"] = "advisory"
+
+    @model_validator(mode='after')
+    def require_publication_selection(self):
+        if self.creation_flow and self.publication_classification is None:
+            raise ValueError('请先选择与 H5 一致的题材主类型。')
+        if self.publication_classification is not None:
+            from core.novel_classification import catalog_payload
+            known = {entry['labels']['zh-CN'] for items in catalog_payload()['axes'].values() for entry in items}
+            self.genres = list(dict.fromkeys(selection_labels(self.publication_classification.model_dump()) +
+                                             [g for g in self.genres if g not in known]))
+        return self
 
 
 class RevisionInput(BaseModel):
@@ -648,6 +662,7 @@ briefly and still give a useful current design proposal. Do not claim to have ge
                 # Persist failed candidates as well, so a later retry can reuse the work.
                 raw_prompt = data["prompt_md"]
                 data["prompt_md"], normalized_fields = normalize_workshop_contracts(raw_prompt)
+                data["prompt_md"] = bind_classification(data["prompt_md"], session['input'])
                 if normalized_fields and diagnostic is not None:
                     diagnostic({"event": "contract.normalized", "normalized_fields": len(normalized_fields)})
                 candidate_path = session.get("_candidate_path")
@@ -1027,6 +1042,11 @@ class WorkshopService:
         # Retain custom/legacy labels. The selected stable profiles also have an
         # exact display name in the brief for M1 proposal attribution.
         profiles = [r['profile'] for r in snapshot['profiles']]
+        if initial_input.get('publication_classification'):
+            # H5 labels retain their identity even when a creative alias shares
+            # the same spelling (e.g. 女性成长 / 女性觉醒).
+            initial_input['genres'] = list(dict.fromkeys([*initial_input.get('genres', []), *[p['name'] for p in profiles]]))
+            return snapshot
         names = []
         for label in initial_input.get('genres', []):
             matches = [p for p in profiles if label.strip().casefold() in {s.casefold() for s in [p['name'], *p['aliases']]}]
@@ -1394,6 +1414,7 @@ class WorkshopService:
             if (snapshot.get("input_needs_revision") or snapshot.get("design_needs_revision")) and result["ready_for_confirmation"] and result.get("prompt_md") is None:
                 raise ModelResponseError("基础设定或创作决定已修改，模型尚未返回更新后的完整骨架。请继续推导。")
             if result.get("prompt_md") is not None:
+                result["prompt_md"] = bind_classification(result["prompt_md"], snapshot['input'])
                 candidate = self._path(session_id) / "candidates" / f'{snapshot["revision"]}.md'
                 _atomic(candidate, result["prompt_md"])
                 validated = _validate_candidate(candidate)
@@ -1434,6 +1455,8 @@ class WorkshopService:
         with self._locked(session_id) as data:
             self._available(data, body.revision)
             new_input = body.input.model_dump()
+            if data['input'].get('creation_flow') and not new_input.get('creation_flow'):
+                raise HTTPException(422, '新建小说需保留 H5 分类选择；不能退回旧版创建协议。')
             pending_snapshot = self._type_snapshot(new_input)
             changes = {key: {"before": data["input"].get(key), "after": value}
                        for key, value in new_input.items() if data["input"].get(key) != value}
@@ -1468,6 +1491,7 @@ class WorkshopService:
             if not data["prompt_md"] or not data["ready_for_confirmation"] or data["questions"]:
                 raise HTTPException(422, "请先完成并确认小说骨架，再推荐书名。")
             confirmed = _confirm_format(data["prompt_md"])
+            confirmed = bind_classification(confirmed, data['input'])
             with tempfile.TemporaryDirectory(prefix="workshop-title-check-") as directory:
                 candidate = Path(directory) / "prompt.md"
                 candidate.write_text(confirmed, encoding="utf-8")
@@ -1527,6 +1551,7 @@ class WorkshopService:
             if not data["prompt_md"] or not data["ready_for_confirmation"] or data["questions"]:
                 raise HTTPException(422, "请先完成必要信息和小说骨架，再确认并生成启动命令。")
             confirmed = _confirm_format(data["prompt_md"])
+            confirmed = bind_classification(confirmed, data['input'])
             if data.get("naming") and body.title is None:
                 raise HTTPException(422, "请选择或输入最终书名。")
             if body.title is not None:

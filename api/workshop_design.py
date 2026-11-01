@@ -35,7 +35,17 @@ specialist pack. Do not claim quality guarantees or a numeric literary pass scor
 
 For discussion, add design_notes as a concise companion to the useful Markdown
 reply, not a second full story or a questionnaire. An open premise normally needs
-2-3 different causal routes with a recommendation and tradeoffs. Later turns deepen
+2-3 different causal routes with a recommendation and tradeoffs.
+For an open premise, vary at least three meaningful axes across alternatives:
+protagonist's concrete goal, relationship/power structure, genre rule or constraint,
+source of opposition, cost of action, evidence/revelation path, or final choice.
+Changing names, professions or scenery alone is not a different story. Explain
+the causal difference and the reading experience; do not randomly combine tropes.
+Do not force betrayal, divorce, a powerful rescuer or a mate-bond into every book.
+When the author supplies another story as a comparison, distinguish its central
+mechanism and climax from this one; do not claim cross-book deduplication when
+no previous books were supplied. Preserve fixed author decisions when varying.
+Later turns deepen
 the chosen route with the next useful choice; local edits/comparisons may need no
 new proposal. Do not invent questions or options to fill a quota. Usually ask at
 most 1-2 high-impact questions. 'Continue' is NOT acceptance of all alternatives.

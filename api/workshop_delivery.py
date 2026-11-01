@@ -38,7 +38,9 @@ def author_context(session: dict) -> dict:
     from .workshop_design import design_context
     return {"initial_brief": session["input"], "conversation": session["messages"],
             "previous_pending_questions": session.get("questions", []),
-            "current_complete_skeleton": session.get("prompt_md", ""), **design_context(session)}
+            "current_complete_skeleton": session.get("prompt_md", ""), **design_context(session),
+            **({"publication_selection_policy": "initial_brief.publication_classification is AUTHOR-CONFIRMED H5 classification. Design the story for these subjects. Creative profiles are optional craft guidance, not additional publication IDs. Do not change the selection; propose any necessary change to the author in discussion. The server binds these exact IDs into the skeleton and publication pipeline."}
+               if session['input'].get('publication_classification') else {})}
 
 
 def checkpoint_fingerprint(session: dict, skill_version: str) -> str:
