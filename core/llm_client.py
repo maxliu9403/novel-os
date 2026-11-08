@@ -431,6 +431,26 @@ class LLMClient:
     def supports_image_input(self) -> bool:
         return self.provider_name in IMAGE_INPUT_PROVIDERS
 
+    def text_input_limit_bytes(self) -> int | None:
+        """Current declared UTF-8 request budget, including envelope reserve.
+
+        This is transport metadata for pure-text preflight, not a model context
+        size or an understanding guarantee. None means this adapter declares no
+        byte budget; it does not mean unlimited input. The authenticated gateway
+        query never generates text. Do not cache across requests: dispatch still
+        rechecks capacity in case the gateway configuration has changed.
+        """
+        self._check_cancelled()
+        if self.provider_name != 'gemini_openai':
+            return None
+        try:
+            from .gemini_gateway import attachment_capacity
+        except ImportError:  # legacy top-level imports
+            from gemini_gateway import attachment_capacity
+        limit = attachment_capacity(self._backend)
+        self._check_cancelled()
+        return limit
+
     def _completion_grace(self) -> float:
         # Cached clients can enter a strict pipeline runtime after construction.
         return 0 if current_runtime() is not None else getattr(self, 'completion_grace_seconds', 0)

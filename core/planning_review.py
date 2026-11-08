@@ -16,7 +16,7 @@ accepting coverage; this reply cannot approve the whole book by itself.
 '''
 
 
-def windows(candidate, make_context, fits):
+def windows(candidate, make_context, fits, *, prepare_context=None):
     """Preflight all requests before spending any calls. Never truncate a field.
 
     Bisect only as needed; preserve complete global design and complete chapter
@@ -39,6 +39,8 @@ def windows(candidate, make_context, fits):
             'omitted_candidate_chapters': [n for n in numbers if n not in included],
             'global_candidate_fields': [k for k in candidate if k != 'chapters'],
         })
+        if prepare_context is not None:
+            context = prepare_context(context)
         if fits(context):
             result.append(context)
         elif len(requested) > 1:

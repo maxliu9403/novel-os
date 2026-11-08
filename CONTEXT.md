@@ -1,5 +1,9 @@
 # Novel OS domain language
 
+## Review transport capacity and lossless contracts (2026-11-08)
+
+Outline review preflight queries the authenticated text adapter's declared byte capacity once when inline capacity is insufficient; dispatch rechecks it. This is not a model token-window claim. `planning-review-context.v1` shares only equal code-owned contracts with immutable_contracts and can reconstruct/hash-verify the original source projection and candidate. Story/Genre/reference content and quality checks remain unchanged. Aggregate review checkpoints bind the representation version; global and chapter-generation cache identities do not change. Bounded windows cover every requested chapter and adjacent boundary with the full global map, not a proof that every distant semantic dependency was jointly inspected. Engineering replay uses model substitutes; literary approval still requires actual review. See `docs/reports/2026-11-08-review-capacity.md`.
+
 ## Source deployment and portable library (2026-11-08)
 
 Source deployment remains `deploy.sh up`; exported runtime images are not required. Bundled defaults now match the active workspace's 1 Genre, 41 Tags and title prompt byte-for-byte. Historical knowledge versions and active version numbers remain runtime data; export them with `scripts/export_creation_library.py` or a full data snapshot. `scripts/portable_data.py` rejects source changes during capture and validates archive paths and hashes before restoring to a new directory; SQLite uses the backup API. Current-project Skills are four, including `novel-corpus-study`. Docker Python dependencies are pinned through `requirements.lock`. The separately modified Gemini gateway must be migrated too. Never infer that moving code also transfers credentials, novels, reference assets, history or in-flight requests. See `docs/deployment/machine-transfer.md`.
