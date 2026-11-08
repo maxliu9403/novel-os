@@ -5,13 +5,13 @@
 
 ## 随代码交付什么
 
-- `resources/novel-knowledge/`：本次已将实际启用的 **1 个 Genre、41 个 Tags** 原文同步为默认 Markdown，包括页面中自定义的“冒险”。未改写用户内容。
+- `resources/novel-knowledge/`：本次已将实际启用的 **1 个 Genre、40 个 Tags** 原文同步为默认 Markdown，包括页面中自定义的“冒险”。保留用户最新修改，并移除已删除类型的默认文件，未改写用户内容。
 - `resources/system-prompts/title-design.md`：当前启用的通用书名提示词原文。
 - `skills/`：`novel-brainstorm-workshop`、`high-retention-web-novel`、`novel-cover-studio`、`novel-corpus-study`，以及各自引用的资料与脚本。Docker 会复制它们；`deploy.sh up/restart` 会同步四个项目 Skills 至宿主 Codex，并备份被替换版本。
 - `agents/`、`templates/`、其他 `resources/`：各创作阶段提示词、产物合同、字体/排版相关资源及默认方法论。
 - `requirements.lock`、`web/package-lock.json`、Dockerfile 中固定的 Codex CLI 版本：限制换机重建时依赖漂移。Python lock 来自当前验证过的运行环境；更新时需重新构建、验证。
 
-默认 Markdown 保证新安装使用当前写作说明。页面维护的**历史版本、草稿、启用版本号**另存于运行数据，不能仅靠复制 Markdown 保留。当前知识库累计 **206 个版本**，已单独导出资料库历史包。
+默认 Markdown 保证新安装使用当前写作说明。页面维护的**历史版本、草稿、启用版本号**另存于运行数据，不能仅靠复制 Markdown 保留。当前知识库累计 **209 个版本**，其中 4 个属于已删除记录；已单独导出资料库历史包。
 
 ## 新电脑部署步骤
 
@@ -128,8 +128,8 @@ docker compose exec -T backend python scripts/export_creation_library.py \
 
 ## 验收标准
 
-1. 页面/API 正常；Genre 1 个、Tags 41 个，当前 Markdown SHA 与交付清单一致。
-2. 恢复历史包后版本合计 206，启用版本号、草稿、书名提示词版本一致。
+1. 页面/API 正常；Genre 1 个、Tags 40 个，当前 Markdown SHA 与交付清单一致。
+2. 恢复历史包后版本合计 209（含已删除记录的 4 个版本），启用版本号、草稿、删除状态及书名提示词版本一致。
 3. 四个项目 Skills 完整；其他个人通用 Skills 不是应用运行依赖。
 4. 模型路由、计价和 Token 配置正确；网关是包含本地扩容的源码版本。
 5. 如果恢复完整数据，检查作品、来源和讨论数量，打开正文、骨架、封面再手动恢复任务。

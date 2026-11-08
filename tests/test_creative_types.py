@@ -18,7 +18,7 @@ def selected(store):
 
 def test_seeds_compile_structured_sections_or_complete_freeform_bodies(tmp_path):
     store = ct.CreativeTypeStore(tmp_path)
-    assert len(store.records()) == 42
+    assert len(store.records()) == 41
     for r in store.records().values():
         ct.parse_document(r["draft"], enabled=True)
     snapshot = store.snapshot(selected(store))
