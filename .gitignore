@@ -1,9 +1,16 @@
 # --- Secrets & local config ---
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 studio_settings.json
 studio_settings.secrets.json
+auth.json
+.codex/
+.aws/
+*.pem
+*.key
+*.p12
+*.pfx
 
 # --- Python ---
 __pycache__/
@@ -62,6 +69,14 @@ ChatGPT Image *.png
 # --- Local SQLite database ---
 novel_os*.db
 *.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
 
 # --- Uploaded media blobs (user data, not source) ---
 /media/
@@ -82,3 +97,7 @@ novel_os*.db
 # Private machine-transfer packages and local browser captures.
 /migration-packages/
 /output/
+/private-config*.tar*
+/novel-os-data*.tar*
+/library-history*.tar*
+/*.bundle
