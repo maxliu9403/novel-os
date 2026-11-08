@@ -32,6 +32,7 @@ class ProjectTaskDetail(BaseModel):
     error: str | None = None
     failed_stages: list[FailedTaskStage]
     can_resume: bool
+    resume_blocked_reason: str | None = None
     can_upgrade_planning: bool = False
     resume_job_id: str | None = None
     resume_job_status: str | None = None
@@ -92,7 +93,8 @@ def register_project_task_routes(router, get_service):
     def detail(project_id: str, run_id: str, svc: ProjectService = Depends(get_service)):
         project, manifest = _task(svc, project_id, run_id)
         latest = latest_task_manifest(project)
-        runtime = task_runtime(project, manifest, is_latest=bool(latest and latest["run_id"] == run_id))
+        planning = task_sidecar(project, run_id, 'planning/progress.json')
+        runtime = task_runtime(project, manifest, is_latest=bool(latest and latest["run_id"] == run_id), planning=planning)
         started = parse_task_time(manifest.get("created_at"))
         updated = parse_task_time(manifest.get("updated_at"))
         stages = manifest.get("stages") or {}
@@ -106,6 +108,15 @@ def register_project_task_routes(router, get_service):
                 # Resume reconciliation happens before a new runtime exists.
                 # A previous crashed execution must not look like current work.
                 progress = None
+        if (progress and manifest.get('current_phase') == 'outline'
+                and runtime['status'] in {'failed', 'paused'}):
+            # Runtime's generic failure hint must not promise recovery when
+            # planning exhausted its allowance or requires a source decision.
+            next_action = runtime['resume_blocked_reason']
+            if next_action is None and planning:
+                next_action = planning.get('next_action')
+            if next_action:
+                progress['next_action'] = next_action
         failures = [
             FailedTaskStage(
                 phase=stage.get("phase") or key, chapter=stage.get("chapter"),
@@ -124,7 +135,7 @@ def register_project_task_routes(router, get_service):
             can_upgrade_planning=bool(runtime["can_resume"] and can_upgrade_planning(project, manifest)),
             stages=[FailedTaskStage.model_validate(stage) for stage in stages.values()],
             progress=progress,
-            planning=task_sidecar(project, run_id, 'planning/progress.json'), **runtime,
+            planning=planning, **runtime,
         )
 
     @router.post("/projects/{project_id}/tasks/{run_id}/pause", response_model=ProjectTaskDetail, status_code=202)
@@ -157,7 +168,7 @@ def register_project_task_routes(router, get_service):
         latest = latest_task_manifest(project)
         runtime = task_runtime(project, manifest, is_latest=bool(latest and latest["run_id"] == run_id))
         if not runtime["can_resume"]:
-            raise HTTPException(409, "仅可恢复当前作品最新的失败或暂停创作任务。")
+            raise HTTPException(409, runtime['resume_blocked_reason'])
         if requested_mode:
             from planning_upgrade import can_upgrade_planning
             if not can_upgrade_planning(project, manifest):

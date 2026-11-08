@@ -62,7 +62,7 @@ def _valid_resume_contract(manifest: dict) -> bool:
         return False
 
 
-def task_runtime(project: Path, manifest: dict, *, is_latest: bool) -> dict:
+def task_runtime(project: Path, manifest: dict, *, is_latest: bool, planning: dict | None = None) -> dict:
     """Overlay a submitted worker only while active; the manifest stays canonical."""
     project_path = str(project.resolve())
     active = runner.running_for_project(project.name, project_path=project_path)
@@ -79,16 +79,29 @@ def task_runtime(project: Path, manifest: dict, *, is_latest: bool) -> dict:
     resuming = bool(resume and resume["status"] == "running")
     matching = next((job for job in active if job.get('kind') in {'novel.run', 'novel.resume'}
                      and job.get('run_id') == manifest['run_id']), None)
-    planning = task_sidecar(project, manifest['run_id'], 'planning/progress.json') if manifest.get('current_phase') == 'outline' else None
+    planning = (planning or task_sidecar(project, manifest['run_id'], 'planning/progress.json')) if manifest.get('current_phase') == 'outline' else None
     needs_design = bool(planning and planning.get('status') == 'failed'
                         and (planning.get('recovery') or {}).get('retryable') is False)
+    can_resume = bool(
+        is_latest and manifest["status"] in RESUMABLE_STATUSES
+        and not manifest["spec"].get("dry_run") and not active
+        and _valid_resume_contract(manifest) and not needs_design
+    )
+    blocked_reason = None
+    if not can_resume:
+        if active:
+            blocked_reason = '该作品已有任务运行中，请等待当前任务结束后重试。'
+        elif not is_latest or manifest['status'] not in RESUMABLE_STATUSES or manifest['spec'].get('dry_run'):
+            blocked_reason = '仅可恢复当前作品最新的失败或暂停创作任务。'
+        elif needs_design:
+            blocked_reason = ((planning.get('recovery') or {}).get('reason') or planning.get('next_action')
+                              or '已保存的大纲需要检查；当前修订额度不可继续，普通恢复不会追加模型调用。')
+        else:
+            blocked_reason = '任务记录无法读取，请检查已保存的任务文件。'
     return {
         "status": "running" if resuming or matching else manifest["status"],
-        "can_resume": bool(
-            is_latest and manifest["status"] in RESUMABLE_STATUSES
-            and not manifest["spec"].get("dry_run") and not active
-            and _valid_resume_contract(manifest) and not needs_design
-        ),
+        "can_resume": can_resume,
+        "resume_blocked_reason": blocked_reason,
         "resume_job_id": resume["job_id"] if resume else None,
         "resume_job_status": resume["status"] if resume else None,
         "resume_job_error": resume.get("error") if resume else None,
@@ -139,8 +152,18 @@ def task_sidecar(project: Path, run_id: str, relative: str) -> dict | None:
             safe['recovery'] = {'retryable': recovery['retryable'],
                 'action': str(recovery.get('action', ''))[:80], 'reason': str(recovery.get('reason', ''))[:2000]} \
                 if isinstance(recovery, dict) and type(recovery.get('retryable')) is bool else None
-            from core.planning_recovery import source_restoration_available
-            if source_restoration_available(project, run_id, data):
+            from core.planning_recovery import coordinated_repair_available, metadata_recovery_available, source_restoration_available
+            if metadata_recovery_available(project, run_id, data):
+                message = ('已保存的修订内容可在本地校正来源引用，不重新生成章节或追加修订调用。'
+                           '恢复后仍须核查完整大纲；核查和后续创作会产生模型用量。')
+                safe['recovery'] = {'retryable': True, 'action': 'repair_saved_metadata', 'reason': message}
+                safe['next_action'] = message
+            elif coordinated_repair_available(project, run_id, data):
+                message = ('新版支持协调修订全局与章节问题。恢复后复用已保存的全局设计和全部章节批次，'
+                           '执行一次有界协调修订并重新核查完整大纲；通过后继续正文，会产生模型用量。')
+                safe['recovery'] = {'retryable': True, 'action': 'repair_saved_design', 'reason': message}
+                safe['next_action'] = message
+            elif source_restoration_available(project, run_id, data):
                 message = ('新版支持按骨架补全遗漏。恢复后复用已保存章节，执行一次来源补全并完整核查；'
                            '通过后继续正文，会产生模型用量。')
                 safe['recovery'] = {'retryable': True, 'action': 'restore_source_omissions', 'reason': message}

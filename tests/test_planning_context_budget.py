@@ -221,8 +221,10 @@ def test_window_review_does_not_turn_a_blocker_into_a_pass(tmp_path, monkeypatch
     planner = make_planner(tmp_path, object(), count=2)
     candidate = {'chapters': [{'number': n, 'summary': f'Complete chapter {n}'} for n in (1, 2)]}
     monkeypatch.setattr(planner, '_review_fits', lambda instruction, context: 'review_window' in context)
-    monkeypatch.setattr(planner, '_call', lambda name, instruction, context, validate:
-                        validate(review(issue(number=2))))
+    def blocked_review(name, instruction, context, validate, *, strict_dependencies=False):
+        assert strict_dependencies is False  # Ordinary initial review keeps its existing cache policy.
+        return validate(review(issue(number=2)))
+    monkeypatch.setattr(planner, '_call', blocked_review)
     result = planner._semantic_review(candidate, 'review')
     assert result['status'] == 'blocked'
     assert result['issues'] == [issue(number=2)]

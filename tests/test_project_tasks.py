@@ -125,13 +125,21 @@ def test_exhausted_planning_correction_is_not_advertised_as_retryable(tmp_path):
     sidecar.write_text(json.dumps({'schema_version': 1, 'run_id': manifest.run_id, 'status': 'failed',
         'next_action': '需要检查保存的设计；不会自动重试。',
         'recovery': {'retryable': False, 'action': 'inspect_saved_design', 'reason': 'Needs a story choice'}}))
+    runtime_sidecar = path.parent / 'progress.json'
+    runtime_sidecar.write_text(json.dumps({'schema_version': 1, 'run_id': manifest.run_id,
+        'status': 'failed', 'phase': 'outline', 'next_action': '可从已验证的检查点恢复。'}))
+    before = {p: p.read_bytes() for p in (path, sidecar, runtime_sidecar)}
     client = _client(tmp_path)
     url = f'/api/projects/book/tasks/{manifest.run_id}'
     detail = client.get(url).json()
     assert detail['can_resume'] is False
     assert detail['planning']['recovery']['retryable'] is False
+    assert detail['resume_blocked_reason'] == detail['progress']['next_action'] == 'Needs a story choice'
     assert client.get('/api/projects/book').json()['task_can_resume'] is False
-    assert client.post(url + '/resume').status_code == 409
+    rejected = client.post(url + '/resume')
+    assert rejected.status_code == 409
+    assert rejected.json()['detail'] == detail['resume_blocked_reason']
+    assert all(p.read_bytes() == value for p, value in before.items())
     # A previous outline advisory cannot block a different current stage.
     manifest.current_phase = 'chapter.1'
     path.write_text(json.dumps(manifest.to_dict()))
@@ -156,6 +164,33 @@ def test_available_source_restoration_projects_explicit_recovery_without_writing
     assert '模型用量' in detail['planning']['next_action']
     assert client.get('/api/projects/book').json()['task_can_resume'] is True
     assert sidecar.read_bytes() == before
+
+
+def test_verified_coordinated_upgrade_projects_same_recovery_for_detail_and_cards(tmp_path):
+    from test_planning_recovery import seed_mixed
+    project, manifest, path = _seed(tmp_path, run_id='test-run')
+    manifest.current_phase = 'outline'
+    path.write_text(json.dumps(manifest.to_dict()))
+    planner = seed_mixed(project)
+    runtime_sidecar = path.parent / 'progress.json'
+    runtime_sidecar.write_text(json.dumps({'schema_version': 1, 'run_id': manifest.run_id,
+        'status': 'failed', 'phase': 'outline', 'next_action': '可从已验证的检查点恢复。'}))
+    before = {p: p.read_bytes() for p in project.rglob('*') if p.is_file()}
+    client = _client(tmp_path)
+    url = f'/api/projects/book/tasks/{manifest.run_id}'
+    detail = client.get(url).json()
+    assert detail['can_resume'] is True and detail['resume_blocked_reason'] is None
+    assert detail['planning']['recovery']['action'] == 'repair_saved_design'
+    assert '一次有界协调修订' in detail['progress']['next_action']
+    assert detail['progress']['next_action'] == detail['planning']['recovery']['reason']
+    assert client.get('/api/projects/book').json()['task_can_resume'] is True
+    assert all(p.read_bytes() == value for p, value in before.items())
+    # A terminal attempt consumes the upgrade even if the old progress survives.
+    planner._write_json(planner.cache / 'coordinated-repair-v1-plan-response.json', {})
+    detail = client.get(url).json()
+    assert detail['can_resume'] is False
+    assert detail['progress']['next_action'] == detail['resume_blocked_reason']
+    assert client.post(url + '/resume').json()['detail'] == detail['resume_blocked_reason']
 
 
 def test_duplicate_resume_uses_same_native_run_and_preserves_policy(tmp_path, monkeypatch):
