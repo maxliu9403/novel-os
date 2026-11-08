@@ -2,6 +2,8 @@
 
 ## 2026-11-08：通用源码换机部署整理，未重启服务
 
+最终全量恢复演练通过：源码新镜像禁网读取20作品/10讨论/2来源，SQLite完整性正常。Git bundle新目录克隆后42份Markdown哈希一致，四个Skills齐全。交付目录README与SHA256SUMS说明源码/完整数据/资料历史/网关源码与凭证的恢复顺序；先恢复再首次启动，不把历史包叠加到全量包。
+
 用户最终选择现有deploy.sh源码构建，不以镜像搬运为主路径。当前42项有效知识（1 Genre/41 Tags）和书名提示词逐字同步resources；冒险此前仅在运行工作区。私有资料包保留206历史版本和启用/草稿/修订状态。scripts/export_creation_library.py只读导出有效资料与全文；scripts/portable_data.py提供带SHA的稳定窗口快照、SQLite backup及拒绝覆盖/路径越界的恢复。sync_skills补齐第四个novel-corpus-study。Docker Python依赖采用当前运行版本requirements.lock，前端lock不变，构建包含scripts。
 
 94项相关回归、前端构建、完整源码Docker构建及禁网恢复检查通过（42项/206版本/4Skills/health200），无模型调用。新镜像portable-source-20261108仅验证未部署。原工作分支保持，建立codex/migration-baseline-20261108迁移基线与Git bundle；不切换/合并旧分支，不推送远端。文档docs/deployment/machine-transfer.md和docs/reports/2026-11-08-source-deployment-handoff.md。

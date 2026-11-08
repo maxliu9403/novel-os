@@ -32,7 +32,7 @@
 
    恢复前完整校验 SHA-256。目标目录必须不存在，防止覆盖已有数据。如果选择恢复完整 `docker-data`，不要再叠加恢复这个资料包：完整备份已经包含它。
 
-3. 创建 `.env`，根据 `.env.example` 配置本地端口和连接。若迁移已有模型设置，使用私有配置备份中的 `studio_settings.json` 与 `studio_settings.secrets.json`，放入 `docker-data/`。它们不提交 Git。
+3. 创建 `.env`，根据 `.env.example` 配置本地端口和连接。完整数据备份已包含 `studio_settings.json` 与 `studio_settings.secrets.json`；仅恢复资料库历史时，需要在设置页重新配置模型连接。单独的 `private-config.tar.gz` 保存两项目的 `.env` 和 Codex 配置/登录文件，不包含这两份模型设置文件。这些私有文件不提交 Git。
 
 4. 当前 Compose 挂载 Codex 登录文件。运行 `codex login`，确认 `~/.codex/auth.json` 存在；没有自定义配置时可创建空 `~/.codex/config.toml`。也可通过 `.env` 的 `NOVEL_OS_CODEX_AUTH_FILE`、`NOVEL_OS_CODEX_CONFIG_FILE` 指向迁移的私有文件。登录状态可能失效，失效时重新登录。
 
@@ -54,13 +54,14 @@
 ```bash
 python3 Novel-OS/scripts/portable_data.py restore /你的交付目录/gateway-source.tar.gz ./gemini-web2api-go
 cd gemini-web2api-go
-# 按网关文档配置 .env 中的 ADMIN_TOKEN，在管理页登录账号/配置 API Key。
-docker compose up -d --build
+# 按网关文档配置 .env 中的 ADMIN_TOKEN，或使用私有备份中的 gateway.env。
+docker compose build gemini-web2api
 ```
 
 Novel OS 容器连接本机网关使用 `http://host.docker.internal:8083/v1`。
 如需保留网关账号、Cookie、运行参数，恢复单独的 `gateway-data.tar.gz`；该文件含敏感数据。
 它采用 SQLite backup API，不能用随手复制一个正在写入的 `.db` 文件替代。
+需要恢复账号数据时，先执行下面的恢复步骤，再首次启动网关。选择全新账号配置时，直接执行 `docker compose up -d`，然后在管理页登录账号、配置 API Key。
 
 恢复网关数据时，先启动过的网关必须停止，且目标是空的新卷。下面只对**新电脑**执行：
 
@@ -71,10 +72,13 @@ python3 ../Novel-OS/scripts/portable_data.py restore /你的交付目录/gateway
 docker compose create gemini-web2api
 GW_VOLUME="$(docker inspect gemini-web2api --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}')"
 test -n "$GW_VOLUME"
+# Novel OS 已完成源码构建；取实际镜像 ID，不依赖项目目录命名。
+NOVEL_BACKEND_IMAGE="$(docker compose --project-directory ../Novel-OS images -q backend)"
+test -n "$NOVEL_BACKEND_IMAGE"
 docker run --rm --network none --user 0 \
   --mount "type=volume,source=$GW_VOLUME,target=/target" \
   --mount "type=bind,source=$PWD/gateway-restore,target=/source,readonly" \
-  --entrypoint python novel-os-backend:latest -c '
+  --entrypoint python "$NOVEL_BACKEND_IMAGE" -c '
 from pathlib import Path
 import os, shutil
 dst = Path("/target")
