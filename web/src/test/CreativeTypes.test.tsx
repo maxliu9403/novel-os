@@ -201,7 +201,7 @@ test("historical version can be enabled without changing its saved text", async 
   );
 });
 
-test("only associated tags are offered; changing genre clears incompatible tags", async () => {
+test("channel tags are offered independently; changing Genre keeps selected tags", async () => {
   const horror = typeRecord("genre.horror", "恐怖");
   const tag = typeRecord("tag.dread", "恐惧");
   tag.document!.genre_ids = ["genre.horror"];
@@ -217,7 +217,7 @@ test("only associated tags are offered; changing genre clears incompatible tags"
     const [refs, setRefs] = useState<CreativeTypeRef[]>([]);
     return (
       <>
-        <CreativeTypePicker refs={refs} onChange={(_, r) => setRefs(r)} />
+        <CreativeTypePicker channel="female" refs={refs} onChange={(_, r) => setRefs(r)} />
         <output data-testid="selection">{JSON.stringify(refs)}</output>
       </>
     );
@@ -229,14 +229,14 @@ test("only associated tags are offered; changing genre clears incompatible tags"
   );
   await userEvent.click(await screen.findByRole("radio", { name: "Romance" }));
   expect(
-    screen.queryByRole("button", { name: "恐惧" }),
-  ).not.toBeInTheDocument();
+    screen.getByRole("button", { name: "恐惧" }),
+  ).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "背叛" }));
   expect(screen.getByTestId("selection")).toHaveTextContent("tag.betrayal");
   await userEvent.click(screen.getByRole("radio", { name: "恐怖" }));
   expect(screen.getByTestId("selection")).toHaveTextContent("tag.betrayal");
-  await userEvent.click(screen.getByRole("button", { name: "确认更换" }));
-  expect(screen.getByTestId("selection")).not.toHaveTextContent("tag.betrayal");
+  expect(screen.queryByRole("button", { name: "确认更换" })).not.toBeInTheDocument();
+  expect(screen.getByTestId("selection")).toHaveTextContent("tag.betrayal");
   expect(screen.getByRole("button", { name: "恐惧" })).toBeInTheDocument();
 });
 

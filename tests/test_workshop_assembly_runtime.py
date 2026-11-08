@@ -9,6 +9,7 @@ from api.workshop_assembly import ASSEMBLY_PARTS
 from api.workshop_checkpoints import load_checkpoint
 from test_workshop_api import client, complete_prompt, create, finish  # noqa: F401
 from test_workshop_contract_repair import stub_model, submit
+from test_story_first_engine import freeze_legacy_policy
 from workshop_assembly_fixtures import parts_from_prompt
 from workshop_delivery_fixtures import stage_response, chapter_plan
 
@@ -36,6 +37,7 @@ def test_partial_assembly_timeout_and_resume_never_repeat_saved_parts(client, mo
 
     calls = stub_model(monkeypatch, interrupted)
     data = create(client, premise="不能丢失的初始决定")
+    freeze_legacy_policy(tmp_path, data["id"])
     submit(client, data, "接受推荐，完整交付")
     failed = finish(client, data["id"])
     assert failed["status"] == "error" and len(calls) == 5
@@ -88,6 +90,7 @@ def test_final_validation_repairs_only_one_part_and_preserves_revision_history(c
 
     calls = stub_model(monkeypatch, respond)
     data = create(client)
+    freeze_legacy_policy(tmp_path, data["id"])
     submit(client, data, "交付骨架")
     current = finish(client, data["id"])
     assert len(calls) == 9

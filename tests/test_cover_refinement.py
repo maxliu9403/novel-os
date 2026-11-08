@@ -141,7 +141,8 @@ def test_refinement_edits_exact_original_once_and_preserves_batch_siblings_and_s
     assert len(images.calls) == 1 and not images.generate_calls
     assert images.calls[0]["data"] == files[parent.candidates[0].relative_path]
     assert images.calls[0]["sha256"] == parent.candidates[0].sha256
-    assert images.calls[0]["prompt"].startswith("Edit the supplied reference image")
+    assert images.calls[0]["prompt"].startswith("Edit this reference into one novel-cover image")
+    assert PROMPT in images.calls[0]["prompt"]
     child = flow.store.load(done["cover_set_id"])
     assert child.cover_set_id != parent.cover_set_id and not child.selected_candidate_id
     assert child.candidates[1:] == parent.candidates[1:]
@@ -373,7 +374,7 @@ def test_refinement_http_routes_bind_prompt_and_allow_get_only_recovery(refineme
 
 
 @pytest.mark.parametrize("owner", ["project", "workshop"])
-@pytest.mark.parametrize("prompt", ["", "   \n", "x" * 2001, 42])
+@pytest.mark.parametrize("prompt", ["", "   \n", "x" * 5001, 42])
 def test_refinement_http_rejects_blank_invalid_or_excessive_prompts_before_dispatch(refinement, tmp_path, monkeypatch, owner, prompt):
     from api import cover_workbench
     from tests.test_cover_api import _client

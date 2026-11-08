@@ -38,21 +38,35 @@ def create(client, **fields):
         identifiers=['genre.test_world']+[f'tag.test_{n}' for n in range(max(1,len(names)-1))]
         refs=[]
         source=CreativeTypeStore(Path('/unused-fixture')).get('genre.romance')['draft']
-        _,head,body=source.split('---',2)
+        from core.audience_guidance import parse_audience_guidance, replace_audience_guidance
+        module = parse_audience_guidance(source)
+        _,head,body=module.original.split('---',2)
+        available = client.get('/api/creative-types').json()['items']
         for n,identifier in enumerate(identifiers):
-            header=yaml.safe_load(head);header.update(id=identifier,kind='genre' if n==0 else 'tag',name=names[n] if n<len(names) else 'Story Choice',aliases=[])
+            name = names[n] if n < len(names) else 'Story Choice'
+            kind = 'genre' if n == 0 else 'tag'
+            existing = next((row for row in available if row['kind'] == kind
+                             and name.casefold() in {s.casefold() for s in [row['name'], *row['aliases']]}), None)
+            if existing:
+                refs.append({'id':existing['id'], 'version':existing['active_version'],
+                             'source_sha256':existing['source_sha256']})
+                continue
+            header=yaml.safe_load(head);header.update(id=identifier,kind=kind,name=name,aliases=[])
             header.pop('publication',None)
             if n:
                 header['genre_ids']=[identifiers[0]]
                 if header.get('schema') == 'novel-knowledge.v2':
                     header['roles']=['conflict']
             md='---\n'+yaml.safe_dump(header,allow_unicode=True,sort_keys=False)+'---'+body
+            md=replace_audience_guidance(md, ['female'], {'female': module.guides['female']})
             saved=client.post('/api/creative-types',json={'markdown':md,'operation_id':f'create-test-{identifier.replace(".", "-")}'}).json()
             if 'id' not in saved:saved=client.get('/api/creative-types/'+identifier).json()
-            active=client.post('/api/creative-types/'+identifier+'/activate',json={'markdown':md,'revision':saved['revision'],'operation_id':f'activate-test-{identifier.replace(".", "-")}'}).json()
+            response=client.post('/api/creative-types/'+identifier+'/activate',json={'markdown':md,'revision':saved['revision'],'operation_id':f'activate-test-{identifier.replace(".", "-")}'})
+            assert response.status_code == 200, response.text
+            active=response.json()
             refs.append({'id':identifier,'version':active['active_version'],'source_sha256':active['versions'][-1]['sha256']})
         fields['creative_types']=refs
-    response = client.post("/api/workshop/sessions", json={"title": "A Mother's Choice", "creative_types": [r.model_dump() for r in default_refs()], **fields})
+    response = client.post("/api/workshop/sessions", json={"title": "A Mother's Choice", "audience_channel": "female", "creative_types": [r.model_dump() for r in default_refs()], **fields})
     assert response.status_code == 201
     return response.json()
 
@@ -92,7 +106,8 @@ def complete_prompt(tmp_path):
             content = "COVER_HANDOFF_BEGIN\n" + json.dumps(two_character_fixture()) + "\nCOVER_HANDOFF_END"
         body += f"\n## {i}. {title}\n\n{content}\n"
     store=CreativeTypeStore(Path('/unused-fixture'))
-    return bind_classification(body,{'publication_taxonomy':store.snapshot(default_refs())['publication_taxonomy']})
+    return bind_classification(body,{'publication_taxonomy':store.snapshot(default_refs())['publication_taxonomy'],
+                                     'audience_channel': 'female'})
 
 
 def ready(client, monkeypatch, tmp_path, **fields):
@@ -477,8 +492,8 @@ def test_session_list_is_scoped_to_workspace_and_does_not_create_empty_store(cli
     root = tmp_path / "projects"
     first_service = ProjectService(root, SimpleNamespace(id="workspace-a", slug="workspace-a"))
     second_service = ProjectService(root, SimpleNamespace(id="workspace-b", slug="workspace-b"))
-    first = workshop.WorkshopService(first_service).create(workshop.SessionInput(creative_types=default_refs(), title="A private story"))
-    second = workshop.WorkshopService(second_service).create(workshop.SessionInput(creative_types=default_refs(), title="B private story"))
+    first = workshop.WorkshopService(first_service).create(workshop.SessionInput(audience_channel='female', creative_types=default_refs(), title="A private story"))
+    second = workshop.WorkshopService(second_service).create(workshop.SessionInput(audience_channel='female', creative_types=default_refs(), title="B private story"))
     assert [row["id"] for row in client.get("/api/workshop/sessions").json()["sessions"]] == [default["id"]]
     default_service = ProjectService(root, SimpleNamespace(id="default", slug="default"))
     client.app.dependency_overrides[workshop.get_service] = lambda: default_service

@@ -48,3 +48,23 @@ Badboy 提供外在魅力时仍需说明价值选择；Heir/Heirness 让拒绝�
 ## 七、简介与封面
 
 简介突出被安排的人生与主角即将作出的违背期待的选择；封面可表达越出既定位置或与重要人物对峙，不固定破坏性动作。
+
+<!-- novel-os:audience-guidance:start -->
+## 频道写作指导
+
+```yaml
+schema: audience-guidance.v1
+audience_channels:
+- female
+original_sha256: ed22d66bdeadb9b681f561e63b8a36243d1c1317fb3aee0d4e1f2b2ad5eab63c
+original_bytes: 2727
+```
+
+### 女频写作指导
+
+本频道面向女性读者的情绪投入；不据此替作者指定主角性别、年龄、性向、叙事视角或结局。
+
+写清她拒绝什么规则、守住什么价值，以及反抗怎样影响想保护的人。叛逆可以来自温和而坚定的拒绝或大胆越界，不只换衣着口吻；让自由有真实收益与代价，而非为反抗而反抗。
+
+头脑风暴用此方法解释本书的选择、代价与回报，采用后贯穿骨架、正文及简介；组合只针对作者实际选中的标签，不把例子或节拍当固定剧情。
+<!-- novel-os:audience-guidance:end -->

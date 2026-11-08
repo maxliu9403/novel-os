@@ -33,13 +33,16 @@ def read_task_manifest(project: Path, run_id: str) -> dict:
     return data
 
 
-def latest_task_manifest(project: Path) -> dict | None:
+def latest_task_manifest(project: Path, *, strict: bool = False) -> dict | None:
+    """Select a production run; strict provenance readers must not skip corruption."""
     candidates = []
     oldest = datetime.min.replace(tzinfo=timezone.utc)
     for path in (project / "outputs" / "runs").glob("*/run.json"):
         try:
             data = read_task_manifest(project, path.parent.name)
         except (OSError, ValueError):
+            if strict:
+                raise ValueError("Cannot establish latest task from an unreadable run record")
             continue
         if data["spec"].get("dry_run"):
             continue

@@ -48,3 +48,23 @@ Betrayal 提供信任被利用的伤口；Mystery 要保留公平线索；Comedy
 ## 七、简介与封面
 
 简介抓一个最有后果的矛盾，不列一串惊天秘密；封面可用多人层次和视线关系传递冲突，但人物数量服从本书权重。
+
+<!-- novel-os:audience-guidance:start -->
+## 频道写作指导
+
+```yaml
+schema: audience-guidance.v1
+audience_channels:
+- female
+original_sha256: b2eba3dcfb32ec3eaa232cf7c7fcd44d122e7d8aa53e1bebb3fba2bef4ad31a4
+original_bytes: 2843
+```
+
+### 女频写作指导
+
+本频道面向女性读者的情绪投入；不据此替作者指定主角性别、年龄、性向、叙事视角或结局。
+
+从人物珍视的关系与互不相容的目标设计爆发，让公开或私密冲突改变下一步选择。情绪可以强烈、复杂和反复，但每次波动有新的认识或筹码；不用连续事故取代人物主动行动。
+
+头脑风暴用此方法解释本书的选择、代价与回报，采用后贯穿骨架、正文及简介；组合只针对作者实际选中的标签，不把例子或节拍当固定剧情。
+<!-- novel-os:audience-guidance:end -->

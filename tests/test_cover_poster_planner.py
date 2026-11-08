@@ -14,6 +14,7 @@ from core.cover_poster_planner import (
     PosterPlanningError, normalize_poster_plan, plan_poster, poster_storage_objects,
 )
 from core.cover_sources import CoverSourceContext, CoverSourceSelector, capture_source
+from core.author_requirements import AuthorRequirementConflict, build_requirements
 
 
 @pytest.fixture
@@ -71,6 +72,81 @@ class Model:
         if isinstance(value, Exception):
             raise value
         return value
+
+
+def audience_snapshot(tmp_path, channel):
+    from core.creative_types import CreativeTypeStore
+    from tests.test_audience_knowledge import install
+    from tests.test_creative_types import ref
+
+    store = CreativeTypeStore(tmp_path / "poster-knowledge")
+    genre = install(store, "genre", "poster")
+    tag = install(store, "tag", "poster", genre_ids=[genre["id"]])
+    return store.snapshot([ref(genre), ref(tag)], audience_channel=channel)
+
+
+@pytest.mark.parametrize("channel", ["male", "female"])
+def test_verified_channel_reaches_all_images_without_changing_cast(poster_source, metadata, tmp_path, channel):
+    snapshot = audience_snapshot(tmp_path, channel)
+    model = Model()
+    # Free metadata cannot override the frozen selected channel, even when the
+    # title/audience prose and the protagonist's gender suggest something else.
+    metadata["audience_channel"] = "female" if channel == "male" else "male"
+    saved = plan_poster(poster_source, metadata, {"notes": "Keep her mature appearance."}, model,
+                        knowledge_snapshot=snapshot)
+    assert saved["metadata"]["audience_channel"] == channel
+    assert saved["knowledge_sha256"] == snapshot["snapshot_sha256"]
+    assert model.calls[0][1]["metadata"]["audience_channel"] == channel
+    assert model.calls[0][1]["genre_context"]["audience_channel"] == channel
+    assert saved["story"]["cast"] == response()["story"]["cast"]
+    _, concepts = poster_storage_objects(saved)
+    for concept in concepts:
+        assert f"READER CHANNEL: {channel}." in concept.generation_prompt
+        assert "not protagonist gender, orientation or POV" in concept.generation_prompt
+        assert "Keep her mature appearance." in concept.generation_prompt
+        assert concept.scene_plan["metadata"]["audience_channel"] == channel
+
+
+@pytest.mark.parametrize("has_legacy_snapshot", [False, True])
+def test_legacy_plan_does_not_infer_channel(poster_source, metadata, tmp_path, has_legacy_snapshot):
+    snapshot = audience_snapshot(tmp_path, None) if has_legacy_snapshot else None
+    metadata["audience_channel"] = "female"
+    saved = plan_poster(poster_source, metadata, {}, Model(), knowledge_snapshot=snapshot)
+    assert "audience_channel" not in saved["metadata"]
+    _, concepts = poster_storage_objects(saved)
+    assert all("READER CHANNEL:" not in item.generation_prompt for item in concepts)
+
+
+@pytest.mark.parametrize("channel", ["general", "unknown", "", None, [], {}])
+def test_plan_rejects_invalid_present_channel(poster_source, metadata, channel):
+    saved = plan_poster(poster_source, metadata, {}, Model())
+    saved["metadata"]["audience_channel"] = channel
+    with pytest.raises(PosterPlanningError, match="audience_channel"):
+        normalize_poster_plan(saved)
+
+
+def test_author_requirements_survive_format_correction_and_every_final_image(poster_source, metadata):
+    requirements = build_requirements("cover_design", [
+        {"id": "a", "text": "Retain mature ages and warm light."},
+        {"id": "b", "text": "Move the mother to the center, not the edge."},
+    ], source_sha256=poster_source.source_content_sha256)
+    model = Model("invalid JSON", json.dumps(response()))
+    plan = plan_poster(poster_source, metadata, {"notes": "Move the mother to the center, not the edge."}, model,
+                       author_requirements=requirements)
+    assert model.calls[0][1]["author_requirements"] == model.calls[1][1]["author_requirements"]
+    assert plan["author_requirements"] == requirements
+    _, concepts = poster_storage_objects(plan)
+    for concept in concepts:
+        assert "Retain mature ages and warm light." in concept.generation_prompt
+        assert "Move the mother to the center, not the edge." in concept.generation_prompt
+        assert concept.scene_plan["_author_requirements"] == requirements
+
+
+def test_author_conflict_stops_without_an_extra_format_call(poster_source, metadata):
+    model = Model(json.dumps({"request_conflicts": ["将成年儿子改成恋人会改变已确认人物关系"]}))
+    with pytest.raises(AuthorRequirementConflict, match="人物关系"):
+        plan_poster(poster_source, metadata, {"notes": "Change the mother-son relationship into lovers."}, model)
+    assert len(model.calls) == 1
 
 
 def test_complete_primary_and_explicit_attachment_are_read_once_in_one_call(poster_source, metadata):

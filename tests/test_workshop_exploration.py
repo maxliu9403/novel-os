@@ -4,6 +4,7 @@ import json
 from api import workshop
 from test_workshop_api import client, create, finish, model_result, ready  # noqa: F401
 from test_workshop_contract_repair import stub_model, submit
+from test_story_first_engine import freeze_legacy_policy
 
 
 def test_sparse_brief_can_explore_without_questions_or_complete_export(client, monkeypatch):
@@ -42,6 +43,8 @@ def test_sparse_brief_can_explore_without_questions_or_complete_export(client, m
 def test_exploration_keeps_last_export_until_selected_revision_is_complete(client, monkeypatch, tmp_path):
     real_complete = workshop._complete
     data = ready(client, monkeypatch, tmp_path)
+    # This existing full-document fixture exercises legacy revision, not story-first assembly.
+    freeze_legacy_policy(tmp_path, data["id"])
     previous = data["prompt_md"]
     monkeypatch.setattr(workshop, "_complete", real_complete)
     proposed_reply = "### 中段新方向\n\n女儿希望离开，母亲希望保住房子；这次分歧改变两人的行动顺序。"

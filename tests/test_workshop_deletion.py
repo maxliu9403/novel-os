@@ -94,7 +94,7 @@ def test_deletion_respects_workspace_and_rejects_symlinks(client, tmp_path):
     data = create(client)
     service = workshop.WorkshopService(ProjectService(tmp_path / "projects",
         SimpleNamespace(id="other-workspace", slug="other-workspace")))
-    other = service.create(workshop.SessionInput(creative_types=default_refs()))
+    other = service.create(workshop.SessionInput(audience_channel='female', creative_types=default_refs()))
     assert client.delete(f'/api/workshop/sessions/{other["id"]}', params={"revision": 0}).status_code == 404
     assert service.get(other["id"])["status"] == "draft"
     alias = "b" * 32

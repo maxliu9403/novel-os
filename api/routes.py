@@ -1866,6 +1866,37 @@ def rebuild_delivery_package(
     return {"delivery": status}
 
 
+def _creative_basis(project_id: str, svc: ProjectService) -> dict:
+    from .project_creative_basis import CreativeBasisError, creative_basis
+    from .project_task_summary import latest_task_manifest
+    try:
+        project = svc._project_dir(project_id)
+        try:
+            manifest = latest_task_manifest(project, strict=True)
+        except ValueError as exc:
+            raise CreativeBasisError("创作任务记录无法完整读取；未回退展示其他任务的创作依据。") from exc
+        return creative_basis(project, project_id, manifest)
+    except ProjectNotFound as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    except CreativeBasisError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/projects/{project_id}/creative-basis")
+def project_creative_basis(project_id: str, response: Response, svc: ProjectService = Depends(get_service)):
+    response.headers["Cache-Control"] = "no-store"
+    return _creative_basis(project_id, svc)
+
+
+@router.get("/projects/{project_id}/creative-basis/markdown")
+def project_creative_basis_markdown(project_id: str, svc: ProjectService = Depends(get_service)):
+    from .project_creative_basis import creative_basis_markdown
+    report = _creative_basis(project_id, svc)
+    return Response(creative_basis_markdown(report), media_type="text/markdown; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(project_id + '-creative-basis.md')}",
+                             "Cache-Control": "no-store"})
+
+
 @router.get("/projects/{project_id}", response_model=ProjectDetail)
 def project_detail(project_id: str, svc: ProjectService = Depends(get_service)):
     try:

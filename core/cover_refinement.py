@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 from .cover_sources import _safe_path
 from .cover_store import CoverConflict
 from .image_binary import aspect_ratio_matches, content_type, dimensions
+from .author_requirements import build_requirements, prompt_requirements, validate_requirements
 
-MAX_REFINEMENT_PROMPT = 2000
+MAX_REFINEMENT_PROMPT = 5000
 MAX_REFERENCE_BYTES = 40 * 1024 * 1024
 
 
@@ -16,7 +18,7 @@ def normalize_refinement_prompt(value):
     if value is None:
         return None
     if not isinstance(value, str) or not value.strip() or len(value) > MAX_REFINEMENT_PROMPT:
-        raise ValueError("请填写 1–2000 字的封面优化要求。")
+        raise ValueError(f"请填写 1–{MAX_REFINEMENT_PROMPT} 字的封面优化要求。")
     return value.strip()
 
 
@@ -63,8 +65,8 @@ def reference_for_candidate(project, candidate, concept):
 
 
 def edit_prompt(approved_prompt: str) -> str:
-    # Raw user requests pass through the reviewed direction first. They are not
-    # forwarded as a second, potentially conflicting image-generation recipe.
+    # Frozen schema-1 approvals retain their exact request on retry. New
+    # approvals use bound_edit_prompt so the author's words reach the editor.
     return (
         "Edit the supplied reference image into the approved novel cover artwork below. "
         "This is a refinement of that existing image, not an unrelated new image. "
@@ -73,4 +75,34 @@ def edit_prompt(approved_prompt: str) -> str:
         "The source-verified approved plan governs any conflict with the reference image. "
         "Follow its exact title policy; a text-free artwork must remain text-free for later title composition. "
         "Produce exactly one final edited image.\n\nAPPROVED COVER PLAN:\n" + approved_prompt
+    )
+
+
+def refinement_requirements(scene_plan: dict, prompt: str, *, source_sha256: str = "") -> dict:
+    prior = scene_plan.get("_poster_refinement") or scene_plan.get("_image_refinement") or {}
+    snapshot = prior.get("author_requirements") or scene_plan.get("_author_requirements")
+    entries = []
+    if snapshot is not None:
+        entries = validate_requirements(snapshot, source_sha256=source_sha256)["entries"]
+    elif prior.get("prompt"):
+        entries = [{"id": "prior-refinement", "text": prior["prompt"], "source": "saved_refinement"}]
+    entries.append({"id": f"refinement-{len(entries) + 1}", "text": prompt, "source": "author_refinement"})
+    return build_requirements("cover_refinement", entries, source_sha256=source_sha256)
+
+
+def bound_edit_prompt(approved_prompt: str, metadata: dict) -> str:
+    if metadata.get("schema_version") == 1:
+        return edit_prompt(approved_prompt)
+    if metadata.get("schema_version") != 2:
+        raise CoverConflict("精修请求版本无效。")
+    requirements = validate_requirements(metadata.get("author_requirements"), scope="cover_refinement")
+    if not requirements["entries"] or requirements["entries"][-1]["text"] != metadata.get("prompt"):
+        raise CoverConflict("精修要求与保存的作者补充不一致。")
+    return (
+        "Edit this reference into one novel-cover image. The approved plan is a realization of the "
+        "author's request, not authority to ignore that request. Preserve unspecified visual elements; "
+        "explicit changes override old pose, composition, palette and styling. Preserve story identities, "
+        "ages, core relationships and the plan's exact title/text-free policy; art edits cannot rewrite canon.\n"
+        "AUTHOR REQUIREMENTS:\n" + json.dumps(prompt_requirements(requirements), ensure_ascii=False)
+        + "\nAPPROVED VISUAL REALIZATION:\n" + approved_prompt
     )

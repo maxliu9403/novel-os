@@ -46,6 +46,7 @@ export interface PosterSet extends Omit<CoverSet, "candidates"> {
   repair_lineage?: {parent_cover_set_id?: string; parent_candidate_id?: string; target_concept_id?: string; operation?: string};
 }
 export interface PosterOverview {
+  preferences?: Partial<PosterPreferences>;
   reference?: PosterReference | null;
   enabled: boolean; title: string;
   source: {bytes: number; sha256: string; preview: string; path?: string; error?: string};

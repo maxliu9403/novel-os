@@ -21,7 +21,7 @@ from api.poster_image_service import PosterImageService
 from core.cover_store import CoverStore
 from core.image_client import GeneratedImage, ImageClientError
 from tests.test_cover_api import _client
-from tests.test_cover_poster_planner import response as planning_response
+from tests.test_cover_poster_planner import audience_snapshot, response as planning_response
 from tests.test_cover_epub import book_fixture, embedded_cover
 from compile_epub import render_epub
 from styles import StyleSheet
@@ -134,6 +134,28 @@ def plan(studio, request_id="plan-request-01"):
     return next(item for item in overview(studio)["plans"] if item["plan_id"] == task["result"]["plan_id"])
 
 
+def test_replan_and_reload_preserve_author_requests_and_scalar_preferences(studio):
+    first = studio.client.post(studio.base + "/plans", json={"request_id": "preferences-first", "preferences": {
+        "market": "North America", "notes": "Keep her mature appearance; use warm light."}})
+    assert first.status_code == 202, first.text
+    assert wait_task(studio, first.json()["task_id"])["status"] == "complete"
+    assert overview(studio)["preferences"]["market"] == "North America"
+    second = studio.client.post(studio.base + "/plans", json={"request_id": "preferences-second", "preferences": {
+        "notes": "Move her to the center; replace warm light with cold moonlight."}})
+    assert second.status_code == 202, second.text
+    assert wait_task(studio, second.json()["task_id"])["status"] == "complete"
+    refreshed = overview(studio)
+    assert len(studio.planner.calls) == 2
+    assert refreshed["preferences"] == {"market": "North America",
+        "notes": "Move her to the center; replace warm light with cold moonlight."}
+    request = studio.planner.calls[-1][1]
+    assert request["metadata"]["market_scope"] == "North America"
+    assert "Keep her mature appearance" in json.dumps(request["author_requirements"])
+    assert "cold moonlight" in json.dumps(request["author_requirements"])
+    assert "preferences" not in request  # The same notes are not transmitted twice.
+    assert len(refreshed["plans"][0]["author_requirements"]["entries"]) == 2
+
+
 def generate(studio, saved_plan=None, request_id="batch-request-01"):
     saved_plan = saved_plan or plan(studio)
     body = {"request_id": request_id, "plan_id": saved_plan["plan_id"], "plan_hash": saved_plan["plan_hash"]}
@@ -177,8 +199,14 @@ def test_full_source_one_call_private_checkpoint_and_immutable_plan_edit(studio)
     _, concepts = poster_storage_objects(edited.json())
     assert directions[1]["composition"] in concepts[1].generation_prompt
     assert saved["directions"][1]["image_prompt"] not in concepts[1].generation_prompt
+    ledger = edited.json()["author_requirements"]
+    assert json.loads(ledger["entries"][-1]["text"])["author_direction_edits"][0]["direction_id"] == "direction_02"
+    assert "Current direction ID: direction_02" in concepts[1].generation_prompt
     stale = studio.client.patch(studio.base + f"/plans/{saved['plan_id']}", json={"expected_hash": saved["plan_hash"], "directions": saved["directions"]})
     assert stale.status_code == 409, stale.text
+    plan(studio, request_id="replan-after-author-edit")
+    request = studio.planner.calls[-1][1]
+    assert directions[1]["composition"] in json.dumps(request["author_requirements"])
 
 
 def test_generate_select_and_zip_references_exact_completed_cover(studio):
@@ -403,13 +431,17 @@ def test_partial_failure_retries_only_requested_slot_and_keeps_siblings(studio):
         assert child["candidates"][index]["candidate_id"] == first["candidates"][index]["candidate_id"]
 
 
-def test_refinement_failure_preserves_prompt_parent_and_selection_then_retries_one_edit(studio):
+@pytest.mark.parametrize("channel", [None, "male", "female"])
+def test_refinement_failure_preserves_prompt_parent_and_selection_then_retries_one_edit(studio, tmp_path, channel):
+    if channel is not None:
+        snapshot = audience_snapshot(tmp_path, channel)
+        (studio.project / "outputs/input/knowledge.json").write_text(json.dumps(snapshot))
     _, first = generate(studio)
     candidate = first["candidates"][1]
     assert select(studio, first, candidate).status_code == 200
     parent_bytes = CoverStore(studio.project)._set_path(first["cover_set_id"]).read_bytes()
     studio.images.failed_calls = {5}
-    prompt = "Warm the mother's face while keeping her mature age and family relationships."
+    prompt = "Move the mother to the center while keeping her mature age and family relationships."
     url = studio.base + f"/sets/{first['cover_set_id']}/candidates/{candidate['candidate_id']}/refine"
     started = studio.client.post(url, json={"request_id": "refine-request-01", "prompt": prompt, "keep_composition": True})
     assert started.status_code == 202, started.text
@@ -426,8 +458,50 @@ def test_refinement_failure_preserves_prompt_parent_and_selection_then_retries_o
     done = wait_task(studio, retry.json()["task_id"])
     assert done["status"] == "complete", done
     assert [operation for operation, _ in studio.images.calls] == ["generate"] * 4 + ["edit", "edit"]
+    assert studio.images.calls[-1][1] == studio.images.calls[-2][1]
+    assert prompt in studio.images.calls[-1][1]
+    assert "default must yield to explicit changes" in studio.images.calls[-1][1]
+    for _, image_prompt in studio.images.calls:
+        if channel is not None:
+            assert f"READER CHANNEL: {channel}." in image_prompt
+            assert "not protagonist gender, orientation or POV" in image_prompt
+        else:
+            assert "READER CHANNEL:" not in image_prompt
     assert len(studio.planner.calls) == 1
     assert overview(studio)["selected_candidate_id"] == candidate["candidate_id"]
+
+
+def test_direction_edit_keeps_frozen_channel_and_rejects_metadata_change(studio, tmp_path):
+    snapshot = audience_snapshot(tmp_path, "male")
+    (studio.project / "outputs/input/knowledge.json").write_text(json.dumps(snapshot))
+    saved = plan(studio)
+    url = studio.base + f"/plans/{saved['plan_id']}"
+    body = {"expected_hash": saved["plan_hash"], "directions": deepcopy(saved["directions"])}
+    forbidden = studio.client.patch(url, json={**body, "metadata": {**saved["metadata"], "audience_channel": "female"}})
+    assert forbidden.status_code == 422, forbidden.text
+    assert overview(studio)["plans"][0]["metadata"]["audience_channel"] == "male"
+    body["directions"][0]["composition"] = "Mother and adult son face each other across a table."
+    edited = studio.client.patch(url, json=body)
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["metadata"] == saved["metadata"]
+    assert edited.json()["knowledge_sha256"] == snapshot["snapshot_sha256"]
+    task, _ = generate(studio, edited.json())
+    assert task["status"] == "complete", task
+    assert all("READER CHANNEL: male." in prompt for _, prompt in studio.images.calls)
+
+
+def test_refine_accepts_full_ui_limit_without_truncation(studio):
+    _, first = generate(studio)
+    candidate = first["candidates"][0]
+    url = studio.base + f"/sets/{first['cover_set_id']}/candidates/{candidate['candidate_id']}/refine"
+    prompt = "留" * 4990 + "保留末尾完整要求文本"
+    assert len(prompt) == 5000
+    started = studio.client.post(url, json={"request_id": "long-refinement-01", "prompt": prompt})
+    assert started.status_code == 202, started.text
+    assert wait_task(studio, started.json()["task_id"])["status"] == "complete"
+    assert prompt in studio.images.calls[-1][1]
+    invalid = studio.client.post(url, json={"request_id": "long-refinement-02", "prompt": prompt + "超"})
+    assert invalid.status_code == 422 and len(studio.images.calls) == 5
 
 
 def test_typography_preview_and_save_are_local_new_versions(studio):

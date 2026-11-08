@@ -1,5 +1,6 @@
 """Diagnostic metadata remains durable, private and independent of workshop state."""
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 import stat
 import subprocess
@@ -206,7 +207,8 @@ def test_format_retries_log_categories_and_request_attempts(tmp_path, monkeypatc
 
 def test_title_worker_logs_retry_without_changing_naming_context(client, monkeypatch, tmp_path):
     data = ready(client, monkeypatch, tmp_path)
-    candidates = [{"title": title, "reason": "PRIVATE title reason"} for title in ("One", "Two", "Three")]
+    candidates = [{"title": title, "angle": "PRIVATE title angle", "reason": "PRIVATE title reason",
+                   "source_ids": ["story"]} for title in ("One", "Two", "Three", "Four", "Five")]
     calls = fake_model(monkeypatch, lambda attempt, _: "PRIVATE invalid title output" if attempt == 1
                        else json.dumps({"candidates": candidates}))
     instructions = "PRIVATE naming instructions"
@@ -220,10 +222,16 @@ def test_title_worker_logs_retry_without_changing_naming_context(client, monkeyp
     assert result["messages"] == data["messages"]
     assert result["naming"]["candidates"] == candidates
     context = json.loads(calls[0][2])
-    assert context["confirmed_skeleton"] == result["prompt_md"]
-    assert context["author_brief"] == data["input"]
-    assert context["naming_history"][-1]["instructions"] == instructions
-    assert context["naming_history"][-1]["current_title"] == "PRIVATE current title"
+    saved_context = result["naming"]["requests"][-1]["title_context"]
+    assert context == saved_context["context"]
+    assert saved_context["source_sha256"] == hashlib.sha256(result["prompt_md"].encode()).hexdigest()
+    assert context["sources"]
+    assert "confirmed_skeleton" not in context and "author_brief" not in context
+    assert context["author_requests"][-1]["instructions"] == instructions
+    assert context["author_requests"][-1]["current_title"] == "PRIVATE current title"
+    retry_context = json.loads(calls[1][2])
+    assert retry_context.pop("format_correction")
+    assert retry_context == context
     path = tmp_path / "workshop_v2" / data["id"] / "diagnostics" / f'{data["revision"] + 1}-titles.jsonl'
     rows = records(path)
     assert {row["operation"] for row in rows} == {"titles"}

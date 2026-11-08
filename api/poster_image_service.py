@@ -19,8 +19,10 @@ from PIL import Image
 from api import media as media_lib
 from api.cover_service import CoverService, CoverServiceError
 from core.cover_models import CoverCandidate, CoverSet
+from core.cover_poster_planner import poster_audience_instruction
 from core.cover_poster_typography import compose_poster_cover, prepare_poster_layout
-from core.cover_refinement import normalize_refinement_prompt, validate_reference
+from core.cover_refinement import normalize_refinement_prompt, validate_reference, refinement_requirements
+from core.author_requirements import prompt_requirements
 from core.cover_repair_lineage import record_parent, validate_lineage
 from core.cover_sources import _safe_path
 from core.cover_store import CoverConflict, CoverStore
@@ -402,13 +404,18 @@ class PosterImageService:
         identity["core_constraints"] = {key: brief_data[key] for key in (
             "protagonist", "principal_characters", "relationship_map", "relationship_or_power_contrast",
             "lived_environment", "forbidden_elements", "cover_constraints") if key in brief_data}
+        requirements = refinement_requirements(concept.scene_plan, prompt,
+                                                source_sha256=parent.brief.source_prompt_sha256)
         edit_prompt = ("Edit the supplied cover reference into one refined image. Preserve recognizable character identities, "
                        "ages and core relationships. The user's art request may change lighting, styling and staging, "
                        "but must not invent different identities or relationships. "
-                       + ("Keep the overall composition and subject positions. " if keep_composition else "The composition may be revised. ")
+                       + ("Keep composition and subject positions only where the author did not request a change. "
+                          "This default must yield to explicit changes in the author's request. " if keep_composition
+                          else "The composition may be revised to fulfill the author's request. ")
                        + text_policy + "\nBOOK: " + parent.brief.title + "\nCORE STORY: " + parent.brief.core_conflict
-                       + "\nPRESERVED DESIGN CONTEXT: " + json.dumps(identity, ensure_ascii=False)
-                       + "\nUSER'S VISUAL REFINEMENT REQUEST:\n" + prompt)
+                       + "\nPRIOR DESIGN CONTEXT (visual decisions are editable; story facts remain): " + json.dumps(identity, ensure_ascii=False)
+                       + poster_audience_instruction(identity.get("metadata") or {})
+                       + "\nAUTHOR'S VISUAL REFINEMENT REQUIREMENTS:\n" + json.dumps(prompt_requirements(requirements), ensure_ascii=False))
         lineage = record_parent(store, parent, candidate_id=candidate_id, operation="image_repair")
         binding = {**(concept.scene_plan.get("_source_binding") or {}), "single_candidate_repair": {
             "parent_sha256": lineage["parent_snapshot_sha256"], "cover_set_id": parent.cover_set_id,
@@ -417,6 +424,7 @@ class PosterImageService:
         refined = replace(concept, generation_prompt=edit_prompt, scene_plan={**concept.scene_plan,
             "_poster_recipe": recipe, "_source_binding": binding, "_poster_refinement": {
                 "prompt": prompt, "keep_composition": bool(keep_composition), "reference_image": reference,
+                "author_requirements": requirements,
                 "reference_image_sha256": reference["sha256"], "edit_prompt_sha256": sha256(edit_prompt.encode()).hexdigest()}})
         replacement = CoverCandidate(candidate_id="candidate-" + uuid.uuid4().hex, concept_id=original.concept_id,
                                      generation_prompt=edit_prompt)

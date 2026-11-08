@@ -122,6 +122,12 @@ class Mechanism(_Record):
     removal_effect: str = Field(min_length=1, max_length=1600)
 
 
+class TagContribution(_Record):
+    tag_id: str = Field(pattern=r'^tag\.[a-z][a-z0-9_-]{1,74}$')
+    contribution: str = Field(min_length=1, max_length=600)
+    tag_name: str = Field(default='', max_length=200)
+
+
 class Proposal(_Record):
     title: str = Field(min_length=1, max_length=200)
     story: str = Field(min_length=1, max_length=3000)
@@ -129,6 +135,10 @@ class Proposal(_Record):
     recommended: bool = False
     genre_roles: list[GenreRole] = Field(default_factory=list, max_length=40)
     mechanisms: list[Mechanism] = Field(default_factory=list, max_length=3)
+    tag_contributions: list[TagContribution] = Field(default_factory=list, max_length=2)
+    choice: str = Field(default='', max_length=600)
+    cost: str = Field(default='', max_length=600)
+    payoff: str = Field(default='', max_length=600)
 
 
 class NextFocus(_Record):
@@ -159,6 +169,16 @@ Synopsis is a public reader promise, not the internal story map or full ending.
 Its hook and relationship stakes must be supported by this book's adopted design.
 """
 
+AUDIENCE_DELIVERY_RULES = """
+In the existing story_design.decisions field, retain the author-selected channel,
+Genre and Tags and explain each selected Tag's adopted story mechanism with its
+concrete plot turning point. Reconcile historical proposal cards with later author
+corrections; an old accepted card cannot override the final choice. Develop these
+mechanisms naturally in chapter scenes, choices, costs and payoffs. This is a brief
+part of the existing story design, not another report, rigid beat sheet or proof
+that the finished prose has fulfilled the promise.
+"""
+
 
 def new_design(initial_input: dict, type_snapshot: dict | None = None, *, guided: bool = True, story: bool = True) -> dict:
     guidance = genre_guidance(initial_input.get("genres", [])) if type_snapshot is None else {
@@ -174,6 +194,8 @@ def new_design(initial_input: dict, type_snapshot: dict | None = None, *, guided
         policy['type_snapshot'] = deepcopy(type_snapshot)
         policy['rules'] += TYPE_RULES
         policy['delivery_rules'] += TYPE_RULES
+        if type_snapshot.get('schema') == 'selection-snapshot.v2':
+            policy['delivery_rules'] += AUDIENCE_DELIVERY_RULES
     encoded = json.dumps(policy, ensure_ascii=False, sort_keys=True).encode()
     design = {"schema": VERSION, "policy": policy, "policy_sha256": hashlib.sha256(encoded).hexdigest(),
               "rounds": [], "decisions": []}
@@ -204,6 +226,13 @@ def design_context(session: dict) -> dict:
     if design['policy'].get('type_snapshot') is not None:
         stage = 'story_design' if session.get('turn_intent') == 'deliver' else 'brainstorm'
         result['creative_design']['genre_context'] = compile_snapshot(design['policy']['type_snapshot'], stage)
+    if (design['policy'].get('type_snapshot') or {}).get('schema') == 'selection-snapshot.v2':
+        from core.author_requirements import PRIORITY_RULES
+        result['creative_design']['author_revision_policy'] = PRIORITY_RULES
+        result['creative_design']['adopted_proposal_authority'] = (
+            'Historical author choices. Reconcile each against later explicit author messages; '
+            'a free-text correction outranks a conflicting old accepted card. Never restore the old '
+            'choice because its button status is still accepted. Explain the changed direction in reply.')
     if workshop_story.enabled(design):
         state = deepcopy(design['story_state'])
         state.pop('validation', None)  # private diagnostics are not story context
@@ -238,6 +267,10 @@ def execution_handoff(session: dict) -> dict:
         if actual != design.get("policy_sha256"):
             raise ValueError("Workshop creative policy hash mismatch")
     context = design_context(session).get("creative_design", {})
+    from core.author_requirements import workshop_requirements
+    amendments = (workshop_requirements(session.get('messages', []),
+                  source_sha256=hashlib.sha256(session['prompt_md'].encode()).hexdigest())
+                  if policy.get('story_engine') else None)
     return make_handoff(
         source=session["prompt_md"],
         reader_investment=policy.get("reader_investment"),
@@ -248,6 +281,7 @@ def execution_handoff(session: dict) -> dict:
         type_snapshot=policy.get("type_snapshot"),
         adopted_proposals=context.get("adopted_proposals", []),
         legacy_guidance=policy.get("guidance", {}) if policy.get("type_snapshot") is None else {},
+        author_requirements=amendments,
     )
 
 
@@ -273,9 +307,25 @@ def record_round(data: dict, result: dict, *, source_revision: int) -> None:
         if not guidance and sum(p["recommended"] for p in notes["proposals"]) > 1:
             raise ValueError("multiple recommendations")
         selections = {item["selection"] for item in design["policy"]["guidance"]["selections"]}
+        from core.creative_types import parse_document
+        tag_names = {d['id']: parse_document(d['markdown'])['name']
+                     for d in (design['policy'].get('type_snapshot') or {}).get('documents', [])
+                     if d['id'].startswith('tag.')}
         for i, proposal in enumerate(notes["proposals"]):
             if any(item["selection"] not in selections for item in (*proposal["genre_roles"], *proposal["mechanisms"])):
                 raise ValueError("unselected type")
+            contributions = proposal['tag_contributions']
+            if (len({item['tag_id'] for item in contributions}) != len(contributions)
+                    or any(item['tag_id'] not in tag_names for item in contributions)):
+                raise ValueError('Tag contribution must cite a unique author-selected Tag')
+            for item in contributions:
+                item['tag_name'] = tag_names[item['tag_id']]
+            if (design['policy'].get('type_snapshot') or {}).get('schema') == 'selection-snapshot.v2':
+                present = {item['tag_id'] for item in contributions if item['contribution'].strip()}
+                proposal['missing_contributions'] = sorted(set(tag_names) - present)
+                proposal['missing_contribution_names'] = [tag_names[key] for key in proposal['missing_contributions']]
+                proposal['combination_status'] = ('complete' if not proposal['missing_contributions']
+                    and all(proposal.get(key, '').strip() for key in ('choice', 'cost', 'payoff')) else 'partial')
             proposal["id"] = f"r{source_revision}:p{i + 1}"
         if any(not text.strip() or len(text) > 2000 for text in (*notes["assumptions"], *notes["conflicts"])):
             raise ValueError("invalid assumption or conflict")

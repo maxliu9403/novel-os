@@ -149,7 +149,9 @@ def render(session: dict, global_design: dict, chapter_plan: dict) -> dict:
     count = len(cards)
     allocation = (session.get("capacity", {}).get("confirmed") or {}).get("option")
     total = allocation["total_words"] if allocation else count * initial["words_per_chapter"]
-    taxonomy = classification(initial["publication_taxonomy"], count)
+    from core.publication_taxonomy import creation_channel
+    taxonomy = classification(initial["publication_taxonomy"], count,
+                              audience_channel=creation_channel(initial))
     mode = global_design["narrative_mode"]
     if mode in {"short_novel", "standalone_long"}:
         format_contract = infer_narrative_format(taxonomy, chapters=count, target_words=total,
@@ -163,7 +165,8 @@ def render(session: dict, global_design: dict, chapter_plan: dict) -> dict:
     header = "\n".join(f"{key}: {single(value)}" for key, value in {
         "Title": initial.get("title") or story.title, "Author": initial.get("author") or story.author,
         "Genre": taxonomy.to_dict()["display_labels"]["en-US"]["primary_genre"],
-        "Audience": initial.get("audience") or "General", "Language": initial.get("language") or "English",
+        "Audience": initial.get("audience") or {'female': 'Female readership', 'male': 'Male readership'}.get(initial.get('audience_channel'), 'General'),
+        "Language": initial.get("language") or "English",
         "Tone": story.voice, "POV": " / ".join(dict.fromkeys(c.pov for c in cards)),
         "Chapters": count, "Words": total,
     }.items())

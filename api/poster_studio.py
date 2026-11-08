@@ -17,6 +17,8 @@ from core import cover_poster_store as plans
 from core.cover_models import CoverSet
 from core.cover_sources import CoverSourceSelector, capture_source, preview_source
 from core.cover_store import CoverConflict
+from core.cover_refinement import MAX_REFINEMENT_PROMPT
+from .poster_preferences import preference_context, record_direction_edit
 
 router = APIRouter(prefix="/api/projects/{project_id}/poster", dependencies=[Depends(_guard_project_mutation)])
 
@@ -82,7 +84,7 @@ class RetryRequest(Request):
 
 
 class RefineRequest(Request):
-    prompt: str = Field(min_length=1, max_length=2000)
+    prompt: str = Field(min_length=1, max_length=MAX_REFINEMENT_PROMPT)
     keep_composition: bool = True
 
 
@@ -189,9 +191,12 @@ def overview(project_id: str, svc: ProjectService = Depends(get_service)):
         saved_sets = flow.store.list()
         active = flow.store.active()
         selected_set = next((item for item in saved_sets if item.cover_set_id == active.cover_set_id), None)
+        saved_plans = plans.list_plans(flow)
+        preferences = preference_context(poster_tasks.records(flow), saved_plans=saved_plans)
         return {"enabled": enabled(), "title": detail.title, "source": source,
                 "reference": public_selection(project_id, reference_store(flow).selection()),
-                "plans": [_public_plan(item, bundle, detail.title) for item in plans.list_plans(flow)],
+                "preferences": preferences["preferences"],
+                "plans": [_public_plan(item, bundle, detail.title) for item in saved_plans],
                 "sets": [_public_set(flow, project_id, item) for item in reversed(saved_sets)],
                 "tasks": poster_tasks.list_tasks(flow, runner), "legacy_active": _old_active(flow, project_id),
                 "delivery": delivery_status(flow.store.project_path),
@@ -212,10 +217,13 @@ def start_plan(project_id: str, body: PlanRequest, svc: ProjectService = Depends
     def preflight():
         _idle(flow, project_id)
         detail = svc.project_detail(project_id)
-        metadata = {"title": detail.title, "author": detail.author, "genre": detail.genre,
-                    "language": "", "market_scope": body.preferences.get("market", ""),
-                    "target_audience": body.preferences.get("audience", "")}
         snapshot = capture_source(flow.context, CoverSourceSelector("project_input", project_id=project_id))
+        context = preference_context(poster_tasks.records(flow), saved_plans=plans.list_plans(flow),
+                                     current=body.preferences, request_id=body.request_id,
+                                     source_sha256=snapshot.source_content_sha256)
+        metadata = {"title": detail.title, "author": detail.author, "genre": detail.genre,
+                    "language": "", "market_scope": context["preferences"].get("market", ""),
+                    "target_audience": context["preferences"].get("audience", "")}
         reference = None
         image = None
         if body.reference and body.reference.asset_id:
@@ -231,16 +239,18 @@ def start_plan(project_id: str, body: PlanRequest, svc: ProjectService = Depends
             from core.safe_project_io import read_project_bytes
             knowledge = json.loads(read_project_bytes(flow.store.project_path, ('outputs', 'input', 'knowledge.json'), max_bytes=2*1024*1024))
             compile_snapshot(knowledge, 'cover')
-        return {"snapshot": snapshot, "metadata": metadata, 'reference': reference, 'image': image, 'knowledge': knowledge}
+        return {"snapshot": snapshot, "metadata": metadata, 'reference': reference, 'image': image,
+                'knowledge': knowledge, **context}
 
     def operation(prepared, progress):
         planner = get_vision_reviewer() if prepared["image"] else get_poster_planner()
         planner.diagnostic_callback = lambda event: progress({"model_event": event})
         def planning_progress(event):
             progress({**event, "stage": event.get("phase", "planning")})
-        value = plan_poster(prepared["snapshot"], prepared["metadata"], body.preferences,
+        value = plan_poster(prepared["snapshot"], prepared["metadata"], prepared["preferences"],
                             (lambda system, user: planner.complete_with_images(system, user, [prepared['image']])) if prepared['image'] else planner.complete,
                             reference=prepared['reference'], knowledge_snapshot=prepared['knowledge'],
+                            author_requirements=prepared['author_requirements'],
                             model=planner.model, progress=planning_progress,
                             context_window_tokens=int(os.environ["NOVEL_OS_POSTER_CONTEXT_WINDOW_TOKENS"])
                                 if os.environ.get("NOVEL_OS_POSTER_CONTEXT_WINDOW_TOKENS") else None,
@@ -284,6 +294,7 @@ def edit_plan(project_id: str, plan_id: str, body: PlanEdit, svc: ProjectService
                         "cover artwork without text; do not restore a previous composition.")
                 directions.append(item)
             edited = normalize_poster_plan({**old, "directions": directions})
+            edited.update(record_direction_edit(old, edited["directions"]))
             for key in ("plan_hash", "approved_at", "stale"):
                 edited.pop(key, None)
             edited["parent_plan_id"] = old["plan_id"]

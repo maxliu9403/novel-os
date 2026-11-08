@@ -22,8 +22,10 @@ def validate_source_selection(source: str, handoff: dict | None) -> None:
     if (
         classification is None
         or classification.taxonomy != selected["publication_taxonomy"]
+        or (selected.get('schema') == 'selection-snapshot.v2'
+            and classification.audience_channel != selected.get('audience_channel'))
     ):
-        raise ValueError("骨架发行分类与冻结 Genre / Tags 不一致，请重新确认骨架。")
+        raise ValueError("骨架发行分类、频道与冻结 Genre / Tags 不一致，请重新确认骨架。")
 
 
 def load_handoff(prompt_path: str, knowledge_path: str) -> dict:

@@ -217,3 +217,22 @@ test("a process heartbeat without an upstream timestamp is not presented as rece
   expect(within(status).getByText(/不代表模型正在思考/)).toBeVisible();
   expect(status.querySelector("time")).toBeNull();
 });
+
+test("saved cover requirements hydrate once and status refresh never overwrites new author text", async () => {
+  const data = fixture();
+  data.preferences = { market: "North America", audience: "Adult readers", emphasis: "偏群像", notes: "Keep the rain and the family tension" };
+  vi.mocked(posterApi.overview).mockResolvedValue(data);
+  const plan = vi.spyOn(posterApi, "plan").mockResolvedValue(task("plan"));
+  const user = userEvent.setup(); renderStudio();
+  await user.click(await screen.findByRole("button", { name: "重新设计方向" }));
+  const field = screen.getByRole("textbox", { name: "创作要求" });
+  expect(field).toHaveValue("Keep the rain and the family tension");
+  await user.clear(field);
+  await user.type(field, "Move her to the center, keep the rain");
+  data.preferences = { ...data.preferences, notes: "Older server notes" };
+  fireEvent(window, new Event("focus"));
+  await waitFor(() => expect(posterApi.overview).toHaveBeenCalledTimes(2));
+  expect(field).toHaveValue("Move her to the center, keep the rain");
+  await user.click(screen.getByRole("button", { name: "开始设计 4 个方向" }));
+  expect(plan).toHaveBeenCalledWith("book", expect.any(String), expect.objectContaining({ market: "North America", emphasis: "偏群像", notes: "Move her to the center, keep the rain" }), undefined);
+});

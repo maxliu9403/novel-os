@@ -3,21 +3,25 @@
 主路径继续使用 **`./deploy.sh up` 从源码构建**，不依赖旧电脑导出的镜像。
 支持装有 Docker Compose 的 macOS、Linux、Windows WSL；不同 CPU 架构在目标机本地构建。
 
+默认部署仅包含 Novel OS 后端与前端。Gemini 网关不是项目依赖，不纳入部署步骤、换机必带清单或验收前提；模型服务由使用者在设置页按需连接。
+
 ## 随代码交付什么
 
-- `resources/novel-knowledge/`：本次已将实际启用的 **1 个 Genre、40 个 Tags** 原文同步为默认 Markdown，包括页面中自定义的“冒险”。保留用户最新修改，并移除已删除类型的默认文件，未改写用户内容。
+- `resources/novel-knowledge/`：源码当前有 **1 个 Genre、40 个 Tags**，包括页面中自定义的“冒险”。2026-11-08 频道功能只在原文末尾追加 `audience-guidance.v1` 模块，原文件字节及原 SHA 可核验；41份均有女频指导，其中12份同时有男频指导。源码种子与运行库的停用／删除状态分开，不能用这41项覆盖作者恢复的库。
 - `resources/system-prompts/title-design.md`：当前启用的通用书名提示词原文。
 - `skills/`：`novel-brainstorm-workshop`、`high-retention-web-novel`、`novel-cover-studio`、`novel-corpus-study`，以及各自引用的资料与脚本。Docker 会复制它们；`deploy.sh up/restart` 会同步四个项目 Skills 至宿主 Codex，并备份被替换版本。
 - `agents/`、`templates/`、其他 `resources/`：各创作阶段提示词、产物合同、字体/排版相关资源及默认方法论。
 - `requirements.lock`、`web/package-lock.json`、Dockerfile 中固定的 Codex CLI 版本：限制换机重建时依赖漂移。Python lock 来自当前验证过的运行环境；更新时需重新构建、验证。
 
-默认 Markdown 保证新安装使用当前写作说明。页面维护的**历史版本、草稿、启用版本号**另存于运行数据，不能仅靠复制 Markdown 保留。当前知识库累计 **209 个版本**，其中 4 个属于已删除记录；已单独导出资料库历史包。
+默认 Markdown 用于全新安装。页面维护的**历史版本、草稿、启用版本号、停用与删除状态**另存于运行数据，不能仅靠复制 Markdown 保留。先前迁移检查点的资料库包为209个版本（含删除项历史），这是该备份的数量，不是以后每次迁移都应凑齐的固定指标；当前数量和摘要以最新导出清单为准。
+
+2026-11-08 18:33（UTC+08:00），最终版本 `audience-author-recovery-20261108` 已部署至5174，前后端均 healthy；运行资料库已完成追加升级，频道、资料维护、创作依据和历史讨论恢复的浏览器复验通过。仅重启Novel OS前后端，网关未改动，未调用真实模型或恢复业务任务。详细发布证据见[实施记录](../reports/2026-11-08-audience-author-workflow.md)。先前已经生成的 Git bundle／迁移分支不会自动包含之后的工作区改动；正式换机前需将最终源码及升级后的资料库重新导出，并核对包含 `core/audience_guidance.py`、`scripts/upgrade_audience_guidance.py` 及追加后的 Markdown。不要仅因分支名称相同就假定是最新代码。
 
 ## 新电脑部署步骤
 
 安装 Git、Docker Desktop/Engine + Compose、Python 3，以及需要使用的 Codex App/CLI。启动 Docker。
 
-1. 使用本次源码分支或私有 Git bundle 创建目录：
+1. 正式迁移最新功能，先取得重新导出的源码分支或私有 Git bundle，并核对提交与资料清单。以下旧迁移分支命令**仅用于恢复历史检查点**，不能代替最新源码导出：
 
    ```bash
    git clone --branch codex/migration-baseline-20261108 /你的交付目录/novel-os.bundle Novel-OS
@@ -32,11 +36,13 @@
 
    恢复前完整校验 SHA-256。目标目录必须不存在，防止覆盖已有数据。如果选择恢复完整 `docker-data`，不要再叠加恢复这个资料包：完整备份已经包含它。
 
-3. 创建 `.env`，根据 `.env.example` 配置本地端口和连接。完整数据备份已包含 `studio_settings.json` 与 `studio_settings.secrets.json`；仅恢复资料库历史时，需要在设置页重新配置模型连接。单独的 `private-config.tar.gz` 保存两项目的 `.env` 和 Codex 配置/登录文件，不包含这两份模型设置文件。这些私有文件不提交 Git。
+3. 创建 `.env`，根据 `.env.example` 配置本地端口和连接。完整数据备份已包含 `studio_settings.json` 与 `studio_settings.secrets.json`；仅恢复资料库历史时，需要在设置页重新配置模型连接。单独的 `private-config.tar.gz` 仅保存 Novel OS 的 `.env` 和 Codex 配置/登录文件，不包含这两份模型设置文件。这些私有文件不提交 Git。
 
 4. 当前 Compose 挂载 Codex 登录文件。运行 `codex login`，确认 `~/.codex/auth.json` 存在；没有自定义配置时可创建空 `~/.codex/config.toml`。也可通过 `.env` 的 `NOVEL_OS_CODEX_AUTH_FILE`、`NOVEL_OS_CODEX_CONFIG_FILE` 指向迁移的私有文件。登录状态可能失效，失效时重新登录。
 
-5. 启动源码部署：
+5. 若恢复的是频道升级前的资料库，先按下节在恢复副本预检、备份并执行资料升级；使用已安装项目依赖的 Python，或用本次新版源码构建的容器执行。不要用旧运行容器里的迁移脚本。
+
+6. 启动源码部署：
 
    ```bash
    ./deploy.sh up
@@ -45,52 +51,59 @@
 
    打开 `http://localhost:5174`。部署不会自动启动新的小说创作。
 
-## Gemini 本地网关必须同步
+## 已有资料库的频道指导升级
 
-当前网关位于独立仓库 `gemini-web2api-go`，包含本地 `bounded-attachment-v1` 扩容代码。只搬 Novel OS 或改用上游 `latest` 网关，可能退回旧输入限制。
+升级工具只追加频道指导并保存新版本，保留原文件正文和全部历史，不把种子库强行同步成运行库。源码更新、历史包恢复、资料升级是三个独立步骤。已删除／停用项目不恢复，已有有效频道模块不覆盖，作者新改的原文或未发布草稿不替换。
 
-交付中的 `gateway-source.tar.gz` 保存当前工作源码，包含 `docker-compose.override.yml`，会从源码构建，不要求搬镜像：
-
-```bash
-python3 Novel-OS/scripts/portable_data.py restore /你的交付目录/gateway-source.tar.gz ./gemini-web2api-go
-cd gemini-web2api-go
-# 按网关文档配置 .env 中的 ADMIN_TOKEN，或使用私有备份中的 gateway.env。
-docker compose build gemini-web2api
-```
-
-Novel OS 容器连接本机网关使用 `http://host.docker.internal:8083/v1`。
-如需保留网关账号、Cookie、运行参数，恢复单独的 `gateway-data.tar.gz`；该文件含敏感数据。
-它采用 SQLite backup API，不能用随手复制一个正在写入的 `.db` 文件替代。
-需要恢复账号数据时，先执行下面的恢复步骤，再首次启动网关。选择全新账号配置时，直接执行 `docker compose up -d`，然后在管理页登录账号、配置 API Key。
-
-恢复网关数据时，先启动过的网关必须停止，且目标是空的新卷。下面只对**新电脑**执行：
+先在恢复的数据副本上只读预检。以下 `docker-data` 是数据根目录，工具实际访问 `creative_types/default`；其他工作区用 `--workspace` 指定：
 
 ```bash
-# 解出数据库至临时目录（目标必须不存在）
-python3 ../Novel-OS/scripts/portable_data.py restore /你的交付目录/gateway-data.tar.gz ./gateway-restore
-# 用 Compose 创建容器和卷，不启动网关；查出实际卷名
-docker compose create gemini-web2api
-GW_VOLUME="$(docker inspect gemini-web2api --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}')"
-test -n "$GW_VOLUME"
-# Novel OS 已完成源码构建；取实际镜像 ID，不依赖项目目录命名。
-NOVEL_BACKEND_IMAGE="$(docker compose --project-directory ../Novel-OS images -q backend)"
-test -n "$NOVEL_BACKEND_IMAGE"
-docker run --rm --network none --user 0 \
-  --mount "type=volume,source=$GW_VOLUME,target=/target" \
-  --mount "type=bind,source=$PWD/gateway-restore,target=/source,readonly" \
-  --entrypoint python "$NOVEL_BACKEND_IMAGE" -c '
-from pathlib import Path
-import os, shutil
-dst = Path("/target")
-assert not list(dst.iterdir()), "目标卷不是空卷，拒绝覆盖"
-shutil.copytree("/source", dst, dirs_exist_ok=True)
-for path in [dst, *dst.rglob("*")]:
-    os.chown(path, 65532, 65532)
-'
-docker compose up -d
+venv/bin/python scripts/upgrade_audience_guidance.py \
+  --data-dir ./docker-data --workspace default > /private/tmp/audience-upgrade-plan.json
 ```
 
-不要对含现有数据的卷执行覆盖。账号恢复后核对网关设置与连接状态；重新登录是更简单的可选路径。
+不带 `--apply` 的命令只输出 JSON 计划，不激活版本、不调用模型。首次部署应使用已安装 `requirements.lock` 的 Python；目录路径需替换为本机实际位置。无需为了预检启动小说任务。
+
+确认备份完整、没有资料编辑并核对计划后，显式执行：
+
+```bash
+venv/bin/python scripts/upgrade_audience_guidance.py \
+  --data-dir ./docker-data --workspace default --apply > /private/tmp/audience-upgrade-result.json
+```
+
+也可在**已构建新版源码镜像**的环境运行一次性命令，不启动依赖：
+
+```bash
+docker compose run --rm --no-deps -T backend python scripts/upgrade_audience_guidance.py \
+  --data-dir /data --workspace default > /private/tmp/audience-upgrade-plan.json
+# 核对后才在同一命令末尾添加 --apply。
+```
+
+报告 `schema=novel-os.audience-upgrade.v1`，包含模式、每条ID／版本／原文和目标 SHA、数量及原因。退出码0表示没有冲突，2表示冲突或整体预检失败；不能只看已更新数量。执行模式逐条应用合格项，若另有冲突，结果可能为部分成功，完整记录仍在报告中。重复执行已合格项为 `already_guided`，不重复追加版本。
+
+| 报告原因 | 操作 |
+|---|---|
+| `append_guidance` / `updated` | 原文逐字匹配种子原文，追加模块并激活新版本；旧版本保留 |
+| `deleted` / `not_enabled` | 保留删除／停用状态，不恢复 |
+| `already_guided` | 保留现有频道指导，包括用户自行修改的指导 |
+| `no_matching_seed` | 自定义资料不猜测方法，稍后在维护页明确补充 |
+| `unpublished_draft` | 存在未发布草稿，先由作者处理，不覆盖草稿 |
+| `original_changed` | 当前原文与种子原文不同，需按当前内容审阅补指导，不覆盖作者修改 |
+| `invalid_existing_module` / `mutation_rejected` | 检查模块或修订并发冲突；已保存记录保留，解决后重新预检 |
+
+2026-11-08 已完成实际运行库升级：39项追加更新、3项删除跳过、0冲突，全部旧版本及升级前活动原文精确保留。其中 `tag.face_slapping`、`tag.fast_paced_plot` 在源码种子中但已由用户删除；`tag.runaway_with_a_baby` 已删除且不在种子中。这三项未被恢复。升级后的运行库为39项女频可用、11项男频可用；全新安装的源码默认库则是41／12，差异是有意保留的作者状态。恢复升级后的新备份时，工具会对已有模块返回 `already_guided`；恢复旧备份时仍须先预检，不能照搬本次数量强行迁移。
+
+升级后重新导出资料库清单，比较每份模块的 `original_sha256` / `original_bytes`，核对原文、旧版本、草稿和删除状态；不要把启用版本号增加误认为旧历史丢失。新讨论读取新版本，已有讨论与小说仍使用原冻结快照，不因库升级改写其故事或执行锁。若某份资料没有完整频道指导，会在新选择中提示不可用，旧冻结作品仍可恢复。
+
+回滚应恢复发布前的数据备份与匹配源码，或在维护页明确采用历史版本；不能删除版本JSON来伪造回滚。发布前还有活动任务时先安排窗口，资料迁移本身不构成重启服务或恢复付费任务的授权。
+
+## 模型连接按需配置
+
+应用启动后，在设置页选择所需模型服务，配置访问地址、模型与凭证。可使用 Codex、Gemini API 或受支持的 OpenAI 兼容连接；这些是模型连接方式，不是额外的必装容器。
+
+恢复的模型设置可能仍指向旧电脑上的服务地址。正式创作前，应改为新电脑可访问的地址，或选择其他可用连接，再获取模型列表并进行可用性测试。外部服务的安装、账号、数据库和运维由该服务独立管理，Novel OS 不负责部署或搬运。
+
+已有模型适配器和长输入能力协商保留；请求容量按实际选中连接校验，不因省略某个网关而静默截断输入或承诺相同上下文容量。默认验收不要求安装、启动或迁移 Gemini 网关。
 
 ## 作品与任务记录
 
@@ -128,10 +141,10 @@ docker compose exec -T backend python scripts/export_creation_library.py \
 
 ## 验收标准
 
-1. 页面/API 正常；Genre 1 个、Tags 40 个，当前 Markdown SHA 与交付清单一致。
-2. 恢复历史包后版本合计 209（含已删除记录的 4 个版本），启用版本号、草稿、删除状态及书名提示词版本一致。
+1. 页面/API 正常；资料数量与所恢复的工作区清单一致，不固定强制41项。频道迁移按计划核对支持范围，Markdown 原文收据与交付清单一致。
+2. 恢复历史包后，历史版本、草稿、删除状态及书名提示词与该包清单一致；若执行频道升级，只增加明确记录的新版本，不改旧版本。先前209版检查点只能用于核对那一份旧备份。
 3. 四个项目 Skills 完整；其他个人通用 Skills 不是应用运行依赖。
-4. 模型路由、计价和 Token 配置正确；网关是包含本地扩容的源码版本。
+4. 所选模型服务的地址、凭证、路由与计价配置正确，并通过连接可用性检查；无需部署特定网关。
 5. 如果恢复完整数据，检查作品、来源和讨论数量，打开正文、骨架、封面再手动恢复任务。
 
 源码、提示词、配置和保存的内容可以校验一致；生成式模型有随机性，不承诺逐字输出相同小说。私有备份含作品和密钥，勿上传公开仓库。本次没有推送远端。

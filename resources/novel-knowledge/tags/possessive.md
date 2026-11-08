@@ -42,3 +42,23 @@ Sweet Love 中偏爱扩大安全感；Dark Romance 可以探索危险行为，�
 ## 七、简介与封面
 
 简介呈现独特依恋与一个将改变关系位置的选择；封面通过专注视线、距离和回应表达浓烈，不默认束缚或被动被占有的姿态。
+
+<!-- novel-os:audience-guidance:start -->
+## 频道写作指导
+
+```yaml
+schema: audience-guidance.v1
+audience_channels:
+- female
+original_sha256: e4eada6a21deeec2657089333ff8ab019ddef25da0421cd6b8423afefb4f7022
+original_bytes: 2964
+```
+
+### 女频写作指导
+
+本频道面向女性读者的情绪投入；不据此替作者指定主角性别、年龄、性向、叙事视角或结局。
+
+从害怕失去、独占期待和对方的自主需求之间制造张力。让被渴望的一方有影响关系的决定权，占有行为改变信任与风险；偏爱可强烈，但不能把持续控制当无需承担的证明。
+
+头脑风暴用此方法解释本书的选择、代价与回报，采用后贯穿骨架、正文及简介；组合只针对作者实际选中的标签，不把例子或节拍当固定剧情。
+<!-- novel-os:audience-guidance:end -->

@@ -47,3 +47,23 @@ Contract Marriage 提供接触条件但不是治愈药；Intelligent 让双方�
 ## 七、简介与封面
 
 简介抓住双方互不相让的目标和不得不重新看待对方的变数；封面用势均力敌的对峙与未完全疏离的距离，避免把威胁强行美化成调情。
+
+<!-- novel-os:audience-guidance:start -->
+## 频道写作指导
+
+```yaml
+schema: audience-guidance.v1
+audience_channels:
+- female
+original_sha256: 4217bad6dde601b9c63e3fcc4096a1fe370d78576f2d1dece5dfe24781ff3bf4
+original_bytes: 2770
+```
+
+### 女频写作指导
+
+本频道面向女性读者的情绪投入；不据此替作者指定主角性别、年龄、性向、叙事视角或结局。
+
+从可理解的目标冲突和错误判断开始，让人物在行动后重新理解彼此。吸引与不认同可以并存，敌意消退需要新证据、承担与重新选择；不把严重伤害轻描淡写地当调情。
+
+头脑风暴用此方法解释本书的选择、代价与回报，采用后贯穿骨架、正文及简介；组合只针对作者实际选中的标签，不把例子或节拍当固定剧情。
+<!-- novel-os:audience-guidance:end -->

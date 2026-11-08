@@ -18,6 +18,7 @@ from .routes import (get_service, get_cover_art_director, get_cover_service,
 from .models import CoverDirectionCreate, CoverDirectionApproval, CoverGenerateRequest, CoverCandidateMutation
 from core.cover_store import CoverStore, CoverConflict
 from core.cover_workflow import CoverWorkflow
+from core.cover_refinement import MAX_REFINEMENT_PROMPT
 
 router = APIRouter(prefix="/api", dependencies=[Depends(_guard_project_mutation)])
 _ANALYSIS_DISPATCH_LOCK = threading.Lock()
@@ -536,7 +537,7 @@ def workshop_media(session_id: str, media_id: str, svc: ProjectService = Depends
 class CoverRepairStart(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int = Field(strict=True, ge=1)
-    refinement_prompt: str | None = Field(default=None, strict=True, min_length=1, max_length=2000)
+    refinement_prompt: str | None = Field(default=None, strict=True, min_length=1, max_length=MAX_REFINEMENT_PROMPT)
 
 
 class CoverRepairApproval(BaseModel):

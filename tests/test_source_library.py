@@ -306,6 +306,7 @@ def test_genre_is_required_and_unrelated_or_unread_input_cannot_start(client):
     from test_creative_types import default_refs
 
     payload = {
+        "audience_channel": "female",
         "creative_types": [r.model_dump() for r in default_refs()],
         "source_book": {
             "source_id": imported["id"],

@@ -22,6 +22,10 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from .audience_guidance import (
+    AudienceChannel, AudienceGuidanceError, audience_metadata,
+    channel_interpretation, parse_audience_guidance, replace_audience_guidance,
+)
 from .knowledge_guidance import GENERATIVE_STAGE_SECTIONS, interpretation
 from .publication_taxonomy import (
     PublicMetadata,
@@ -85,11 +89,8 @@ class Header(StrictModel):
             raise ValueError("ID 前缀必须与 kind 一致")
         if self.kind == "genre" and self.genre_ids:
             raise ValueError("Genre 不填写 genre_ids")
-        if self.kind == "tag" and (
-            not self.genre_ids
-            or any(not x.startswith("genre.") for x in self.genre_ids)
-        ):
-            raise ValueError("Tag 至少关联一个 Genre")
+        if self.kind == "tag" and any(not x.startswith("genre.") for x in self.genre_ids):
+            raise ValueError("genre_ids 只能包含 Genre ID")
         if len(set(self.genre_ids)) != len(self.genre_ids):
             raise ValueError("Genre 关联不可重复")
         labels = [s.casefold() for s in [self.name, *self.aliases]]
@@ -195,6 +196,13 @@ def read_document_header(markdown: str) -> tuple[dict, str]:
 
 def parse_document(markdown: str, *, enabled: bool = False) -> dict:
     validate_markdown_size(markdown)
+    audience = audience_metadata(markdown)
+    if audience["audience_ready"]:
+        markdown = parse_audience_guidance(markdown).original
+    return {**_parse_document_body(markdown, enabled=enabled), **audience}
+
+
+def _parse_document_body(markdown: str, *, enabled: bool) -> dict:
     if not markdown.startswith("---"):
         return _parse_tag_prompt(markdown, enabled=enabled)
     header, body = read_document_header(markdown)
@@ -345,15 +353,19 @@ def template(
 def _documents(snapshot: dict) -> list[dict]:
     if (
         not isinstance(snapshot, dict)
-        or snapshot.get("schema") != "selection-snapshot.v1"
+        or snapshot.get("schema") not in ("selection-snapshot.v1", "selection-snapshot.v2")
     ):
         raise CreativeTypeError("创作选择快照格式无效。", 409)
     body = {k: v for k, v in snapshot.items() if k != "snapshot_sha256"}
     if digest(body) != snapshot.get("snapshot_sha256"):
         raise CreativeTypeError("创作选择快照校验失败。", 409)
+    audience = snapshot.get("schema") == "selection-snapshot.v2"
+    channel = snapshot.get("audience_channel")
+    if audience and channel not in ("female", "male"):
+        raise CreativeTypeError("请选择男频或女频。")
     rows = snapshot.get("documents")
-    if not isinstance(rows, list) or not 2 <= len(rows) <= 21:
-        raise CreativeTypeError("请选择一个 Genre 和 1–20 个 Tag。")
+    if not isinstance(rows, list) or not 2 <= len(rows) <= (3 if audience else 21):
+        raise CreativeTypeError("请选择一个 Genre 和 1–2 个 Tag。" if audience else "请选择一个 Genre 和 1–20 个 Tag。")
     docs = []
     for row in rows:
         if (
@@ -364,10 +376,12 @@ def _documents(snapshot: dict) -> list[dict]:
             raise CreativeTypeError("资料版本无效。", 409)
         md = row.get("markdown")
         doc = parse_document(md, enabled=True)
+        if audience and (not doc["audience_ready"] or channel not in doc["audience_channels"]):
+            raise CreativeTypeError(f"{doc['name']} 尚未启用所选频道的完整写作指导。", 409)
         if row.get("id") != doc["id"] or row.get("source_sha256") != text_sha(md):
             raise CreativeTypeError("资料内容与来源身份不一致。", 409)
         docs.append(doc)
-    if snapshot.get("compiler_version") != _compiler_version(docs):
+    if snapshot.get("compiler_version") != ("knowledge-compiler.v5" if audience else _compiler_version(docs)):
         raise CreativeTypeError("冻结资料与编译版本不一致。", 409)
     ids = [d["id"] for d in docs]
     genres = [d for d in docs if d["kind"] == "genre"]
@@ -378,9 +392,9 @@ def _documents(snapshot: dict) -> list[dict]:
     ):
         raise CreativeTypeError("每本书必须且只能选择一个 Genre。")
     tag_ids = [d["id"] for d in docs if d["kind"] == "tag"]
-    if snapshot.get("tag_ids") != tag_ids or any(
+    if snapshot.get("tag_ids") != tag_ids or (not audience and any(
         genres[0]["id"] not in d["genre_ids"] for d in docs if d["kind"] == "tag"
-    ):
+    )):
         raise CreativeTypeError("所选 Tag 不属于当前 Genre。")
     public = Taxonomy.model_validate(snapshot.get("publication_taxonomy")).model_dump()
     entries = [public["genre"], *public["tags"]]
@@ -400,6 +414,7 @@ def compile_snapshot(snapshot: dict, stage: Stage) -> dict:
     if stage not in STAGE_SECTIONS:
         raise CreativeTypeError("未知创作阶段。")
     docs = _documents(snapshot)
+    channel = snapshot.get("audience_channel") if snapshot["schema"] == "selection-snapshot.v2" else None
     items, manifest = [], []
     for doc, row in zip(docs, snapshot["documents"]):
         identity = {
@@ -409,6 +424,24 @@ def compile_snapshot(snapshot: dict, stage: Stage) -> dict:
             "version": row["version"],
             "source_sha256": row["source_sha256"],
         }
+        if channel:
+            module = parse_audience_guidance(row["markdown"])
+            # The original guide is indivisible, independent of its historical
+            # dialect. Only the selected append-only channel module is injected.
+            original = read_document_header(module.original)[1] if module.original.startswith("---") else module.original
+            items.append({
+                **identity, "format": "audience-markdown.v1", "markdown": original,
+                "audience_channel": channel, "audience_guidance": module.guides[channel],
+            })
+            manifest.append({
+                "id": doc["id"], "included_sections": [], "excluded_sections": [],
+                "source_mode": "original_markdown_and_selected_channel",
+                "original_sha256": text_sha(module.original),
+                "body_sha256": text_sha(original),
+                "audience_channel": channel,
+                "audience_guidance_sha256": text_sha(module.guides[channel]),
+            })
+            continue
         if doc.get("format") == "markdown-guide.v1":
             items.append({
                 **identity, "schema": doc["schema"], "roles": doc["roles"],
@@ -463,9 +496,18 @@ def compile_snapshot(snapshot: dict, stage: Stage) -> dict:
         "tag_ids": snapshot["tag_ids"],
         "documents": items,
         "projection_manifest": manifest,
-        "compiler_version": _compiler_version(docs),
+        "compiler_version": snapshot["compiler_version"],
     }
-    if result["compiler_version"] == "knowledge-compiler.v3":
+    if channel:
+        from .knowledge_guidance import freeform_interpretation
+        policy = freeform_interpretation(stage)
+        result["audience_channel"] = channel
+        result["interpretation"] = {
+            "schema": "generative-guidance.v3",
+            "common": channel_interpretation(channel) + policy["common"],
+            "stage": policy["stage"],
+        }
+    elif result["compiler_version"] == "knowledge-compiler.v3":
         result["interpretation"] = interpretation(stage)
     elif result["compiler_version"] == "knowledge-compiler.v4":
         from .knowledge_guidance import freeform_interpretation
@@ -478,7 +520,7 @@ def compile_snapshot(snapshot: dict, stage: Stage) -> dict:
     return result
 
 
-def make_snapshot(rows: list[dict], *, parent_sha256: str | None = None) -> dict:
+def make_snapshot(rows: list[dict], *, parent_sha256: str | None = None, audience_channel: AudienceChannel | None = None) -> dict:
     docs = [parse_document(r["markdown"], enabled=True) for r in rows]
     entries = [
         r.get("public_entry") or {"id": d["id"], "revision": 1, **public_metadata(d)}
@@ -491,14 +533,16 @@ def make_snapshot(rows: list[dict], *, parent_sha256: str | None = None) -> dict
         "tags": [e for e in entries if e["id"].startswith("tag.")],
     }
     body = {
-        "schema": "selection-snapshot.v1",
+        "schema": "selection-snapshot.v2" if audience_channel is not None else "selection-snapshot.v1",
         "publication_taxonomy": taxonomy,
-        "compiler_version": _compiler_version(docs),
+        "compiler_version": "knowledge-compiler.v5" if audience_channel is not None else _compiler_version(docs),
         "genre_id": next((d["id"] for d in docs if d["kind"] == "genre"), None),
         "tag_ids": [d["id"] for d in docs if d["kind"] == "tag"],
         "documents": deepcopy(rows),
         "parent_sha256": parent_sha256,
     }
+    if audience_channel is not None:
+        body["audience_channel"] = audience_channel
     result = {**body, "snapshot_sha256": digest(body)}
     for stage in STAGE_SECTIONS:
         compile_snapshot(result, stage)
@@ -566,6 +610,9 @@ def summary(record: dict) -> dict:
         "source_sha256": active["sha256"] if active else None,
         "has_draft_changes": bool(active and record["draft"] != active["markdown"]),
         "missing_sections": doc["missing_sections"],
+        "audience_channels": doc["audience_channels"],
+        "audience_ready": doc["audience_ready"],
+        "audience_issue": doc["audience_issue"],
     }
 
 
@@ -653,7 +700,8 @@ class CreativeTypeStore:
         return deepcopy(record)
 
     def snapshot(
-        self, refs: list[TypeRef], *, parent_sha256: str | None = None
+        self, refs: list[TypeRef], *, parent_sha256: str | None = None,
+        audience_channel: AudienceChannel | None = None,
     ) -> dict:
         records, rows = self.records(), []
         for ref in refs:
@@ -674,7 +722,7 @@ class CreativeTypeStore:
                     "public_entry": public_entry(record["versions"], ref.version),
                 }
             )
-        return make_snapshot(rows, parent_sha256=parent_sha256)
+        return make_snapshot(rows, parent_sha256=parent_sha256, audience_channel=audience_channel)
 
     @contextmanager
     def _locked(self):
@@ -694,15 +742,6 @@ class CreativeTypeStore:
                     fcntl.flock(lock, fcntl.LOCK_UN)
 
     def _associations(self, doc: dict, records: dict):
-        for genre_id in doc["genre_ids"]:
-            record = records.get(genre_id)
-            if (
-                not record
-                or record.get("deleted_at")
-                or record["kind"] != "genre"
-                or record["status"] != "enabled"
-            ):
-                raise CreativeTypeError(f"关联 Genre 不存在或未启用：{genre_id}")
         labels = {s.casefold() for s in [doc["name"], *doc["aliases"]]}
         for record in records.values():
             if (
@@ -713,10 +752,7 @@ class CreativeTypeStore:
             ):
                 continue
             other = active_document(record)
-            shares_genre = doc["kind"] == "genre" or set(other["genre_ids"]) & set(
-                doc["genre_ids"]
-            )
-            if shares_genre and labels & {
+            if labels & {
                 s.casefold() for s in [other["name"], *other["aliases"]]
             }:
                 raise CreativeTypeError(
@@ -808,8 +844,11 @@ class CreativeTypeStore:
         operation_id: str,
         markdown: str | None = None,
         version: int | None = None,
+        audience: dict | None = None,
     ) -> dict:
-        request_sha = digest([action, identifier, revision, markdown] + ([version] if action == "restore" else []))
+        if action == "audience" and not isinstance(audience, dict):
+            raise CreativeTypeError("缺少频道写作指导。")
+        request_sha = digest([action, identifier, revision, markdown] + ([version] if action == "restore" else []) + ([audience] if action == "audience" else []))
         with self._locked() as data:
             previous = data["operations"].get(operation_id)
             if previous:
@@ -849,11 +888,17 @@ class CreativeTypeStore:
                     doc = parse_document(saved["markdown"], enabled=True)
                     self._associations(doc, records)
                     record.update(draft=saved["markdown"], active_version=version, status="enabled")
-                elif action in ("draft", "activate"):
-                    doc = parse_document(markdown, enabled=action == "activate")
+                elif action in ("draft", "activate", "audience"):
+                    activate = action == "activate" or (action == "audience" and audience.get("activate", True))
+                    if action == "audience":
+                        try:
+                            markdown = replace_audience_guidance(record["draft"], audience["audience_channels"], audience["guides"])
+                        except AudienceGuidanceError as exc:
+                            raise CreativeTypeError(str(exc)) from None
+                    doc = parse_document(markdown, enabled=activate)
                     if doc["id"] != identifier or doc["kind"] != record["kind"]:
                         raise CreativeTypeError("保存时不能改变稳定 ID 或资料种类。")
-                    if action == "activate":
+                    if activate:
                         self._associations(doc, records)
                         number = (
                             max((v["version"] for v in record["versions"]), default=0)
@@ -870,20 +915,6 @@ class CreativeTypeStore:
                         record.update(active_version=number, status="enabled")
                     record["draft"] = markdown
                 elif action in ("disable", "delete"):
-                    if record["kind"] == "genre":
-                        linked = [
-                            active_document(r)["name"]
-                            for r in records.values()
-                            if r["kind"] == "tag"
-                            and r["status"] == "enabled"
-                            and not r.get("deleted_at")
-                            and identifier in active_document(r)["genre_ids"]
-                        ]
-                        if linked:
-                            raise CreativeTypeError(
-                                "请先停用或解除这些 Tag 的关联：" + "、".join(linked),
-                                409,
-                            )
                     # Existing frozen stories do not depend on the live library.
                     record["status"] = "disabled"
                     if action == "delete":

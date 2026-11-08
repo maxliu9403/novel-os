@@ -761,7 +761,7 @@ Cover Director 单独配置服务。模型名称必须是该设备和供应商�
 ### 迁移到新环境（不迁移小说产物）
 
 需要携带当前 Genre、Tags、自定义提示词及版本记录时，先阅读
-[通用源码部署与换机说明](docs/deployment/machine-transfer.md)。该说明使用现有
+[通用源码部署与换机说明](docs/deployment/machine-transfer.md)。默认仅部署 Novel OS 前后端；Gemini 等外部模型网关不是必装依赖，在设置页按需连接即可。该说明使用现有
 `deploy.sh` 从源码构建；下文仅适用于主动放弃历史数据的全新安装。
 
 以下步骤用于在另一台电脑上重新部署 Novel OS 和 Codex Skill，只迁移源码，

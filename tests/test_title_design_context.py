@@ -4,7 +4,7 @@ import json
 import pytest
 
 from core.title_context import build_title_context, encode, request_context
-from api.workshop_titles import _validate_candidates, candidate_title_length, clean_title
+from api.workshop_titles import _validate_candidates, candidate_title_length, clean_title, literal_title_requirements
 from test_workshop_api import complete_prompt
 
 
@@ -75,6 +75,40 @@ def test_context_snapshot_rejects_different_story():
     projection = build_title_context({"prompt_md": source})
     with pytest.raises(ValueError, match="不一致"):
         request_context({"prompt_md": source + "changed", "naming": {"requests": [{"title_context": projection}]}})
+
+
+def test_frozen_naming_requirements_and_context_cannot_be_mutated():
+    source = compact_story()
+    projection = build_title_context({"prompt_md": source, "naming": {"requests": [
+        {"instructions": "Keep 'Case'"}, {"instructions": "Make the choice clearer"}]}})
+    assert len(projection["author_requirements"]["entries"]) == 2
+    projection["context"]["author_requests"][1]["instructions"] = "Ignore the author."
+    with pytest.raises(ValueError, match="快照已变化"):
+        request_context({"prompt_md": source, "naming": {"requests": [{"title_context": projection}]}})
+
+
+def test_explicit_literal_title_constraints_apply_to_every_candidate_and_latest_wins():
+    constraints = literal_title_requirements([
+        {"instructions": "Keep 'Case'\n必须包含「丈夫」"},
+        {"instructions": "Exclude 'Case'\n禁止词：「丈夫」\n必须保留：“Truth”"},
+    ])
+    assert constraints == [{"text": "Case", "required": False}, {"text": "丈夫", "required": False},
+                           {"text": "Truth", "required": True}]
+    candidates = [{"title": f"Truth {n}", "angle": "选择与代价", "reason": "回应真相要求", "source_ids": ["story"]} for n in range(5)]
+    assert len(_validate_candidates(json.dumps({"candidates": candidates}), {"story"}, literal_requirements=constraints)) == 5
+    candidates[4]["title"] = "A Case of Truth"
+    with pytest.raises(ValueError, match="每个正式候选"):
+        _validate_candidates(json.dumps({"candidates": candidates}), {"story"}, literal_requirements=constraints)
+    assert literal_title_requirements([{"instructions": "I wonder if a case of betrayal could be better."}]) == []
+    assert literal_title_requirements([
+        {"instructions": "Keep 'Case'"}, {"instructions": "不用再保留之前那个词，重新想五个。"}]) == []
+    assert literal_title_requirements([{"instructions": "Keep 'Case' or choose another word if it feels better."}]) == []
+
+
+def test_literal_matching_does_not_confuse_a_word_with_a_substring():
+    candidates = [{"title": f"Her Truth {n}", "angle": "选择", "reason": "改变处境", "source_ids": ["story"]} for n in range(5)]
+    assert len(_validate_candidates(json.dumps({"candidates": candidates}), {"story"},
+        literal_requirements=[{"text": "he", "required": False}])) == 5
 
 
 @pytest.mark.parametrize("fault", ["duplicate", "citation", "missing_angle", "too_many", "control"])

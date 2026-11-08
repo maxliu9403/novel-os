@@ -11,6 +11,7 @@ from api.workshop_assembly import ASSEMBLY_PARTS
 from test_workshop_api import client, complete_prompt, create, finish  # noqa: F401
 from test_workshop_contract_repair import stub_model
 from test_workshop_handoff import make_prompt
+from test_story_first_engine import freeze_legacy_policy
 from workshop_assembly_fixtures import parts_from_prompt
 from workshop_delivery_fixtures import stage_response
 
@@ -224,6 +225,7 @@ def test_known_mode_delivery_starts_with_story_design_and_never_calls_handoff(
     prompt = complete_prompt(tmp_path)
     calls = stub_model(monkeypatch, delivery_responder(prompt))
     data = create(client, premise="完成21章的家庭剧骨架。", mode="short_novel", chapters=21)
+    freeze_legacy_policy(tmp_path, data["id"])
     submit(client, data, "交付完整骨架", intent="deliver")
     current = finish(client, data["id"])
 
@@ -242,6 +244,7 @@ def test_unknown_mode_delivery_selects_valid_mode_in_first_story_design_stage(
     prompt = complete_prompt(tmp_path)
     calls = stub_model(monkeypatch, delivery_responder(prompt))
     data = create(client, premise="请根据完整故事决定最合适的组织形式并交付。", chapters=21)
+    freeze_legacy_policy(tmp_path, data["id"])
     submit(client, data, "完整交付", intent="deliver")
     current = finish(client, data["id"])
 
@@ -258,6 +261,7 @@ def test_first_story_design_can_apply_later_conversation_mode_over_older_form_wi
     prompt = complete_prompt_for_mode(tmp_path, "series_installment")
     calls = stub_model(monkeypatch, delivery_responder(prompt, mode="series_installment"))
     data = create(client, premise="最早表单选了短篇。", mode="short_novel", chapters=21)
+    freeze_legacy_policy(tmp_path, data["id"])
     submit(client, data, "根据后续讨论，现在按系列首部的完整形式交付。", intent="deliver")
     current = finish(client, data["id"])
 
@@ -277,6 +281,7 @@ def test_delivery_resume_preserves_intent_and_accepts_legacy_verified_checkpoint
     prompt = complete_prompt(tmp_path)
     first_calls = stub_model(monkeypatch, delivery_responder(prompt, fail_chapter=True))
     data = create(client, premise="交付后可从已验证阶段继续。", mode="short_novel", chapters=21)
+    freeze_legacy_policy(tmp_path, data["id"])
     submit(client, data, "完成骨架", intent="deliver")
     failed = finish(client, data["id"])
     assert failed["status"] == "error"

@@ -18,10 +18,10 @@ from core.novel_classification import NovelClassification
 from core.publication_taxonomy import classification
 
 
-def make_dynamic_book(root):
+def make_dynamic_book(root, audience_channel=None):
     store = CreativeTypeStore(root / "knowledge")
     taxonomy = store.snapshot(selected(store))["publication_taxonomy"]
-    selected_classification = classification(taxonomy, 2)
+    selected_classification = classification(taxonomy, 2, audience_channel=audience_channel)
     value = selected_classification.to_dict()
     serialization = serialization_payload(
         infer_narrative_format(
@@ -52,9 +52,11 @@ def make_dynamic_book(root):
     return book, value, serialization
 
 
-def test_dynamic_zip_epub_sidecar_and_package_share_exact_public_taxonomy(tmp_path):
+@pytest.mark.parametrize('channel', [None, 'male', 'female'])
+def test_dynamic_zip_epub_sidecar_and_package_share_exact_public_taxonomy(tmp_path, channel):
     project = tmp_path / "project"
-    book, value, serialization = make_dynamic_book(tmp_path)
+    book, value, serialization = make_dynamic_book(tmp_path, channel)
+    assert value['audience']['channel'] == (channel or 'general')
     compiled_book(project, book=book)
     private = project / "outputs/private"
     private.mkdir()

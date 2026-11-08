@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from core import creative_types as ct
+from core.audience_guidance import replace_audience_guidance
 from core.creative_execution import make_handoff
 from core.knowledge_import import read_import
 from test_creative_types import ref, selected
@@ -75,7 +76,7 @@ def test_batch_preserves_unselected_records_snapshots_and_backup(tmp_path):
     assert store.path.read_bytes() == first_bytes
 
 
-@pytest.mark.parametrize("failure", ["invalid", "duplicate", "collision", "association", "concurrent"])
+@pytest.mark.parametrize("failure", ["invalid", "duplicate", "collision", "malformed_association", "concurrent"])
 def test_invalid_batch_never_partially_overwrites_library(tmp_path, failure):
     store = ct.CreativeTypeStore(tmp_path)
     md = next(md for p, md in FILES if p.stem == "Betrayal")
@@ -87,8 +88,8 @@ def test_invalid_batch_never_partially_overwrites_library(tmp_path, failure):
         documents[1] = md
     elif failure == "collision":
         documents[1] = md.replace("# 背叛 Betrayal", "# 背叛 Duplicate")
-    elif failure == "association":
-        documents[1] = documents[1].replace("关联 Genre：Romance", "关联 Genre：Missing")
+    elif failure == "malformed_association":
+        documents[1] = documents[1].replace("关联 Genre：Romance", "关联 Genre：浪漫")
     before = store.path.read_bytes()
     with pytest.raises(ct.CreativeTypeError):
         if failure == "concurrent":
@@ -96,6 +97,32 @@ def test_invalid_batch_never_partially_overwrites_library(tmp_path, failure):
         else:
             import_all(store, documents)
     assert store.path.read_bytes() == before
+
+
+def test_legacy_association_metadata_does_not_constrain_explicit_channel_selection(tmp_path):
+    store = ct.CreativeTypeStore(tmp_path)
+    markdown = FILES[0][1].replace("关联 Genre：Romance", "关联 Genre：Missing")
+    identifier = ct.parse_document(markdown)["id"]
+    import_all(store, [markdown])
+    original = store.get(identifier)
+    assert original["draft"] == markdown
+    assert ct.active_document(original)["genre_ids"] == ["genre.missing"]
+    assert "genre.missing" not in store.records()
+    guided = replace_audience_guidance(markdown, ["female"], {
+        "female": "让人物选择与代价改变关系，兑现该标签承诺的阅读回报。",
+    })
+    import_all(store, [guided])
+    record = store.get(identifier)
+    assert record["versions"][:-1] == original["versions"]
+    refs = [ref(store.get("genre.romance")), ref(record)]
+    snapshot = store.snapshot(refs, audience_channel="female")
+    assert snapshot["schema"] == "selection-snapshot.v2"
+    assert snapshot["genre_id"] == "genre.romance"
+    assert snapshot["tag_ids"] == [identifier]
+    # Historical snapshot rules remain frozen; only the explicit v2 contract
+    # removes association membership as a selection constraint.
+    with pytest.raises(ct.CreativeTypeError, match="不属于当前 Genre"):
+        store.snapshot(refs)
 
 
 def test_raw_format_preserves_crlf_future_sections_and_fenced_headings(tmp_path):

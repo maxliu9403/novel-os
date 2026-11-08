@@ -79,10 +79,21 @@ def public_entry(versions: list[dict], selected_version: int) -> dict:
     return selected
 
 
-def classification(taxonomy: dict, chapters: int | None = None):
+def creation_channel(initial_input: dict) -> str | None:
+    """Read the explicit channel; only frozen legacy input may omit it."""
+    channel = initial_input.get('audience_channel')
+    if ((initial_input.get('creation_flow') == 'genre_tags.v2' and channel is None)
+            or channel is not None and channel not in {'male', 'female'}):
+        raise ValueError('缺少有效的作者确认频道，请重新确认基础设定。')
+    return channel
+
+
+def classification(taxonomy: dict, chapters: int | None = None, *, audience_channel: str | None = None):
     from .novel_classification import NovelClassification, _chapter_shape
 
     value = Taxonomy.model_validate(taxonomy).model_dump()
+    if audience_channel is not None and audience_channel not in {'male', 'female'}:
+        raise ValueError('新创作的发行频道必须为 male 或 female。')
     form, band = _chapter_shape(chapters)
     return NovelClassification(
         primary_genre_id=value["genre"]["id"],
@@ -93,6 +104,7 @@ def classification(taxonomy: dict, chapters: int | None = None):
         chapter_band=band,
         source="author_confirmed",
         confidence=1.0,
+        audience_channel=audience_channel or 'general',
     )
 
 
@@ -123,6 +135,7 @@ def export_target(classification: dict | None) -> dict:
 
 
 def bind_classification(prompt: str, initial_input: dict) -> str:
+    channel = creation_channel(initial_input)
     taxonomy = initial_input.get("publication_taxonomy")
     if taxonomy is None:
         return prompt
@@ -132,7 +145,8 @@ def bind_classification(prompt: str, initial_input: dict) -> str:
         re.I | re.M,
     )
     value = classification(
-        taxonomy, int(chapter[1]) if chapter else initial_input.get("chapters")
+        taxonomy, int(chapter[1]) if chapter else initial_input.get("chapters"),
+        audience_channel=channel,
     ).to_dict()
     block = (
         "[NOVEL_CLASSIFICATION_JSON]\n"

@@ -16,6 +16,25 @@ CANDIDATES = [{"title": name, "reason": "以人物选择呼应故事"}
 ROUTE = {"provider": "stub", "model": "naming-model", "timeout_seconds": 900}
 
 
+def test_model_reported_author_limit_conflict_is_not_retried(monkeypatch):
+    from core import llm_client, provider_settings
+    from core.author_requirements import AuthorRequirementConflict
+    calls = []
+    monkeypatch.setattr(provider_settings, "resolve_text_route", lambda _:
+        {"provider": "stub", "model": "fixture", "base_url": "", "api_key": "", "max_tokens": 4096})
+    class FakeClient:
+        def __init__(self, **_): pass
+        def complete(self, system, user):
+            calls.append((system, user))
+            return json.dumps({"request_conflicts": ["候选最多 15 词，无法原样保留这句 20 词的书名"]})
+    monkeypatch.setattr(llm_client, "LLMClient", FakeClient)
+    with pytest.raises(AuthorRequirementConflict, match="15 词"):
+        workshop_titles.complete_titles({"turn_timeout_seconds": 900, "prompt_md": "A detective faces a difficult choice.",
+            "naming": {"requests": [{"instructions": "Every title should have 20 words."}]}}, "rules")
+    assert len(calls) == 1
+    assert "Every formal candidate" in calls[0][0]
+
+
 def suggest(client, data, instructions="", current_title=""):
     response = client.post(f'/api/workshop/sessions/{data["id"]}/titles',
                            json={"revision": data["revision"], "instructions": instructions, "current_title": current_title})

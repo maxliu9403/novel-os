@@ -11,7 +11,7 @@ from core import creative_types as ct
 def test_every_tag_projects_user_methods_without_a_fixed_heading_contract(tmp_path):
     store = ct.CreativeTypeStore(tmp_path)
     tags = [r for r in store.records().values() if r["kind"] == "tag"]
-    assert len(tags) == 41
+    assert len(tags) == 40
     mechanisms = []
     for record in tags:
         doc = ct.active_document(record)
@@ -34,14 +34,25 @@ def test_every_tag_projects_user_methods_without_a_fixed_heading_contract(tmp_pa
     assert len(set(mechanisms)) == len(tags)
 
 
-def test_all_upgraded_public_ids_match_their_archived_originals(tmp_path):
+def test_current_public_ids_match_archives_without_restoring_retired_tags(tmp_path):
     store = ct.CreativeTypeStore(tmp_path)
     archive = (
         Path(__file__).parents[1]
         / "resources/knowledge-imports/romance-all-tags-before-20261106"
     )
-    for path in archive.glob("*.md"):
-        old = ct.parse_document(path.read_text())
+    archived = {
+        document["id"]: document
+        for path in archive.glob("*.md")
+        for document in [ct.parse_document(path.read_text())]
+    }
+    current_ids = set(store.records())
+    # Author deletion removes this seed, while the original remains archived.
+    # Any other missing historical document is still a regression.
+    assert set(archived) - current_ids == {"tag.runaway_with_a_baby"}
+    with pytest.raises(ct.CreativeTypeError, match="找不到此资料"):
+        store.get("tag.runaway_with_a_baby", include_deleted=True)
+    for identifier in set(archived) & current_ids:
+        old = archived[identifier]
         new = ct.active_document(store.get(old["id"]))
         assert old["publication"] == new["publication"]
         assert old["genre_ids"] == new["genre_ids"]

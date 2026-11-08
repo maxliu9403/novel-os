@@ -16,6 +16,9 @@ from typing import Any, Callable, Mapping
 
 from .cover_models import CoverBrief, CoverConcept
 from .cover_sources import CoverSkeletonSnapshot, canonical_hash
+from .audience_guidance import CHANNELS
+from .author_requirements import (AuthorRequirementConflict, build_requirements,
+                                  prompt_requirements, request_conflicts, validate_requirements)
 
 
 PIPELINE_KIND = "skeleton_poster"
@@ -30,6 +33,17 @@ class PosterPlanningError(ValueError):
         super().__init__(message)
         self.code = code
         self.details = details
+
+
+def poster_audience_instruction(metadata: Mapping[str, Any]) -> str:
+    """Carry the frozen readership into artwork without inferring cast or POV."""
+    if "audience_channel" not in metadata:
+        return ""
+    channel = metadata["audience_channel"]
+    if channel not in CHANNELS:
+        raise PosterPlanningError("invalid_plan", "audience_channel must be male or female when present")
+    return (f"\nREADER CHANNEL: {channel}. This identifies readership, not protagonist gender, orientation or POV; "
+            "preserve this direction's cast, story identities and relationships.")
 
 
 _SYSTEM = """You are a commercial novel-cover art director. Read ALL frozen source
@@ -72,6 +86,12 @@ new story and Genre/Tags, not the reference's apparent plot. The image must not
 add a child, affair or death that the new story does not contain.
 Four directions should differ in relational emphasis, composition, story symbol
 or emotional promise, not just clothing colours or mirrored camera placement.
+Follow the precedence in author_requirements. All four formal directions must
+respond to the latest corrections and compatible earlier requests. In each
+story_promise briefly explain the requested change and its story effect. Optional
+advice is not a substitute for the requested design. If a request cannot coexist
+with canon or this output protocol, return only {"request_conflicts":["brief Chinese
+explanation of the conflict and decision needed"]}; do not silently ignore it.
 
 All image_prompt values describe TEXT-FREE 2:3 portrait artwork. No title, letters,
 logos, watermarks, author names or legible signage in the generated artwork. The
@@ -240,6 +260,12 @@ def _validate(raw: str, *, expected_title: str) -> dict[str, Any]:
         data = json.loads(raw)
     except (TypeError, json.JSONDecodeError) as exc:
         raise PosterPlanningError("invalid_response", "Response must be one JSON object without Markdown") from exc
+    try:
+        request_conflicts(data)
+    except AuthorRequirementConflict:
+        raise
+    except ValueError as exc:
+        raise PosterPlanningError("invalid_response", str(exc)) from exc
     if not isinstance(data, dict) or not isinstance(data.get("story"), dict):
         raise PosterPlanningError("invalid_response", "Response requires a story object")
     story = data["story"]
@@ -296,6 +322,7 @@ def plan_poster(
     token_counter: Callable[[str], int] | None = None, max_output_tokens: int = 12_000,
     max_response_bytes: int = MAX_RESPONSE_BYTES, output_token_limit_supported: bool = False,
     reference: dict | None = None, knowledge_snapshot: dict | None = None,
+    author_requirements: dict | None = None,
 ) -> dict[str, Any]:
     """Plan once, with at most one bounded correction for an unusable JSON shape.
 
@@ -324,8 +351,13 @@ def plan_poster(
     if any(not isinstance(value, str) for value in formal.values()):
         raise PosterPlanningError("invalid_metadata", "Publication metadata fields must be strings")
     source = _source_payload(snapshot)
+    requirements = (validate_requirements(author_requirements, scope="cover_design", source_sha256=snapshot.source_content_sha256)
+                    if author_requirements is not None else build_requirements("cover_design", [
+                        {"id": "cover-request-1", "text": _json(dict(preferences))}
+                    ] if preferences else [], source_sha256=snapshot.source_content_sha256))
     request = {"phase": "plan_poster", "source": source, "metadata": formal,
-               "preferences": deepcopy(dict(preferences)), "response_contract": _CONTRACT,
+               "response_contract": _CONTRACT,
+               "author_requirements": prompt_requirements(requirements),
                "title_capabilities": _title_capabilities(title),
                "response_limits": {"directions": 4, "cast": 12, "hard_constraints": 24,
                                    "max_output_tokens": max_output_tokens, "max_response_bytes": max_response_bytes}}
@@ -341,6 +373,11 @@ def plan_poster(
     if knowledge_snapshot is not None:
         from .creative_types import compile_snapshot
         request['genre_context'] = compile_snapshot(knowledge_snapshot, 'cover')
+        # Only a validated frozen selection can declare this field. Free-form
+        # publication metadata and the planner response cannot assign readership.
+        channel = request['genre_context'].get('audience_channel')
+        if channel is not None:
+            formal['audience_channel'] = channel
 
     def check_budget(user: str, *, correction: bool) -> dict[str, Any]:
         serialized = _SYSTEM + "\n" + user
@@ -420,6 +457,7 @@ def plan_poster(
     return {"pipeline_kind": PIPELINE_KIND, "schema_version": SCHEMA_VERSION,
             "expression_mode": "poster_staging", **result, "metadata": formal,
             "preferences": deepcopy(dict(preferences)), "model": model, "model_role": "requested_text_model",
+            "author_requirements": requirements,
             "snapshot_id": snapshot.snapshot_id, "snapshot_sha256": snapshot.snapshot_sha256,
             "source_content_sha256": snapshot.source_content_sha256,
             "source_bundle_sha256": snapshot.source_bundle_sha256,
@@ -443,6 +481,8 @@ def normalize_poster_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
         raise PosterPlanningError("invalid_plan", "snapshot_id is required")
     if not isinstance(plan.get("metadata"), Mapping):
         raise PosterPlanningError("invalid_plan", "Publication metadata is required")
+    if plan.get("author_requirements") is not None:
+        validate_requirements(plan["author_requirements"], scope="cover_design", source_sha256=plan["source_content_sha256"])
     metadata = plan["metadata"]
     title = metadata.get("title")
     if not isinstance(title, str) or not title.strip() or len(title) > 500:
@@ -451,6 +491,7 @@ def normalize_poster_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
     if any(not isinstance(metadata.get(key, ""), str) for key in (
             "author", "language", "genre", "target_audience", "market_scope")):
         raise PosterPlanningError("invalid_plan", "Publication metadata must remain text")
+    poster_audience_instruction(metadata)
     return {**deepcopy(dict(plan)), **validated, "expression_mode": "poster_staging"}
 
 
@@ -487,6 +528,7 @@ def poster_storage_objects(plan: Mapping[str, Any]) -> tuple[CoverBrief, tuple[C
             "The current structured cast, composition, medium and palette take precedence over conflicting "
             "details in the supplemental art execution description.\n"
             f"Formal title for semantic context ONLY; never write it into the artwork: {title}\n"
+            f"Current direction ID: {direction['id']}\n"
             f"Story promise: {direction['story_promise']}\nMedium: {direction['medium']}\n"
             f"Composition: {direction['composition']}\nPalette: {direction['palette']}\n"
             f"World: {story['world']}\nCharacters and invariant relationships: "
@@ -497,11 +539,16 @@ def poster_storage_objects(plan: Mapping[str, Any]) -> tuple[CoverBrief, tuple[C
             + _json(title_layout["region"]) + "; design sufficient contrast for later " + title_layout["color"]
             + " lettering. This is a composition reservation only: render no typography.\nArt execution: " + direction["image_prompt"]
             + "\nFINAL OUTPUT REQUIREMENT: no text, letters, numbers, signatures or watermarks."
+            + poster_audience_instruction(metadata)
         )
         reference = plan.get('reference')
         if reference:
             image_prompt += '\nREFERENCE MODE: ' + reference['mode'] + '\nReference design instructions: ' + _json(plan.get('reference_analysis', {}))
             image_prompt += '\nUse the attached image as a visual reference, adapting it to the approved NEW story. Remove source lettering, logos and watermarks. Return new text-free artwork.'
+        if plan.get("author_requirements") is not None:
+            image_prompt += ("\nAUTHOR ART REQUIREMENTS (explicit corrections override old visual defaults; "
+                             "preserve canon and the text-free output policy):\n"
+                             + _json(prompt_requirements(plan["author_requirements"])))
         recipe = {"schema_version": "poster-recipe.v1", "image_prompt": image_prompt,
                   "title_render_mode": "composed",
                   "title_layout": title_layout,
@@ -517,6 +564,7 @@ def poster_storage_objects(plan: Mapping[str, Any]) -> tuple[CoverBrief, tuple[C
                         "expression_mode": "poster_staging", **deepcopy(identity),
                         "snapshot_id": plan["snapshot_id"], "snapshot_sha256": plan["snapshot_sha256"],
                         "_poster_recipe": recipe,
+                        "_author_requirements": deepcopy(plan.get("author_requirements")),
                         "_reference_asset": deepcopy(plan.get('reference'))},
         ))
     brief.validate_concepts(concepts)

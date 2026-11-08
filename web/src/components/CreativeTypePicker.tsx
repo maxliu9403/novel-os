@@ -1,213 +1,121 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { knowledgeExcerpt } from "../lib/knowledgeExcerpt";
-import {
-  creativeTypesApi,
-  creativeRef,
-  type CreativeSummary,
-  type CreativeTypeRef,
-} from "../api/creativeTypes";
+import { AUDIENCE_CHANNELS, AUDIENCE_LABELS, supportsAudience } from "../lib/audience";
+import { useConfirm } from "./confirmContext";
+import { creativeTypesApi, creativeRef, isCreativeTypeRef, type AudienceChannel, type CreativeSummary, type CreativeTypeRef } from "../api/creativeTypes";
 import "../styles/creative-types.css";
 
-export default function CreativeTypePicker({
-  refs,
-  onChange,
-}: {
-  refs?: CreativeTypeRef[] | null;
-  onChange: (names: string[], refs: CreativeTypeRef[]) => void;
+export default function CreativeTypePicker({ refs, channel, legacy = false, legacyNames = [], onChange }: {
+  refs?: unknown[] | null;
+  channel?: AudienceChannel | null;
+  legacy?: boolean;
+  legacyNames?: string[];
+  onChange: (names: string[], refs: CreativeTypeRef[], channel?: AudienceChannel | null) => void;
 }) {
+  const confirm = useConfirm();
   const [items, setItems] = useState<CreativeSummary[]>([]);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [search, setSearch] = useState("");
-  const [detail, setDetail] = useState<string | null>(null);
-  const [pendingGenre, setPendingGenre] = useState<CreativeSummary | null>(
-    null,
-  );
+  const [switching, setSwitching] = useState(false);
   useEffect(() => {
     let live = true;
-    creativeTypesApi
-      .list()
-      .then((data) => {
-        if (live) setItems(data.items.filter((i) => i.status === "enabled"));
-      })
-      .catch((e) => {
-        if (live) setError(String(e));
-      })
-      .finally(() => {
-        if (live) setLoaded(true);
-      });
-    return () => {
-      live = false;
-    };
-  }, []);
-  const selected = refs ?? [];
-  const genre = selected.find((r) => r.id.startsWith("genre."));
-  const tags = items.filter(
-    (i) => i.kind === "tag" && genre && i.genre_ids.includes(genre.id),
-  );
-  const incompatibleWith = (item: CreativeSummary) =>
-    selected.filter(
-      (r) =>
-        r.id.startsWith("tag.") &&
-        !items.some((i) => i.id === r.id && i.genre_ids.includes(item.id)),
-    );
-  function choose(item: CreativeSummary, confirmed = false) {
+    creativeTypesApi.list().then(data => { if (live) { setItems(data.items); setLoaded(true); } })
+      .catch(e => { if (live) setError(e instanceof Error ? e.message : String(e)); });
+    return () => { live = false; };
+  }, [loadAttempt]);
+  const selected = (refs ?? []).filter(isCreativeTypeRef);
+  const historical = (refs?.length ?? 0) !== selected.length;
+  const genre = selected.find(r => r.id.startsWith("genre."));
+  const tagCount = selected.filter(r => r.id.startsWith("tag.")).length;
+  const maximum = 2;
+  const available = items.filter(i => !!channel && supportsAudience(i, channel));
+  const genres = available.filter(i => i.kind === "genre");
+  const tags = available.filter(i => i.kind === "tag");
+  function update(next: CreativeTypeRef[], nextChannel = channel) {
+    onChange(next.map(r => items.find(i => i.id === r.id)?.name ?? r.id), next, nextChannel);
+  }
+  async function chooseChannel(next: AudienceChannel) {
+    if (next === channel || switching || !loaded) return;
+    const incompatible = selected.filter(ref => !items.some(item => item.id === ref.id && supportsAudience(item, next)));
+    setSwitching(true);
+    try {
+      if (historical && !(await confirm({
+        title: "使用新版频道与题材？",
+        message: "本讨论使用旧版创作资料。升级后请重新选择一个 Genre 与一至两个 Tags；不会猜测旧资料的对应关系。故事构想、来源资料和其他设定会保留，保存前可取消修改。",
+        confirmLabel: "选择新版题材",
+      }))) return;
+      if (incompatible.length && !(await confirm({
+        title: `切换到${AUDIENCE_LABELS[next]}？`,
+        message: `将移除当前频道不可用的资料：${incompatible.map(ref => items.find(item => item.id === ref.id)?.name ?? ref.id).join("、")}。故事构想、来源资料和其他设定会保留。`,
+        confirmLabel: "切换频道",
+      }))) return;
+      const compatible = selected.filter(ref => !incompatible.some(item => item.id === ref.id));
+      // Changing channel selects the currently enabled guide for that channel;
+      // a restored reference may predate its availability.
+      update(compatible.map(ref => creativeRef(items.find(item => item.id === ref.id)!)), next);
+      setError("");
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally { setSwitching(false); }
+  }
+  function choose(item: CreativeSummary) {
+    if (switching) return;
     setError("");
-    if (item.kind === "genre" && !confirmed && incompatibleWith(item).length) {
-      setPendingGenre(item);
+    if (item.kind === "genre") {
+      update([creativeRef(item), ...selected.filter(ref => ref.id.startsWith("tag."))]);
       return;
     }
-    setPendingGenre(null);
-    let next: CreativeTypeRef[];
-    if (item.kind === "genre") {
-      next = [
-        creativeRef(item),
-        ...selected.filter(
-          (r) =>
-            r.id.startsWith("tag.") &&
-            items.some((i) => i.id === r.id && i.genre_ids.includes(item.id)),
-        ),
-      ];
-    } else {
-      if (
-        !selected.some((r) => r.id === item.id) &&
-        selected.filter((r) => r.id.startsWith("tag.")).length >= 20
-      ) {
-        setError("最多选择 20 个 Tag。");
-        return;
-      }
-      next = selected.some((r) => r.id === item.id)
-        ? selected.filter((r) => r.id !== item.id)
-        : [...selected, creativeRef(item)];
-    }
-    onChange(
-      next.map((r) => items.find((i) => i.id === r.id)?.name ?? r.id),
-      next,
-    );
+    if (selected.some(ref => ref.id === item.id)) update(selected.filter(ref => ref.id !== item.id));
+    else if (tagCount < maximum) update([...selected, creativeRef(item)]);
   }
-  return (
-    <section className="knowledge-picker">
-      <div className="knowledge-heading">
-        <h3>选择 Genre</h3>
-        <Link to="/creative-types" target="_blank">
-          维护写作资料 ↗
-        </Link>
+  return <section className="knowledge-picker">
+    <>
+      <div className="knowledge-heading"><h3>读者频道 <small>必选一项</small></h3><Link to="/creative-types" target="_blank">维护写作资料 ↗</Link></div>
+      <div className="knowledge-choices knowledge-channel-choices" role="radiogroup" aria-label="读者频道">
+        {AUDIENCE_CHANNELS.map(value => <button key={value} type="button" role="radio" aria-checked={channel === value}
+          disabled={!loaded || switching} onClick={() => void chooseChannel(value)} className={channel === value ? "selected" : ""}>{AUDIENCE_LABELS[value]}</button>)}
       </div>
-      {error && <p role="alert">{error}</p>}
-      <div
-        className="knowledge-choices"
-        role="radiogroup"
-        aria-label="Genre 主类型"
-      >
-        {items
-          .filter((i) => i.kind === "genre")
-          .map((i) => (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={genre?.id === i.id}
-              key={i.id}
-              onClick={() => choose(i)}
-              className={genre?.id === i.id ? "selected" : ""}
-            >
-              {i.name}
-            </button>
-          ))}
+      <p className="knowledge-muted">选择本书的读者定位；人物性别、视角与关系由你的故事决定。</p>
+    </>
+    {legacy && !channel && <p className="knowledge-muted">本讨论保留原有资料选择。要修改 Genre 或 Tags，请先选择频道，再确认一个 Genre 与一至两个 Tags。</p>}
+    {historical && <div className="knowledge-promises"><strong>历史创作资料 · 只读</strong>
+      <p>{legacyNames.length ? legacyNames.join(" · ") : "此讨论使用旧版创作资料。"}</p>
+      <details><summary>查看已保存的版本记录</summary><pre>{JSON.stringify(refs, null, 2)}</pre></details>
+    </div>}
+    {error && <div role="alert" className="knowledge-error"><p>{error}</p>{!loaded && <button type="button" className="btn-secondary" onClick={() => { setError(""); setLoadAttempt(value => value + 1); }}>重新读取资料</button>}</div>}
+    {!loaded && !error && <p role="status">正在读取写作资料…</p>}
+    {loaded && !channel && <p className="knowledge-picker-empty">先选择频道，再选择 Genre 与 Tags。</p>}
+    {channel && <>
+      <div className="knowledge-heading"><h3>Genre <small>选择一个主类型</small></h3></div>
+      <div className="knowledge-choices" role="radiogroup" aria-label="Genre 主类型">
+        {genres.map(item => <button type="button" role="radio" aria-checked={genre?.id === item.id} key={item.id}
+          disabled={switching} onClick={() => choose(item)} className={genre?.id === item.id ? "selected" : ""}>{item.name}</button>)}
       </div>
-      {pendingGenre && (
-        <div
-          className="knowledge-switch-confirm"
-          role="group"
-          aria-label="确认更换主类型"
-        >
-          <p>
-            改为 {pendingGenre.name} 后，将移除不适用的标签：
-            {incompatibleWith(pendingGenre)
-              .map((r) => items.find((i) => i.id === r.id)?.name ?? r.id)
-              .join("、")}
-            。
-          </p>
-          <div className="knowledge-actions">
-            <button type="button" onClick={() => choose(pendingGenre, true)}>
-              确认更换
-            </button>
-            <button type="button" onClick={() => setPendingGenre(null)}>
-              保留当前选择
-            </button>
-          </div>
-        </div>
-      )}
-      {!loaded && !error && <p>正在读取资料…</p>}
-      {loaded && !items.some((i) => i.kind === "genre") && !error && (
-        <p>尚无已启用的 Genre，请先维护写作资料。</p>
-      )}
-      <div className="knowledge-heading">
-        <h3>
-          组合 Tags <small>至少选择一个</small>
-        </h3>
-        <span>
-          {selected.filter((r) => r.id.startsWith("tag.")).length} 个已选
-        </span>
+      {loaded && !genres.length && <p className="knowledge-muted">当前频道没有已启用且指导完整的 Genre，请先维护写作资料。</p>}
+      <div className="knowledge-heading"><h3>Tags <small>选择一至两个</small></h3><span aria-live="polite">已选 {tagCount} / {maximum}</span></div>
+      <input aria-label="搜索标签" className="knowledge-search" placeholder="搜索标签或别名" value={search} onChange={e => setSearch(e.target.value)} />
+      <div className="knowledge-choices" aria-label="创作标签">
+        {tags.filter(item => [item.name, ...item.aliases].some(value => value.toLowerCase().includes(search.toLowerCase()))).map(item => {
+          const checked = selected.some(ref => ref.id === item.id);
+          return <button type="button" key={item.id} aria-pressed={checked} className={checked ? "selected" : ""}
+            disabled={switching || (!checked && tagCount >= maximum)} onClick={() => choose(item)}>{item.name}</button>;
+        })}
       </div>
-      {genre ? (
-        <>
-          <input
-            aria-label="搜索关联标签"
-            className="knowledge-search"
-            placeholder="搜索标签或别名"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <div className="knowledge-choices">
-            {tags
-              .filter((i) =>
-                [i.name, ...i.aliases].some((s) =>
-                  s.toLowerCase().includes(search.toLowerCase()),
-                ),
-              )
-              .map((i) => (
-                <button
-                  key={i.id}
-                  type="button"
-                  aria-pressed={selected.some((r) => r.id === i.id)}
-                  className={
-                    selected.some((r) => r.id === i.id) ? "selected" : ""
-                  }
-                  onClick={() => choose(i)}
-                >
-                  {i.name}
-                </button>
-              ))}
-          </div>
-          {!tags.length && (
-            <p>此 Genre 尚无已启用的关联 Tag，请先维护写作资料。</p>
-          )}
-          <div className="knowledge-promises">
-            {selected.map((r) => {
-              const item = items.find((i) => i.id === r.id);
-              return (
-                item && (
-                  <details
-                    key={r.id}
-                    open={detail === r.id}
-                    onToggle={(e) => {
-                      if (e.currentTarget.open) setDetail(r.id);
-                    }}
-                  >
-                    <summary>
-                      {item.name} <span>如何影响故事</span>
-                    </summary>
-                    <p>{knowledgeExcerpt(item.promise)}</p>
-                  </details>
-                )
-              );
-            })}
-          </div>
-        </>
-      ) : (
-        <p className="knowledge-muted">先选择主类型，再组合相关标签。</p>
-      )}
-    </section>
-  );
+      {tagCount >= maximum && <p className="knowledge-muted">{tagCount > maximum ? `保留了 ${tagCount} 个原有 Tags，请取消至一至两个后继续。` : `最多选择 ${maximum} 个 Tags，可先取消一项。`}</p>}
+      {loaded && !tags.length && <p className="knowledge-muted">当前频道没有可用 Tags，请先补充并启用频道指导。</p>}
+      {tags.length > 0 && !tags.some(item => [item.name, ...item.aliases].some(value => value.toLowerCase().includes(search.toLowerCase()))) && <p className="knowledge-muted">没有匹配的标签。</p>}
+    </>}
+    <div className="knowledge-promises">{selected.map(ref => {
+      const item = items.find(i => i.id === ref.id);
+      const currentVersion = item?.active_version === ref.version && item.source_sha256 === ref.source_sha256;
+      const unavailable = loaded && channel && (!item || !supportsAudience(item, channel));
+      return <details key={ref.id}><summary>{item?.name ?? ref.id}<span>如何影响故事</span></summary>
+        <p>{item && currentVersion ? knowledgeExcerpt(item.promise) : `使用本讨论已保存的资料版本 v${ref.version}，当前资料说明可能已更新。`}</p>
+        {unavailable && <><p>此资料当前不可选；已保存的讨论仍保留原版本。</p><button type="button" className="btn-secondary" disabled={switching} onClick={() => update(selected.filter(value => value.id !== ref.id))}>移除{item?.name ?? ref.id}</button></>}
+      </details>;
+    })}</div>
+  </section>;
 }

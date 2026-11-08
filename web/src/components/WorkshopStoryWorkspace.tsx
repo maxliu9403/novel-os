@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { StoryAction, StoryArea, WorkshopSession } from '../api/workshop';
 import WorkshopSubmittedMessages, { type SubmittedTurn } from './WorkshopSubmittedMessages';
+import WorkshopProposalImpact from './WorkshopProposalImpact';
 
 export type StoryTab = 'decision' | 'story' | 'assumptions' | 'history';
 const AREAS: Record<StoryArea, string> = { direction: '核心方向', opening: '开篇与前段', middle: '中段推进', climax: '高潮选择', ending: '结局与回报' };
@@ -73,6 +74,7 @@ export default function WorkshopStoryWorkspace({ session, tab, onTab, mode, sele
               <div className="flex items-center gap-3"><input type="radio" name={`${session.id}-${pending.id}`} checked={checked} onChange={() => onSelect(pending.id, id)} className="h-5 w-5 accent-violet"/><span className="text-[14px] font-semibold text-violet">方案 {String.fromCharCode(65 + i)}</span>{pending.recommended_id === id && <span className="ml-auto rounded-full bg-white px-3 py-1 text-[13px] text-violet">推荐</span>}</div>
               <span className="mt-4 text-[18px] font-semibold leading-relaxed">{proposal.title}</span>
               <span className="mt-3 whitespace-pre-wrap text-[16px] leading-relaxed">{proposal.story}</span>
+              <WorkshopProposalImpact proposal={proposal} />
               <span className="mt-5 border-t border-paper-line pt-4 text-[14px] leading-relaxed text-ink-muted">取舍与后续影响：{proposal.tradeoff}</span>
             </label>;
           })}</div>

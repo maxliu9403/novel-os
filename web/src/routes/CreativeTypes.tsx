@@ -6,11 +6,14 @@ import {
   type CreativeSummary,
   type KnowledgeDocument,
   type KnowledgeKind,
+  type AudienceChannel,
 } from "../api/creativeTypes";
 import Scene from "../components/Scene";
 import Modal from "../components/Modal";
 import TitlePromptEditor from "../components/TitlePromptEditor";
 import KnowledgeMarkdownPreview from "../components/KnowledgeMarkdownPreview";
+import AudienceGuidanceEditor from "../components/AudienceGuidanceEditor";
+import { AUDIENCE_CHANNELS, AUDIENCE_LABELS, audienceLabel } from "../lib/audience";
 import { useConfirm } from "../components/confirmContext";
 import { knowledgeExcerpt } from "../lib/knowledgeExcerpt";
 import { splitKnowledgeMarkdown } from "../lib/knowledgeMarkdown";
@@ -23,6 +26,8 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export default function CreativeTypes() {
   const [titlePromptOpen, setTitlePromptOpen] = useState(false);
+  const [audienceOpen, setAudienceOpen] = useState(false);
+  const [audienceFilter, setAudienceFilter] = useState<"all" | "missing" | AudienceChannel>("all");
   const confirm = useConfirm();
   const [items, setItems] = useState<CreativeSummary[]>([]),
     [record, setRecord] = useState<CreativeRecord | null>(null);
@@ -36,8 +41,7 @@ export default function CreativeTypes() {
     [saved, setSaved] = useState(false);
   const [createOpen, setCreateOpen] = useState(false),
     [newKind, setNewKind] = useState<KnowledgeKind>("tag"),
-    [newName, setNewName] = useState(""),
-    [genreId, setGenreId] = useState("");
+    [newName, setNewName] = useState("");
   const [body, setBody] = useState("");
   const [initialBody, setInitialBody] = useState("");
   const [pasteNotice, setPasteNotice] = useState("");
@@ -61,6 +65,7 @@ export default function CreativeTypes() {
         setParsed(next.document ?? null);
         setPasteNotice("");
         setTab("preview");
+        return next;
       }
     } catch (e) {
       if (liveRef.current && serial === requestSerial.current)
@@ -223,7 +228,7 @@ export default function CreativeTypes() {
   }
   async function create() {
     if (busy) return;
-    if (!importTarget && (!newName.trim() || (newKind === "tag" && !genreId))) return;
+    if (!importTarget && !newName.trim()) return;
     setBusy(true);
     setError("");
     try {
@@ -236,7 +241,7 @@ export default function CreativeTypes() {
         : await creativeTypesApi.prepare(importBody ?? "", { identity: {
             id: `${newKind}.custom_${crypto.randomUUID().replaceAll("-", "").slice(0, 20)}`,
             kind: newKind, name: newName.trim(),
-            genre_ids: newKind === "tag" ? [genreId] : [],
+            genre_ids: [],
           } });
       if (prepared.needs_identity) throw new Error("请补充资料名称和分类。");
       await stageImport(prepared.markdown, prepared.document, target);
@@ -280,6 +285,7 @@ export default function CreativeTypes() {
   const filtered = items.filter(
     (i) =>
       (kind === "all" || i.kind === kind) &&
+      (audienceFilter === "all" || (audienceFilter === "missing" ? !i.audience_ready : i.audience_channels?.includes(audienceFilter))) &&
       [i.name, i.id, ...i.aliases].some((s) =>
         s.toLowerCase().includes(query.toLowerCase()),
       ),
@@ -358,6 +364,11 @@ export default function CreativeTypes() {
                   </button>
                 ))}
               </div>
+              <select className="knowledge-search knowledge-channel-filter" aria-label="筛选适用频道" value={audienceFilter} onChange={e => setAudienceFilter(e.target.value as typeof audienceFilter)}>
+                <option value="all">全部频道</option>
+                {AUDIENCE_CHANNELS.map(channel => <option key={channel} value={channel}>{AUDIENCE_LABELS[channel]}</option>)}
+                <option value="missing">待补频道指导</option>
+              </select>
               <div className="knowledge-list">
                 {filtered.map((i) => (
                   <button
@@ -380,6 +391,7 @@ export default function CreativeTypes() {
                       {i.active_version ? `v${i.active_version}` : "未启用"}
                       {i.has_draft_changes ? " · 有草稿修改" : ""}
                     </small>
+                    <span className="knowledge-audience-badge">{audienceLabel(i.audience_channels)}</span>
                   </button>
                 ))}
               </div>
@@ -430,6 +442,12 @@ export default function CreativeTypes() {
                     </button>
                   </div>
                 </header>
+                <div className="knowledge-audience-bar">
+                  <span>适用频道 <strong>{audienceLabel(parsed?.audience_guidance?.audience_channels)}</strong></span>
+                  <button type="button" className="btn-secondary" disabled={busy} onClick={async () => {
+                    if (await discard()) { if (await load(record.id)) setAudienceOpen(true); }
+                  }}>维护频道指导</button>
+                </div>
                 <div
                   className="knowledge-tabs"
                   role="tablist"
@@ -479,9 +497,15 @@ export default function CreativeTypes() {
                       }}
                     />
                   )}
-                  {tab === "preview" && (
+                  {tab === "preview" && <>
                     <KnowledgeMarkdownPreview markdown={body} />
-                  )}
+                    {parsed?.audience_guidance && <div className="knowledge-audience-preview">
+                      {AUDIENCE_CHANNELS.filter(channel => parsed.audience_guidance?.guides[channel]?.trim()).map(channel => <details key={channel}>
+                        <summary>{AUDIENCE_LABELS[channel]}写作指导 <span>{parsed.audience_guidance!.audience_channels.includes(channel) ? "已启用" : "暂未启用"}</span></summary>
+                        <KnowledgeMarkdownPreview markdown={parsed.audience_guidance!.guides[channel]!} />
+                      </details>)}
+                    </div>}
+                  </>}
                   {tab === "versions" && (
                     <div className="knowledge-versions">
                       <p>可使用历史版本，已有作品的资料保持不变。</p>
@@ -562,6 +586,16 @@ export default function CreativeTypes() {
         </section>
       </div>
       {titlePromptOpen && <TitlePromptEditor onClose={() => setTitlePromptOpen(false)} />}
+      {audienceOpen && record && <AudienceGuidanceEditor key={`${record.id}:${record.revision}`} record={record} onClose={() => setAudienceOpen(false)} onSaved={next => {
+        setAudienceOpen(false);
+        setRecord(next);
+        setMarkdown(next.draft);
+        setBody(bodyOf(next.draft, next.document));
+        setInitialBody(bodyOf(next.draft, next.document));
+        setParsed(next.document ?? null);
+        setSaved(true);
+        void refresh().catch(e => setError(errorText(e)));
+      }} />}
       <Modal
         open={createOpen}
         onClose={() => {
@@ -597,31 +631,13 @@ export default function CreativeTypes() {
               placeholder="例如：第二次机会"
             />
           </label>
-          {newKind === "tag" && (
-            <label>
-              关联 Genre
-              <select
-                value={genreId}
-                onChange={(e) => setGenreId(e.target.value)}
-              >
-                <option value="">请选择</option>
-                {items
-                  .filter((i) => i.kind === "genre" && i.status === "enabled")
-                  .map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          )}
           </>}
           {importBody !== null && <p className="knowledge-muted">正文原样保留，确认后可预览，再保存并启用。</p>}
           <button
             type="button"
             className="btn-primary"
             disabled={
-              busy || (!importTarget && (!newName.trim() || (newKind === "tag" && !genreId)))
+              busy || (!importTarget && !newName.trim())
             }
             onClick={() => void create()}
           >

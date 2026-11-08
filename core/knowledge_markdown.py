@@ -14,9 +14,18 @@ from .creative_types import (
     CreativeTypeError, FreeformHeader, parse_document, read_document_header,
     validate_markdown_size,
 )
+from .audience_guidance import (
+    AudienceGuidanceError, parse_audience_guidance, replace_audience_guidance,
+)
 
 
 def document_body(markdown: str) -> str:
+    try:
+        audience = parse_audience_guidance(markdown)
+    except AudienceGuidanceError:
+        audience = None  # Keep malformed text visible and repairable by its author.
+    if audience is not None:
+        markdown = audience.original
     if markdown.startswith('---'):
         return read_document_header(markdown)[1]
     return markdown
@@ -48,12 +57,23 @@ def prepare_markdown(
     Editing a body uses the saved envelope; author prose cannot rename the record.
     """
     validate_markdown_size(markdown)
+    preserved_audience = None
     if base_markdown is not None and identity is not None:
         raise CreativeTypeError('正文编辑与新建资料信息不能混用。')
     if base_markdown is not None:
         doc = parse_document(base_markdown)
+        try:
+            preserved_audience = parse_audience_guidance(base_markdown)
+        except AudienceGuidanceError:
+            pass
         header = {k: v for k, v in doc.items() if k in FreeformHeader.model_fields or k == 'schema'}
         body = _edited_body(markdown, header)
+        try:
+            pasted_audience = parse_audience_guidance(body)
+        except AudienceGuidanceError as exc:
+            raise CreativeTypeError(str(exc)) from None
+        if pasted_audience is not None:
+            preserved_audience, body = pasted_audience, pasted_audience.original
     elif identity is not None:
         header, body = identity.copy(), markdown
     elif re.match(r'\A\ufeff?---\r?\n', markdown) and re.search(
@@ -64,6 +84,12 @@ def prepare_markdown(
         if header['schema'] == 'novel-knowledge.v3':
             return {'needs_identity': False, 'markdown': markdown.removeprefix('\ufeff'),
                     'document': document_view(markdown.removeprefix('\ufeff'))}
+        try:
+            preserved_audience = parse_audience_guidance(markdown.removeprefix('\ufeff'))
+        except AudienceGuidanceError as exc:
+            raise CreativeTypeError(str(exc)) from None
+        if preserved_audience is not None:
+            body = read_document_header(preserved_audience.original)[1]
     else:
         try:
             # Existing standalone bilingual Tag files already declare identity.
@@ -72,10 +98,20 @@ def prepare_markdown(
             return {'needs_identity': True, 'body': markdown}
         header = {k: v for k, v in doc.items() if k in FreeformHeader.model_fields or k == 'schema'}
         body = markdown
+        try:
+            preserved_audience = parse_audience_guidance(markdown)
+        except AudienceGuidanceError as exc:
+            raise CreativeTypeError(str(exc)) from None
+        if preserved_audience is not None:
+            body = preserved_audience.original
     try:
         header = FreeformHeader.model_validate({**header, 'schema': 'novel-knowledge.v3'}).model_dump(by_alias=True)
     except ValidationError as exc:
         raise CreativeTypeError('资料信息：' + exc.errors(include_input=False)[0]['msg']) from None
     prepared = '---\n' + yaml.safe_dump(header, allow_unicode=True, sort_keys=False) + '---\n' + body
+    if preserved_audience is not None:
+        prepared = replace_audience_guidance(
+            prepared, list(preserved_audience.audience_channels), preserved_audience.guides,
+        )
     validate_markdown_size(prepared)
     return {'needs_identity': False, 'markdown': prepared, 'document': document_view(prepared)}

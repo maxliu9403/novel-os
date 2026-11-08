@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from core.cover_sources import canonical_hash
@@ -13,6 +15,21 @@ from core.cover_store import CoverConflict
 _PROCESS = uuid.uuid4().hex
 _ACTIVE = {"queued", "running"}
 _ID = re.compile(r"^poster-task-[0-9a-f]{32}$")
+_PUBLISHING = set()
+_PUBLICATION_GUARD = threading.Lock()
+
+
+@contextmanager
+def _publishing(task_id):
+    # A queued receipt is durable before submit() returns its job id. Track
+    # only that live submission, so abandoned same-process receipts stay visible.
+    with _PUBLICATION_GUARD:
+        _PUBLISHING.add(task_id)
+    try:
+        yield
+    finally:
+        with _PUBLICATION_GUARD:
+            _PUBLISHING.remove(task_id)
 
 
 def now():
@@ -102,7 +119,26 @@ def project(record, runner):
 
 
 def list_tasks(flow, runner):
-    return [project(row, runner) for row in records(flow)]
+    result = []
+    for row in records(flow):
+        local = row.get("process_id") == _PROCESS
+        if local and row["status"] == "queued" and not row.get("job_id"):
+            with _PUBLICATION_GUARD:
+                if row["task_id"] in _PUBLISHING:
+                    continue
+            # Publication may have finished since records() took its snapshot.
+            # Refresh the job binding before the completion check below: an
+            # absent id alone does not establish that the worker has finished.
+            row = read(flow, row["task_id"])
+        state = project(row, runner)
+        if local and row["status"] in _ACTIVE and state["status"] == "interrupted":
+            # Atomic receipt writes precede JobRunner completion. If the job
+            # finished after records() read an active receipt, re-read the
+            # durable outcome before declaring interruption. Polling never
+            # takes the store's write lock or creates its directories/files.
+            state = project(read(flow, row["task_id"]), runner)
+        result.append(state)
+    return result
 
 
 def start(flow, runner, *, kind, request_id, inputs, preflight, operation, project_id):
@@ -114,7 +150,8 @@ def start(flow, runner, *, kind, request_id, inputs, preflight, operation, proje
     if not re.fullmatch(r"[A-Za-z0-9_-]{8,120}", request_id):
         raise ValueError("request_id must contain 8–120 URL-safe characters")
     intent = canonical_hash({"kind": kind, "input": inputs})
-    with flow.store.mutation_lock():
+    task_id = f"poster-task-{uuid.uuid4().hex}"
+    with flow.store.mutation_lock(), _publishing(task_id):
         previous = records(flow)
         for row in previous:
             if request_id in [row["request_id"], *row.get("request_aliases", [])]:
@@ -135,7 +172,7 @@ def start(flow, runner, *, kind, request_id, inputs, preflight, operation, proje
         # batch. Preflight never calls models.
         prepared = preflight()
         stamp = now()
-        row = {"schema_version": 1, "task_id": f"poster-task-{uuid.uuid4().hex}",
+        row = {"schema_version": 1, "task_id": task_id,
                "owner_scope": flow.context.owner_scope, "process_id": _PROCESS,
                "request_id": request_id, "request_aliases": [], "intent_hash": intent,
                "kind": kind, "input": inputs, "status": "queued", "stage": "queued",

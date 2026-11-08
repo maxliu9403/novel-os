@@ -10,13 +10,35 @@ export type CreativeStage =
   | "publication"
   | "cover";
 export type KnowledgeKind = "genre" | "tag";
+export type AudienceChannel = "female" | "male";
+export interface AudienceGuidance {
+  schema: "audience-guidance.v1";
+  audience_channels: AudienceChannel[];
+  guides: Partial<Record<AudienceChannel, string>>;
+  original_sha256: string;
+}
 export type KnowledgeRole = "conflict" | "relationship" | "character" | "world" | "setting" | "mood" | "voice" | "pacing" | "ending";
 export interface CreativeTypeRef {
   id: string;
   version: number;
   source_sha256: string;
 }
+/** Pre-Genre library receipts remain historical data, never inferred modern IDs. */
+export interface LegacyCreativeTypeRef {
+  profile_id: string;
+  version: number;
+  source_sha256: string;
+  role?: string;
+}
+export function isCreativeTypeRef(value: unknown): value is CreativeTypeRef {
+  if (!value || typeof value !== "object") return false;
+  const ref = value as Partial<CreativeTypeRef>;
+  return typeof ref.id === "string" && (ref.id.startsWith("genre.") || ref.id.startsWith("tag.")) &&
+    typeof ref.version === "number" && Number.isInteger(ref.version) && ref.version > 0 &&
+    typeof ref.source_sha256 === "string" && /^[a-f0-9]{64}$/.test(ref.source_sha256);
+}
 export interface KnowledgeDocument {
+  audience_guidance?: AudienceGuidance | null;
   schema?: "novel-knowledge.v1" | "novel-knowledge.v2" | "novel-knowledge.v3";
   roles?: KnowledgeRole[];
   format?: "tag-prompt.v1" | "markdown-guide.v1";
@@ -32,6 +54,9 @@ export interface KnowledgeDocument {
   appendices: string[];
 }
 export interface CreativeSummary {
+  audience_channels?: AudienceChannel[];
+  audience_ready?: boolean;
+  audience_issue?: string | null;
   id: string;
   kind: KnowledgeKind;
   revision: number;
@@ -42,7 +67,7 @@ export interface CreativeSummary {
   source_sha256: string | null;
   name: string;
   aliases: string[];
-  genre_ids: string[];
+  genre_ids?: string[];
   promise: string;
   has_draft_changes: boolean;
   missing_sections: string[];
@@ -77,7 +102,8 @@ export type PreparedMarkdown =
   | { needs_identity: true; body: string }
   | { needs_identity: false; markdown: string; document: KnowledgeDocument };
 export interface TypeSnapshot {
-  schema: "selection-snapshot.v1";
+  schema: "selection-snapshot.v1" | "selection-snapshot.v2";
+  audience_channel?: AudienceChannel;
   genre_id: string;
   tag_ids: string[];
   snapshot_sha256: string;
@@ -122,6 +148,10 @@ async function request<T>(path: string, body?: unknown): Promise<T> {
 }
 const root = "/api/creative-types";
 export const creativeTypesApi = {
+  audience: (id: string, revision: number, operationId: string, audience_channels: AudienceChannel[], guides: Partial<Record<AudienceChannel, string>>, activate = true) =>
+    request<CreativeRecord>(`${root}/${encodeURIComponent(id)}/audience`, {
+      revision, operation_id: operationId, audience_channels, guides, activate,
+    }),
   prepare: (markdown: string, options?: { base_markdown?: string; identity?: KnowledgeIdentity }) =>
     request<PreparedMarkdown>(`${root}/prepare`, { markdown, ...options }),
   list: () => request<CreativeLibrary>(root),
@@ -183,21 +213,27 @@ export function creativeRef(item: CreativeSummary): CreativeTypeRef {
   };
 }
 export function validSelection(
-  refs: CreativeTypeRef[] | null | undefined,
+  refs: unknown[] | null | undefined,
+  maximumTags = 2,
 ): boolean {
   return (
-    !!refs &&
+    !!refs && refs.every(isCreativeTypeRef) &&
     refs.filter((r) => r.id.startsWith("genre.")).length === 1 &&
     refs.filter((r) => r.id.startsWith("tag.")).length >= 1 &&
-    refs.length <= 21 &&
+    refs.length <= maximumTags + 1 &&
+    refs.every((r) => r.id.startsWith("genre.") || r.id.startsWith("tag.")) &&
     new Set(refs.map((r) => r.id)).size === refs.length
   );
+}
+export function validCreativeInput(input: WorkshopInput): boolean {
+  return validSelection(input.creative_types, input.creation_flow === "genre_tags.v1" ? 20 : 2) &&
+    (input.creation_flow !== "genre_tags.v2" || input.audience_channel === "female" || input.audience_channel === "male");
 }
 export async function bindCreativeSelection(
   input: WorkshopInput,
 ): Promise<WorkshopInput> {
-  if (!validSelection(input.creative_types))
-    throw new Error("请选择一个 Genre 和至少一个 Tag。");
-  // Server resolves and validates the exact versions, associations and full input budget.
+  if (!validCreativeInput(input))
+    throw new Error("请选择男频或女频、一个 Genre 和一至两个 Tags。");
+  // The server binds exact versions and verifies channel guidance and the input budget.
   return input;
 }

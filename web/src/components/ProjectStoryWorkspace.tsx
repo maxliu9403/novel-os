@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import ProjectCreativeBasis from "./ProjectCreativeBasis";
 import type { ChapterSummary } from "../api/client";
 import { chapterHasProse } from "../lib/chapterProse";
 import {
@@ -367,6 +368,7 @@ export function ProjectStoryTab({ projectId, story, loading, error, onRetry }: S
           <a className="pw-soft-button" href={projectStorySourceUrl(projectId)} download>↓ 下载骨架</a>
         </div>}
       </div>
+      <ProjectCreativeBasis projectId={projectId} />
       {story.warnings.length > 0 && <details className="pw-warning-list"><summary>资料读取提示（{story.warnings.length}）</summary><ul>{story.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}
       {!story.source.available ? (
         <div className="pw-empty-state">当前作品没有可读取的采用骨架。已有大纲回退资料会标明来源，不会伪装成采用骨架。</div>

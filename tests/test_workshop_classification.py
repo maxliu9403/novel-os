@@ -17,12 +17,13 @@ def selection(client):
             for r in items if r['id'] in ('genre.romance','tag.betrayal')]
 
 
-def test_selection_allocates_only_with_one_genre_and_associated_tags(client,tmp_path):
+def test_selection_allocates_only_with_channel_one_genre_and_tags(client,tmp_path):
     refs=selection(client)
     for invalid in (None,[],refs[:1],refs+refs[:1]):
-        response=client.post('/api/workshop/sessions',json={'creation_flow':'genre_tags.v1','creative_types':invalid})
+        response=client.post('/api/workshop/sessions',json={'creation_flow':'genre_tags.v2','audience_channel':'female','creative_types':invalid})
         assert response.status_code==422,response.text
-    data=client.post('/api/workshop/sessions',json={'creation_flow':'genre_tags.v1','creative_types':refs}).json()
+    assert client.post('/api/workshop/sessions',json={'creative_types':refs}).status_code == 422
+    data=client.post('/api/workshop/sessions',json={'creation_flow':'genre_tags.v2','audience_channel':'female','creative_types':refs}).json()
     assert data['input']['publication_taxonomy']['genre']['id']=='genre.romance'
     assert 'source_reference' not in author_context(data)
     assert 'author-selected' in author_context(data)['publication_selection_policy']

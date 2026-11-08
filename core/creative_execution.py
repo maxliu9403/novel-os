@@ -78,7 +78,8 @@ def text_hash(value: str) -> str:
 
 
 def make_handoff(*, source: str, origin: dict, type_snapshot: dict | None = None,
-                 adopted_proposals: list | None = None, legacy_guidance: dict | None = None, reader_investment: dict | None = None, story_engine: str | None = None, source_context: dict | None = None) -> dict:
+                 adopted_proposals: list | None = None, legacy_guidance: dict | None = None, reader_investment: dict | None = None, story_engine: str | None = None, source_context: dict | None = None,
+                 author_requirements: dict | None = None) -> dict:
     from core.creative_types import compile_snapshot
 
     if not source.strip():
@@ -98,6 +99,12 @@ def make_handoff(*, source: str, origin: dict, type_snapshot: dict | None = None
         if story_engine != engine_version or reader_investment is None:
             raise CreativeExecutionError("Unsupported story execution policy")
         payload.update(schema="creative-handoff.v3", story_engine=story_engine, source_context=copy.deepcopy(source_context))
+    if author_requirements is not None:
+        from core.author_requirements import validate_requirements
+        if story_engine is None:
+            raise CreativeExecutionError('Author amendment handoff requires the story-first execution policy')
+        payload.update(schema='creative-handoff.v4', author_requirements=validate_requirements(
+            author_requirements, scope='story', source_sha256=text_hash(source)))
     payload["handoff_sha256"] = digest(payload)
     return validate_handoff(payload)
 
@@ -105,12 +112,12 @@ def make_handoff(*, source: str, origin: dict, type_snapshot: dict | None = None
 def validate_handoff(value: dict) -> dict:
     expected = {"schema", "source_sha256", "origin", "type_snapshot", "adopted_proposals",
                 "legacy_guidance", "stage_contexts", "handoff_sha256"}
-    if isinstance(value, dict) and value.get('schema') in {'creative-handoff.v2', 'creative-handoff.v3'}:
+    if isinstance(value, dict) and value.get('schema') in {'creative-handoff.v2', 'creative-handoff.v3', 'creative-handoff.v4'}:
         from core.reader_investment import validate
         expected.add('reader_investment')
         if validate(value.get('reader_investment')) is None:
             raise CreativeExecutionError('Missing reader investment snapshot')
-    if isinstance(value, dict) and value.get("schema") == "creative-handoff.v3":
+    if isinstance(value, dict) and value.get("schema") in {"creative-handoff.v3", "creative-handoff.v4"}:
         from core.story_design import VERSION as engine_version
         expected.update({"story_engine", "source_context"})
         if value.get("story_engine") != engine_version:
@@ -119,7 +126,11 @@ def validate_handoff(value: dict) -> dict:
         if source is not None:
             from core.creation_mode import source_policy
             source_policy(source)
-    if not isinstance(value, dict) or set(value) != expected or value.get("schema") not in {HANDOFF_VERSION, 'creative-handoff.v2', 'creative-handoff.v3'}:
+    if isinstance(value, dict) and value.get('schema') == 'creative-handoff.v4':
+        from core.author_requirements import validate_requirements
+        expected.add('author_requirements')
+        validate_requirements(value.get('author_requirements'), scope='story', source_sha256=value.get('source_sha256'))
+    if not isinstance(value, dict) or set(value) != expected or value.get("schema") not in {HANDOFF_VERSION, 'creative-handoff.v2', 'creative-handoff.v3', 'creative-handoff.v4'}:
         raise CreativeExecutionError("Unsupported creative handoff; no model was called")
     if (not re.fullmatch(r"[0-9a-f]{64}", str(value["source_sha256"]))
             or not isinstance(value["origin"], dict) or not isinstance(value["adopted_proposals"], list)
@@ -256,6 +267,15 @@ class CreativeExecution:
             from core.creation_mode import source_policy
             context["source_context"] = copy.deepcopy(handoff["source_context"])
             context["source_policy"] = source_policy(handoff["source_context"])
+        if handoff.get('author_requirements'):
+            from core.author_requirements import prompt_requirements
+            context['author_requirements'] = prompt_requirements(handoff['author_requirements'])
+            context['author_requirements']['scope_note'] = (
+                'Read these in chronological context with the final adopted skeleton. They preserve '
+                'the author\'s own words, including questions, alternatives and scoped instructions; '
+                'they are not automatic acceptance of every suggestion. Later explicit corrections '
+                'override old proposals. If the approved skeleton contradicts an unresolved author '
+                'correction, report that conflict in the existing review; do not silently choose an old route.')
         return context
 
     def outline_for_execution(self, outline: str) -> str:

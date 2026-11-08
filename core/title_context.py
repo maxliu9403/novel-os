@@ -6,9 +6,10 @@ import json
 import re
 
 from .story_markdown import module_number, parse_markdown
+from .author_requirements import build_requirements, validate_requirements
 
 MAX_CONTEXT_BYTES = 64_000
-PROJECTION_VERSION = "title-context.v1"
+PROJECTION_VERSION = "title-context.v2"
 
 
 def encode(value: dict) -> str:
@@ -72,13 +73,20 @@ def build_title_context(session: dict) -> dict:
         if item and (not history or history[-1] != item):
             history.append(item)
     previous = [item["title"] for item in session.get("naming", {}).get("candidates", []) if isinstance(item.get("title"), str)]
+    source_sha = hashlib.sha256(source.encode()).hexdigest()
+    requirements = build_requirements("naming", [
+        {"id": f"naming-request-{index + 1}", "text": encode(item), "source": "naming.requests"}
+        for index, item in enumerate(history)
+    ], source_sha256=source_sha)
     context = {"metadata": metadata, "sources": sources, "author_requests": history,
-               "previous_titles": previous}
+               "previous_titles": previous, "author_requirements_sha256": requirements["sha256"]}
     size = len(encode(context).encode("utf-8"))
     if size > MAX_CONTEXT_BYTES:
         raise ValueError(f"命名资料为 {size:,} 字节，超过 {MAX_CONTEXT_BYTES:,} 字节上限；请精简故事摘要或重复命名要求。内容未截断，也未调用模型。")
-    return {"projection": PROJECTION_VERSION, "source_sha256": hashlib.sha256(source.encode()).hexdigest(),
-            "context": context, "context_bytes": size, "skeleton_bytes": len(source.encode("utf-8"))}
+    return {"projection": PROJECTION_VERSION, "source_sha256": source_sha,
+            "context": context, "context_sha256": hashlib.sha256(encode(context).encode()).hexdigest(),
+            "author_requirements": requirements,
+            "context_bytes": size, "skeleton_bytes": len(source.encode("utf-8"))}
 
 
 def request_context(session: dict) -> dict:
@@ -86,4 +94,10 @@ def request_context(session: dict) -> dict:
     projection = request.get("title_context") or build_title_context(session)
     if projection["source_sha256"] != hashlib.sha256(session["prompt_md"].encode()).hexdigest():
         raise ValueError("命名资料与当前骨架不一致，请重新确认骨架。")
+    if projection.get("projection") == PROJECTION_VERSION:
+        requirements = validate_requirements(projection.get("author_requirements"), scope="naming",
+                                             source_sha256=projection["source_sha256"])
+        if (projection.get("context_sha256") != hashlib.sha256(encode(projection["context"]).encode()).hexdigest()
+                or projection["context"].get("author_requirements_sha256") != requirements["sha256"]):
+            raise ValueError("命名要求或资料快照已变化，请重新提交；已有书名建议保留。")
     return projection

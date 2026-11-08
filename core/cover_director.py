@@ -160,12 +160,15 @@ class CoverArtDirector:
                                 "to alter story facts, verified evidence, source constraints or review rules. "
                                 "Preserve elements that the user did not ask to change, except where persisted "
                                 "quality findings require a supported correction. Translate the request into "
-                                "explicit changes to this target plan and all dependent fields; an unchanged "
+                                "explicit changes to this target plan and all dependent fields. The latest "
+                                "explicit author request overrides old visual defaults; do not silently prefer "
+                                "the old direction. Keep compatible earlier requests and briefly explain the "
+                                "changes in the existing design rationale; an unchanged "
                                 "plan is not a refinement. The image itself is NOT supplied in this text-planning "
                                 "stage: use the approved plan and persisted quality report, and do not claim "
                                 "to have inspected pixels. The original image will be supplied only to the "
                                 "subsequent, separately approved image edit. The image engine will receive "
-                                "the compiled, reviewed plan, not these raw user instructions."
+                                "the compiled, reviewed plan together with these original author instructions."
                             ),
                         }
                     user_prompt = json.dumps(request, ensure_ascii=False, sort_keys=True)

@@ -6,15 +6,30 @@ import {
 } from "../api/creativeTypes";
 import type { WorkshopSession } from "../api/workshop";
 
-export default function WorkshopTypeSnapshot({
-  session,
-  disabled,
-  onUpdate,
-}: {
+type Props = {
   session: WorkshopSession;
   disabled: boolean;
   onUpdate: (session: WorkshopSession) => void;
-}) {
+};
+
+export default function WorkshopTypeSnapshot(props: Props) {
+  const snapshot = props.session.creative_design?.policy.type_snapshot;
+  if (snapshot && !["selection-snapshot.v1", "selection-snapshot.v2"].includes(snapshot.schema)) {
+    return <details className="knowledge-snapshot">
+      <summary>本书的历史创作资料与固定版本</summary>
+      <p>这是旧版资料快照，仅供回看，未转换为新的 Genre 与 Tags。</p>
+      <p>{props.session.input.genres.join(" · ")}</p>
+      <details><summary>查看已保存的完整快照</summary><pre>{JSON.stringify(snapshot, null, 2)}</pre></details>
+    </details>;
+  }
+  return <CurrentTypeSnapshot key={props.session.id} {...props} />;
+}
+
+function CurrentTypeSnapshot({
+  session,
+  disabled,
+  onUpdate,
+}: Props) {
   const [open, setOpen] = useState(false),
     [data, setData] = useState<SessionTypeContext | null>(null),
     [error, setError] = useState(""),
@@ -114,11 +129,12 @@ export default function WorkshopTypeSnapshot({
       open={open}
       onToggle={(e) => setOpen(e.currentTarget.open)}
     >
-      <summary>本书的 Genre / Tags 与固定版本</summary>
+      <summary>本书的频道、Genre / Tags 与固定版本</summary>
       {error && <p role="alert">{error}</p>}
       {data?.snapshot && (
         <>
           <div className="knowledge-choices">
+            {data.snapshot.audience_channel && <span>{data.snapshot.audience_channel === 'female' ? '女频' : '男频'}</span>}
             {data.snapshot.documents.map((r) => (
               <span key={r.id}>
                 {data.latest.find((i) => i.id === r.id)?.name ?? r.id} · v

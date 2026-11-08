@@ -14,6 +14,7 @@ from api.workshop_assembly import ASSEMBLY_PARTS
 from core import provider_settings
 from core.llm_client import LLMClient
 from test_workshop_api import client, complete_prompt, create, finish  # noqa: F401
+from test_story_first_engine import freeze_legacy_policy
 from workshop_assembly_fixtures import parts_from_prompt
 from workshop_delivery_fixtures import stage_response
 
@@ -100,6 +101,7 @@ def test_resume_waits_for_old_native_call_then_uses_saved_stage(client, monkeypa
     transport = fake_native_transport(monkeypatch, complete_prompt(tmp_path))
     waiting, waiter_exited = observe_resumed_gate(monkeypatch)
     data = create(client, title="Primary")
+    freeze_legacy_policy(tmp_path, data["id"])
     url = f'/api/workshop/sessions/{data["id"]}'
     first = client.post(url + "/turns", json={
         "revision": 0, "message": "采用完整方案并交付骨架", "intent": "deliver",
@@ -158,6 +160,8 @@ def test_independent_discussions_do_not_share_the_native_inference_gate(client, 
     transport = fake_native_transport(monkeypatch, complete_prompt(tmp_path))
     primary = create(client, title="Primary")
     independent = create(client, title="Independent")
+    freeze_legacy_policy(tmp_path, primary["id"])
+    freeze_legacy_policy(tmp_path, independent["id"])
     primary_url = f'/api/workshop/sessions/{primary["id"]}'
     independent_url = f'/api/workshop/sessions/{independent["id"]}'
     assert client.post(primary_url + "/turns", json={

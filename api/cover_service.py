@@ -53,7 +53,8 @@ from core.cover_quality import (
 from core.cover_typography import canonical_digest, compose_cover, prepare_title_layout, CoverTypographyError
 from core.cover_visual_similarity import compare_cover_images
 from core import cover_typography_amendments as typography_amendments
-from core.cover_refinement import normalize_refinement_prompt, reference_for_candidate, validate_reference, edit_prompt
+from core.cover_refinement import (normalize_refinement_prompt, reference_for_candidate, validate_reference,
+                                   bound_edit_prompt, refinement_requirements)
 
 
 _GENERATION_EXTENSIONS = {"image/png": ".png", "image/jpeg": ".jpg"}
@@ -235,8 +236,10 @@ class CoverService:
             parent_concept = next(item for item in parent.concepts if item.concept_id == target)
             if not prompt or reference != reference_for_candidate(project, original, parent_concept):
                 raise CoverConflict("精修参考图与原候选不一致，请重新创建方案。")
-            metadata = {"schema_version": 1, "prompt": prompt, "reference_image": deepcopy(reference),
-                        "edit_prompt_sha256": media_lib.digest(edit_prompt(bound.generation_prompt).encode())}
+            metadata = {"schema_version": 2, "prompt": prompt, "reference_image": deepcopy(reference),
+                        "author_requirements": refinement_requirements(parent_concept.scene_plan, prompt,
+                            source_sha256=brief.source_prompt_sha256)}
+            metadata["edit_prompt_sha256"] = media_lib.digest(bound_edit_prompt(bound.generation_prompt, metadata).encode())
             bound = replace(bound, scene_plan={**bound.scene_plan, "_image_refinement": metadata})
             self._refinement_reference(project, bound)
         replacement = CoverCandidate(candidate_id=f"candidate-{uuid.uuid4().hex}", concept_id=target,
@@ -269,13 +272,13 @@ class CoverService:
                 raise CoverConflict("精修缺少已批准的原图记录，禁止降级为文字生图。")
             return None
         from core.cover_workflow import digest
-        if not isinstance(metadata, dict) or metadata.get("schema_version") != 1:
+        if not isinstance(metadata, dict) or metadata.get("schema_version") not in {1, 2}:
             raise CoverConflict("精修来源记录无效。")
         prompt = normalize_refinement_prompt(metadata.get("prompt"))
         reference = metadata.get("reference_image") or {}
         if (not prompt or digest(prompt) != binding.get("refinement_prompt_sha256")
                 or reference.get("sha256") != binding.get("reference_image_sha256")
-                or media_lib.digest(edit_prompt(concept.generation_prompt).encode()) != metadata.get("edit_prompt_sha256")):
+                or media_lib.digest(bound_edit_prompt(concept.generation_prompt, metadata).encode()) != metadata.get("edit_prompt_sha256")):
             raise CoverConflict("精修要求或原图与批准的方案不一致。")
         if not callable(getattr(self.image_client, "edit", None)):
             raise CoverServiceError("当前图片服务不支持原图编辑。")
@@ -846,7 +849,7 @@ class CoverService:
         try:
             assert self.image_client is not None
             if reference_path is not None:
-                generated = self.image_client.edit(edit_prompt(concept.generation_prompt), reference_path,
+                generated = self.image_client.edit(bound_edit_prompt(concept.generation_prompt, refinement), reference_path,
                     expected_reference_sha256=refinement["reference_image"]["sha256"])
                 if (generated.operation != "edit" or generated.reference_image_sha256 != refinement["reference_image"]["sha256"]
                         or media_lib.digest(generated.data) == generated.reference_image_sha256):

@@ -90,7 +90,8 @@ class SessionInput(BaseModel):
     author: str = ""
     genres: list[str] = Field(default_factory=list)
     creative_types: list[TypeRef] | None = Field(default=None, max_length=21)
-    creation_flow: Literal['genre_tags.v1'] | None = None
+    creation_flow: Literal['genre_tags.v1', 'genre_tags.v2'] | None = None
+    audience_channel: Literal['male', 'female'] | None = None
     source_book: SourceSelection | None = None
     premise: str = ""
     chapters: int | None = Field(default=None, ge=1)
@@ -108,6 +109,8 @@ class SessionInput(BaseModel):
             raise ValueError('故事容量规划当前用于单本连续章节；分卷/系列请使用原篇幅设置。')
         if self.creation_flow and not self.creative_types:
             raise ValueError('请选择一个 Genre 和至少一个 Tag。')
+        if self.creation_flow == 'genre_tags.v2' and self.audience_channel is None:
+            raise ValueError('请选择男频或女频。')
         return self
 
 
@@ -932,7 +935,10 @@ def _failure(exc: Exception, *, timeout_seconds: float, has_prompt: bool) -> str
     from .workshop_checkpoints import CheckpointError
     from .workshop_responses import ResponseStorageError
     from core.llm_client import LLMInputLimitError
+    from core.author_requirements import AuthorRequirementConflict
     retained = _preserved_context(has_prompt)
+    if isinstance(exc, AuthorRequirementConflict):
+        return str(exc) + retained
     if isinstance(exc, LLMInputLimitError):
         return str(exc) + retained
     if isinstance(exc, DeliveryTimeoutError):
@@ -1159,11 +1165,13 @@ class WorkshopService:
             save_checkpoint(self._path(data["id"]) / "delivery", data["delivery_run_id"], record)
 
     def create(self, body: SessionInput) -> dict:
+        if body.audience_channel is None:
+            raise HTTPException(422, '请选择男频或女频，再创建讨论。')
         if not body.creative_types:
-            raise HTTPException(422, '请选择一个 Genre 和至少一个关联 Tag。')
+            raise HTTPException(422, '请选择一个 Genre 和 1–2 个 Tag。')
         _, version = _skill_bundle()
         initial_input = body.model_dump()
-        initial_input['creation_flow'] = 'genre_tags.v1'
+        initial_input['creation_flow'] = 'genre_tags.v2'
         snapshot = self._type_snapshot(initial_input)
         from .source_library import freeze
         source_context = freeze(self.projects, initial_input.get('source_book'))
@@ -1182,7 +1190,9 @@ class WorkshopService:
         if refs is None:
             return None
         from .creative_types import store_for
-        snapshot = store_for(self.projects).snapshot([TypeRef.model_validate(r) for r in refs], parent_sha256=parent_sha256)
+        snapshot = store_for(self.projects).snapshot(
+            [TypeRef.model_validate(r) for r in refs], parent_sha256=parent_sha256,
+            audience_channel=initial_input.get('audience_channel'))
         from core.creative_types import parse_document
         initial_input['publication_taxonomy'] = snapshot['publication_taxonomy']
         initial_input['genres'] = [parse_document(r['markdown'])['name'] for r in snapshot['documents']]
@@ -1232,6 +1242,8 @@ class WorkshopService:
             self._available(data, body.revision)
             if data.get('restart_required'):
                 raise HTTPException(409, '请先处理已保存的基础设定修改。')
+            if not data['input'].get('audience_channel'):
+                raise HTTPException(422, '更新旧讨论的资料前，请在基础设定选择男频／女频，并确认一个 Genre 和 1–2 个 Tags。')
             old = data.get('creative_design')
             initial_input = dict(data['input'])
             initial_input['creative_types'] = [r.model_dump() for r in body.refs]
@@ -1782,6 +1794,13 @@ class WorkshopService:
         with self._locked(session_id) as data:
             self._available(data, body.revision)
             new_input = body.input.model_dump()
+            if data['input'].get('creation_flow') == 'genre_tags.v2' and not new_input.get('audience_channel'):
+                raise HTTPException(422, '请保留或重新选择男频／女频，不能移除本书频道。')
+            if (not new_input.get('audience_channel')
+                    and new_input.get('creative_types') != data['input'].get('creative_types')):
+                raise HTTPException(422, '修改 Genre / Tags 前，请先选择男频／女频；旧讨论的原选择仍可保留。')
+            if new_input.get('audience_channel'):
+                new_input['creation_flow'] = 'genre_tags.v2'
             if data['input'].get('creation_flow') and not new_input.get('creation_flow'):
                 raise HTTPException(422, '请保留 Genre / Tags 创建协议。')
             pending_snapshot = self._type_snapshot(new_input)

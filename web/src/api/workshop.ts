@@ -1,6 +1,6 @@
 import { ApiError, type JobStatus } from "./client";
 import { API_BASE as BASE } from "./base";
-import type { CreativeTypeRef, TypeSnapshot } from './creativeTypes';
+import type { CreativeTypeRef, LegacyCreativeTypeRef, TypeSnapshot } from './creativeTypes';
 
 const ROOT = "/api/workshop/sessions";
 
@@ -10,6 +10,13 @@ export type WorkshopTurnIntent = "discuss" | "deliver";
 export type WorkshopDecisionStatus = "accepted" | "rejected" | "revised" | "deferred";
 
 export interface WorkshopProposal {
+  combination_status?: "complete" | "partial";
+  missing_contributions?: string[];
+  missing_contribution_names?: string[];
+  tag_contributions?: Array<{ tag_id: string; tag_name?: string; contribution: string }>;
+  choice?: string;
+  cost?: string;
+  payoff?: string;
   id: string;
   title: string;
   story: string;
@@ -116,8 +123,9 @@ export interface WorkshopInput {
   title: string;
   author: string;
   genres: string[];
-  creative_types?: CreativeTypeRef[] | null;
-  creation_flow?: 'genre_tags.v1' | null;
+  creative_types?: (CreativeTypeRef | LegacyCreativeTypeRef)[] | null;
+  creation_flow?: 'genre_tags.v1' | 'genre_tags.v2' | 'h5_guided.v1' | null;
+  audience_channel?: import('./creativeTypes').AudienceChannel | null;
   source_book?: import('./sourceBooks').SourceSelection | null;
   premise: string;
   chapters?: number;

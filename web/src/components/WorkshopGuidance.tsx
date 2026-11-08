@@ -1,5 +1,6 @@
 import type { WorkshopSession } from '../api/workshop';
 import { currentGuidance } from '../lib/workshopChoiceRequest';
+import WorkshopProposalImpact from './WorkshopProposalImpact';
 
 const AREAS = { premise: '核心故事与题材', characters: '人物与关键关系', plot: '转折与高潮', ending: '结局与阅读体验' };
 const STATES = { missing: '待设计', proposed: '已有提案', settled: '已有作者依据', conflict: '需协调' };
@@ -40,6 +41,7 @@ export default function WorkshopGuidancePanel({ session, selected, disabled, onS
           </div>
           <span className="mt-3 text-[16px] font-semibold leading-snug">{proposal.title}</span>
           <span className="mt-2 whitespace-pre-wrap text-[14px] leading-relaxed">{proposal.story}</span>
+          <WorkshopProposalImpact proposal={proposal} />
           <span className="mt-4 border-t border-paper-line pt-3 text-[13px] leading-relaxed text-ink-muted">取舍与影响：{proposal.tradeoff}</span>
         </label>;
       })}</div>

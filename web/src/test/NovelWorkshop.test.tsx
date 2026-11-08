@@ -30,6 +30,7 @@ beforeEach(() => {
   localStorage.clear();
   vi.spyOn(creativeTypesApi, "list").mockResolvedValue(typeLibrary());
   vi.spyOn(api, "studioModels").mockRejectedValue(new Error("No configured route"));
+  vi.spyOn(api, "project").mockResolvedValue({ id: "nora", title: "Book", genre: "Romance", author: "Author", chapter_count: 16, status: "completed", style: {}, task_id: "durable-run" });
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -44,6 +45,7 @@ test("file import fills the existing premise without starting discussion and blo
   await userEvent.click(screen.getByRole('button', { name: '确认导入' }));
   expect(screen.getByLabelText('故事构想或已有框架')).toHaveValue('文件中的人物、故事和结局');
   await userEvent.click(screen.getByRole('button', { name: '下一步' }));
+  await userEvent.click(await screen.findByRole('radio', { name: '女频' }));
   expect(await screen.findByRole('radio', { name: 'Romance' })).toBeVisible();
   expect(create).not.toHaveBeenCalled();
   expect(turn).not.toHaveBeenCalled();
@@ -80,6 +82,7 @@ test("creates an asynchronous workshop with the explicit continuous mode and ori
   const user = userEvent.setup();
   view();
   await user.click(screen.getByRole('button',{name:'下一步'}));
+  await user.click(await screen.findByRole('radio',{name:'女频'}));
   await user.click(await screen.findByRole('radio',{name:'Romance'}));
   await user.click(screen.getByRole('button',{name:'背叛'}));
   await user.click(screen.getByRole('button',{name:'下一步'}));
@@ -89,7 +92,7 @@ test("creates an asynchronous workshop with the explicit continuous mode and ori
   await user.type(screen.getByLabelText("正文语言"), "English");
   await user.click(screen.getByRole("button", { name: "开始头脑风暴" }));
   await screen.findByText("可以把记忆的代价作为人物的内心冲突。");
-  expect(create).toHaveBeenCalledWith(expect.objectContaining({ length_planning: "story_first", mode: "standalone_long", chapters: 80, words_per_chapter: 1000, method_mode: "off", premise: seed.premise }));
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ creation_flow: "genre_tags.v2", audience_channel: "female", length_planning: "story_first", mode: "standalone_long", chapters: 80, words_per_chapter: 1000, method_mode: "off", premise: seed.premise }));
   expect(create.mock.calls[0][0].creative_types?.map(r=>r.id)).toEqual(['genre.romance','tag.betrayal']);
   expect(turn).toHaveBeenCalledWith("session-1", expect.any(String), 0, "discuss");
   expect(screen.getByText(/不限讨论次数/)).toBeInTheDocument();
@@ -112,6 +115,7 @@ test("renders the skeleton, suggests names, accepts the human title and launches
     return current;
   });
   const launch = vi.spyOn(workshopApi, "launch").mockResolvedValue({ project_id: "nora", job_id: "full-run" });
+  vi.mocked(api.project).mockResolvedValue({ id: "nora", title: "Book", genre: "Romance", author: "Author", chapter_count: 0, status: "failed", style: {}, task_id: "durable-run", task_error: "Writer connection failed" });
   vi.spyOn(api, "getJob").mockImplementation(async (id) => id === "names"
     ? { job_id: id, kind: "workshop.titles", status: "done", error: null }
     : { job_id: id, kind: "pipeline", status: "error", error: "Writer connection failed" });
@@ -134,7 +138,7 @@ test("renders the skeleton, suggests names, accepts the human title and launches
   await user.click(screen.getByRole("button", { name: "一键启动全书创作" }));
   expect(launch).toHaveBeenCalledWith(current.id, current.revision);
   expect(await screen.findByText("Writer connection failed")).toBeInTheDocument();
-  expect(screen.getByText("创作任务未完成")).toBeInTheDocument();
+  expect(screen.getByText("作品创作 · 失败")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "打开作品与交付" })).toBeEnabled();
 });
 
@@ -296,6 +300,7 @@ test("returning to basic creation applies changed seed without discarding option
   const props = { open: true, onClose: vi.fn(), onBack: vi.fn() };
   const { rerender } = render(<MemoryRouter><NovelWorkshop {...props} seed={seed} /></MemoryRouter>);
   await userEvent.click(screen.getByRole('button',{name:'下一步'}));
+  await userEvent.click(await screen.findByRole('radio',{name:'女频'}));
   await userEvent.click(await screen.findByRole('radio',{name:'Romance'}));
   await userEvent.click(screen.getByRole('button',{name:'背叛'}));
   await userEvent.click(screen.getByRole('button',{name:'下一步'}));
@@ -383,6 +388,31 @@ test("launched basics are a read-only snapshot", async () => {
   expect(screen.getByLabelText("故事构想或已有框架")).toHaveValue(seed.premise);
   expect(screen.getByLabelText("故事构想或已有框架")).toBeDisabled();
   expect(screen.queryByRole("button", { name: "修改基础设定" })).not.toBeInTheDocument();
+});
+
+test("opening basics of a completed h5_guided discussion preserves historical profile receipts without a crash or job lookup", async () => {
+  const current = session({ status: "launched", project_id: "nora" });
+  current.input = { ...current.input, creation_flow: "h5_guided.v1", genres: ["奇幻", "狼人", "女性觉醒"],
+    creative_types: [{ profile_id: "ct_werewolf", version: 4, source_sha256: "a".repeat(64), role: "unspecified" }] };
+  current.creative_design = workshopDesign();
+  // Real persisted pre-Genre snapshot dialect, without the original story text.
+  current.creative_design.policy.type_snapshot = JSON.parse('{"schema":"book-type-selection.v1","profiles":[{"profile":{"id":"ct_werewolf","version":4},"source_sha256":"saved","role":"unspecified"}],"snapshot_sha256":"saved"}');
+  vi.spyOn(workshopApi, "get").mockResolvedValue(current);
+  const getJob = vi.spyOn(api, "getJob").mockRejectedValue(new Error("Job not found"));
+  const typeContext = vi.spyOn(creativeTypesApi, "sessionContext");
+  render(<MemoryRouter><NovelWorkshop open seed={seed} initialSessionId={current.id} onClose={vi.fn()} onBack={vi.fn()} /></MemoryRouter>);
+  expect(await screen.findByText("作品创作 · 已完成")).toBeInTheDocument();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: /1\s*基础设定/ }));
+  expect(screen.getByText("历史创作资料 · 只读")).toBeInTheDocument();
+  expect(screen.getByLabelText("故事构想或已有框架")).toBeDisabled();
+  expect(screen.getByRole("radio", { name: "女频" })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: /2\s*头脑风暴/ }));
+  await user.click(screen.getByText("本书的历史创作资料与固定版本"));
+  expect(screen.getByText("这是旧版资料快照，仅供回看，未转换为新的 Genre 与 Tags。")).toBeVisible();
+  expect(typeContext).not.toHaveBeenCalled();
+  expect(getJob).not.toHaveBeenCalled();
+  expect(current.input.creative_types).toEqual([{ profile_id: "ct_werewolf", version: 4, source_sha256: "a".repeat(64), role: "unspecified" }]);
 });
 
 test("a lost basics save response refreshes revision and preserves the edit for retry", async () => {

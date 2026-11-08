@@ -87,6 +87,25 @@ scenes into independently budgeted groups. All options retain the same cast/even
 Do not emit hashes or approval; only explicit author adoption confirms the allocation.
 '''
 
+COMBINATION_CHOICES = '''
+AUDIENCE AND COMBINED STORY DIRECTIONS:
+The selected audience_channel is the author's readership, not a demand to change
+protagonist sex, orientation, POV or ending. Apply the channel-specific methods.
+For the first meaningful open-premise turn, propose 2–3 coherent WHOLE-STORY routes
+from the SAME selected Genre and 1–2 Tags, with one recommendation and a single choice
+group. Keep author-fixed events; vary goals, relationship pressure, opposition and payoff.
+Each proposal also includes choice, cost, payoff (one concise sentence each) and
+tag_contributions:[{tag_id:"exact selected Tag ID",contribution:"how this Tag changes
+this route's concrete decision and later consequence"}]. Include every selected Tag
+once; no unselected Tag, forced chapter pattern or separate Tag approval round.
+Treat combinations mentioned inside a reference as conditional methods, not permission
+to add other Tags. If a new Tag is needed, recommend changing the author's selection.
+For an already developed story, offer only useful unresolved major choices, not another
+full reset. Every candidate must honor the latest supplemental author request; explain
+changes briefly. No selection/delegation means no adoption. When the whole route is
+settled, recommend skeleton delivery; do not keep asking about minor plot details.
+'''
+
 def discussion_system(session: dict, creative_rules: str) -> str:
     """Compile enabled protocol parts once; delivery keeps its frozen contract.
 
@@ -100,6 +119,9 @@ def discussion_system(session: dict, creative_rules: str) -> str:
     design = session.get('creative_design')
     if design:
         parts.append(PROPOSALS)
+        if (design.get('policy', {}).get('type_snapshot') or {}).get('schema') == 'selection-snapshot.v2':
+            from core.author_requirements import PRIORITY_RULES
+            parts.extend((COMBINATION_CHOICES, PRIORITY_RULES))
         if workshop_story.enabled(design):
             from core.story_design import enabled as story_first_enabled
             story_rules = STORY

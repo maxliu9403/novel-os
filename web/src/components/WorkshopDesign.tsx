@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { WorkshopDecisionStatus, WorkshopDesign, WorkshopDesignRound, WorkshopProposal } from "../api/workshop";
 import { genreLabel } from "../lib/genres";
+import WorkshopProposalImpact from "./WorkshopProposalImpact";
 
 const DECISION_LABELS: Record<WorkshopDecisionStatus, string> = {
   accepted: "已采用", rejected: "不采用", revised: "已提出修改", deferred: "暂缓",
@@ -63,6 +64,7 @@ function ProposalCard({ proposal, decision, disabled, onDecide }: {
       {decision && <span role="status" className="text-[12px] text-violet">{DECISION_LABELS[decision.status]}</span>}
     </div>
     <p className="mt-2 whitespace-pre-wrap leading-relaxed">{proposal.story}</p>
+    <WorkshopProposalImpact proposal={proposal} />
     <p className="mt-2 text-[12px] leading-relaxed text-ink-muted">取舍：{proposal.tradeoff}</p>
     {decision?.note && <p className="mt-2 whitespace-pre-wrap text-[12px] text-violet">你的意见：{decision.note}</p>}
     {(proposal.genre_roles.length > 0 || proposal.mechanisms.length > 0) && <details className="mt-3 text-[12px]">

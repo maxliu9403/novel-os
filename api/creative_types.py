@@ -20,6 +20,7 @@ from core.creative_types import (
     summary,
 )
 from core.knowledge_markdown import document_view, prepare_markdown
+from core.audience_guidance import AudienceChannel
 
 from . import tenancy
 from .routes import get_service
@@ -66,6 +67,15 @@ class Preview(StrictModel):
     ) = None
     refs: Annotated[list[TypeRef], Field(max_length=21)] = []
     stage: Stage = "brainstorm"
+    audience_channel: AudienceChannel | None = None
+
+
+class AudienceMutation(StrictModel):
+    revision: Annotated[int, Field(ge=0)]
+    operation_id: Annotated[str, Field(min_length=8, max_length=100, pattern=r"^[a-zA-Z0-9_-]+$")]
+    audience_channels: Annotated[list[AudienceChannel], Field(min_length=1, max_length=2)]
+    guides: dict[AudienceChannel, Annotated[str, Field(max_length=8192), StringConstraints(strip_whitespace=False)]]
+    activate: bool = True
 
 
 class DocumentIdentity(StrictModel):
@@ -131,7 +141,7 @@ def preview(body: Preview, store: CreativeTypeStore = Depends(get_store)):
             "bytes": len(body.markdown.encode()),
             "preview_only": True,
         }
-    snapshot = store.snapshot(body.refs)
+    snapshot = store.snapshot(body.refs, audience_channel=body.audience_channel)
     context = compile_snapshot(snapshot, body.stage)
     return {
         "context": context,
@@ -166,6 +176,19 @@ def get_version(
         if saved["version"] == version:
             return saved
     raise HTTPException(404, "找不到此历史版本。")
+
+
+@router.post("/{identifier}/audience")
+def update_audience(
+    identifier: str,
+    body: AudienceMutation,
+    store: CreativeTypeStore = Depends(get_store),
+):
+    record = store.mutate(
+        "audience", identifier, revision=body.revision, operation_id=body.operation_id,
+        audience=body.model_dump(exclude={"revision", "operation_id"}),
+    )
+    return {**record, "document": document_view(record["draft"])}
 
 
 @router.post("/{identifier}/{action}")
