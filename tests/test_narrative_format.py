@@ -10,6 +10,7 @@ from core.narrative_format import (
     serialization_payload,
     validate_serialization,
     volume_contract_template,
+    validate_volume_contracts,
 )
 from core.novel_classification import infer_classification
 
@@ -36,6 +37,21 @@ def _filled_volumes(contract: NarrativeFormat):
         if number < len(values):
             item["carryover_hook"] = f"Consequence opening movement {number + 1}"
     return values
+
+
+@pytest.mark.parametrize('position', ['start', 'middle', 'end', 'before', 'after'])
+def test_volume_climax_uses_locked_span_not_a_prescribed_story_percentage(position):
+    contract = infer_narrative_format(_classification(), chapters=60, target_words=48000, explicit_length=True)
+    values = _filled_volumes(contract)
+    span = contract.volumes[1]
+    climax = {'start': span.chapter_start, 'middle': (span.chapter_start + span.chapter_end) // 2,
+              'end': span.chapter_end, 'before': span.chapter_start - 1, 'after': span.chapter_end + 1}[position]
+    values[1]['climax_chapter'] = climax
+    if position in {'before', 'after'}:
+        with pytest.raises(ValueError, match='within its volume range'):
+            validate_volume_contracts(contract, values)
+    else:
+        assert validate_volume_contracts(contract, values)[1]['climax_chapter'] == climax
 
 
 def test_explicit_eighty_chapters_produces_four_confirmed_volume_spans():

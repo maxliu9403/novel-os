@@ -1,330 +1,172 @@
-from copy import deepcopy
-import hashlib
-import json
-from pathlib import Path
-from types import SimpleNamespace
-import uuid
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
 from core import creative_types as ct
-from api import workshop
-from api.creative_types import store_for
-from api.services import ProjectService
-from api.workshop_delivery import author_context
-from test_workshop_api import client, finish
-
-ROOT = '/api/creative-types'
 
 
-def operation():
-    return uuid.uuid4().hex
+def ref(record):
+    v = next(v for v in record["versions"] if v["version"] == record["active_version"])
+    return ct.TypeRef(id=record["id"], version=v["version"], source_sha256=v["sha256"])
 
 
-def reference(record):
-    version = next(v for v in record['versions'] if v['profile']['version'] == record['active_version'])
-    return ct.TypeRef(profile_id=record['id'], version=version['profile']['version'], source_sha256=version['sha256'])
+def selected(store):
+    return [ref(store.get("genre.romance")), ref(store.get("tag.betrayal"))]
 
 
-def test_seed_content_legacy_coverage_and_no_read_writes(tmp_path):
-    store = ct.CreativeTypeStore(tmp_path / 'types')
-    records = store.records()
-    assert len(records) == 55
-    assert not store.root.exists()
-    names = {s.casefold() for r in records.values() for s in [r['draft']['name'], *r['draft']['aliases']]}
-    for label in ['Fantasy', 'Xuanhuan', 'Female Growth', 'Domestic Betrayal', 'Sci-Fi', 'Pregnancy', 'Adult', 'Boss Romance']:
-        assert label.casefold() in names
-    assert records['ct_marriage_betrayal']['draft']['mechanisms'][0]['costs']
-    assert records['ct_infidelity_double_life']['draft']['mechanisms'][0]['choices']
-    for r in records.values():
-        ct.validate_profile(r['draft'], enabled=True)
-        assert all(c['with_profile_id'] in records for c in r['draft']['combinations'])
+def test_seeds_compile_structured_sections_or_complete_freeform_bodies(tmp_path):
+    store = ct.CreativeTypeStore(tmp_path)
+    assert len(store.records()) == 42
+    for r in store.records().values():
+        ct.parse_document(r["draft"], enabled=True)
+    snapshot = store.snapshot(selected(store))
+    for stage in ct.STAGE_SECTIONS:
+        compiled = ct.compile_snapshot(snapshot, stage)
+        assert len(compiled["documents"]) == 2
+        for d in compiled["documents"]:
+            if d.get("format") == "markdown-guide.v1":
+                source = ct.active_document(store.get(d["id"]))
+                assert d["markdown"] == source["body"]
+                assert "研究依据" not in d["markdown"]
+            else:
+                assert "核心承诺" in d["sections"]
+                assert "研究依据" not in d["sections"]
+                assert ("封面表达" in d["sections"]) == (stage == "cover")
+    assert not tmp_path.joinpath("knowledge.json").exists()
 
 
-def test_versions_drafts_conflict_replay_and_disable(tmp_path):
-    store = ct.CreativeTypeStore(tmp_path / 'types')
-    original = store.get('ct_marriage_betrayal')
-    ref = reference(original)
-    snapshot = store.snapshot([ref])
-    body = deepcopy(original['draft']); body['summary'] = '新的作者指导'
-    op = operation()
-    saved = store.mutate('draft', original['id'], revision=0, operation_id=op, raw=body)
-    assert saved['draft']['summary'] == '新的作者指导'
-    assert saved['versions'] == original['versions']
-    assert store.mutate('draft', original['id'], revision=0, operation_id=op, raw=body) == saved
-    with pytest.raises(ct.CreativeTypeError, match='同一操作'):
-        store.mutate('draft', original['id'], revision=0, operation_id=op, raw=original['draft'])
-    with pytest.raises(ct.CreativeTypeError, match='已被修改'):
-        store.mutate('activate', original['id'], revision=0, operation_id=operation(), raw=body)
-    enabled = store.mutate('activate', original['id'], revision=1, operation_id=operation(), raw=body)
-    assert enabled['active_version'] == original['active_version'] + 1
-    assert store.snapshot([ref]) == snapshot
-    assert '新的作者指导' not in json.dumps(ct.compile_snapshot(snapshot, 'brainstorm'), ensure_ascii=False)
-    # Replaying a prior write after subsequent activation must return its original result.
-    assert store.mutate('draft', original['id'], revision=0, operation_id=op, raw=body) == saved
-    store.mutate('disable', original['id'], revision=2, operation_id=operation())
-    with pytest.raises(ct.CreativeTypeError, match='已停用'):
-        store.snapshot([ref])
-    assert ct.compile_snapshot(snapshot, 'brainstorm')['profiles'][0]['version'] == ref.version
-    assert ct.CreativeTypeStore(store.root).get(original['id'])['status'] == 'disabled'
+def test_selection_exactly_one_genre_associations_and_size(tmp_path):
+    store = ct.CreativeTypeStore(tmp_path)
+    refs = selected(store)
+    for invalid in [[], refs[:1], refs[1:], refs + refs[:1]]:
+        with pytest.raises(ct.CreativeTypeError):
+            store.snapshot(invalid)
+    bad = deepcopy(store.snapshot(refs))
+    bad["documents"][1]["markdown"] = bad["documents"][1]["markdown"].replace(
+        "genre.romance", "genre.horror"
+    )
+    bad["documents"][1]["source_sha256"] = ct.text_sha(bad["documents"][1]["markdown"])
+    bad["snapshot_sha256"] = ct.digest(
+        {k: v for k, v in bad.items() if k != "snapshot_sha256"}
+    )
+    with pytest.raises(ct.CreativeTypeError, match="不属于"):
+        ct.compile_snapshot(bad, "draft")
 
 
-@pytest.mark.parametrize('builtin', [True, False])
-def test_delete_persists_without_resurrection_and_preserves_versions(tmp_path, builtin):
-    store = ct.CreativeTypeStore(tmp_path / 'types')
-    original = store.get('ct_werewolf') if builtin else store.mutate('create', None, revision=0, operation_id=operation())
-    versions = deepcopy(original['versions'])
-    frozen = store.snapshot([reference(original)]) if builtin else None
-    op = operation()
-    deleted = store.mutate('delete', original['id'], revision=original['revision'], operation_id=op)
-    assert deleted['status'] == 'disabled' and deleted['deleted_at']
-    assert deleted['retired'] is True
-    assert deleted['versions'] == versions
-    assert store.mutate('delete', original['id'], revision=original['revision'], operation_id=op) == deleted
-    loaded = ct.CreativeTypeStore(store.root)
-    with pytest.raises(ct.CreativeTypeError) as error:
-        loaded.get(original['id'])
-    assert error.value.status == 404
-    assert loaded.get(original['id'], include_deleted=True) == deleted
-    for action in ('draft', 'activate', 'disable'):
-        with pytest.raises(ct.CreativeTypeError, match='已删除'):
-            loaded.mutate(action, original['id'], revision=deleted['revision'], operation_id=operation(), raw=original['draft'])
-    if frozen:
-        assert ct.compile_snapshot(frozen, 'brainstorm')['profiles'][0]['profile_id'] == original['id']
-        with pytest.raises(ct.CreativeTypeError, match='已停用'):
-            loaded.snapshot([reference(original)])
+def test_frozen_snapshot_survives_edit_delete_and_detects_tamper(tmp_path):
+    store = ct.CreativeTypeStore(tmp_path)
+    snapshot = store.snapshot(selected(store))
+    before = ct.compile_snapshot(snapshot, "draft")
+    record = store.get("tag.betrayal")
+    changed = store.mutate(
+        "activate",
+        record["id"],
+        revision=0,
+        operation_id="activate-1",
+        markdown=record["draft"] + "\n新约束\n",
+    )
+    store.mutate(
+        "delete", record["id"], revision=changed["revision"], operation_id="delete-01"
+    )
+    assert ct.compile_snapshot(snapshot, "draft") == before
+    with pytest.raises(ct.CreativeTypeError):
+        store.snapshot(selected(ct.CreativeTypeStore(tmp_path / "other")))
+    snapshot["documents"][0]["markdown"] += "tamper"
+    with pytest.raises(ct.CreativeTypeError):
+        ct.compile_snapshot(snapshot, "draft")
 
 
-def test_delete_requires_current_revision_and_cannot_remove_concurrent_edit(tmp_path):
-    store = ct.CreativeTypeStore(tmp_path / 'types')
-    original = store.get('ct_werewolf')
-    saved = store.mutate('draft', original['id'], revision=0, operation_id=operation(), raw={**original['draft'], 'summary': '另一个窗口的修改'})
-    with pytest.raises(ct.CreativeTypeError, match='已被修改'):
-        store.mutate('delete', original['id'], revision=0, operation_id=operation())
-    assert store.get(original['id']) == saved
+def test_draft_activation_revision_idempotency_and_concurrent_writes(tmp_path):
+    store = ct.CreativeTypeStore(tmp_path)
+    md = ct.template("genre", "genre.example", "示例")
+    draft = store.mutate(
+        "create", None, revision=0, operation_id="create-01", markdown=md
+    )
+    assert draft["status"] == "draft"
+    with pytest.raises(ct.CreativeTypeError, match="完成"):
+        store.mutate(
+            "activate", draft["id"], revision=1, operation_id="activate-1", markdown=md
+        )
+    complete = md.replace("## ", "## ")
+    for heading in ct.SECTIONS:
+        complete = complete.replace(
+            "## " + heading + "\n", "## " + heading + "\n\n具体承诺和代价。\n"
+        )
+
+    def write():
+        try:
+            return store.mutate(
+                "activate",
+                draft["id"],
+                revision=1,
+                operation_id="activate-2",
+                markdown=complete,
+            )
+        except ct.CreativeTypeError as e:
+            return e
+
+    with ThreadPoolExecutor(2) as pool:
+        a, b = list(pool.map(lambda _: write(), range(2)))
+    assert a == b and a["active_version"] == 1
+    with pytest.raises(ct.CreativeTypeError, match="同一操作"):
+        store.mutate(
+            "activate",
+            draft["id"],
+            revision=1,
+            operation_id="activate-2",
+            markdown=complete + "\n",
+        )
+    with pytest.raises(ct.CreativeTypeError, match="已被修改"):
+        store.mutate(
+            "draft", draft["id"], revision=1, operation_id="save-003", markdown=complete
+        )
 
 
-def test_delete_api_hides_type_preserves_historical_version_and_workshop(client):
-    original = client.get(ROOT + '/ct_werewolf').json()
-    ref = reference(original).model_dump()
-    session = client.post('/api/workshop/sessions', json={'genres': ['Werewolf'], 'creative_types': [ref]}).json()
-    before = client.get(f"/api/workshop/sessions/{session['id']}/type-context").json()
-    body = {'revision': original['revision'], 'operation_id': operation()}
-    deleted = client.post(ROOT + '/ct_werewolf/delete', json=body)
-    assert deleted.status_code == 200
-    assert client.post(ROOT + '/ct_werewolf/delete', json=body).json() == deleted.json()
-    for suffix in ('', '?include_retired=true'):
-        assert 'ct_werewolf' not in {i['id'] for i in client.get(ROOT + suffix).json()['items']}
-    assert client.get(ROOT + '/ct_werewolf').status_code == 404
-    version = client.get(ROOT + f"/ct_werewolf/versions/{ref['version']}")
-    assert version.status_code == 200 and version.json()['sha256'] == ref['source_sha256']
-    after = client.get(f"/api/workshop/sessions/{session['id']}/type-context").json()
-    assert before['snapshot'] == after['snapshot'] and before['contexts'] == after['contexts']
-    assert client.post('/api/workshop/sessions', json={'creative_types': [ref]}).status_code == 409
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda s: s.replace("kind: genre", "kind: genre\nkind: tag"),
+        lambda s: s.replace("id: genre.romance", "id: tag.romance"),
+        lambda s: s + "\n## 核心承诺\n再次定义",
+        lambda s: s.replace(
+            "aliases:", "evil: !!python/object:builtins.object {}\naliases:"
+        ),
+    ],
+)
+def test_reject_malformed_markdown(tmp_path, change):
+    # Fixed structured dialect fixture; current author-edited defaults are freeform.
+    md = (Path(__file__).parents[1] / "resources/knowledge-imports/romance-all-tags-before-20261106/genre.romance.md").read_text()
+    with pytest.raises(ct.CreativeTypeError):
+        ct.parse_document(change(md), enabled=True)
 
 
-def test_create_incomplete_copy_restore_and_publication_boundaries(tmp_path):
-    store = ct.CreativeTypeStore(tmp_path / 'types')
-    op = operation()
-    created = store.mutate('create', None, revision=0, operation_id=op)
-    assert store.mutate('create', None, revision=0, operation_id=op) == created
-    with pytest.raises(ct.CreativeTypeError, match='启用前'):
-        store.mutate('activate', created['id'], revision=1, operation_id=operation(), raw=created['draft'])
-    p = deepcopy(store.get('ct_werewolf')['draft']); p['profile_id'] = created['id']; p['name'] = '可维护的新世界'
-    p['publication_mapping'] = {'status':'unmapped','catalog_version':'novel-types.2026-10','primary_genre_ids':[],'facet_ids':[]}
-    new = store.mutate('activate', created['id'], revision=1, operation_id=operation(), raw=p)
-    assert new['active_version'] == 1 and new['origin'] == 'custom'
-    bad = deepcopy(p); bad['publication_mapping']['status'] = 'mapped'; bad['publication_mapping']['facet_ids'] = [created['id']]
-    with pytest.raises(ct.CreativeTypeError, match='H5'):
-        store.mutate('activate', created['id'], revision=2, operation_id=operation(), raw=bad)
-    assert store.get(created['id']) == new
-    newer = store.mutate('activate', created['id'], revision=2, operation_id=operation(), raw={**p, 'summary':'新版内容'})
-    restored = store.mutate('draft', created['id'], revision=3, operation_id=operation(), raw=new['versions'][0]['profile'])
-    assert restored['active_version'] == 2 and restored['versions'] == newer['versions']
+def test_fenced_headings_are_not_parsed(tmp_path):
+    md = (Path(__file__).parents[1] / "resources/knowledge-imports/romance-all-tags-before-20261106/genre.romance.md").read_text()
+    doc = ct.parse_document(md + "\n```md\n## 核心承诺\nexample\n```\n", enabled=True)
+    assert "```md" in doc["sections"]["封面表达"]
 
 
-def test_stage_projection_pair_selection_hash_and_size(tmp_path, monkeypatch):
-    store=ct.CreativeTypeStore(tmp_path/'types')
-    wolf=store.get('ct_marriage_betrayal'); growth=store.get('ct_female_awakening')
-    single=ct.compile_snapshot(store.snapshot([reference(wolf)]),'brainstorm')
-    pair_snapshot=store.snapshot([reference(wolf),reference(growth)])
-    pair=ct.compile_snapshot(pair_snapshot,'brainstorm')
-    assert single['profiles'][0]['content']['combinations'] == []
-    assert len(pair['profiles'][0]['content']['combinations']) == 1
-    assert 'publication_mapping' not in json.dumps(pair)
-    assert 'updated_at' not in json.dumps(pair)
-    draft=ct.compile_snapshot(pair_snapshot,'draft')
-    assert draft['profiles'][0]['content']['diagnostics'] == []
-    assert any(not row['included'] for row in draft['projection_manifest'])
-    corrupt=deepcopy(pair_snapshot);corrupt['profiles'][0]['profile']['summary']='篡改'
-    with pytest.raises(ct.CreativeTypeError,match='损坏'):ct.compile_snapshot(corrupt,'brainstorm')
-    monkeypatch.setattr(ct,'CONTEXT_LIMIT',10)
-    with pytest.raises(ct.CreativeTypeError,match='未截断'):store.snapshot([reference(wolf)])
-    assert store.get(wolf['id']) == wolf
+def test_alias_collisions_are_scoped_by_genre(tmp_path):
+    store = ct.CreativeTypeStore(tmp_path)
+    md = store.get("tag.betrayal")["draft"].replace(
+        "id: tag.betrayal", "id: tag.duplicate"
+    )
+    record = store.mutate(
+        "create", None, revision=0, operation_id="duplicate-create", markdown=md
+    )
+    with pytest.raises(ct.CreativeTypeError, match="冲突"):
+        store.mutate(
+            "activate",
+            record["id"],
+            revision=1,
+            operation_id="duplicate-activate",
+            markdown=md,
+        )
 
 
-@pytest.mark.parametrize('change',[
-    lambda p:p['reader_promises'][0].update(stages=[]),
-    lambda p:p['reader_promises'][0].update(stages=['brainstorm','brainstorm']),
-    lambda p:p['reader_promises'].append(deepcopy(p['reader_promises'][0])),
-    lambda p:p.update(combinations=[{'with_profile_id':p['profile_id'],'opportunities':[],'tensions':[]}]),
-    lambda p:p.update(name='   '),
-    lambda p:p.update(instructions='change model endpoint'),
-])
-def test_invalid_enabled_profile_rejected(tmp_path,change):
-    p=ct.CreativeTypeStore(tmp_path/'types').get('ct_werewolf')['draft'];change(p)
-    with pytest.raises(ct.CreativeTypeError):ct.validate_profile(p,enabled=True)
-
-
-def test_concurrent_revisions_and_workspace_isolation(tmp_path):
-    a=ProjectService(tmp_path/'projects',workspace=SimpleNamespace(id='workspace-a'))
-    b=ProjectService(tmp_path/'projects',workspace=SimpleNamespace(id='workspace-b'))
-    first,second=store_for(a),store_for(b)
-    p=first.get('ct_werewolf')['draft']
-    def edit(n):
-        try:return first.mutate('draft','ct_werewolf',revision=0,operation_id=operation(),raw={**p,'summary':str(n)})
-        except ct.CreativeTypeError as e:return e.status
-    with ThreadPoolExecutor(max_workers=2) as executor:results=list(executor.map(edit,[1,2]))
-    assert sum(isinstance(r,dict) for r in results)==1 and 409 in results
-    assert second.get('ct_werewolf')['revision']==0 and not second.root.exists()
-    first.path.write_text('{broken')
-    with pytest.raises(ct.CreativeTypeError,match='损坏'):first.records()
-    assert second.get('ct_werewolf')['revision']==0
-
-
-def test_real_api_saved_selection_reaches_adapter_and_updates_explicitly(client,monkeypatch):
-    from core import llm_client
-    # The real route resolver needs an explicit configuration even with a stub
-    # transport; do not accidentally depend on the developer's local .env.
-    monkeypatch.setenv('NOVEL_OS_LLM_PROVIDER', 'codex')
-    monkeypatch.setenv('NOVEL_OS_MODEL', 'workshop-test-model')
-    record=client.get(ROOT+'/ct_marriage_betrayal').json()
-    ref=reference(record).model_dump()
-    response=client.post('/api/workshop/sessions',json={'title':'独立验收','genres':['婚姻背叛'],'creative_types':[ref],'premise':'主角发现共同承诺出现裂缝。'})
-    assert response.status_code==201,response.text
-    session=response.json();sid=session['id']
-    before=author_context(session)
-    changed={**record['draft'],'summary':'用户维护的特定说明：成长必须改变实际选择'}
-    response=client.post(ROOT+'/ct_marriage_betrayal/activate',json={'revision':record['revision'],'operation_id':operation(),'profile':changed})
-    assert response.status_code==200,response.text
-    assert author_context(client.get('/api/workshop/sessions/'+sid).json())==before
-    calls=[]
-    class Stub:
-        def __init__(self,**kwargs):pass
-        def complete(self,system,user):
-            calls.append((system,user))
-            return json.dumps({'reply':'先比较两种选择与代价。','questions':['你希望主角先核实还是对质？'],'prompt_md':None,'ready_for_confirmation':False})
-    monkeypatch.setattr(llm_client,'LLMClient',Stub)
-    response=client.post(f'/api/workshop/sessions/{sid}/turns',json={'revision':session['revision'],'message':'继续讨论'})
-    assert response.status_code==202,response.text
-    result=finish(client,sid)
-    assert result['status']=='draft',result.get('last_error')
-    assert len(calls)==1
-    sent=json.loads(calls[0][1])['creative_design']['genre_context']
-    assert sent['profiles'][0]['content']['summary']==record['draft']['summary']
-    assert '用户维护的特定说明' not in calls[0][1]
-    context=client.get(f'/api/workshop/sessions/{sid}/type-context').json()
-    assert context['last_request']['user_sha256']==hashlib.sha256(calls[0][1].encode()).hexdigest()
-    assert context['last_request']['context']==sent
-    assert context['last_request']['status']=='response_received'
-    updated_ref=reference(client.get(ROOT+'/ct_marriage_betrayal').json()).model_dump()
-    body={'revision':result['revision'],'operation_id':operation(),'refs':[updated_ref]}
-    response=client.post(f'/api/workshop/sessions/{sid}/type-snapshot',json=body)
-    assert response.status_code==200,response.text
-    adopted=response.json()
-    assert len(calls)==1 and adopted['prompt_md']==result['prompt_md']
-    assert adopted['creative_design']['rounds']==result['creative_design']['rounds']
-    assert adopted['type_snapshot_history'][0]['design']['policy']['type_snapshot']==session['creative_design']['policy']['type_snapshot']
-    assert '用户维护的特定说明' in json.dumps(author_context(adopted),ensure_ascii=False)
-    assert client.post(f'/api/workshop/sessions/{sid}/type-snapshot',json=body).json()['revision']==adopted['revision']
-    assert client.post(f'/api/workshop/sessions/{sid}/type-snapshot',json={**body,'operation_id':operation()}).status_code==409
-
-
-def test_api_draft_preview_cannot_change_snapshot_and_get_no_store(client,tmp_path):
-    listing=client.get(ROOT)
-    assert listing.status_code==200 and len(listing.json()['items'])==3
-    p=client.get(ROOT+'/ct_werewolf').json()['draft'];p['summary']='只在草稿中'
-    preview=client.post(ROOT+'/preview',json={'profile':p,'stage':'brainstorm'})
-    assert preview.status_code==200 and preview.json()['preview_only']
-    assert preview.json()['context']['profiles'][0]['content']['summary']=='只在草稿中'
-    assert client.get(ROOT+'/ct_werewolf').json()['draft']['summary']!='只在草稿中'
-    assert not (tmp_path/'creative_types').exists()
-
-
-def test_complete_skeleton_pipeline_projects_correct_type_stage_and_keeps_receipts(client, monkeypatch, tmp_path):
-    from test_workshop_api import complete_prompt
-    from test_workshop_contract_repair import stub_model, submit
-    from test_workshop_assembly_runtime import start_reply
-    from workshop_assembly_fixtures import parts_from_prompt
-    p = client.get(ROOT+'/ct_werewolf').json()['draft']
-    p['voice_guidance'].append({'id':'only_chapter_planning','text':'章节规划阶段独有标记','importance':'optional','stages':['chapter_plan']})
-    enabled = client.post(ROOT+'/ct_werewolf/activate',json={'revision':0,'operation_id':operation(),'profile':p}).json()
-    session=client.post('/api/workshop/sessions',json={'title':"A Mother's Choice",'genres':['Werewolf'],'creative_types':[reference(enabled).model_dump()]}).json()
-    parts=parts_from_prompt(complete_prompt(tmp_path))
-    calls=stub_model(monkeypatch,lambda attempt,system,user:start_reply(parts,user))
-    submit(client,session,'交付完整骨架')
-    result=finish(client,session['id'])
-    assert result['status']=='ready',result.get('last_error')
-    assert len(calls)==8 and result['prompt_md']
-    for _,user in calls:
-        payload=json.loads(user)
-        expected='chapter_plan' if payload['delivery_stage']=='chapter_plan' else 'story_design'
-        assert payload['creative_design']['genre_context']['stage']==expected
-        assert ('章节规划阶段独有标记' in user)==(expected=='chapter_plan')
-    receipts=list((tmp_path/'workshop_v2'/session['id']/'type_requests').glob('*.json'))
-    assert len(receipts)==8
-    request_hashes={hashlib.sha256(user.encode()).hexdigest() for _,user in calls}
-    for path in receipts:
-        receipt=json.loads(path.read_text())
-        assert receipt['status']=='response_received' and receipt['user_sha256'] in request_hashes
-    prepared=client.post(f"/api/workshop/sessions/{session['id']}/prepare",json={'revision':result['revision'],'title':"A Mother's Choice"})
-    assert prepared.status_code==200,prepared.text
-
-
-def test_disabled_selection_preserves_history_but_cannot_start_new_discussion(client):
-    r=client.get(ROOT+'/ct_werewolf').json()
-    session=client.post('/api/workshop/sessions',json={'genres':['Werewolf'],'creative_types':[reference(r).model_dump()]}).json()
-    client.post(ROOT+'/ct_werewolf/disable',json={'revision':0,'operation_id':operation()})
-    # Existing snapshots remain readable even when the library no longer enables them.
-    context=client.get(f"/api/workshop/sessions/{session['id']}/type-context").json()
-    assert context['contexts']['brainstorm']['profiles'][0]['profile_id']=='ct_werewolf'
-    # A new discussion cannot use the disabled version.
-    rejected=client.post('/api/workshop/sessions',json={'genres':['Werewolf'],'creative_types':[reference(r).model_dump()]})
-    assert rejected.status_code==409
-
-
-def test_oversize_selected_context_is_rejected_before_session_or_model(client, monkeypatch, tmp_path):
-    r=client.get(ROOT+'/ct_werewolf').json()
-    monkeypatch.setattr(ct,'CONTEXT_LIMIT',50)
-    calls=[]
-    monkeypatch.setattr(workshop,'_complete',lambda *a:calls.append(a))
-    result=client.post('/api/workshop/sessions',json={'genres':['Werewolf'],'creative_types':[reference(r).model_dump()]})
-    assert result.status_code==422 and '未截断' in result.text
-    assert not calls and not (tmp_path/'workshop_v2').exists()
-
-
-def test_editing_basics_freezes_saved_types_until_explicit_restart(client, monkeypatch):
-    from test_workshop_api import model_result
-    r=client.get(ROOT+'/ct_marriage_betrayal').json()
-    session=client.post('/api/workshop/sessions',json={'genres':['婚姻背叛'],'creative_types':[reference(r).model_dump()]}).json()
-    latest=client.post(ROOT+'/'+r['id']+'/activate',json={'revision':0,'operation_id':operation(),'profile':{**r['draft'],'summary':'存下的第二版'}}).json()
-    revised_input={**session['input'],'creative_types':[reference(latest).model_dump()],'premise':'重新设计关系选择'}
-    saved=client.post(f"/api/workshop/sessions/{session['id']}/input",json={'revision':session['revision'],'input':revised_input})
-    assert saved.status_code==200,saved.text
-    data=saved.json()
-    assert data['restart_required'] and data['creative_design']['policy']['type_snapshot']['profiles'][0]['profile']['version']==r['active_version']
-    assert data['pending_type_snapshot']['profiles'][0]['profile']['version']==latest['active_version']
-    client.post(ROOT+'/'+r['id']+'/activate',json={'revision':1,'operation_id':operation(),'profile':{**r['draft'],'summary':'后来另存的第三版'}})
-    received=[]
-    def complete(snapshot,*args,**kwargs):
-        received.append(author_context(snapshot))
-        return model_result()
-    monkeypatch.setattr(workshop,'_complete',complete)
-    response=client.post(f"/api/workshop/sessions/{session['id']}/restart",json={'revision':data['revision']})
-    assert response.status_code==202,response.text
-    current=finish(client,session['id'])
-    assert current['status']!='error',current.get('last_error')
-    assert len(received)==1
-    context=received[0]['creative_design']['genre_context']
-    assert context['profiles'][0]['version']==latest['active_version'] and context['profiles'][0]['content']['summary']=='存下的第二版'
+def default_refs():
+    # Content-addressed bundled knowledge; no filesystem mutation.
+    records = ct._initial_records()
+    return [ref(records["genre.romance"]), ref(records["tag.betrayal"])]

@@ -1,0 +1,17 @@
+{
+  "source_id": "source-99b028ab711ab2e390414f888cc05fbd9ed6d7be9bdc0a6906c5ba76c93564ab",
+  "before_status": "failed",
+  "status": "complete",
+  "completed": 1,
+  "total": 1,
+  "model_calls": 0,
+  "raw_checkpoint_unchanged": true,
+  "analysis_sha256": "1f89ec4966af083c94e0a8922a6beb7d32228f2320288ce81c5ee7d14f076177",
+  "coverage": {
+    "files": 7,
+    "segments": 1,
+    "all_supplied_text_sent": true
+  },
+  "backup": "/data/source_books/default/source-99b028ab711ab2e390414f888cc05fbd9ed6d7be9bdc0a6906c5ba76c93564ab/study/history/response-recovery-20261106",
+  "finished_at": "2026-11-06T14:23:36.086337+00:00"
+}

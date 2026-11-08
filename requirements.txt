@@ -3,10 +3,9 @@
 #       on your PATH (https://docs.claude.com/claude-code) and `claude login`.
 anthropic>=0.40.0           # for provider=anthropic
 openai>=1.50.0              # for openai, azure, kimi, groq, together, openrouter, deepseek, mistral, fireworks, ollama, lmstudio, openai_compatible
-google-genai>=0.3.0         # for provider=gemini
+google-genai>=2.34.0,<3         # for provider=gemini
 python-dotenv>=1.0.0        # optional, for .env loading
 PyYAML>=6.0                 # structured facts in legacy Markdown prompts
-tiktoken>=0.9,<1            # reference tokenizer for reader-review request budgets
 
 # Web UI backend (optional only needed to run the dashboard)
 fastapi>=0.110.0
@@ -14,3 +13,4 @@ uvicorn[standard]>=0.29.0
 sqlmodel>=0.0.38             # SQLite persistence layer for the API
 python-multipart>=0.0.9      # image uploads (media storage)
 Pillow>=10.4.0               # decoded 120x180 cover review projections
+defusedxml>=0.7.1,<1          # local DOCX extraction; reject external entities/DTD

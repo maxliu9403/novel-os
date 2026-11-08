@@ -1,0 +1,18 @@
+[
+  {
+    "width": 1600,
+    "running_state_fixture": true,
+    "refresh_restores_source": true,
+    "production_completed_result": true,
+    "errors": [],
+    "writes": []
+  },
+  {
+    "width": 390,
+    "running_state_fixture": true,
+    "refresh_restores_source": true,
+    "production_completed_result": true,
+    "errors": [],
+    "writes": []
+  }
+]

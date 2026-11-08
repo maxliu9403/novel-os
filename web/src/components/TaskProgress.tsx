@@ -116,6 +116,11 @@ export default function TaskProgress({ task }: { task: ProjectTaskDetail }) {
             <h3 className="text-[13px] font-semibold text-ink-text">大纲规划成果</h3>
             <span className="text-[11px] text-ink-muted">{planning.status === "complete" ? "规划成果已保存" : "按阶段保存，通过校验后继续"}</span>
           </div>
+          {!running && planningActive && planning.status === "failed" && planning.next_action && (
+            <p className="mt-3 break-words rounded-xl bg-amber-50 px-3 py-3 text-sm leading-relaxed text-ink-text">
+              下一步：{planning.next_action}
+            </p>
+          )}
           <ol className="mt-4 grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {planning.steps.map((step, index) => {
               const status = step.status !== "running" ? step.status : !running

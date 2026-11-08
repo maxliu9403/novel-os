@@ -19,6 +19,11 @@ from .services import (
 )
 from .version import __version__
 from .workshop import router as workshop_router
+from .jobs import SessionJobBlocked
+
+
+async def _session_job_blocked_response(_request, exc: SessionJobBlocked):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
 #: Vite's default, and the next port it falls back to when that one is taken -
@@ -80,7 +85,14 @@ def create_app(projects_root: Optional[Path] = None, db_url: Optional[str] = Non
     async def creative_type_error(_request, error: CreativeTypeError):
         return JSONResponse(status_code=error.status, content={'detail': str(error)})
     app.add_exception_handler(CreativeTypeError, creative_type_error)
+    app.add_exception_handler(SessionJobBlocked, _session_job_blocked_response)
     app.include_router(creative_types_router)
+    from .system_prompts import router as system_prompts_router
+    app.include_router(system_prompts_router)
+    from .source_library import router as source_library_router
+    app.include_router(source_library_router)
+    from .document_import import router as document_import_router
+    app.include_router(document_import_router)
     for error_type in (
         PromotionConflict,
         PromotionIntegrityFailure,
@@ -99,9 +111,9 @@ def create_app(projects_root: Optional[Path] = None, db_url: Optional[str] = Non
     app.include_router(cover_workbench_assets_router)
     from .poster_studio import router as poster_studio_router
     app.include_router(poster_studio_router)
+    from .poster_references import router as poster_references_router
+    app.include_router(poster_references_router)
     app.include_router(project_reader_router)
-    from .reader_reviews import router as reader_reviews_router
-    app.include_router(reader_reviews_router)
     app.include_router(project_story_router)
     app.include_router(router)
     app.include_router(workshop_router)

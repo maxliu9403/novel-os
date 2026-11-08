@@ -1,250 +1,213 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import type { BookClassificationSelection } from '../api/workshop';
+import { knowledgeExcerpt } from "../lib/knowledgeExcerpt";
 import {
   creativeTypesApi,
   creativeRef,
-  matchesCreativeLabel,
-  type CreativeLibrary,
-  type CreativeTypeRef,
   type CreativeSummary,
+  type CreativeTypeRef,
 } from "../api/creativeTypes";
+import "../styles/creative-types.css";
 
 export default function CreativeTypePicker({
-  selected,
   refs,
   onChange,
-  other,
-  onOtherChange,
-  publication,
 }: {
-  selected: string[];
   refs?: CreativeTypeRef[] | null;
-  onChange: (genres: string[], refs: CreativeTypeRef[]) => void;
-  other: string;
-  onOtherChange: (v: string) => void;
-  publication?: BookClassificationSelection | null;
+  onChange: (names: string[], refs: CreativeTypeRef[]) => void;
 }) {
-  const [library, setLibrary] = useState<CreativeLibrary | null>(null),
-    [error, setError] = useState(""),
-    [refresh, setRefresh] = useState(0),
-    [search, setSearch] = useState("");
+  const [items, setItems] = useState<CreativeSummary[]>([]);
+  const [error, setError] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [search, setSearch] = useState("");
+  const [detail, setDetail] = useState<string | null>(null);
+  const [pendingGenre, setPendingGenre] = useState<CreativeSummary | null>(
+    null,
+  );
   useEffect(() => {
     let live = true;
     creativeTypesApi
       .list()
-      .then((l) => {
-        if (live) {
-          setLibrary(l);
-          setError("");
-        }
+      .then((data) => {
+        if (live) setItems(data.items.filter((i) => i.status === "enabled"));
       })
       .catch((e) => {
-        if (live) setError(e instanceof Error ? e.message : String(e));
+        if (live) setError(String(e));
+      })
+      .finally(() => {
+        if (live) setLoaded(true);
       });
     return () => {
       live = false;
     };
-  }, [refresh]);
-  const available = library?.items.filter((i) => i.status === "enabled") || [];
-  const inferred =
-    refs ??
-    available
-      .filter((i) =>
-        selected.some(
-          (s) =>
-            matchesCreativeLabel(i, s) &&
-            available.filter((c) => matchesCreativeLabel(c, s)).length === 1,
-        ),
-      )
-      .map((i) => creativeRef(i));
-  const chosen = new Set(inferred.map((r) => r.profile_id));
-  function toggle(item: CreativeSummary) {
-    const next = chosen.has(item.id)
-      ? inferred.filter((r) => r.profile_id !== item.id)
-      : [...inferred, creativeRef(item)];
-    const labels = selected.filter(
-      (label) => !matchesCreativeLabel(item, label),
+  }, []);
+  const selected = refs ?? [];
+  const genre = selected.find((r) => r.id.startsWith("genre."));
+  const tags = items.filter(
+    (i) => i.kind === "tag" && genre && i.genre_ids.includes(genre.id),
+  );
+  const incompatibleWith = (item: CreativeSummary) =>
+    selected.filter(
+      (r) =>
+        r.id.startsWith("tag.") &&
+        !items.some((i) => i.id === r.id && i.genre_ids.includes(item.id)),
     );
-    onChange(chosen.has(item.id) ? labels : [...labels, item.name], next);
+  function choose(item: CreativeSummary, confirmed = false) {
+    setError("");
+    if (item.kind === "genre" && !confirmed && incompatibleWith(item).length) {
+      setPendingGenre(item);
+      return;
+    }
+    setPendingGenre(null);
+    let next: CreativeTypeRef[];
+    if (item.kind === "genre") {
+      next = [
+        creativeRef(item),
+        ...selected.filter(
+          (r) =>
+            r.id.startsWith("tag.") &&
+            items.some((i) => i.id === r.id && i.genre_ids.includes(item.id)),
+        ),
+      ];
+    } else {
+      if (
+        !selected.some((r) => r.id === item.id) &&
+        selected.filter((r) => r.id.startsWith("tag.")).length >= 20
+      ) {
+        setError("最多选择 20 个 Tag。");
+        return;
+      }
+      next = selected.some((r) => r.id === item.id)
+        ? selected.filter((r) => r.id !== item.id)
+        : [...selected, creativeRef(item)];
+    }
+    onChange(
+      next.map((r) => items.find((i) => i.id === r.id)?.name ?? r.id),
+      next,
+    );
   }
-  const catalogLabels = new Set(Object.values(library?.publication_catalog.axes || {}).flat().map(i => i.labels['zh-CN']));
-  const unmatched = selected.filter(
-    (label) => !(publication && catalogLabels.has(label)) && !available.some((i) => matchesCreativeLabel(i, label)),
-  );
-  const publicationIds = publication ? [publication.primary_genre_id, ...publication.secondary_genre_ids, ...publication.story_type_ids, ...publication.tone_ids, ...publication.setting_ids] : [];
-  const related = (i: CreativeSummary) => i.publication_mapping && [...i.publication_mapping.primary_genre_ids, ...i.publication_mapping.facet_ids].some(id => publicationIds.includes(id));
-  const shown = available.filter((i) =>
-    [i.name, i.summary, ...i.aliases]
-      .join(" ")
-      .toLowerCase()
-      .includes(search.trim().toLowerCase()),
-  );
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2 text-[14px] text-ink-muted">
-        <span>选择写作指导；不会改动上方 H5 分类。创建讨论时保存资料版本。</span>
-        <Link
-          to="/creative-types"
-          target="_blank"
-          rel="noopener"
-          className="text-violet"
-        >
-          维护作品类型 ↗
+    <section className="knowledge-picker">
+      <div className="knowledge-heading">
+        <h3>选择 Genre</h3>
+        <Link to="/creative-types" target="_blank">
+          维护写作资料 ↗
         </Link>
       </div>
-      {error ? (
-        <p
-          role="alert"
-          className="rounded-xl bg-rose-50 p-3 text-[14px] text-rose-700"
+      {error && <p role="alert">{error}</p>}
+      <div
+        className="knowledge-choices"
+        role="radiogroup"
+        aria-label="Genre 主类型"
+      >
+        {items
+          .filter((i) => i.kind === "genre")
+          .map((i) => (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={genre?.id === i.id}
+              key={i.id}
+              onClick={() => choose(i)}
+              className={genre?.id === i.id ? "selected" : ""}
+            >
+              {i.name}
+            </button>
+          ))}
+      </div>
+      {pendingGenre && (
+        <div
+          className="knowledge-switch-confirm"
+          role="group"
+          aria-label="确认更换主类型"
         >
-          类型资料暂时无法读取：{error}{" "}
-          <button type="button" onClick={() => setRefresh((v) => v + 1)}>
-            重试
-          </button>
-        </p>
-      ) : !library ? (
-        <p className="text-[14px] text-ink-muted">正在读取类型资料…</p>
-      ) : (
+          <p>
+            改为 {pendingGenre.name} 后，将移除不适用的标签：
+            {incompatibleWith(pendingGenre)
+              .map((r) => items.find((i) => i.id === r.id)?.name ?? r.id)
+              .join("、")}
+            。
+          </p>
+          <div className="knowledge-actions">
+            <button type="button" onClick={() => choose(pendingGenre, true)}>
+              确认更换
+            </button>
+            <button type="button" onClick={() => setPendingGenre(null)}>
+              保留当前选择
+            </button>
+          </div>
+        </div>
+      )}
+      {!loaded && !error && <p>正在读取资料…</p>}
+      {loaded && !items.some((i) => i.kind === "genre") && !error && (
+        <p>尚无已启用的 Genre，请先维护写作资料。</p>
+      )}
+      <div className="knowledge-heading">
+        <h3>
+          组合 Tags <small>至少选择一个</small>
+        </h3>
+        <span>
+          {selected.filter((r) => r.id.startsWith("tag.")).length} 个已选
+        </span>
+      </div>
+      {genre ? (
         <>
           <input
-            className="w-full rounded-xl border border-paper-line bg-white/70 px-3 py-2 text-[14px]"
-            aria-label="搜索可用作品类型"
-            placeholder="搜索类型、主题或别名"
+            aria-label="搜索关联标签"
+            className="knowledge-search"
+            placeholder="搜索标签或别名"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <div className="space-y-3">
-            {Object.entries(library.dimensions).map(([key, label]) => {
-              const items = shown.filter((i) => i.dimension === key);
+          <div className="knowledge-choices">
+            {tags
+              .filter((i) =>
+                [i.name, ...i.aliases].some((s) =>
+                  s.toLowerCase().includes(search.toLowerCase()),
+                ),
+              )
+              .map((i) => (
+                <button
+                  key={i.id}
+                  type="button"
+                  aria-pressed={selected.some((r) => r.id === i.id)}
+                  className={
+                    selected.some((r) => r.id === i.id) ? "selected" : ""
+                  }
+                  onClick={() => choose(i)}
+                >
+                  {i.name}
+                </button>
+              ))}
+          </div>
+          {!tags.length && (
+            <p>此 Genre 尚无已启用的关联 Tag，请先维护写作资料。</p>
+          )}
+          <div className="knowledge-promises">
+            {selected.map((r) => {
+              const item = items.find((i) => i.id === r.id);
               return (
-                items.length > 0 && (
-                  <fieldset key={key}>
-                    <legend className="mb-2 text-[13px] text-ink-muted">
-                      {label}
-                    </legend>
-                    <div className="flex flex-wrap gap-1.5">
-                      {items.map((i) => (
-                        <button
-                          key={i.id}
-                          type="button"
-                          title={`${i.summary} · v${i.active_version}`}
-                          aria-pressed={chosen.has(i.id)}
-                          onClick={() => toggle(i)}
-                          className={`rounded-full px-3 py-1.5 text-[14px] ${chosen.has(i.id) ? "bg-violet text-white shadow-sm" : "border border-paper-line bg-white/60 text-ink-muted"}`}
-                        >
-                          {i.name}
-                          {related(i) && <span className="ml-1 opacity-75"> · 题材相关</span>}
-                        </button>
-                      ))}
-                    </div>
-                  </fieldset>
+                item && (
+                  <details
+                    key={r.id}
+                    open={detail === r.id}
+                    onToggle={(e) => {
+                      if (e.currentTarget.open) setDetail(r.id);
+                    }}
+                  >
+                    <summary>
+                      {item.name} <span>如何影响故事</span>
+                    </summary>
+                    <p>{knowledgeExcerpt(item.promise)}</p>
+                  </details>
                 )
               );
             })}
-            {!shown.length && (
-              <p className="text-[14px] text-ink-muted">
-                没有匹配的已启用类型。
-              </p>
-            )}
           </div>
         </>
+      ) : (
+        <p className="knowledge-muted">先选择主类型，再组合相关标签。</p>
       )}
-      {inferred.length > 0 && (
-        <details className="rounded-xl border border-paper-line bg-white/50 p-3 text-[14px]">
-          <summary className="cursor-pointer text-violet">
-            已选类型与版本 · {inferred.length}
-          </summary>
-          <div className="mt-3 space-y-2">
-            {inferred.map((ref) => {
-              const item = library?.items.find((i) => i.id === ref.profile_id);
-              return (
-                <div
-                  className="flex flex-wrap items-center justify-between gap-2"
-                  key={ref.profile_id}
-                >
-                  <span>
-                    {item?.name || ref.profile_id} · v{ref.version}
-                    {item?.status === "disabled" ? " · 已停用" : ""}
-                  </span>
-                  <select
-                    className="rounded-lg border border-paper-line bg-white px-2 py-1"
-                    aria-label={`${item?.name || ref.profile_id}在本书的作用`}
-                    value={ref.role}
-                    onChange={(e) =>
-                      onChange(
-                        selected,
-                        inferred.map((r) =>
-                          r.profile_id === ref.profile_id
-                            ? {
-                                ...r,
-                                role: e.target.value as CreativeTypeRef["role"],
-                              }
-                            : r,
-                        ),
-                      )
-                    }
-                  >
-                    <option value="unspecified">尚未指定作用</option>
-                    <option value="primary">主导故事</option>
-                    <option value="supporting">辅助情节</option>
-                    <option value="atmosphere">氛围与表达</option>
-                  </select>
-                  <button
-                    type="button"
-                    className="text-ink-muted"
-                    aria-label={`移除已选类型 ${item?.name || ref.profile_id}`}
-                    onClick={() =>
-                      onChange(
-                        item
-                          ? selected.filter(
-                              (label) => !matchesCreativeLabel(item, label),
-                            )
-                          : selected,
-                        inferred.filter((r) => r.profile_id !== ref.profile_id),
-                      )
-                    }
-                  >
-                    移除
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </details>
-      )}
-      {publication && available.some(i => chosen.has(i.id) && !related(i)) && <p className="rounded-xl bg-violet-soft p-3 text-[13px] leading-relaxed text-ink-muted">部分方向尚未关联本书题材，可以跨题材组合。讨论时需明确它怎样服务本书人物与冲突；发行分类保持你的选择。</p>}
-      {unmatched.length > 0 && (
-        <div className="flex flex-wrap gap-2 text-[14px] text-ink-muted">
-          <span>已带入的自定义类型：</span>
-          {unmatched.map((g) => (
-            <button
-              key={g}
-              type="button"
-              aria-label={`移除类型 ${g}`}
-              className="rounded-full bg-violet-soft px-3 py-1 text-violet"
-              onClick={() =>
-                onChange(
-                  selected.filter((v) => v !== g),
-                  inferred,
-                )
-              }
-            >
-              {g} ×
-            </button>
-          ))}
-        </div>
-      )}
-      <label className="block text-[14px] text-ink-muted">
-        其他类型
-        <input
-          aria-label="其他类型"
-          className="mt-2 w-full rounded-xl border border-paper-line bg-white/60 px-3 py-2"
-          value={other}
-          onChange={(e) => onOtherChange(e.target.value)}
-          placeholder="尚未建立说明的类型，可先用文字补充"
-        />
-      </label>
-    </div>
+    </section>
   );
 }

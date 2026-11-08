@@ -1,0 +1,62 @@
+{
+  "library_count": 41,
+  "items": [
+    {
+      "id": "tag.action",
+      "version": 1,
+      "sha256": "1f8743421b8614554265eef20a2cd7a33587d5263e6b1ce7015399a34c022d09",
+      "roles": [
+        "conflict",
+        "pacing"
+      ]
+    },
+    {
+      "id": "tag.dark_romance",
+      "version": 3,
+      "sha256": "3e86ae6e8b6901130c10f9473e21770c9ac4dd1738b58c6c8060245ea87c3097",
+      "roles": [
+        "relationship",
+        "conflict",
+        "mood"
+      ]
+    },
+    {
+      "id": "tag.possessive",
+      "version": 2,
+      "sha256": "ac41b356b39609058b1fdba4ff2f97b07de92c8174b9a99e76a095dca7b45d3f",
+      "roles": [
+        "relationship",
+        "character"
+      ]
+    },
+    {
+      "id": "tag.badboy",
+      "version": 2,
+      "sha256": "eb02b404876f5ec22667d994d81eec8a20b23ba83e1bcc4e253ceef244a461bf",
+      "roles": [
+        "character",
+        "conflict",
+        "relationship"
+      ]
+    },
+    {
+      "id": "tag.age_gap",
+      "version": 2,
+      "sha256": "bb8209f209ac4be0dd41342c2879bfedeafe4083a39254b4bdd68efbc922746c",
+      "roles": [
+        "relationship",
+        "character"
+      ]
+    }
+  ],
+  "stage_bytes": {
+    "brainstorm": 29336,
+    "story_design": 30058,
+    "chapter_plan": 22762,
+    "draft": 21599,
+    "review": 22103,
+    "publication": 11003,
+    "cover": 10207
+  },
+  "model_calls": 0
+}

@@ -4,6 +4,7 @@ import threading
 import time
 from types import SimpleNamespace
 
+from test_creative_types import default_refs
 import pytest
 
 from api import workshop, workshop_titles
@@ -212,7 +213,7 @@ def test_pause_is_scoped_to_workspace_even_for_same_session_id(tmp_path, monkeyp
     monkeypatch.setattr(workshop, "runner", JobRunner())
     services = [workshop.WorkshopService(ProjectService(tmp_path / "projects", SimpleNamespace(id=name, slug=name)))
                 for name in ("a", "b")]
-    first = services[0].create(workshop.SessionInput(title="Same name"))
+    first = services[0].create(workshop.SessionInput(creative_types=default_refs(), title="Same name"))
     # Reproduce identical ids in two tenant directories; their jobs remain independent.
     services[1]._save(dict(first))
     snapshots, release = [], threading.Event()

@@ -198,7 +198,7 @@ class _PublicationCompletionClient:
                     "late": [{"chapter": last, "source_quote": quote(last)}],
                 },
             })
-        if system.startswith("publication-copy-writer.v2"):
+        if system.startswith("publication-copy-writer.v3"):
             if self.owner.publication_writer_response is not None:
                 return self.owner.publication_writer_response
             return json.dumps({

@@ -381,31 +381,44 @@ class NovelClassification:
     source: str = "engine_inferred"
     confidence: float = 0.5
     catalog_version: str = CATALOG_VERSION
+    taxonomy: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
-        if self.catalog_version not in SUPPORTED_CATALOG_VERSIONS:
-            raise ValueError("classification catalog_version is unsupported")
-        if self.primary_genre_id not in _BY_AXIS["primary_genre"]:
-            raise ValueError("primary_genre_id is unknown")
-        for field_name, axis, maximum in (
-            ("secondary_genre_ids", "primary_genre", 2),
-            ("story_type_ids", "story_type", 3),
-            ("tone_ids", "tone", 3),
-            ("setting_ids", "setting", 2),
-        ):
-            normalized = _validated_ids(
-                getattr(self, field_name),
-                axis=axis,
-                field_name=field_name,
-                maximum=maximum,
-            )
-            object.__setattr__(self, field_name, normalized)
-        if self.catalog_version == LEGACY_CATALOG_VERSION and _OCTOBER_IDS.intersection(self.filter_type_ids):
-            raise ValueError("classification ids are not available in this catalog_version")
-        if self.primary_genre_id in self.secondary_genre_ids:
-            raise ValueError("primary_genre_id cannot also be secondary")
-        if {"sweet_romance", "dark_romance"} <= set(self.story_type_ids):
-            raise ValueError("sweet_romance and dark_romance are mutually exclusive")
+        if self.taxonomy is not None:
+            from core.publication_taxonomy import Taxonomy
+            public = Taxonomy.model_validate(self.taxonomy).model_dump()
+            if self.catalog_version != 'novel-taxonomy.v1' or self.primary_genre_id != public['genre']['id']:
+                raise ValueError('classification taxonomy identity mismatch')
+            if tuple(self.story_type_ids) != tuple(t['id'] for t in public['tags']):
+                raise ValueError('classification taxonomy tags mismatch')
+            if self.secondary_genre_ids or self.tone_ids or self.setting_ids:
+                raise ValueError('dynamic taxonomy uses one genre and associated tags only')
+            object.__setattr__(self, 'taxonomy', public)
+            object.__setattr__(self, 'story_type_ids', tuple(self.story_type_ids))
+        else:
+            if self.catalog_version not in SUPPORTED_CATALOG_VERSIONS:
+                raise ValueError("classification catalog_version is unsupported")
+            if self.primary_genre_id not in _BY_AXIS["primary_genre"]:
+                raise ValueError("primary_genre_id is unknown")
+            for field_name, axis, maximum in (
+                ("secondary_genre_ids", "primary_genre", 2),
+                ("story_type_ids", "story_type", 3),
+                ("tone_ids", "tone", 3),
+                ("setting_ids", "setting", 2),
+            ):
+                normalized = _validated_ids(
+                    getattr(self, field_name),
+                    axis=axis,
+                    field_name=field_name,
+                    maximum=maximum,
+                )
+                object.__setattr__(self, field_name, normalized)
+            if self.catalog_version == LEGACY_CATALOG_VERSION and _OCTOBER_IDS.intersection(self.filter_type_ids):
+                raise ValueError("classification ids are not available in this catalog_version")
+            if self.primary_genre_id in self.secondary_genre_ids:
+                raise ValueError("primary_genre_id cannot also be secondary")
+            if {"sweet_romance", "dark_romance"} <= set(self.story_type_ids):
+                raise ValueError("sweet_romance and dark_romance are mutually exclusive")
         if self.audience_channel not in AUDIENCE_CHANNELS:
             raise ValueError("audience.channel is unknown")
         if self.audience_age_band not in AGE_BANDS:
@@ -434,6 +447,8 @@ class NovelClassification:
 
     @property
     def commercial_tier(self) -> str:
+        if self.taxonomy is not None:
+            return 'publisher_defined'
         entries = [
             _ALL[item_id]
             for item_id in (
@@ -446,6 +461,7 @@ class NovelClassification:
 
     def _identity_payload(self) -> dict[str, Any]:
         return {
+            **({"taxonomy": self.taxonomy} if self.taxonomy is not None else {}),
             "catalog_version": self.catalog_version,
             "primary_genre_id": self.primary_genre_id,
             "secondary_genre_ids": list(self.secondary_genre_ids),
@@ -474,7 +490,14 @@ class NovelClassification:
 
     def _labels(self, locale: str) -> dict[str, Any]:
         attribute = "zh" if locale == "zh-CN" else "en"
-        label = lambda item_id: getattr(_ALL[item_id], attribute)
+        if self.taxonomy is not None:
+            entries = {e['id']: e for e in [self.taxonomy['genre'], *self.taxonomy['tags']]}
+            def label(item_id):
+                labels = entries[item_id]['labels']
+                return labels.get(locale) or next(iter(labels.values()))
+        else:
+            def label(item_id):
+                return getattr(_ALL[item_id], attribute)
         return {
             "primary_genre": label(self.primary_genre_id),
             "secondary_genres": [label(value) for value in self.secondary_genre_ids],
@@ -485,7 +508,7 @@ class NovelClassification:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": "novel-classification.v2" if self.taxonomy is not None else SCHEMA_VERSION,
             "catalog_version": self.catalog_version,
             "classification_id": self.classification_id,
             **self._identity_payload(),
@@ -503,31 +526,35 @@ class NovelClassification:
     def from_dict(cls, data: Mapping[str, Any]) -> "NovelClassification":
         if not isinstance(data, Mapping):
             raise ValueError("classification must be an object")
-        if data.get("schema_version", SCHEMA_VERSION) != SCHEMA_VERSION:
+        dynamic = data.get('schema_version') == 'novel-classification.v2'
+        if dynamic:
+            if not isinstance(data.get('taxonomy'), dict):
+                raise ValueError('classification v2 requires taxonomy')
+        elif 'taxonomy' in data:
+            raise ValueError('taxonomy requires classification v2')
+        if not dynamic and data.get("schema_version", SCHEMA_VERSION) != SCHEMA_VERSION:
             raise ValueError("classification schema_version is unsupported")
-        if data.get("catalog_version", CATALOG_VERSION) not in SUPPORTED_CATALOG_VERSIONS:
+        if not dynamic and data.get("catalog_version", CATALOG_VERSION) not in SUPPORTED_CATALOG_VERSIONS:
             raise ValueError("classification catalog_version is unsupported")
         audience = data.get("audience") or {}
         length = data.get("length") or {}
         if not isinstance(audience, Mapping) or not isinstance(length, Mapping):
             raise ValueError("classification audience and length must be objects")
+        def ids(field, axis, maximum):
+            if dynamic:
+                values = data.get(field, [])
+                if not isinstance(values, list) or any(not isinstance(v, str) for v in values):
+                    raise ValueError(f'{field} must contain string IDs')
+                return tuple(values)
+            return _validated_ids(data.get(field), axis=axis, field_name=field, maximum=maximum)
         value = cls(
+            taxonomy=data.get('taxonomy') if dynamic else None,
             catalog_version=str(data.get("catalog_version", CATALOG_VERSION)),
             primary_genre_id=str(data.get("primary_genre_id") or "").strip(),
-            secondary_genre_ids=_validated_ids(
-                data.get("secondary_genre_ids"), axis="primary_genre",
-                field_name="secondary_genre_ids", maximum=2,
-            ),
-            story_type_ids=_validated_ids(
-                data.get("story_type_ids"), axis="story_type",
-                field_name="story_type_ids", maximum=3,
-            ),
-            tone_ids=_validated_ids(
-                data.get("tone_ids"), axis="tone", field_name="tone_ids", maximum=3,
-            ),
-            setting_ids=_validated_ids(
-                data.get("setting_ids"), axis="setting", field_name="setting_ids", maximum=2,
-            ),
+            secondary_genre_ids=ids('secondary_genre_ids', 'primary_genre', 2),
+            story_type_ids=ids('story_type_ids', 'story_type', 3),
+            tone_ids=ids('tone_ids', 'tone', 3),
+            setting_ids=ids('setting_ids', 'setting', 2),
             audience_channel=str(audience.get("channel") or "general"),
             audience_age_band=str(audience.get("age_band") or "unknown"),
             length_form=str(length.get("form") or "unknown"),
@@ -700,6 +727,10 @@ def classification_from_metadata(
 def design_requirements(
     classification: NovelClassification, *, genre: str = "",
 ) -> tuple[str, ...]:
+    if classification.taxonomy is not None:
+        # Writing knowledge is delivered through the frozen creative execution
+        # context. Public catalogue copy never substitutes for private guidance.
+        return ()
     # Canonical publication tags stay bounded, but every author-selected genre
     # must reach planning even when a hybrid includes more than three tropes.
     ids = dict.fromkeys((

@@ -65,6 +65,8 @@ def contains_complete_text(container, text):
 
 def _seed_prior_prompt(tmp_path, data, prompt):
     """Represent an already published skeleton without spending a model call."""
+    from test_story_first_engine import freeze_legacy_policy
+    freeze_legacy_policy(tmp_path, data['id'])
     path = tmp_path / "workshop_v2" / data["id"] / "session.json"
     saved = json.loads(path.read_text())
     saved.update(prompt_md=prompt, ready_for_confirmation=True, status="ready")
@@ -74,6 +76,8 @@ def _seed_prior_prompt(tmp_path, data, prompt):
 
 def _seed_legacy_candidate(tmp_path, data, prompt):
     """Make a prior unvalidated artifact select the direct repair profile."""
+    from test_story_first_engine import freeze_legacy_policy
+    freeze_legacy_policy(tmp_path, data['id'])
     directory = tmp_path / "workshop_v2" / data["id"] / "candidates"
     directory.mkdir()
     (directory / f'{data["revision"]}.md').write_text(prompt)
@@ -91,7 +95,7 @@ def test_aliased_structure_is_repaired_with_precise_error_and_complete_candidate
     assert current["status"] == "ready", current["last_error"]
     assert len(calls) == 2
     assert "total_chapters" in calls[1][1]
-    assert "总章节数" in calls[1][1]
+    assert "narrative_format.total_chapters" in json.loads(calls[1][1])['validation_error']
     assert contains_complete_text(calls[1][1], bad)
     assert "最早决定：第三章以前保留秘密。" in calls[1][1]
     assert current["prompt_md"] == valid

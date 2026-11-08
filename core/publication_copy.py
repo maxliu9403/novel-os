@@ -894,6 +894,19 @@ def _candidate_semantics(
     return checks, reader_checks, evidence
 
 
+class PublicationCopyOverlap(ValueError):
+    """Deterministic failure with actionable, source-derived repair evidence."""
+
+    def __init__(self, code: str, *, size: int, unit: str, matches: dict[str, set]):
+        super().__init__(f"{code}: repeated {size}-{unit} window")
+        joiner = "" if unit == "content_characters" else " "
+        self.finding = {"code": code, "window_size": size, "unit": unit,
+                        "matched_windows": [
+                            {"field": field, "normalized_text": joiner.join(window)}
+                            for field, windows in matches.items() for window in sorted(windows)
+                        ]}
+
+
 def validate_publication_candidate(
     candidate: Mapping[str, Any],
     *,
@@ -960,8 +973,10 @@ def validate_publication_candidate(
 
     chapter_tokens = _repetition_units(chapter_one_prefix, language)[:500]
     chapter_windows = _windows(chapter_tokens, 8)
-    if chapter_windows & (_windows(hook_tokens, 8) | _windows(blurb_tokens, 8)):
-        raise ValueError("not_chapter_one_copy: repeated eight-word window")
+    matches = {"hook_lead": chapter_windows & _windows(hook_tokens, 8),
+               "spoiler_free_blurb": chapter_windows & _windows(blurb_tokens, 8)}
+    if any(matches.values()):
+        raise PublicationCopyOverlap("not_chapter_one_copy", size=8, unit=unit, matches=matches)
 
     checks, reader_checks, evidence = _candidate_semantics(data)
     for item in evidence:

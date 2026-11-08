@@ -34,17 +34,27 @@ class DeliveryError(ValueError):
     """Safe stage validation error without raw model output."""
 
 
+class NarrativeFormatResponseError(DeliveryError):
+    def __init__(self, detail: str, candidate: dict):
+        super().__init__(detail)
+        self.candidate = deepcopy(candidate)
+
+
 def author_context(session: dict) -> dict:
+    from core.creation_mode import source_policy
     from .workshop_design import design_context
+    from .workshop_capacity import context as capacity_context
     return {"initial_brief": session["input"], "conversation": session["messages"],
             "previous_pending_questions": session.get("questions", []),
-            "current_complete_skeleton": session.get("prompt_md", ""), **design_context(session),
-            **({"publication_selection_policy": "initial_brief.publication_classification is AUTHOR-CONFIRMED H5 classification. Design the story for these subjects. Creative profiles are optional craft guidance, not additional publication IDs. Do not change the selection; propose any necessary change to the author in discussion. The server binds these exact IDs into the skeleton and publication pipeline."}
-               if session['input'].get('publication_classification') else {})}
+            "current_complete_skeleton": session.get("prompt_md", ""), **design_context(session), **capacity_context(session),
+            **({'publication_selection_policy': 'initial_brief.publication_taxonomy is author-selected public metadata. The frozen Genre/Tag knowledge supplies writing guidance. Never add or change selected IDs; propose changes to the author. Server code binds exactly this taxonomy into the skeleton, EPUB and package.'}
+               if session['input'].get('publication_taxonomy') else {}),
+            **({'source_reference': session['source_context'], 'source_reference_policy': source_policy(session['source_context'])}
+               if session.get('source_context') else {})}
 
 
 def checkpoint_fingerprint(session: dict, skill_version: str) -> str:
-    return make_fingerprint({**author_context(session),
+    return make_fingerprint({**author_context({**session, "turn_intent": "deliver"}),
         "context_start_revision": session.get("context_start_revision", 0),
         "pending_input_fields": session.get("pending_input_fields", []),
         "input_needs_revision": bool(session.get("input_needs_revision")),
@@ -110,7 +120,7 @@ def _text(value) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def parse_stage(text: str, stage: str, mode: str | None, chapter_count: int | None = None) -> dict:
+def parse_stage(text: str, stage: str, mode: str | None, chapter_count: int | None = None, *, story_first: bool = False) -> dict:
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE)
     try:
@@ -134,10 +144,18 @@ def parse_stage(text: str, stage: str, mode: str | None, chapter_count: int | No
         if (not isinstance(chapters, list) or len(chapters) != data["total_chapters"]
                 or any(not isinstance(chapter, dict) or type(chapter.get("number")) is not int
                        or chapter["number"] != index or not _text(chapter.get("title"))
-                       or not _text(chapter.get("plan")) for index, chapter in enumerate(chapters, 1))):
+                       or not (chapter.get("core_plot") if story_first else _text(chapter.get("plan"))) for index, chapter in enumerate(chapters, 1))):
             raise DeliveryError("章节规划必须逐章完整覆盖全书，不能缺章、重复、乱序或保留空内容。")
     else:
         raise DeliveryError("未知的骨架交付阶段。")
+    if story_first:
+        from core.story_design import validate_stage, NarrativeFormatValidationError, normalize_format_envelope
+        try:
+            data = validate_stage(data, stage)
+        except NarrativeFormatValidationError as exc:
+            raise NarrativeFormatResponseError(str(exc), normalize_format_envelope(data)) from None
+        except ValueError as exc:
+            raise DeliveryError(str(exc)) from None
     return data
 
 
@@ -148,6 +166,9 @@ def _markdown(stage: str, data: dict) -> str:
         return f"## 全局故事设计\n\n章节数：{data['total_chapters']}\n\n" + "\n\n".join(
             f"### {label}\n\n{data['story_design'][key]}" for key, label in fields)
     if stage == "chapter_plan":
+        if all("core_plot" in chapter for chapter in data["chapters"]):
+            from core.story_design import ChapterCard
+            return "\n\n".join(ChapterCard.model_validate({k: v for k, v in c.items() if k not in {"target_words", "capacity_scene_ids"}}).markdown() for c in data["chapters"])
         return "## 完整章节规划\n\n" + "\n\n".join(
             f"### Chapter {chapter['number']} · {chapter['title']}\n\n{chapter['plan']}" for chapter in data["chapters"])
     return data["prompt_md"]
@@ -159,6 +180,8 @@ class DeliveryPlan:
     def __init__(self, session: dict, mode: str | None):
         if mode is not None and mode not in MODES:
             raise DeliveryError("骨架交付缺少有效的组织形式。")
+        from core.story_design import enabled
+        self.story_first = enabled(session)
         self.session = session
         self.mode = mode
         self.record = deepcopy(session.get("_delivery_record")) or {
@@ -174,7 +197,7 @@ class DeliveryPlan:
         for stage in STAGES[:2]:
             if stage in self.record["completed"]:
                 parse_stage(json.dumps(self.record["completed"][stage]["content"], ensure_ascii=False),
-                            stage, mode, self.chapter_count if stage == "chapter_plan" else None)
+                            stage, mode, self.chapter_count if stage == "chapter_plan" else None, story_first=self.story_first)
         for part, data in self.saved_parts.items():
             parse_part(json.dumps(data, ensure_ascii=False), part, mode, self.chapter_count)
 
@@ -291,7 +314,7 @@ class DeliveryPlan:
         if stage != self.stage:
             raise DeliveryError("不能跳过未完成的骨架交付阶段。")
         if stage == "story_design" and self.mode is None:
-            parse_stage(json.dumps(data, ensure_ascii=False), stage, None)
+            parse_stage(json.dumps(data, ensure_ascii=False), stage, None, story_first=self.story_first)
             self.mode = data["narrative_mode"]
             self.record["narrative_mode"] = self.mode
         if stage == "assembly" and "assembly_parts" in self.record:
@@ -312,6 +335,9 @@ class DeliveryPlan:
         return result
 
     def rules(self) -> str:
+        from core.story_design import enabled, DESIGN_RULES, CHAPTER_RULES
+        if enabled(self.session):
+            return DESIGN_RULES if self.stage == "story_design" else CHAPTER_RULES
         common = """
 CURRENT REQUEST PROFILE: STAGED SKELETON DELIVERY.
 Read the FULL author brief and conversation. They are not shortened. Preserve explicit

@@ -233,9 +233,10 @@ def _build_delivery_package(
             if actual != expected:
                 raise ContractError("delivery_source_changed", path=relative.as_posix())
         source_hash = object_digest({str(path): value for path, value in frozen.items()})
-        receipt = {"schema_version": "novel-h5-export-receipt.v1", "target_profile": PROFILE.id,
-                   "validator_revision": PROFILE.validator_revision,
-                   "catalog_sha256": PROFILE.catalog_sha256, "source_snapshot_sha256": source_hash,
+        receipt = {"schema_version": "novel-h5-export-receipt.v1", "target_profile": report["target_profile"],
+                   "validator_revision": report["validator_revision"],
+                   "catalog_sha256": report["catalog_sha256"],
+                   **({"required_h5_capabilities": report["required_h5_capabilities"]} if "required_h5_capabilities" in report else {}), "source_snapshot_sha256": source_hash,
                    "sources": {str(path): value for path, value in frozen.items()},
                    "package_sha256": result.archive_sha256, "engine_contract_status": "passed",
                    "external_import_status": report["external_import_status"]}

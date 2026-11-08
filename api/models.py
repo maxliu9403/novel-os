@@ -21,6 +21,7 @@ class ProjectDeliverySummary(BaseModel):
 
 
 class ProjectSummary(BaseModel):
+    source: dict | None = None
     id: str
     title: str
     genre: str
@@ -48,6 +49,7 @@ class ProjectSummary(BaseModel):
 
 
 class ProjectDetail(BaseModel):
+    source: dict | None = None
     id: str
     title: str
     genre: str
@@ -248,7 +250,9 @@ class TextRoutesUpdate(BaseModel):
 
 
 class TextModelTestRequest(BaseModel):
-    prompt: str
+    prompt: str = "Confirm the connection briefly."
+    mode: Literal["response", "context"] = "response"
+    context_bytes: Literal[16000, 64000, 100000, 112000] = 64000
 
 
 class VisionRouteInput(BaseModel):

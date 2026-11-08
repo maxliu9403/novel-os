@@ -1,0 +1,19 @@
+{
+  "backend_files_matched": 274,
+  "frontend_files_matched": 79,
+  "new_endpoints": [
+    "/api/source-books",
+    "/api/source-books/{identifier}",
+    "/api/source-books/{identifier}/cover",
+    "/api/source-books/{identifier}/analyze",
+    "/api/source-books/{identifier}/cancel",
+    "/api/projects/{project_id}/poster/reference",
+    "/api/projects/{project_id}/poster/reference/selection",
+    "/api/projects/{project_id}/poster/reference/{asset_id}"
+  ],
+  "images": {
+    "backend": "sha256:17887ea706c2d18db043eff5219b8445eab51b1fbf1e6b36a56ae207c16aa596",
+    "frontend": "sha256:c4cada86724c0016b087a0d481c26a9eeff86c34c0257f838ea8e74714321fc1"
+  },
+  "existing_data_files_unchanged": 31836
+}

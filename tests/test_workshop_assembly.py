@@ -33,6 +33,10 @@ def test_assembly_reuses_every_saved_story_fact_and_chapter_without_model_transc
     prompt = result["prompt_md"]
     for value in story["story_design"].values():
         assert value in prompt
+    chain = story["story_design"]["causal_chain"]
+    assert prompt.count(chain) == 1
+    assert chain not in prompt.split("## 3.")[1].split("## 4.")[0]
+    assert chain in prompt.split("## 9.")[1].split("## 10.")[0]
     for chapter in chapters["chapters"]:
         assert prompt.count(chapter["plan"]) == 1
     assert [int(n) for n in re.findall(r"^## (\d+)\.", prompt, re.M)] == list(range(1, 18))
@@ -88,6 +92,7 @@ def test_assembled_contracts_preserve_each_approved_narrative_mode(tmp_path, mod
     path = tmp_path / f"{mode}.md"
     path.write_text(prompt)
     assert workshop._validate_candidate(path)["mode"] == mode
+    assert prompt.count(story_design(mode=mode)["story_design"]["causal_chain"]) == 1
     if mode == "multi_volume":
         assert "volume_02" in prompt.split("## 9.")[1].split("## 10.")[0]
     if mode == "series_installment":

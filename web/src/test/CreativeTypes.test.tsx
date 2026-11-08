@@ -1,367 +1,281 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, beforeEach, vi } from "vitest";
-import {
-  creativeTypesApi,
-  CreativeApiError,
-  bindCreativeSelection,
-  creativeRef,
-  type CreativePreview,
-  type SessionTypeContext,
-} from "../api/creativeTypes";
-import type { WorkshopSession } from "../api/workshop";
+import { useState } from "react";
+import { afterEach, beforeEach, vi, test, expect } from "vitest";
+import { creativeTypesApi, type CreativeTypeRef } from "../api/creativeTypes";
 import CreativeTypes from "../routes/CreativeTypes";
 import CreativeTypePicker from "../components/CreativeTypePicker";
-import WorkshopTypeSnapshot from "../components/WorkshopTypeSnapshot";
-import { typeRecord, typeLibrary, typeSummary } from "./creativeTypesFixture";
-const emptyPreview: CreativePreview = {
-  context: { schema: "genre-context.v1", stage: "brainstorm", profiles: [] },
-  sha256: "hash",
-  bytes: 100,
-  preview_only: true,
-};
+import { typeRecord, typeLibrary } from "./creativeTypesFixture";
+
 beforeEach(() => {
   vi.spyOn(creativeTypesApi, "list").mockResolvedValue(typeLibrary());
-  vi.spyOn(creativeTypesApi, "get").mockImplementation(async (id) =>
-    typeRecord(id),
-  );
-  vi.spyOn(creativeTypesApi, "preview").mockResolvedValue(emptyPreview);
+  vi.spyOn(creativeTypesApi, "get").mockResolvedValue(typeRecord());
+  vi.spyOn(creativeTypesApi, "prepare").mockImplementation(async (body, options) => {
+    const record = typeRecord();
+    const header = (options?.base_markdown ?? record.draft).match(/^---\n[\s\S]*?\n---\n/)![0];
+    return { needs_identity: false, markdown: header + body,
+      document: { ...record.document!, schema: "novel-knowledge.v3", body } };
+  });
 });
 afterEach(() => vi.restoreAllMocks());
 
-test("saves a draft, keeps enabled preview immutable, and publishes only on explicit activation", async () => {
-  const original = typeRecord();
-  let current = original;
-  const mutate = vi
-    .spyOn(creativeTypesApi, "mutate")
-    .mockImplementation(async (_id, action, _revision, _op, profile) => {
-      current = { ...current, revision: current.revision + 1, draft: profile! };
-      if (action === "activate")
-        current = {
-          ...current,
-          active_version: 2,
-          versions: [
-            ...original.versions,
-            {
-              profile: { ...profile!, version: 2 },
-              sha256: "b".repeat(64),
-              created_at: "now",
-            },
-          ],
-        };
-      return current;
-    });
-  const user = userEvent.setup();
+test("editor shows only author prose, with free headings instead of a YAML contract", async () => {
+  const record = typeRecord("tag.age_gap", "年龄差", ["Age Gap"]);
+  record.document = { ...record.document!, schema: "novel-knowledge.v3", body: "前言\n## 我的自由标题\n我的要求。" };
+  vi.mocked(creativeTypesApi.get).mockResolvedValue(record);
+  render(<MemoryRouter><CreativeTypes /></MemoryRouter>);
+  expect(await screen.findByRole("heading", { name: "我的自由标题" })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("tab", { name: "编写 Markdown" }));
+  expect(screen.getByLabelText("资料 Markdown")).toHaveValue(record.document.body);
+  expect(screen.getByLabelText("资料 Markdown")).not.toHaveValue(expect.stringContaining("schema:"));
+  expect(screen.getByText("正文完整用于创作，标题与分节不限。")).toBeInTheDocument();
+});
+
+test("replacing the editor with a complete file prepares its prose without saving", async () => {
+  const record = typeRecord();
+  const body = "## 自由标题\n完整保留的写作要求。";
+  const file = record.draft.match(/^---\n[\s\S]*?\n---\n/)![0] + body;
+  vi.mocked(creativeTypesApi.prepare).mockResolvedValue({
+    needs_identity: false, markdown: file,
+    document: { ...record.document!, schema: "novel-knowledge.v3", body },
+  });
+  const mutate = vi.spyOn(creativeTypesApi, "mutate");
+  render(<MemoryRouter><CreativeTypes /></MemoryRouter>);
+  await userEvent.click(await screen.findByRole("tab", { name: "编写 Markdown" }));
+  const editor = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "资料 Markdown" });
+  editor.setSelectionRange(0, editor.value.length);
+  fireEvent.paste(editor, { clipboardData: { getData: () => file } });
+  await waitFor(() => expect(editor).toHaveValue(body));
+  expect(screen.getByRole("status")).toHaveTextContent("已识别文件信息，仅粘贴正文。");
+  expect(creativeTypesApi.prepare).toHaveBeenCalledWith(file, { base_markdown: record.draft });
+  expect(mutate).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("tab", { name: "阅读预览" }));
+  expect(screen.getByRole("heading", { name: "自由标题" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: /schema:/ })).not.toBeInTheDocument();
+});
+
+test("standalone Tag preview shows its complete preamble, extra sections and beat table", async () => {
+  const record = typeRecord("tag.betrayal", "背叛", ["Betrayal"]);
+  record.draft =
+    "# 背叛 Betrayal\n\n> 关联 Genre：Romance · 浪漫\n> 作者原文的基调\n\n## 人物配置\n她要自己拿回决定权。\n\n## 前 10 章强制节拍\n| 章 | 事件 |\n|---|---|\n| 1 | 做出选择 |\n";
+  record.document = {
+    ...record.document!,
+    format: "tag-prompt.v1",
+    appendices: [],
+  };
+  vi.mocked(creativeTypesApi.get).mockResolvedValue(record);
+  vi.spyOn(creativeTypesApi, "preview").mockResolvedValue({
+    document: record.document,
+    bytes: 300,
+  });
   render(
     <MemoryRouter>
       <CreativeTypes />
     </MemoryRouter>,
   );
-  const summary = await screen.findByLabelText("一句话说明");
-  expect(screen.queryByRole("button", { name: "保存并启用 ↗" })).not.toBeInTheDocument();
-  fireEvent.change(summary, {
-    target: { value: "保留自我，实现新的关系选择" },
+  await screen.findByRole("tab", { name: "阅读预览" });
+  expect(screen.getByRole("tab", { name: "阅读预览" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(
+    await screen.findByRole("heading", { name: "背叛 Betrayal" }),
+  ).toBeInTheDocument();
+  expect(screen.getByText(/作者原文的基调/)).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "人物配置" })).toBeInTheDocument();
+  expect(screen.getByRole("cell", { name: "做出选择" })).toBeInTheDocument();
+  expect(screen.queryByText(/附录，不进入模型输入/)).not.toBeInTheDocument();
+});
+
+test("Markdown is the single editable source; unchanged page hides save and successful save is acknowledged", async () => {
+  const original = typeRecord();
+  const mutate = vi
+    .spyOn(creativeTypesApi, "mutate")
+    .mockImplementation(
+      async (_id, _action, _revision, _operation, markdown) => ({
+        ...original,
+        revision: 1,
+        draft: markdown!,
+      }),
+    );
+  render(
+    <MemoryRouter>
+      <CreativeTypes />
+    </MemoryRouter>,
+  );
+  await userEvent.click(
+    await screen.findByRole("tab", { name: "编写 Markdown" }),
+  );
+  const editor = await screen.findByLabelText("资料 Markdown");
+  expect(
+    screen.queryByRole("button", { name: "保存草稿" }),
+  ).not.toBeInTheDocument();
+  fireEvent.change(editor, {
+    target: { value: original.draft.replace(/^---\n[\s\S]*?\n---\n/, "") + "\nAn additional choice." },
   });
-  expect(screen.getByRole("button", { name: "保存并启用 ↗" })).toBeEnabled();
-  await user.click(screen.getByRole("button", { name: "保存草稿" }));
+  await userEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+  expect(
+    await screen.findByRole("dialog", { name: "已保存" }),
+  ).toBeInTheDocument();
   expect(mutate).toHaveBeenCalledWith(
     original.id,
     "draft",
     0,
     expect.any(String),
-    expect.objectContaining({ summary: "保留自我，实现新的关系选择" }),
+    original.draft + "\nAn additional choice.",
+    undefined,
   );
-  expect(await screen.findByRole("dialog", { name: "已保存" })).toHaveTextContent("草稿已保存");
-  expect(screen.queryByRole("button", { name: "保存并启用 ↗" })).not.toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "知道了" }));
-  await user.click(screen.getByRole("tab", { name: "模型预览与版本" }));
-  await waitFor(() =>
-    expect(creativeTypesApi.preview).toHaveBeenCalledWith({
-      profile: original.versions[0].profile,
-      stage: "brainstorm",
-    }),
-  );
-  await user.click(screen.getByRole("button", { name: "启用此草稿" }));
-  await waitFor(() =>
-    expect(mutate).toHaveBeenLastCalledWith(
-      original.id,
-      "activate",
-      1,
-      expect.any(String),
-      expect.objectContaining({ summary: "保留自我，实现新的关系选择" }),
-    ),
-  );
-  expect(await screen.findByRole("dialog", { name: "已保存" })).toHaveTextContent("资料已保存并启用");
+  expect(
+    screen.queryByRole("button", { name: "保存草稿" }),
+  ).not.toBeInTheDocument();
 });
 
-test("concurrent-save conflict preserves local editing and requires latest revision before retry", async () => {
-  const original = typeRecord();
+test("a failed save retains author Markdown and reuses operation identity on retry", async () => {
   const mutate = vi
     .spyOn(creativeTypesApi, "mutate")
-    .mockRejectedValue(new CreativeApiError("资料已被修改", 409));
+    .mockRejectedValue(new Error("transport failed"));
   render(
     <MemoryRouter>
       <CreativeTypes />
     </MemoryRouter>,
   );
-  fireEvent.change(await screen.findByLabelText("类型名称"), {
-    target: { value: "我的本地修改" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("资料已被修改");
-  expect(screen.queryByRole("dialog", { name: "已保存" })).not.toBeInTheDocument();
-  expect(screen.getByLabelText("类型名称")).toHaveValue("我的本地修改");
-  expect(screen.getByRole("button", { name: "保存草稿" })).toBeDisabled();
-  vi.mocked(creativeTypesApi.get).mockResolvedValue({
-    ...original,
-    revision: 4,
-  });
-  fireEvent.click(screen.getByText("读取最新修订，保留我的编辑"));
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: "保存草稿" })).toBeEnabled(),
+  await userEvent.click(
+    await screen.findByRole("tab", { name: "编写 Markdown" }),
   );
-  expect(screen.getByLabelText("类型名称")).toHaveValue("我的本地修改");
-  mutate.mockResolvedValue({
-    ...original,
-    revision: 5,
-    draft: { ...original.draft, name: "我的本地修改" },
+  fireEvent.change(await screen.findByLabelText("资料 Markdown"), {
+    target: { value: "my unsaved complete document" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
-  await waitFor(() =>
-    expect(mutate).toHaveBeenLastCalledWith(
-      original.id,
-      "draft",
-      4,
-      expect.any(String),
-      expect.objectContaining({ name: "我的本地修改" }),
-    ),
+  await userEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "transport failed",
   );
-});
-
-test("unchanged or reverted form has no save actions; successful activation shows confirmation", async () => {
-  const original = typeRecord();
-  const user = userEvent.setup();
-  vi.spyOn(creativeTypesApi, "mutate").mockImplementation(async (_id, _action, _revision, _op, profile) => ({
-    ...original, revision: 1, draft: profile!,
-  }));
-  render(<MemoryRouter><CreativeTypes /></MemoryRouter>);
-  const summary = await screen.findByLabelText("一句话说明");
-  expect(screen.queryByRole("button", { name: "保存并启用 ↗" })).not.toBeInTheDocument();
-  fireEvent.change(summary, { target: { value: "新说明" } });
-  expect(screen.getByRole("button", { name: "保存并启用 ↗" })).toBeVisible();
-  fireEvent.change(summary, { target: { value: original.draft.summary } });
-  expect(screen.queryByRole("button", { name: "保存并启用 ↗" })).not.toBeInTheDocument();
-  fireEvent.change(summary, { target: { value: "更新说明" } });
-  await user.click(screen.getByRole("button", { name: "保存并启用 ↗" }));
-  expect(await screen.findByRole("dialog", { name: "已保存" })).toHaveTextContent("资料已保存并启用");
-  expect(screen.queryByRole("button", { name: "保存并启用 ↗" })).not.toBeInTheDocument();
-});
-
-test("delete requires confirmation, retries the same request, and clears the final selected type", async () => {
-  const original = typeRecord();
-  const user = userEvent.setup();
-  const mutate = vi.spyOn(creativeTypesApi, "mutate").mockRejectedValueOnce(new Error("网络错误"));
-  render(<MemoryRouter><CreativeTypes /></MemoryRouter>);
-  await screen.findByLabelText("类型名称");
-  await user.click(screen.getByRole("button", { name: "删除类型" }));
-  expect(screen.getByRole("dialog", { name: "删除类型" })).toHaveTextContent("已有讨论和历史版本会保留");
-  await user.click(screen.getByRole("button", { name: "取消" }));
-  expect(mutate).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("button", { name: "删除类型" }));
-  await user.click(screen.getByRole("button", { name: "确认删除" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("网络错误");
-  expect(screen.getByLabelText("类型名称")).toHaveValue(original.draft.name);
-  mutate.mockResolvedValue({ ...original, status: "disabled", revision: 1, deleted_at: "now" });
-  vi.mocked(creativeTypesApi.list).mockResolvedValue(typeLibrary([]));
-  await user.click(screen.getByRole("button", { name: "删除类型" }));
-  await user.click(screen.getByRole("button", { name: "确认删除" }));
-  await screen.findByText("选择或新建一个类型，开始维护写作说明。");
-  expect(screen.queryByLabelText("类型名称")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("资料 Markdown")).toHaveValue(
+    "my unsaved complete document",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "保存草稿" }));
   expect(mutate.mock.calls[0]).toEqual(mutate.mock.calls[1]);
-  expect(mutate.mock.calls[1]).toEqual([original.id, "delete", 0, expect.any(String), undefined]);
 });
 
-test("delete conflict preserves edits and does not silently switch records", async () => {
-  const original = typeRecord();
-  const user = userEvent.setup();
-  vi.spyOn(creativeTypesApi, "mutate").mockRejectedValue(new CreativeApiError("资料已被修改", 409));
-  render(<MemoryRouter><CreativeTypes /></MemoryRouter>);
-  fireEvent.change(await screen.findByLabelText("一句话说明"), { target: { value: "保留编辑" } });
-  await user.click(screen.getByRole("button", { name: "删除类型" }));
-  expect(screen.getByRole("dialog", { name: "删除类型" })).toHaveTextContent("当前未保存的修改将被放弃");
-  await user.click(screen.getByRole("button", { name: "确认删除" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("资料已被修改");
-  expect(screen.getByLabelText("类型名称")).toHaveValue(original.draft.name);
-  expect(screen.getByLabelText("一句话说明")).toHaveValue("保留编辑");
-});
-
-test("network retry reuses operation identity and history restores only a draft", async () => {
-  const original = typeRecord();
+test("historical version can be enabled without changing its saved text", async () => {
+  const record = typeRecord();
+  const old = record.versions[0];
+  record.versions.push({
+    ...old,
+    version: 2,
+    markdown: old.markdown + "\nNew promise.",
+  });
+  record.active_version = 2;
+  record.draft = record.versions[1].markdown;
+  vi.mocked(creativeTypesApi.get).mockResolvedValue(record);
   const mutate = vi
     .spyOn(creativeTypesApi, "mutate")
-    .mockRejectedValueOnce(new Error("network lost"))
     .mockResolvedValue({
-      ...original,
+      ...record,
       revision: 1,
-      draft: { ...original.draft, summary: "本地草稿" },
+      active_version: 1,
+      draft: old.markdown,
     });
   render(
     <MemoryRouter>
       <CreativeTypes />
     </MemoryRouter>,
   );
-  fireEvent.change(await screen.findByLabelText("一句话说明"), {
-    target: { value: "本地草稿" },
-  });
-  fireEvent.click(screen.getByText("保存草稿"));
-  await screen.findByText("network lost");
-  fireEvent.click(screen.getByText("保存草稿"));
-  await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2));
-  expect(mutate.mock.calls[0][3]).toBe(mutate.mock.calls[1][3]);
-  await waitFor(() => expect(screen.queryByText("保存草稿")).not.toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "知道了" }));
-  fireEvent.click(screen.getByRole("tab", { name: "模型预览与版本" }));
-  fireEvent.click(screen.getByText("恢复为草稿"));
-  fireEvent.click(screen.getByRole("tab", { name: "定位与分类" }));
-  expect(screen.getByLabelText("一句话说明")).toHaveValue(
-    original.draft.summary,
+  await userEvent.click(await screen.findByRole("tab", { name: "版本记录" }));
+  await userEvent.click(screen.getByText(/^v1/));
+  await userEvent.click(screen.getByRole("button", { name: "使用 v1" }));
+  expect(mutate).toHaveBeenCalledWith(
+    record.id,
+    "restore",
+    0,
+    expect.any(String),
+    undefined,
+    1,
   );
-  expect(mutate).toHaveBeenCalledTimes(2);
+  expect(
+    await screen.findByRole("dialog", { name: "已保存" }),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "阅读预览" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
 });
 
-test("picker loads enabled references, preserves custom labels, and never changes selection on load", async () => {
-  const hidden = {
-    ...typeRecord("ct_disabled", "停用主题"),
-    status: "disabled" as const,
-  };
+test("only associated tags are offered; changing genre clears incompatible tags", async () => {
+  const horror = typeRecord("genre.horror", "恐怖");
+  const tag = typeRecord("tag.dread", "恐惧");
+  tag.document!.genre_ids = ["genre.horror"];
   vi.mocked(creativeTypesApi.list).mockResolvedValue(
     typeLibrary([
       typeRecord(),
-      typeRecord("ct_fantasy", "奇幻", ["Fantasy"]),
-      hidden,
+      typeRecord("tag.betrayal", "背叛"),
+      horror,
+      tag,
     ]),
   );
-  const change = vi.fn();
+  function Picker() {
+    const [refs, setRefs] = useState<CreativeTypeRef[]>([]);
+    return (
+      <>
+        <CreativeTypePicker refs={refs} onChange={(_, r) => setRefs(r)} />
+        <output data-testid="selection">{JSON.stringify(refs)}</output>
+      </>
+    );
+  }
   render(
     <MemoryRouter>
-      <CreativeTypePicker
-        selected={["Fantasy", "我的主题"]}
-        onChange={change}
-        other=""
-        onOtherChange={vi.fn()}
-      />
+      <Picker />
     </MemoryRouter>,
   );
-  const marriage = await screen.findByRole("button", { name: "婚姻背叛" });
-  expect(change).not.toHaveBeenCalled();
+  await userEvent.click(await screen.findByRole("radio", { name: "Romance" }));
   expect(
-    screen.queryByRole("button", { name: "停用主题" }),
+    screen.queryByRole("button", { name: "恐惧" }),
   ).not.toBeInTheDocument();
-  fireEvent.click(marriage);
-  expect(change).toHaveBeenCalledWith(
-    ["Fantasy", "我的主题", "婚姻背叛"],
-    [
-      expect.objectContaining({ profile_id: "ct_fantasy" }),
-      expect.objectContaining({
-        profile_id: "ct_marriage_betrayal",
-        role: "unspecified",
-      }),
-    ],
-  );
-  fireEvent.change(screen.getByLabelText("奇幻在本书的作用"), {
-    target: { value: "primary" },
-  });
-  expect(change).toHaveBeenLastCalledWith(
-    ["Fantasy", "我的主题"],
-    [expect.objectContaining({ profile_id: "ct_fantasy", role: "primary" })],
-  );
+  await userEvent.click(screen.getByRole("button", { name: "背叛" }));
+  expect(screen.getByTestId("selection")).toHaveTextContent("tag.betrayal");
+  await userEvent.click(screen.getByRole("radio", { name: "恐怖" }));
+  expect(screen.getByTestId("selection")).toHaveTextContent("tag.betrayal");
+  await userEvent.click(screen.getByRole("button", { name: "确认更换" }));
+  expect(screen.getByTestId("selection")).not.toHaveTextContent("tag.betrayal");
+  expect(screen.getByRole("button", { name: "恐惧" })).toBeInTheDocument();
 });
 
-test("ambiguous aliases need an explicit reference, and explicit references never hot-update", async () => {
-  const first = typeRecord("ct_first", "第一类", ["Fantasy"]),
-    second = typeRecord("ct_second", "第二类", ["Fantasy"]);
-  vi.mocked(creativeTypesApi.list).mockResolvedValue(
-    typeLibrary([first, second]),
-  );
-  await expect(bindCreativeSelection({ genres: ["Fantasy"] })).rejects.toThrow(
-    "对应多个类型",
-  );
-  const explicit = {
-    genres: ["Fantasy"],
-    creative_types: [creativeRef(typeSummary(first))],
-  };
-  await expect(bindCreativeSelection(explicit)).resolves.toEqual(explicit);
-  expect(creativeTypesApi.list).toHaveBeenCalledTimes(1);
+
+test("headed Markdown import keeps custom content and stages replacement before activation", async () => {
+  const record = typeRecord("tag.betrayal", "背叛");
+  const body = "前言原文\n## 一、自定义标题\n作者要求。";
+  const prepared = { needs_identity: false as const, markdown: "generated metadata\n" + body,
+    document: { ...record.document!, schema: "novel-knowledge.v3" as const, body } };
+  vi.mocked(creativeTypesApi.prepare).mockResolvedValue(prepared);
+  vi.mocked(creativeTypesApi.get).mockResolvedValue(record);
+  const mutate = vi.spyOn(creativeTypesApi, "mutate").mockResolvedValue({ ...record, draft: prepared.markdown, document: prepared.document });
+  render(<MemoryRouter><CreativeTypes /></MemoryRouter>);
+  await screen.findByRole("tab", { name: "阅读预览" });
+  await userEvent.upload(screen.getByLabelText("导入 Markdown"), new File(["original file"], "custom.md", { type: "text/markdown" }));
+  expect(await screen.findByRole("heading", { name: "一、自定义标题" })).toBeInTheDocument();
+  expect(mutate).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("button", { name: "保存并启用" }));
+  expect(mutate).toHaveBeenCalledWith(record.id, "activate", record.revision, expect.any(String), prepared.markdown, undefined);
 });
 
-test("saved-session version update is reviewed, explicit, idempotent after lost response, and does not run LLM", async () => {
-  const original = typeRecord(),
-    newer = {
-      ...original,
-      revision: 1,
-      active_version: 2,
-      versions: [
-        ...original.versions,
-        {
-          profile: { ...original.draft, version: 2, summary: "新版" },
-          sha256: "b".repeat(64),
-          created_at: "now",
-        },
-      ],
-    };
-  const snapshot = {
-    schema: "book-type-selection.v1",
-    snapshot_sha256: "hash",
-    profiles: [
-      {
-        profile: original.draft,
-        source_sha256: "a".repeat(64),
-        role: "primary" as const,
-      },
-    ],
-  };
-  const context: SessionTypeContext = {
-    snapshot,
-    contexts: {},
-    context_sha256: {},
-    latest: [typeSummary(newer)],
-    revision: 3,
-    last_request: null,
-  };
-  vi.spyOn(creativeTypesApi, "sessionContext").mockResolvedValue(context);
-  vi.mocked(creativeTypesApi.get).mockResolvedValue(newer);
-  const session = { id: "session-1", revision: 3 } as WorkshopSession;
-  const update = vi.fn();
-  const adopt = vi
-    .spyOn(creativeTypesApi, "adoptSession")
-    .mockRejectedValueOnce(new Error("network lost"))
-    .mockResolvedValue({ ...session, revision: 4 });
-  render(
-    <WorkshopTypeSnapshot
-      session={session}
-      disabled={false}
-      onUpdate={update}
-    />,
-  );
-  fireEvent.click(screen.getByText("本讨论使用的类型说明与版本"));
-  fireEvent.click(await screen.findByText(/有 1 份新版说明/));
-  await screen.findByText("采用前请核对变化");
-  expect(adopt).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByText("采用这些新版说明"));
-  await screen.findByText("network lost");
-  fireEvent.click(screen.getByText("采用这些新版说明"));
-  await waitFor(() =>
-    expect(update).toHaveBeenCalledWith(
-      expect.objectContaining({ revision: 4 }),
-    ),
-  );
-  expect(adopt.mock.calls[0]).toEqual(adopt.mock.calls[1]);
-  expect(adopt.mock.calls[0][2]).toEqual([
-    expect.objectContaining({
-      profile_id: original.id,
-      version: 2,
-      role: "primary",
-    }),
-  ]);
+test("plain Markdown asks for identity once and can replace an existing Tag without YAML", async () => {
+  const record = typeRecord("tag.betrayal", "背叛");
+  const body = "没有文件头，也没有固定标题。\n";
+  vi.mocked(creativeTypesApi.get).mockResolvedValue(record);
+  vi.mocked(creativeTypesApi.prepare)
+    .mockResolvedValueOnce({ needs_identity: true, body })
+    .mockResolvedValueOnce({ needs_identity: false, markdown: "envelope\n" + body,
+      document: { ...record.document!, schema: "novel-knowledge.v3", body } });
+  const create = vi.spyOn(creativeTypesApi, "create");
+  render(<MemoryRouter><CreativeTypes /></MemoryRouter>);
+  await screen.findByRole("tab", { name: "阅读预览" });
+  await userEvent.upload(screen.getByLabelText("导入 Markdown"), new File([body], "背叛.md", { type: "text/markdown" }));
+  expect(await screen.findByRole("dialog", { name: "导入写作资料" })).toBeInTheDocument();
+  expect(screen.getByLabelText("名称")).toHaveValue("背叛");
+  await userEvent.selectOptions(screen.getByLabelText("保存到"), record.id);
+  await userEvent.click(screen.getByRole("button", { name: "导入到编辑器" }));
+  expect(await screen.findByText(body.trim())).toBeInTheDocument();
+  expect(creativeTypesApi.prepare).toHaveBeenLastCalledWith(body, { base_markdown: record.draft });
+  expect(create).not.toHaveBeenCalled();
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 });

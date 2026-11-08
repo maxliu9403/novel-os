@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Novel OS · 题材与标签交互原型</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="cover-studio.css">
+  <script defer src="data.js"></script>
+  <script defer src="cover-assets.js"></script>
+  <script defer src="cover-studio.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">跳到内容</a>
+  <aside class="sidebar">
+    <a class="brand" href="#create" aria-label="Novel OS 新建小说"><img src="../deepseek-provider/assets/novel-os-logo.svg" alt="Novel OS"></a>
+    <div class="nav-caption">创作工作台</div>
+    <nav aria-label="主导航">
+      <a href="#create" data-nav="create" aria-label="新建小说"><span data-icon="pen"></span><span>新建小说</span></a>
+      <a href="#library" data-nav="library" aria-label="题材与标签"><span data-icon="layers"></span><span>题材与标签</span></a>
+      <a href="#covers" data-nav="covers" aria-label="封面工作室"><span data-icon="folder"></span><span>封面工作室</span></a>
+      <a href="#publish" data-nav="publish" aria-label="H5 展示预览"><span data-icon="book"></span><span>H5 展示预览</span></a>
+    </nav>
+    <div class="side-bottom"><span class="dot"></span>交互设计稿 <b>V1.1</b><p>示例数据 · 不调用模型</p></div>
+  </aside>
+  <div class="app">
+    <div class="preview-bar"><span>Novel OS <span class="slash">/</span> 创作体验</span><button class="text-button" data-action="reset">重置演示</button></div>
+    <main id="main" tabindex="-1" class="panel"></main>
+    <p class="prototype-caption">原型中的讨论、分析与发行均为交互演示，不会修改现有作品。</p>
+  </div>
+  <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

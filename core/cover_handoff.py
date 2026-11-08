@@ -182,7 +182,8 @@ def _legacy_cover_brief(project: Path, prompt_text: str) -> CoverBrief:
     payoffs = _objects(ending.get("plot_payoffs"))
     first_payoff = payoffs[0] if payoffs else {}
     setting = _object(foundation.get("setting")) or _object(bible.get("setting"))
-    themes = foundation.get("themes") or bible.get("themes") or []
+    from core.foundation_themes import theme_statements
+    themes = theme_statements(foundation.get("themes") or bible.get("themes"))
 
     title = _text(
         foundation.get("title"), metadata.get("title"), brief.get("title"), project.name
@@ -231,7 +232,7 @@ def _legacy_cover_brief(project: Path, prompt_text: str) -> CoverBrief:
         "core_conflict": _text(premise, main_thread.get("description"), antagonist_goal),
         "emotional_promise": _text(
             emotional.get("reader_emotion"), metadata.get("tone"), bible.get("tone"),
-            themes[0] if isinstance(themes, list) and themes else "earned emotional resolution",
+            themes[0] if themes else "earned emotional resolution",
         ),
         "protagonist": {
             "role": _text(protagonist.get("role"), "protagonist"),

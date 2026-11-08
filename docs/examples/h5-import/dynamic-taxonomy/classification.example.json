@@ -1,0 +1,71 @@
+{
+  "schema_version": "novel-classification.v2",
+  "catalog_version": "novel-taxonomy.v1",
+  "classification_id": "classification:d85f29233ecef629dd550371be15be95906adab981c3d119eb423d353f02fa0b",
+  "taxonomy": {
+    "schema_version": "novel-taxonomy.v1",
+    "namespace": "novel-os.local",
+    "genre": {
+      "labels": {
+        "zh-CN": "浪漫",
+        "en-US": "Romance"
+      },
+      "definition": "以亲密关系的建立、变化和选择为核心的情感故事。",
+      "id": "genre.romance",
+      "revision": 1
+    },
+    "tags": [
+      {
+        "labels": {
+          "zh-CN": "背叛",
+          "en-US": "Betrayal"
+        },
+        "definition": "承诺破裂与真相揭露改变人物的信任、关系和人生选择。",
+        "id": "tag.betrayal",
+        "revision": 1
+      }
+    ]
+  },
+  "primary_genre_id": "genre.romance",
+  "secondary_genre_ids": [],
+  "story_type_ids": [
+    "tag.betrayal"
+  ],
+  "tone_ids": [],
+  "setting_ids": [],
+  "audience": {
+    "channel": "general",
+    "age_band": "unknown"
+  },
+  "length": {
+    "form": "short",
+    "chapter_band": "chapters_0_50"
+  },
+  "commercial_tier": "publisher_defined",
+  "source": "author_confirmed",
+  "confidence": 1.0,
+  "filter_type_ids": [
+    "genre.romance",
+    "tag.betrayal"
+  ],
+  "display_labels": {
+    "zh-CN": {
+      "primary_genre": "浪漫",
+      "secondary_genres": [],
+      "story_types": [
+        "背叛"
+      ],
+      "tones": [],
+      "settings": []
+    },
+    "en-US": {
+      "primary_genre": "Romance",
+      "secondary_genres": [],
+      "story_types": [
+        "Betrayal"
+      ],
+      "tones": [],
+      "settings": []
+    }
+  }
+}

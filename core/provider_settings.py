@@ -27,9 +27,11 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 try:
-    from . import studio_settings
+    from . import studio_settings, gemini_provider, gemini_gateway
 except ImportError:  # pragma: no cover - legacy top-level imports
     import studio_settings  # type: ignore
+    import gemini_provider  # type: ignore
+    import gemini_gateway  # type: ignore
 
 
 SCHEMA_VERSION = 2
@@ -37,10 +39,9 @@ CONFIG_KEY = "model_configuration"
 TEXT_CAPABILITY = "text_generation"
 IMAGE_CAPABILITY = "image_generation"
 IMAGE_INPUT_CAPABILITY = "image_input"
-# Providers whose API accepts image input through the OpenAI-shaped
-# chat-completions path used by complete_with_images(). ``openai_compatible``
-# must opt in per connection; the named providers are vision-capable by default.
-IMAGE_INPUT_PROVIDERS = frozenset({"codex", "openai", "openrouter"})
+# Providers with a native image-input implementation in complete_with_images().
+# ``openai_compatible`` must opt in per connection; named providers enable vision.
+IMAGE_INPUT_PROVIDERS = frozenset({"codex", "openai", "openrouter", "gemini", "gemini_openai"})
 VISION_ROUTE_IDS = ("cover_review",)
 TEXT_ROUTE_IDS = (
     "default",
@@ -75,6 +76,24 @@ PROVIDER_TEMPLATES: tuple[dict[str, Any], ...] = (
         "capabilities": [TEXT_CAPABILITY, IMAGE_CAPABILITY, IMAGE_INPUT_CAPABILITY],
         "requires_api_key": True,
         "model_placeholder": "gpt-5.4",
+    },
+    {
+        "id": "gemini_openai",
+        "label": "Gemini 网关（OpenAI 格式）",
+        "auth_type": "api_key",
+        "default_base_url": "",
+        "capabilities": [TEXT_CAPABILITY, IMAGE_INPUT_CAPABILITY],
+        "requires_api_key": True,
+        "model_placeholder": "从网关获取完整模型 ID（含思考档位）",
+    },
+    {
+        "id": "gemini",
+        "label": "Google Gemini（原生 API）",
+        "auth_type": "api_key",
+        "default_base_url": gemini_provider.DEFAULT_BASE_URL,
+        "capabilities": [TEXT_CAPABILITY, IMAGE_INPUT_CAPABILITY],
+        "requires_api_key": True,
+        "model_placeholder": "选择账户可用的 Gemini 模型",
     },
     {
         "id": "openai_compatible",
@@ -202,10 +221,12 @@ def _legacy_key(values: Mapping[str, Any], provider: str) -> str:
         "anthropic": "ANTHROPIC_API_KEY",
         "openrouter": "OPENROUTER_API_KEY",
         "deepseek": "DEEPSEEK_API_KEY",
+        "gemini": "GEMINI_API_KEY",
     }
     return str(
         values.get("NOVEL_OS_API_KEY")
         or values.get(names.get(provider, ""), "")
+        or (values.get("GOOGLE_API_KEY", "") if provider == "gemini" else "")
         or ""
     ).strip()
 
@@ -563,6 +584,12 @@ def save_connection(payload: Mapping[str, Any], connection_id: str | None = None
         if not name:
             raise ProviderSettingsError("Connection name is required")
         base_url = str(payload.get("base_url") or template["default_base_url"]).strip().rstrip("/")
+        if provider in {"gemini", "gemini_openai"}:
+            try:
+                adapter = gemini_gateway if provider == "gemini_openai" else gemini_provider
+                base_url = adapter.normalize_base_url(base_url)
+            except ValueError as exc:
+                raise ProviderSettingsError(str(exc)) from exc
         image_base_url = str(payload.get("image_base_url") or "").strip().rstrip("/")
         auth_type = str(payload.get("auth_type") or template["auth_type"]).strip()
         if auth_type not in {"api_key", "codex_session", "none"}:
@@ -811,6 +838,26 @@ def save_text_routes(routes: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]
             }
         if not current.get("default", {}).get("connection_id"):
             raise ProviderSettingsError("Configure the default text route")
+        # Validate the entire effective routing graph after applying all edits.
+        # This also catches incompatible inherited overrides when default changes.
+        for route_id, raw in current.items():
+            _, effective = _route_effective(route_id, current)
+            connection = _connection(configuration, str(effective.get("connection_id") or ""))
+            if connection.get("provider") == "gemini_openai":
+                try:
+                    gemini_gateway.validate_model(str(effective.get("model") or ""),
+                        str(raw.get("reasoning_effort") or effective.get("reasoning_effort") or ""))
+                except ValueError as exc:
+                    raise ProviderSettingsError(f"{route_id}: {exc}") from exc
+            if connection.get("provider") == "gemini":
+                try:
+                    gemini_provider.thinking_options(
+                        str(effective.get("model") or ""),
+                        str(raw.get("reasoning_effort") or effective.get("reasoning_effort") or ""),
+                        int(effective.get("max_tokens") or 8192),
+                    )
+                except ValueError as exc:
+                    raise ProviderSettingsError(f"{route_id}: {exc}") from exc
         configuration["text_routes"] = current
         configuration["source"] = "v2"
         _persist_configuration(configuration)
@@ -926,6 +973,11 @@ def save_vision_route(route_id: str, payload: Mapping[str, Any]) -> dict[str, An
             raise ProviderSettingsError(error or "Selected vision connection is not ready")
         model = str(payload.get("model") or "").strip()
         provider = str(connection.get("provider") or "")
+        if provider == "gemini_openai":
+            try:
+                gemini_gateway.validate_model(model)
+            except ValueError as exc:
+                raise ProviderSettingsError(str(exc)) from exc
         if not model and provider != "codex":
             raise ProviderSettingsError(
                 f"Model is required for vision route '{route_id}'"
@@ -1332,6 +1384,14 @@ def _discover_models(
     if not base_url:
         raise ProviderSettingsError("Base URL is required")
     secret = _connection_secret(connection) if api_key is None else api_key
+    if provider == "gemini":
+        try:
+            details = gemini_provider.discover_models(secret, base_url, timeout_seconds)
+        except TimeoutError:
+            raise ProviderModelDiscoveryTimeout("Gemini model discovery timed out") from None
+        except Exception:
+            raise ProviderModelDiscoveryError("无法读取 Gemini 模型目录，请检查原生 API 地址、密钥及模型权限") from None
+        return ModelCatalog(sorted(details), details)
     headers = {"Accept": "application/json"}
     if provider == "anthropic":
         headers.update({"x-api-key": secret, "anthropic-version": "2023-06-01"})
@@ -1379,7 +1439,12 @@ def _discover_models(
                 continue
             model_id = str(item.get("id") or "").strip()
             if model_id and len(model_id) <= 200:
+                if provider == "gemini_openai" and not gemini_gateway.is_text_model(model_id):
+                    continue
                 details[model_id] = _model_detail(item, model_id)
+                if provider == "gemini_openai":
+                    details[model_id]["reasoning"] = {"supported_levels": [], "default_level": ""}
+                    details[model_id]["description"] = str(item.get("description") or "")[:500]
         if not details:
             raise ProviderModelDiscoveryError("Provider returned an invalid model catalog")
         return ModelCatalog(sorted(details), details)

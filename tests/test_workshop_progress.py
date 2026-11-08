@@ -319,3 +319,93 @@ def test_api_progress_is_projected_without_mutating_session_or_restarting_work(c
         release.set()
     result = finish(client, s["id"])
     assert result.get("runtime_progress") is None
+
+
+def test_upstream_failure_is_durable_but_not_model_activity_or_task_terminal(tmp_path):
+    s = session(tmp_path)
+    cb = diagnostics.make_diagnostic_callback(s, attempt=1, operation='brainstorm')
+    cb({'event': 'request.start', 'request_id': 'one'})
+    cb({**activity('error', 2), 'event_kind': 'response.failed', 'success': True})
+    cb({'event': 'cli.diagnostic', 'diagnostic_component': 'model_transport',
+        'diagnostic_level': 'error', 'diagnostic_code': 'upstream_timeout', 'raw_error': 'PRIVATE'})
+    p = progress(s)
+    assert p['upstream_error_event_count'] == 2
+    assert p['last_upstream_failure_kind'] == 'response.failed'
+    assert p['last_diagnostic_code'] == 'upstream_timeout'
+    assert p['last_diagnostic_component'] == 'model_transport'
+    assert p['phase'] == 'starting' and p['content_chars'] == 0
+    assert p['last_activity_observed_at'] is None
+    cb({'event': 'upstream.event', 'upstream_event': 'codex.api_request', 'endpoint_category': 'models', 'http_status': 200})
+    assert progress(s)['last_upstream_failure_kind'] == 'response.failed'
+    cb({'event': 'attempt.timeout'})
+    s['status'] = 'error'
+    failed = progress(s)
+    assert failed['failure_summary']['kind'] == 'no_content_timeout'
+    assert failed['failure_summary']['consecutive_count'] == 1
+    assert 'PRIVATE' not in json.dumps(failed)
+    cb({'event': 'request.start', 'request_id': 'two'})
+    s['status'] = 'running'
+    assert progress(s)['last_upstream_failure_kind'] is None
+    assert progress(s)['last_diagnostic_code'] is None
+
+
+def test_legacy_repeated_silence_is_read_only_and_requires_matching_trace_identity(tmp_path):
+    s = session(tmp_path)
+    s['status'] = 'error'
+    directory = s['_diagnostic_dir']; directory.mkdir()
+    for revision in [5, 6, 7]:
+        p = {'session_id': s['id'], 'revision': revision, 'job_id': f'job-{revision}',
+             'operation': 'brainstorm', 'attempt': 1, 'request_id': f'req-{revision}',
+             'phase': 'failed', 'content_chars': 0, 'request_closed': True,
+             'activity_time_basis': 'batch_observed'}
+        (directory / f'{revision}-brainstorm.progress.json').write_text(json.dumps(p))
+        (directory / f'{revision}-brainstorm.jsonl').write_text(json.dumps({**p, 'event': 'attempt.timeout'})+'\n')
+    before = {f.name: f.read_bytes() for f in directory.iterdir()}
+    assert progress(s)['failure_summary'] == {'kind': 'no_content_timeout', 'consecutive_count': 3}
+    assert before == {f.name: f.read_bytes() for f in directory.iterdir()}
+    s['context_start_revision'] = 6
+    assert progress(s)['failure_summary']['consecutive_count'] == 1
+    s.pop('context_start_revision')
+    old = directory / '6-brainstorm.jsonl'
+    old.write_text(old.read_text().replace('job-6', 'other-job'))
+    assert progress(s)['failure_summary']['consecutive_count'] == 1
+    (directory / '7-brainstorm.progress.json').write_text(json.dumps({**p, 'reasoning_event_count': 2}))
+    assert progress(s)['failure_summary'] == {'kind': 'timeout', 'consecutive_count': 1}
+
+
+def test_failure_summary_ignores_malformed_terminal_and_requires_real_timeout(tmp_path):
+    s = session(tmp_path)
+    cb = diagnostics.make_diagnostic_callback(s, attempt=1, operation='brainstorm')
+    cb({'event': 'request.start', 'request_id': 'one'})
+    cb({**activity('text'), 'event_kind': 'response.output_text.delta', 'success': False})
+    assert progress(s)['last_upstream_failure_kind'] == 'request_failed'
+    assert progress(s)['text_event_count'] == 0
+    cb({'event': 'attempt.failed'})
+    s['status'] = 'error'
+    path = s['_diagnostic_dir'] / '7-brainstorm.progress.json'
+    p = json.loads(path.read_text())
+    p['terminal_event'] = {'untrusted': 'value'}
+    path.write_text(json.dumps(p))
+    with (s['_diagnostic_dir'] / '7-brainstorm.jsonl').open('a') as out:
+        out.write(json.dumps({**p, 'event': ['attempt.timeout']}) + '\n')
+    assert progress(s)['failure_summary'] is None
+
+
+def test_completion_window_deadline_survives_refresh_is_bounded_and_resets(tmp_path):
+    s = session(tmp_path)
+    cb = diagnostics.make_diagnostic_callback(s, attempt=1, operation='brainstorm')
+    cb({'event': 'request.start', 'request_id': 'one', 'completion_grace_limit': 180})
+    initial = progress(s)
+    assert initial['completion_grace_limit'] == 180
+    assert initial['completion_grace_seconds'] == 0
+    cb({'event': 'cli.completion_window', 'completion_grace_seconds': 180})
+    p = progress(s)
+    assert p['task_budget_seconds'] == 1080
+    assert p['deadline_at'] == '2026-10-08T07:18:00+00:00'
+    assert p == progress(s)
+    cb({'event': 'cli.completion_window', 'completion_grace_seconds': 999999})
+    assert progress(s)['task_budget_seconds'] == 1080
+    cb({'event': 'request.start', 'request_id': 'two'})
+    assert progress(s)['completion_grace_seconds'] == 0
+    assert progress(s)['completion_grace_limit'] == 0
+    assert progress(s)['task_budget_seconds'] == 900

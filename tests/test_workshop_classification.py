@@ -1,101 +1,76 @@
 from copy import deepcopy
 import json
-from pathlib import Path
-
 import pytest
-
-from api.workshop import SessionInput
-from api.workshop_classification import BookClassificationSelection, bind_classification
+from core.publication_taxonomy import bind_classification
 from api.workshop_delivery import author_context
-from core.creative_types import CreativeTypeStore, TypeRef, compile_snapshot, digest, validate_profile
-from core.novel_classification import catalog_payload, parse_classification_block
+from core.creative_types import CreativeTypeStore
+from core.novel_classification import NovelClassification, parse_classification_block
+from core.publication_taxonomy import classification
+from test_creative_types import selected
 from test_workshop_api import client, ready
 from test_workshop_handoff import make_prompt, handoff, REPO
 
 
-def selection(**overrides):
-    return {'primary_genre_id': 'fantasy', 'story_type_ids': ['werewolf'], **overrides}
+def selection(client):
+    items=client.get('/api/creative-types').json()['items']
+    return [{'id':r['id'],'version':r['active_version'],'source_sha256':r['source_sha256']}
+            for r in items if r['id'] in ('genre.romance','tag.betrayal')]
 
 
-@pytest.mark.parametrize('fields', [
-    {}, {'primary_genre_id': 'werewolf'}, {'primary_genre_id': 'invented'},
-    selection(secondary_genre_ids=['fantasy']), selection(story_type_ids=['a']),
-    selection(story_type_ids=['sweet_romance', 'dark_romance']),
-    selection(story_type_ids=['werewolf', 'revenge', 'pregnancy', 'domestic_betrayal']),
-    selection(catalog_version='novel-types.2026-09'), selection(tone_ids=['werewolf']),
-    selection(story_type_ids=['werewolf', 'werewolf']),
-])
-def test_invalid_selection_cannot_allocate_session(client, tmp_path, fields):
-    response = client.post('/api/workshop/sessions', json={'creation_flow': 'h5_guided.v1', 'publication_classification': fields})
-    assert response.status_code == 422
-    assert not list((tmp_path / 'workshop_v2').glob('*/session.json'))
+def test_selection_allocates_only_with_one_genre_and_associated_tags(client,tmp_path):
+    refs=selection(client)
+    for invalid in (None,[],refs[:1],refs+refs[:1]):
+        response=client.post('/api/workshop/sessions',json={'creation_flow':'genre_tags.v1','creative_types':invalid})
+        assert response.status_code==422,response.text
+    data=client.post('/api/workshop/sessions',json={'creation_flow':'genre_tags.v1','creative_types':refs}).json()
+    assert data['input']['publication_taxonomy']['genre']['id']=='genre.romance'
+    assert 'source_reference' not in author_context(data)
+    assert 'author-selected' in author_context(data)['publication_selection_policy']
 
 
-def test_guided_flow_requires_selection_and_keeps_subjects_separate_from_guidance(client):
-    assert client.post('/api/workshop/sessions', json={'creation_flow': 'h5_guided.v1'}).status_code == 422
-    data = client.post('/api/workshop/sessions', json={'creation_flow': 'h5_guided.v1', 'publication_classification': selection(), 'creative_types': []}).json()
-    assert data['input']['genres'] == ['奇幻', '狼人']
-    assert data['creative_design']['policy']['type_snapshot']['profiles'] == []
-    context = author_context(data)
-    assert context['initial_brief']['publication_classification']['story_type_ids'] == ['werewolf']
-    assert 'AUTHOR-CONFIRMED' in context['publication_selection_policy']
-    downgrade = {**data['input'], 'creation_flow': None, 'publication_classification': None}
-    assert client.post(f"/api/workshop/sessions/{data['id']}/input", json={'revision': 0, 'input': downgrade}).status_code == 422
-    # Old integrations and persisted old discussions retain their explicit legacy path.
-    assert client.post('/api/workshop/sessions', json={'premise': 'legacy'}).status_code == 201
+def test_model_cannot_override_author_taxonomy_and_private_knowledge_stays_private(tmp_path):
+    store=CreativeTypeStore(tmp_path/'types');snapshot=store.snapshot(selected(store))
+    raw=make_prompt(tmp_path).read_text();brief={'publication_taxonomy':snapshot['publication_taxonomy']}
+    bound=bind_classification(raw,brief);value=parse_classification_block(bound)
+    assert value.primary_genre_id=='genre.romance'
+    assert value.story_type_ids==('tag.betrayal',)
+    assert value.to_dict()['schema_version']=='novel-classification.v2'
+    assert value.to_dict()==NovelClassification.from_dict(value.to_dict()).to_dict()
+    assert bind_classification(bound,brief)==bound
+    assert 'sections' not in json.dumps(value.to_dict()) and 'markdown' not in json.dumps(value.to_dict())
+    path=tmp_path/'bound.md';path.write_text(bound)
+    assert handoff.validate(path,REPO)['chapters']==21
+    for invalid in (raw+raw,raw.replace('[NOVEL_CLASSIFICATION_JSON]','[OTHER]')):
+        with pytest.raises(ValueError,match='唯一'):bind_classification(invalid,brief)
 
 
-def test_model_classification_cannot_override_author_and_handoff_reads_it(tmp_path):
-    raw = make_prompt(tmp_path).read_text()
-    initial = SessionInput(creation_flow='h5_guided.v1', publication_classification=selection()).model_dump()
-    bound = bind_classification(raw, initial)
-    classification = parse_classification_block(bound)
-    assert classification.primary_genre_id == 'fantasy'
-    assert classification.story_type_ids == ('werewolf',)
-    assert classification.source == 'author_confirmed'
-    assert classification.chapter_band == 'chapters_0_50'
-    assert bind_classification(bound, initial) == bound
-    assert bind_classification(raw, {}) == raw
-    path = tmp_path / 'bound.md'; path.write_text(bound)
-    assert handoff.validate(path, REPO)['chapters'] == 21
-    # Full source story remains verbatim outside the protocol block.
-    assert 'A mother discovers a betrayal and chooses her own future.' in bound
-    for invalid in (raw + raw, raw.replace('[NOVEL_CLASSIFICATION_JSON]', '[OTHER]')):
-        with pytest.raises(ValueError, match='唯一'):
-            bind_classification(invalid, initial)
+def test_public_revision_separate_from_writing_revision(tmp_path):
+    store=CreativeTypeStore(tmp_path/'types');before=store.snapshot(selected(store))
+    r=store.get('tag.betrayal')
+    md=r['draft'].replace('## 故事机制','## 故事机制\n\nOnly private writing rules change.')
+    r=store.mutate('activate',r['id'],revision=0,operation_id='private01',markdown=md)
+    after=store.snapshot(selected(store))
+    assert before['publication_taxonomy']==after['publication_taxonomy']
+    assert before['snapshot_sha256']!=after['snapshot_sha256']
+    import yaml
+    _,head,body=md.split('---',2);header=yaml.safe_load(head)
+    header['publication']['definition']='New public description.'
+    md='---\n'+yaml.safe_dump(header,allow_unicode=True,sort_keys=False)+'---'+body
+    store.mutate('activate',r['id'],revision=r['revision'],operation_id='public01',markdown=md)
+    assert store.snapshot(selected(store))['publication_taxonomy']['tags'][0]['revision']==2
 
 
-def test_real_workshop_save_prepare_and_intake_keep_chosen_ids(client, monkeypatch, tmp_path):
-    data = ready(client, monkeypatch, tmp_path, creation_flow='h5_guided.v1', publication_classification=selection())
-    assert data['status'] == 'ready', data.get('last_error')
-    assert parse_classification_block(data['prompt_md']).story_type_ids == ('werewolf',)
-    response = client.post(f"/api/workshop/sessions/{data['id']}/prepare", json={'revision': data['revision'], 'title': 'Chosen Moon'})
-    assert response.status_code == 200, response.text
-    assert parse_classification_block(response.json()['prompt_md']).primary_genre_id == 'fantasy'
+def test_real_workshop_prepare_keeps_exact_taxonomy(client,monkeypatch,tmp_path):
+    data=ready(client,monkeypatch,tmp_path,creation_flow='genre_tags.v1',creative_types=selection(client))
+    assert data['status']=='ready',data.get('last_error')
+    assert parse_classification_block(data['prompt_md']).primary_genre_id=='genre.romance'
+    response=client.post(f"/api/workshop/sessions/{data['id']}/prepare",json={'revision':data['revision'],'title':'Chosen Love'})
+    assert response.status_code==200,response.text
+    assert parse_classification_block(response.json()['prompt_md']).story_type_ids==('tag.betrayal',)
 
 
-def test_curated_defaults_keep_old_hashes_and_user_overrides(tmp_path):
-    store = CreativeTypeStore(tmp_path / 'types')
-    records = store.records()
-    active = {id for id, r in records.items() if not r.get('retired')}
-    assert active == {'ct_werewolf', 'ct_marriage_betrayal', 'ct_female_awakening'}
-    seed = json.loads((REPO / 'resources/creative-types/v1.json').read_text())
-    for entry in seed['profiles']:
-        p = validate_profile(entry['profile'], enabled=True)
-        r = records[p['profile_id']]
-        assert r['versions'][0]['profile'] == p
-        assert r['versions'][0]['sha256'] == digest(p)
-        ref = TypeRef(profile_id=p['profile_id'], version=p['version'], source_sha256=digest(p))
-        snapshot = store.snapshot([ref], require_enabled=False)
-        assert compile_snapshot(snapshot, 'brainstorm')['profiles'][0]['version'] == p['version']
-    # Saved user records take precedence; merely upgrading defaults does not edit them.
-    owned = deepcopy(records['ct_marriage_betrayal']); owned.pop('retired'); owned['draft']['summary'] = '作者自己的说明'
-    store.root.mkdir(); store.path.write_text(json.dumps({'schema': 'creative-type-library.v1', 'records': {owned['id']: owned}, 'operations': {}}))
-    before = store.path.read_bytes()
-    assert store.get(owned['id'])['draft']['summary'] == '作者自己的说明'
-    assert store.path.read_bytes() == before
-
-
-def test_h5_catalog_is_unchanged_and_curated_mappings_use_it():
-    expected = json.loads((REPO / 'docs/examples/h5-import/novel-classification-catalog.json').read_text())
-    assert catalog_payload() == expected
+@pytest.mark.parametrize('change',[lambda v:v.update(primary_genre_id='genre.horror'),lambda v:v['taxonomy']['tags'].append(v['taxonomy']['tags'][0]),lambda v:v['taxonomy']['genre'].update(revision=0),lambda v:v['taxonomy'].update(namespace='../bad')])
+def test_invalid_public_projection_is_rejected(tmp_path,change):
+    store=CreativeTypeStore(tmp_path);value=classification(store.snapshot(selected(store))['publication_taxonomy']).to_dict()
+    change(value)
+    with pytest.raises(ValueError):NovelClassification.from_dict(value)

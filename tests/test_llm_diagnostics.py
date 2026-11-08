@@ -349,3 +349,30 @@ def test_large_final_agent_message_has_counts_without_retaining_its_content(cloc
     assert [r["event"] for r in records].count("cli.model_output") == 1
     assert "私密骨架内容" not in json.dumps(records, ensure_ascii=False)
     assert not observer._stdout_lines.buffer
+
+
+def test_stderr_preserves_safe_component_and_code_even_when_not_cli_fatal(clock):
+    records = []
+    observer = CLIDiagnostics(records.append)
+    line = b'2026-11-03T03:49:24Z ERROR codex_core::models_manager::manager: failed to refresh available models: deadline has elapsed TOKEN_SECRET\n'
+    observer.observe(None, line)
+    observer.observe(None, line)
+    errors = [r for r in records if r['event'] == 'cli.diagnostic']
+    assert len(errors) == 1
+    assert errors[0]['diagnostic_component'] == 'model_catalog'
+    assert errors[0]['diagnostic_code'] == 'upstream_timeout'
+    assert errors[0]['diagnostic_level'] == 'error'
+    assert errors[0]['model_output_chars'] == 0
+    assert 'SECRET' not in json.dumps(records)
+    observer.observe(None, line + b'ERROR codex_core::client: UNKNOWN_SECRET\n')
+    assert records[-1]['diagnostic_code'] == 'unclassified_error'
+    assert records[-1]['diagnostic_component'] == 'model_transport'
+    assert 'SECRET' not in json.dumps(records)
+
+
+def test_native_error_classification_does_not_read_status_from_timestamps_or_ids():
+    from core.codex_diagnostic_codes import stderr_metadata
+    base = '2026-11-03T08:12:34.429401Z ERROR codex_core::client: '
+    assert stderr_metadata(base + 'unknown error request_id=abc401')['diagnostic_code'] == 'unclassified_error'
+    assert stderr_metadata(base + 'HTTP 429')['diagnostic_code'] == 'rate_limit'
+    assert stderr_metadata(base + 'status code: 503')['diagnostic_code'] == 'server_error'

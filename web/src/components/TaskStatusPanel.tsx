@@ -5,6 +5,7 @@ import {
   isProjectTaskRunning,
   projectTaskPhaseLabel,
   projectTaskStatusLabel,
+  TASK_IDLE_POLL_INTERVAL_MS,
   TASK_POLL_INTERVAL_MS,
 } from "../lib/projectTasks";
 import StatusPill from "./StatusPill";
@@ -62,6 +63,18 @@ function TaskStatusContent({
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
+    function scheduleRefresh(delay = latest.current && isProjectTaskRunning(latest.current.status)
+      ? TASK_POLL_INTERVAL_MS : TASK_IDLE_POLL_INTERVAL_MS) {
+      timer = window.setTimeout(() => {
+        // A stopped run may be resumed elsewhere. Keep observing it while the
+        // panel is visible; focus/visibility listeners catch up immediately.
+        if (document.visibilityState === "hidden") {
+          scheduleRefresh(TASK_IDLE_POLL_INTERVAL_MS);
+          return;
+        }
+        void refresh();
+      }, delay);
+    }
     async function refresh() {
       const version = ++requestVersion.current;
       try {
@@ -81,13 +94,11 @@ function TaskStatusContent({
         if (previous && (previous.status !== next.status || previous.current_chapter !== next.current_chapter)) {
           onTaskChanged?.();
         }
-        if (isProjectTaskRunning(next.status)) timer = window.setTimeout(refresh, TASK_POLL_INTERVAL_MS);
+        scheduleRefresh();
       } catch (e) {
         if (cancelled || version !== requestVersion.current) return;
         setReadError(e instanceof Error ? e.message : String(e));
-        if (latest.current && isProjectTaskRunning(latest.current.status)) {
-          timer = window.setTimeout(refresh, TASK_POLL_INTERVAL_MS);
-        }
+        scheduleRefresh();
       }
     }
     void refresh();
@@ -178,7 +189,10 @@ function TaskStatusContent({
           <h2 className="text-[15px] font-semibold text-ink-text">创作任务</h2>
           <p className="mt-1.5 break-all text-[11px] text-ink-muted">任务 ID：<span className="font-mono">{runId}</span></p>
         </div>
-        {task && <StatusPill status={task.status} label={projectTaskStatusLabel(task.status)} />}
+        <div className="flex items-center gap-3">
+          <button type="button" className="btn-ghost" onClick={() => setRefreshKey((value) => value + 1)}>刷新状态</button>
+          {task && <StatusPill status={task.status} label={projectTaskStatusLabel(task.status)} />}
+        </div>
       </div>
 
       {!task && !readError && <p className="mt-4 text-[13px] text-ink-muted">正在加载任务状态…</p>}
@@ -234,7 +248,7 @@ function TaskStatusContent({
           {(task.can_resume || submitting) && (
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <button type="button" className="btn-primary disabled:cursor-wait disabled:opacity-50" disabled={submitting} onClick={() => void resume()}>
-                {submitting ? "恢复中…" : "恢复重试"}
+                {submitting ? "恢复中…" : task.planning?.recovery?.action === 'restore_source_omissions' ? "按新版补全并恢复" : "恢复重试"}
               </button>
               {task.can_upgrade_planning && <button type="button" className="btn-ghost disabled:cursor-wait disabled:opacity-50" disabled={submitting} onClick={() => void resume(true)}>
                 使用分阶段规划恢复

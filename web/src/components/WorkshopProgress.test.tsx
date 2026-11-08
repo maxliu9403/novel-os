@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { WorkshopDeliveryCheckpoints, WorkshopRuntimeStatus } from "./WorkshopProgress";
+import { WorkshopDeliveryCheckpoints, WorkshopRuntimeStatus, WorkshopRequestDiagnostic } from "./WorkshopProgress";
 import type { WorkshopRuntimeProgress } from "../api/workshop";
 
 const now = Date.parse("2026-10-12T07:00:00Z");
@@ -149,4 +149,26 @@ test("saving every assembly part still waits for final integration and validatio
   expect(screen.getByText("已保存 2/3 个阶段")).toBeInTheDocument();
   expect(screen.getByText("各部分已保存，正在整合与校验。")).toBeInTheDocument();
   expect(screen.queryByText("已保存 3/3 个阶段")).not.toBeInTheDocument();
+});
+
+test('repeated silent timeouts explain recovery without automatically retrying or claiming thinking', () => {
+  render(<WorkshopRequestDiagnostic progress={progress({ phase: 'failed', failure_summary: { kind: 'no_content_timeout', consecutive_count: 3 }, last_upstream_failure_kind: 'response.incomplete' })} />);
+  expect(screen.getByLabelText('模型请求诊断')).toHaveTextContent('已连续 3 次等待超时');
+  expect(screen.getByText(/建议先检查模型连接和运行详情/)).toBeInTheDocument();
+  expect(screen.getByText(/任务已结束，刷新页面不会重新发起请求/)).toBeInTheDocument();
+  expect(screen.queryByRole('button')).not.toBeInTheDocument();
+});
+
+test('catalog diagnostics remain distinct from generation failure and unknown text is not echoed', () => {
+  const { rerender } = render(<WorkshopRequestDiagnostic progress={progress({ last_diagnostic_component: 'model_catalog', last_diagnostic_code: 'upstream_timeout' })} />);
+  expect(screen.getByText(/模型列表查询：等待上游超时/)).toHaveTextContent('此记录不代表生成请求失败');
+  rerender(<WorkshopRequestDiagnostic progress={progress({ last_diagnostic_code: 'PRIVATE_SECRET' })} />);
+  expect(screen.queryByLabelText('模型请求诊断')).not.toBeInTheDocument();
+});
+
+test('completion window is visible and has a fixed deadline after refreshing', () => {
+  view(progress({ completion_grace_limit: 180, completion_grace_seconds: 180, task_budget_seconds: 1080, request_timeout_seconds: 900, last_text_observed_at: ago(2) }));
+  expect(screen.getByText(/已进入回复收尾窗口/)).toHaveTextContent('额外等待最多 180 秒');
+  expect(screen.getByText(/^本轮总时限/)).toHaveTextContent('18 分钟');
+  expect(screen.getByText(/单次模型请求上限/)).toHaveTextContent('无内容或仅有连接消息不会延长');
 });

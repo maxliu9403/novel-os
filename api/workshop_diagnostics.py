@@ -22,6 +22,7 @@ from typing import Callable
 import weakref
 
 from .workshop_progress import persist_progress, runtime_progress  # noqa: F401
+from core.codex_diagnostic_codes import ERROR_CODES, COMPONENTS, LEVELS
 
 
 MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -37,7 +38,7 @@ _EVENTS = frozenset({
     "cli.completed", "cli.timeout", "cli.cancelled", "cli.failed",
     "attempt.start", "attempt.completed", "attempt.failed", "attempt.cancelled", "attempt.timeout",
     "validation.failure", "validation.start", "contract.normalized", "format_retry", "diagnostics.capped", "profile.switch",
-    "cli.model_output", "upstream.observer_started", "upstream.observer_unavailable",
+    "cli.model_output", "cli.diagnostic", "cli.completion_window", "upstream.observer_started", "upstream.observer_unavailable",
     "upstream.observer_stopped", "upstream.event", "upstream.activity",
     "delivery.stage.started", "delivery.stage.completed", "delivery.stage.reused",
     "delivery.part.started", "delivery.part.completed", "delivery.part.reused",
@@ -59,7 +60,7 @@ _ERROR_CATEGORIES = frozenset({
     "response_schema", "skeleton_contract", "input_revision", "titles_schema", "authentication",
     "authorization", "rate_limit", "server_error", "network", "connection", "http_error",
     "process_error", "process_exit", "empty_output", "invalid_output", "cli_error", "unknown",
-    "transport", "upstream", "http_client_error", "discussion_scope",
+    "transport", "upstream", "http_client_error", "discussion_scope", "internal_error", "storage_error", "input_limit",
 })
 _PHASES = frozenset({"initialization", "completion", "response_parse", "skeleton_validation",
                     "input_revision_validation", "titles_parse", "titles_validation", "startup",
@@ -71,7 +72,7 @@ _NUMERIC_FIELDS = frozenset({
     "http_status", "final_output_bytes", "dropped_events", "discarded_stdout_lines", "discarded_stderr_lines",
     "input_sent_seconds", "output_chars", "output_bytes",
     "configured_max_tokens", "effective_max_tokens", "model_output_chars", "first_model_output_seconds",
-    "last_model_output_seconds", "task_budget_seconds", "request_timeout_seconds",
+    "last_model_output_seconds", "task_budget_seconds", "request_timeout_seconds", "completion_grace_seconds", "completion_grace_limit",
     "duration_ms", "ttft_ms", "observed_seconds", "upstream_attempt", "input_token_count",
     "output_token_count", "cached_token_count", "reasoning_token_count", "tool_token_count",
     "cache_write_token_count", "normalized_fields", "dropped_event_count",
@@ -109,7 +110,7 @@ def _safe_event(event: dict) -> dict:
         # projection separate so even a malformed caller cannot mix the two.
         count, observed = event.get("metric_count"), _timestamp(event.get("observed_at"))
         kind, temporality = event.get("activity_kind"), event.get("metric_temporality")
-        if (not isinstance(kind, str) or kind not in {"reasoning_summary", "text", "transport"}
+        if (not isinstance(kind, str) or kind not in {"reasoning_summary", "text", "transport", "error"}
                 or type(count) is not int or not 1 <= count <= 2**63 - 1
                 or not isinstance(temporality, str) or temporality not in {"delta", "cumulative"}
                 or event.get("observation_source") != "otel_metrics" or observed is None):
@@ -117,6 +118,15 @@ def _safe_event(event: dict) -> dict:
         safe.update(activity_kind=event["activity_kind"], metric_count=count,
                     metric_temporality=event["metric_temporality"], observed_at=observed,
                     observation_source="otel_metrics")
+        from core.codex_metric_activity import _TRANSPORT, _CONTENT
+        event_kind = event.get('event_kind')
+        if isinstance(event_kind, str) and event_kind in _TRANSPORT | _CONTENT.keys():
+            safe['event_kind'] = event_kind
+        if type(event.get('success')) is bool:
+            safe['success'] = event['success']
+        # Even malformed producers cannot report failed frames as model text.
+        if event.get('success') is False or event_kind in ('response.failed', 'response.incomplete', 'response.cancelled', 'error'):
+            safe['activity_kind'] = 'error'
         for key in ("metric_window_start", "metric_window_end"):
             stamp = _timestamp(event.get(key))
             if stamp is not None:
@@ -166,6 +176,8 @@ def _safe_event(event: dict) -> dict:
     if isinstance(value, str) and _MODEL.fullmatch(value):
         safe["model"] = value
     for key, allowed in (("last_cli_event", _CLI_EVENTS), ("last_item_type", _ITEM_TYPES),
+                         ("diagnostic_code", ERROR_CODES), ("diagnostic_component", COMPONENTS),
+                         ("diagnostic_level", LEVELS),
                          ("error_category", _ERROR_CATEGORIES), ("phase", _PHASES),
                          ("output_stream", {"stdout", "stderr"}),
                          ("prompt_profile", {"exploration", "delivery"}),
@@ -199,10 +211,12 @@ def _safe_event(event: dict) -> dict:
 
 def diagnostic_error_category(exc: Exception) -> str:
     """Classify exceptions without inspecting or persisting their text."""
-    from core.llm_client import LLMCancelledError
+    from core.llm_client import LLMCancelledError, LLMInputLimitError
 
     current = exc
     for _ in range(8):
+        if isinstance(current, LLMInputLimitError):
+            return "input_limit"
         if isinstance(current, LLMCancelledError):
             return "cancelled"
         if isinstance(current, (TimeoutError, subprocess.TimeoutExpired)) or type(current).__name__ in {

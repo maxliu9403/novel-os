@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, vi } from "vitest";
 import { api, ApiError, type ProjectTaskDetail } from "../api/client";
 import TaskStatusPanel from "../components/TaskStatusPanel";
-import { TASK_POLL_INTERVAL_MS } from "../lib/projectTasks";
+import { TASK_IDLE_POLL_INTERVAL_MS, TASK_POLL_INTERVAL_MS } from "../lib/projectTasks";
 
 const task: ProjectTaskDetail = {
   run_id: "b1bd6c12ef6b",
@@ -26,6 +26,21 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+test('source restoration is an explicit action and never starts on inspection', async () => {
+  vi.spyOn(api, 'projectTask').mockResolvedValue({ ...task, current_phase: 'outline', planning: {
+    status: 'failed', completed_batches: 4, total_batches: 4, chapter_count: 16,
+    active_step: 'semantic_review', updated_at: null, steps: [], milestones: [],
+    recovery: { retryable: true, action: 'restore_source_omissions', reason: '来源补全后完整核查，会产生模型用量。' },
+  } });
+  const resume = vi.spyOn(api, 'resumeProjectTask').mockResolvedValue({ run_id: task.run_id, job_id: 'source', status: 'running' });
+  render(<TaskStatusPanel projectId='p' runId={task.run_id} />);
+  const button = await screen.findByRole('button', { name: '按新版补全并恢复' });
+  expect(resume).not.toHaveBeenCalled();
+  fireEvent.click(button);
+  expect(resume).toHaveBeenCalledTimes(1);
+  expect(resume).toHaveBeenCalledWith('p', task.run_id);
+});
+
 test("shows the durable failure, stage history, and copyable native resume command", async () => {
   vi.spyOn(api, "projectTask").mockResolvedValue(task);
   const writeText = vi.fn().mockResolvedValue(undefined);
@@ -43,7 +58,7 @@ test("shows the durable failure, stage history, and copyable native resume comma
   await waitFor(() => expect(writeText).toHaveBeenCalledWith("./deploy.sh novel-resume b1bd6c12ef6b"));
 });
 
-test("submits once, keeps polling a running manifest after job done, and stops at task failure", async () => {
+test("submits once, keeps polling a running manifest after job done, and slows polling at task failure", async () => {
   const read = vi.spyOn(api, "projectTask")
     .mockResolvedValueOnce(task)
     .mockResolvedValueOnce({ ...task, status: "running", can_resume: false, resume_job_status: "running" })
@@ -105,11 +120,82 @@ test("refreshes a stopped task on focus and visibility after an external resume"
   expect(await screen.findByText("失败原因")).toBeInTheDocument();
   fireEvent.focus(window);
   expect(await screen.findByText("运行中")).toBeInTheDocument();
-  expect(screen.getByText("风格校验")).toBeInTheDocument();
+  expect(screen.getByText("检查与保存候选")).toBeInTheDocument();
   fireEvent(document, new Event("visibilitychange"));
   expect(await screen.findByText("已完成")).toBeInTheDocument();
   expect(screen.getByText("生成交付包")).toBeInTheDocument();
   expect(read).toHaveBeenCalledTimes(3);
+});
+
+test("a visible failed task detects an external resume without focus or a reload", async () => {
+  vi.useFakeTimers();
+  const error = "ValueError: themes must contain only strings";
+  const read = vi.spyOn(api, "projectTask")
+    .mockResolvedValueOnce({ ...task, error, failed_stages: [] })
+    .mockResolvedValueOnce({ ...task, status: "running", current_phase: "chapter.write", current_chapter: 5,
+      can_resume: false, error: null, failed_stages: [] })
+    .mockResolvedValue({ ...task, status: "completed", can_resume: false, error: null, failed_stages: [] });
+  const resume = vi.spyOn(api, "resumeProjectTask");
+  const changed = vi.fn();
+  await act(async () => { render(<TaskStatusPanel projectId="p" runId={task.run_id} onTaskChanged={changed} />); });
+  expect(screen.getByText(error)).toBeInTheDocument();
+  await act(async () => { await vi.advanceTimersByTimeAsync(TASK_IDLE_POLL_INTERVAL_MS - 1); });
+  expect(read).toHaveBeenCalledTimes(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(screen.queryByText(error)).not.toBeInTheDocument();
+  expect(screen.getByText("运行中")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "恢复重试" })).not.toBeInTheDocument();
+  await act(async () => { await vi.advanceTimersByTimeAsync(TASK_POLL_INTERVAL_MS); });
+  expect(screen.getByText("已完成")).toBeInTheDocument();
+  expect(read).toHaveBeenCalledTimes(3);
+  expect(changed).toHaveBeenCalledTimes(2);
+  expect(resume).not.toHaveBeenCalled();
+});
+
+test("manual status refresh clears an old failure without resuming the task", async () => {
+  vi.spyOn(api, "projectTask").mockResolvedValueOnce(task)
+    .mockResolvedValue({ ...task, status: "running", can_resume: false, error: null, failed_stages: [] });
+  const resume = vi.spyOn(api, "resumeProjectTask");
+  render(<TaskStatusPanel projectId="p" runId={task.run_id} />);
+  expect(await screen.findByText(task.error!)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "刷新状态" }));
+  expect(await screen.findByText("运行中")).toBeInTheDocument();
+  expect(screen.queryByText(task.error!)).not.toBeInTheDocument();
+  expect(resume).not.toHaveBeenCalled();
+});
+
+test("stopped task polling survives a read failure and stops when unmounted", async () => {
+  vi.useFakeTimers();
+  const read = vi.spyOn(api, "projectTask").mockResolvedValueOnce(task)
+    .mockRejectedValueOnce(new Error("connection unavailable"))
+    .mockResolvedValue({ ...task, status: "paused" });
+  let unmount = () => {};
+  await act(async () => { ({ unmount } = render(<TaskStatusPanel projectId="p" runId={task.run_id} />)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(TASK_IDLE_POLL_INTERVAL_MS); });
+  expect(screen.getByRole("alert")).toHaveTextContent("connection unavailable");
+  await act(async () => { await vi.advanceTimersByTimeAsync(TASK_IDLE_POLL_INTERVAL_MS); });
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(screen.getByText("已暂停")).toBeInTheDocument();
+  unmount();
+  await act(async () => { await vi.advanceTimersByTimeAsync(TASK_IDLE_POLL_INTERVAL_MS * 2); });
+  expect(read).toHaveBeenCalledTimes(3);
+});
+
+test("hidden task panels skip polling and catch up on becoming visible", async () => {
+  vi.useFakeTimers();
+  const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+  const read = vi.spyOn(api, "projectTask").mockResolvedValueOnce(task)
+    .mockResolvedValue({ ...task, status: "running", error: null, failed_stages: [], can_resume: false });
+  await act(async () => { render(<TaskStatusPanel projectId="p" runId={task.run_id} />); });
+  visibility.mockReturnValue("hidden");
+  fireEvent(document, new Event("visibilitychange"));
+  await act(async () => { await vi.advanceTimersByTimeAsync(TASK_IDLE_POLL_INTERVAL_MS * 3); });
+  expect(read).toHaveBeenCalledTimes(1);
+  visibility.mockReturnValue("visible");
+  await act(async () => { fireEvent(document, new Event("visibilitychange")); });
+  expect(screen.getByText("运行中")).toBeInTheDocument();
+  expect(screen.queryByText(task.error!)).not.toBeInTheDocument();
+  expect(read).toHaveBeenCalledTimes(2);
 });
 
 test("does not offer resume for completed or incompatible tasks", async () => {

@@ -3,7 +3,56 @@
 import pytest
 
 from state_manager import Character, StoryState
-from state_parser import EndingProtocolError, ingest_agent_output, parse_continuity, parse_scribe
+from state_parser import EndingProtocolError, ingest_agent_output, parse_continuity, parse_scribe, parse_style
+
+
+def test_style_analysis_is_observation_not_a_canon_update(tmp_path):
+    output = """[STYLE_ANALYSIS]
+Consistency_Score: 8/10
+Payoff_Events:
+  - EP_F06 | status=private-revelation stage | evidence=The private admission occurs; public confirmation and consequences remain outstanding
+Arc_State_Updates:
+  - L01 | stage=resolution | evidence=An interpretive comment, not a declared update
+New_Facts_Established:
+  - A speculative interpretation
+Status: FAIL
+[/STYLE_ANALYSIS]
+[STYLE_STATE_UPDATE]
+Consistency_Score: 9/10
+Genre_Adherence: 8/10
+Voice_Strength: 9/10
+[/STYLE_STATE_UPDATE]"""
+    parsed = parse_style(output)
+    assert "private-revelation stage" in parsed["style_analysis"]["payoff_events"][0]
+    assert not {"payoff_events", "arc_state_updates", "new_facts_established", "status"} & parsed.keys()
+    state = StoryState(str(tmp_path / "book"))
+    state.add_character(Character(id="L01", full_name="Marian Reed", role="supporting"))
+    ingest_agent_output(state, 6, "style_curator", output)
+    assert state.chapters[6].payoff_events == []
+    assert state.chapters[6].new_information == []
+    assert state.characters["L01"].arc_stage == "beginning"
+    assert state.chapters[6].continuity_checks.get("status") != "FAIL"
+    assert state.chapters[6].quality_scores["style_consistency_score"] == 9
+
+
+def test_style_explicit_state_still_rejects_an_invalid_payoff_status():
+    with pytest.raises(EndingProtocolError, match="status must be"):
+        parse_style("""[STYLE_STATE_UPDATE]
+Payoff_Events:
+  - EP_F06 | status=private-revelation stage | evidence=The admission occurs
+[/STYLE_STATE_UPDATE]""")
+
+
+def test_style_explicit_valid_state_is_retained_without_analysis_overwrite():
+    parsed = parse_style("""[STYLE_ANALYSIS]
+Consistency_Score: 8/10
+Payoff_Events: EP_F06 | status=paid | evidence=An analysis claim
+[/STYLE_ANALYSIS]
+[STYLE_STATE_UPDATE]
+Payoff_Events: EP_F06 | status=recalled | evidence=Only a private admission
+[/STYLE_STATE_UPDATE]""")
+    assert parsed["payoff_events"] == ["EP_F06 | status=recalled | evidence=Only a private admission"]
+    assert parsed["consistency_score"] == "8/10"
 
 
 def test_misplaced_explicit_events_reach_the_durable_ending_fields(tmp_path):

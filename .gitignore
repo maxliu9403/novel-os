@@ -75,3 +75,10 @@ novel_os*.db
 # --- Local tooling caches & browser artifacts (not source) ---
 .pnpm-store/
 .playwright-mcp/
+
+# Private imported reference novels
+/source_books/
+
+# Private machine-transfer packages and local browser captures.
+/migration-packages/
+/output/

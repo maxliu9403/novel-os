@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>创作元素与方案 · Novel OS</title>
+  <link rel="icon" href="../project-workspace-v2/assets/novel-os-logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script src="catalog.js" defer></script>
+  <script src="data.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <aside class="sidebar">
+    <a class="brand" href="../project-workspace-v2/library.html" aria-label="Novel OS 作品库设计稿"><img src="../project-workspace-v2/assets/novel-os-logo.svg" alt="Novel OS"></a>
+    <div class="nav-label">创作工作台</div>
+    <nav aria-label="主导航">
+      <a href="../project-workspace-v2/library.html"><span data-icon="library"></span><span>作品库</span></a>
+      <button data-route="workshop"><span data-icon="spark"></span><span>头脑风暴</span></button>
+      <button data-route="library"><span data-icon="layers"></span><span>创作资料</span></button>
+      <a href="../deepseek-provider/index.html"><span data-icon="settings"></span><span>设置</span></a>
+    </nav>
+    <div class="side-tip"><span data-icon="feather"></span><p>每一次选择，<br>都成为故事的一部分。</p></div>
+    <div class="side-bottom"><div class="avatar">M</div><div><strong>我的创作空间</strong><small>Novel OS</small></div></div>
+  </aside>
+  <main id="main">
+    <div class="preview-bar"><span class="preview-label"><i></i> 交互设计稿</span><nav aria-label="设计稿体验流程"><button data-route="library">资料维护</button><span>›</span><button data-route="create">新书设定</button><span>›</span><button data-route="workshop">头脑风暴</button><span>›</span><button data-route="impact">设定落实</button></nav><button class="reset-button" data-action="reset" title="清除当前页面内的演示编辑">重置演示</button></div>
+    <div class="surface" id="app"></div>
+    <div class="prototype-foot">示例内容仅用于审核交互 · 编辑保留在当前页面，刷新后重置 · 不连接真实作品或模型</div>
+  </main>
+  <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

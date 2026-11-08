@@ -1,155 +1,96 @@
 import { API_BASE } from "./base";
-import type { WorkshopSession } from "./workshop";
+import type { WorkshopInput, WorkshopSession } from "./workshop";
 
 export type CreativeStage =
   | "brainstorm"
   | "story_design"
   | "chapter_plan"
   | "draft"
-  | "review";
-export type Importance = "essential" | "recommended" | "optional";
-export interface Guidance {
-  id: string;
-  text: string;
-  importance: Importance;
-  stages: CreativeStage[];
-}
-export interface Mechanism {
-  id: string;
-  name: string;
-  principle: string;
-  importance: Importance;
-  stages: CreativeStage[];
-  trigger: string[];
-  scope: string[];
-  limits: string[];
-  exceptions: string[];
-  costs: string[];
-  choices: string[];
-  payoffs: string[];
-}
-export interface CreativeProfile {
-  schema: "creative-type-profile.v1";
-  profile_id: string;
-  version: number;
-  name: string;
-  aliases: string[];
-  dimension: string;
-  summary: string;
-  applicability: {
-    readers: string[];
-    markets: string[];
-    languages: string[];
-    lengths: string[];
-  };
-  reader_promises: Guidance[];
-  mechanisms: Mechanism[];
-  character_dynamics: Guidance[];
-  voice_guidance: Guidance[];
-  pitfalls: Guidance[];
-  diagnostics: Guidance[];
-  combinations: Array<{
-    with_profile_id: string;
-    opportunities: string[];
-    tensions: string[];
-  }>;
-  publication_mapping: {
-    status: "mapped" | "unmapped";
-    catalog_version: string;
-    primary_genre_ids: string[];
-    facet_ids: string[];
-  };
-}
+  | "review"
+  | "publication"
+  | "cover";
+export type KnowledgeKind = "genre" | "tag";
+export type KnowledgeRole = "conflict" | "relationship" | "character" | "world" | "setting" | "mood" | "voice" | "pacing" | "ending";
 export interface CreativeTypeRef {
-  profile_id: string;
+  id: string;
   version: number;
   source_sha256: string;
-  role: "unspecified" | "primary" | "supporting" | "atmosphere";
 }
-export interface CreativeVersion {
-  profile: CreativeProfile;
-  sha256: string;
-  created_at: string;
+export interface KnowledgeDocument {
+  schema?: "novel-knowledge.v1" | "novel-knowledge.v2" | "novel-knowledge.v3";
+  roles?: KnowledgeRole[];
+  format?: "tag-prompt.v1" | "markdown-guide.v1";
+  body?: string;
+  preamble?: string;
+  id: string;
+  kind: KnowledgeKind;
+  name: string;
+  aliases: string[];
+  genre_ids: string[];
+  sections: Record<string, string>;
+  missing_sections: string[];
+  appendices: string[];
+}
+export interface CreativeSummary {
+  id: string;
+  kind: KnowledgeKind;
+  revision: number;
+  status: "draft" | "enabled" | "disabled";
+  origin: string;
+  updated_at: string;
+  active_version: number | null;
+  source_sha256: string | null;
+  name: string;
+  aliases: string[];
+  genre_ids: string[];
+  promise: string;
+  has_draft_changes: boolean;
+  missing_sections: string[];
 }
 export interface CreativeRecord {
   id: string;
+  kind: KnowledgeKind;
   revision: number;
-  status: "enabled" | "draft" | "disabled";
-  origin: string;
-  coverage: string;
-  updated_at: string;
-  draft: CreativeProfile;
+  status: CreativeSummary["status"];
+  draft: string;
   active_version: number | null;
-  versions: CreativeVersion[];
-  deleted_at?: string;
-}
-export interface CreativeSummary extends Omit<
-  CreativeRecord,
-  "draft" | "versions"
-> {
-  name: string;
-  summary: string;
-  dimension: string;
-  aliases: string[];
-  mapping_status: string;
-  publication_mapping?: CreativeProfile['publication_mapping'];
-  retired?: boolean;
-  source_sha256: string | null;
-  has_draft_changes: boolean;
+  updated_at: string;
+  origin: string;
+  versions: Array<{
+    version: number;
+    markdown: string;
+    sha256: string;
+    created_at: string;
+  }>;
+  document?: KnowledgeDocument;
 }
 export interface CreativeLibrary {
   items: CreativeSummary[];
-  dimensions: Record<string, string>;
-  publication_catalog: {
-    catalog_version: string;
-    axes: Record<string, Array<{ id: string; labels: Record<string, string> }>>;
-    combination_rules?: { primary_genre_count: number; secondary_genre_max: number; story_type_max: number; tone_max: number; setting_max: number; mutually_exclusive_story_types: string[][] };
-  };
 }
-export interface CreativePreview {
-  context: {
-    schema: string;
-    stage: CreativeStage;
-    profiles: Array<{
-      profile_id: string;
-      version: number;
-      source_sha256: string;
-      role: string;
-      content: Omit<
-        CreativeProfile,
-        "schema" | "profile_id" | "version" | "aliases" | "publication_mapping"
-      >;
-    }>;
-  };
-  sha256: string;
-  bytes: number;
-  preview_only: boolean;
+export interface KnowledgeIdentity {
+  id: string;
+  kind: KnowledgeKind;
+  name: string;
+  genre_ids: string[];
 }
+export type PreparedMarkdown =
+  | { needs_identity: true; body: string }
+  | { needs_identity: false; markdown: string; document: KnowledgeDocument };
 export interface TypeSnapshot {
-  schema: string;
+  schema: "selection-snapshot.v1";
+  genre_id: string;
+  tag_ids: string[];
   snapshot_sha256: string;
-  profiles: Array<{
-    profile: CreativeProfile;
-    source_sha256: string;
-    role: CreativeTypeRef["role"];
-  }>;
+  documents: Array<CreativeTypeRef & { markdown: string }>;
 }
 export interface SessionTypeContext {
   snapshot: TypeSnapshot | null;
-  contexts: Record<string, CreativePreview["context"]>;
+  contexts: Record<string, unknown>;
   context_sha256: Record<string, string>;
   latest: CreativeSummary[];
   revision: number;
-  last_request: null | {
-    revision: number;
-    submitted_at: string;
-    user_sha256: string;
-    context_sha256: string;
-    stage: string;
-    status: string;
-  };
+  last_request?: { submitted_at: string } | null;
 }
-
 export class CreativeApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -169,54 +110,54 @@ async function request<T>(path: string, body?: unknown): Promise<T> {
         },
   );
   if (!response.ok) {
-    let message = `请求失败（HTTP ${response.status}）`;
-    try {
-      const result = await response.json();
-      if (typeof result.detail === "string") message = result.detail;
-    } catch {
-      /* preserve HTTP status */
-    }
-    throw new CreativeApiError(message, response.status);
+    const json = await response.json().catch(() => ({}));
+    throw new CreativeApiError(
+      typeof json.detail === "string"
+        ? json.detail
+        : `请求失败 (${response.status})`,
+      response.status,
+    );
   }
-  return response.json() as Promise<T>;
+  return response.json();
 }
-const base = "/api/creative-types";
-export function creativeRef(
-  item: CreativeSummary,
-  role: CreativeTypeRef["role"] = "unspecified",
-): CreativeTypeRef {
-  if (!item.active_version || !item.source_sha256)
-    throw new Error("此类型尚无启用版本");
-  return {
-    profile_id: item.id,
-    version: item.active_version,
-    source_sha256: item.source_sha256,
-    role,
-  };
-}
+const root = "/api/creative-types";
 export const creativeTypesApi = {
-  list: () => request<CreativeLibrary>(base),
+  prepare: (markdown: string, options?: { base_markdown?: string; identity?: KnowledgeIdentity }) =>
+    request<PreparedMarkdown>(`${root}/prepare`, { markdown, ...options }),
+  list: () => request<CreativeLibrary>(root),
   get: (id: string) =>
-    request<CreativeRecord>(`${base}/${encodeURIComponent(id)}`),
-  create: (operation_id: string, profile?: CreativeProfile) =>
-    request<CreativeRecord>(base, { operation_id, profile }),
+    request<CreativeRecord>(`${root}/${encodeURIComponent(id)}`),
+  template: (kind: KnowledgeKind, id: string, name: string, genreId?: string) =>
+    request<{ markdown: string }>(
+      `${root}/template?${new URLSearchParams({ kind, id, name, ...(genreId ? { genre_id: genreId } : {}) })}`,
+    ),
+  create: (markdown: string, operationId: string) =>
+    request<CreativeRecord>(root, { markdown, operation_id: operationId }),
   mutate: (
     id: string,
-    action: "draft" | "activate" | "disable" | "delete",
+    action: "draft" | "activate" | "disable" | "delete" | "restore",
     revision: number,
-    operation_id: string,
-    profile?: CreativeProfile,
+    operationId: string,
+    markdown?: string,
+    version?: number,
   ) =>
-    request<CreativeRecord>(`${base}/${encodeURIComponent(id)}/${action}`, {
+    request<CreativeRecord>(`${root}/${encodeURIComponent(id)}/${action}`, {
       revision,
-      operation_id,
-      profile,
+      operation_id: operationId,
+      markdown,
+      version,
     }),
-  preview: (body: {
-    profile?: CreativeProfile;
-    refs?: CreativeTypeRef[];
-    stage: CreativeStage;
-  }) => request<CreativePreview>(`${base}/preview`, body),
+  preview: (markdown: string) =>
+    request<{ document: KnowledgeDocument; bytes: number }>(`${root}/preview`, {
+      markdown,
+    }),
+  context: (refs: CreativeTypeRef[], stage: CreativeStage) =>
+    request<{ context: unknown; bytes: number }>(`${root}/preview`, {
+      refs,
+      stage,
+    }),
+  downloadUrl: (id: string) =>
+    `${API_BASE}${root}/${encodeURIComponent(id)}/markdown`,
   sessionContext: (id: string) =>
     request<SessionTypeContext>(
       `/api/workshop/sessions/${encodeURIComponent(id)}/type-context`,
@@ -225,35 +166,38 @@ export const creativeTypesApi = {
     id: string,
     revision: number,
     refs: CreativeTypeRef[],
-    operation_id: string,
+    operationId: string,
   ) =>
     request<WorkshopSession>(
       `/api/workshop/sessions/${encodeURIComponent(id)}/type-snapshot`,
-      { revision, refs, operation_id },
+      { revision, refs, operation_id: operationId },
     ),
 };
-
-export function matchesCreativeLabel(item: CreativeSummary, value: string) {
-  return [item.name, ...item.aliases].some(
-    (label) =>
-      label.trim().toLocaleLowerCase() === value.trim().toLocaleLowerCase(),
+export function creativeRef(item: CreativeSummary): CreativeTypeRef {
+  if (!item.active_version || !item.source_sha256 || item.status !== "enabled")
+    throw new Error("该资料尚未启用");
+  return {
+    id: item.id,
+    version: item.active_version,
+    source_sha256: item.source_sha256,
+  };
+}
+export function validSelection(
+  refs: CreativeTypeRef[] | null | undefined,
+): boolean {
+  return (
+    !!refs &&
+    refs.filter((r) => r.id.startsWith("genre.")).length === 1 &&
+    refs.filter((r) => r.id.startsWith("tag.")).length >= 1 &&
+    refs.length <= 21 &&
+    new Set(refs.map((r) => r.id)).size === refs.length
   );
 }
-
-export async function bindCreativeSelection<
-  T extends { genres: string[]; creative_types?: CreativeTypeRef[] | null },
->(input: T): Promise<T> {
-  if (input.creative_types != null) return input;
-  const library = await creativeTypesApi.list();
-  const refs: CreativeTypeRef[] = [];
-  for (const genre of input.genres) {
-    const matches = library.items.filter(
-      (i) => i.status === "enabled" && matchesCreativeLabel(i, genre),
-    );
-    if (matches.length > 1)
-      throw new Error(`“${genre}”对应多个类型，请在资料库中确认后重新选择。`);
-    if (matches[0] && !refs.some((r) => r.profile_id === matches[0].id))
-      refs.push(creativeRef(matches[0]));
-  }
-  return { ...input, creative_types: refs };
+export async function bindCreativeSelection(
+  input: WorkshopInput,
+): Promise<WorkshopInput> {
+  if (!validSelection(input.creative_types))
+    throw new Error("请选择一个 Genre 和至少一个 Tag。");
+  // Server resolves and validates the exact versions, associations and full input budget.
+  return input;
 }

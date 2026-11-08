@@ -1,0 +1,34 @@
+[
+  {
+    "width": 1600,
+    "formats": [
+      "outline.txt",
+      "outline.md",
+      "outline.docx",
+      "outline.pdf",
+      "story.doc"
+    ],
+    "scan_error_explicit": true,
+    "append_replace_cancel": true,
+    "can_advance": true,
+    "imports": 8,
+    "other_writes": [],
+    "page_errors": []
+  },
+  {
+    "width": 390,
+    "formats": [
+      "outline.txt",
+      "outline.md",
+      "outline.docx",
+      "outline.pdf",
+      "story.doc"
+    ],
+    "scan_error_explicit": true,
+    "append_replace_cancel": true,
+    "can_advance": true,
+    "imports": 8,
+    "other_writes": [],
+    "page_errors": []
+  }
+]

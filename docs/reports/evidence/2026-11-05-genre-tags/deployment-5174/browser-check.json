@@ -1,0 +1,22 @@
+{
+  "checks": [
+    {
+      "viewport": 1600,
+      "creation": "three steps; required Genre/Tag and source readiness verified; submit not clicked"
+    },
+    {
+      "viewport": 1600,
+      "knowledge": "rendered; no overflow"
+    },
+    {
+      "viewport": 390,
+      "creation": "three steps; required Genre/Tag and source readiness verified; submit not clicked"
+    },
+    {
+      "viewport": 390,
+      "knowledge": "rendered; no overflow"
+    }
+  ],
+  "errors": [],
+  "blocked_writes": []
+}

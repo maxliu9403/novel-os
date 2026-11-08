@@ -471,7 +471,7 @@ def test_generate_requires_three_buckets_and_records_all_model_provenance(tmp_pa
         "conflict_response_sha256": hashlib.sha256(conflict_raw.encode()).hexdigest(),
         "writer_provider": "style-provider",
         "writer_model": "style-model",
-        "writer_prompt_version": "publication-copy-writer.v2",
+        "writer_prompt_version": "publication-copy-writer.v3",
         "writer_response_sha256": hashlib.sha256(writer_raw.encode()).hexdigest(),
         "validator_provider": "guardian-provider",
         "validator_model": "guardian-model",
@@ -805,7 +805,7 @@ def test_semantic_failure_repairs_at_most_twice_without_regenerating_conflict(tm
 
     assert publication_copy.validation.status == "pass"
     assert writer.prompt_versions.count("whole-book-conflict.v3") == 1
-    assert writer.prompt_versions.count("publication-copy-writer.v2") == 3
+    assert writer.prompt_versions.count("publication-copy-writer.v3") == 3
     feedback = sorted(
         (tmp_path / "outputs/runs/run-001/feedback").glob(
             "publication-copy-attempt-*.raw"
@@ -1164,7 +1164,7 @@ def test_long_source_consolidates_different_fragments_and_emits_bound_evidence_l
 
     assert publication_copy.whole_book_core_conflict.to_dict() == _long_conflict()
     assert writer.prompt_versions.count("whole-book-conflict.v3") == 3
-    assert writer.prompt_versions[-1] == "publication-copy-writer.v2"
+    assert writer.prompt_versions[-1] == "publication-copy-writer.v3"
     assert len(guardian.calls) == 4
     assert "group_reports" in guardian.calls[-1][1]
     writer_user = writer.calls[-1][1]
@@ -1550,3 +1550,22 @@ def test_constructor_enforces_the_max_two_repair_contract(max_repairs):
 
     with pytest.raises(ValueError, match="max_repairs"):
         PublicationCopyService(writer, guardian, max_repairs=max_repairs)
+
+
+def test_copied_opening_repair_identifies_the_passage_without_relaxing_gate(tmp_path):
+    copied = "Mara hides the eviction notice while an instruction"
+    rejected = _writer_candidate(spoiler_free_blurb=copied + ". " + BLURB)
+    writer = FakeClient([_raw(_conflict()), _raw(rejected), _raw(_writer_candidate())],
+                        provider="test", model="writer")
+    guardian = FakeClient([_raw(_preflight_pass()), _raw(_guardian_pass())],
+                          provider="test", model="guardian")
+    publication = _generate(tmp_path, writer, guardian)
+    repair = writer.calls[-1][1]
+    assert "not_chapter_one_copy" in repair
+    assert "matched_windows" in repair
+    assert '"field": "spoiler_free_blurb"' in repair
+    assert "mara hides the eviction notice while an instruction" in repair
+    assert "Paraphrase" in repair
+    assert "Do not add fields, change source quotes" not in repair
+    assert publication.spoiler_free_blurb == BLURB
+    assert len(writer.calls) == 3 and len(guardian.calls) == 2

@@ -1,4 +1,4 @@
-import type { JobStatus } from "./client";
+import { ApiError, type JobStatus } from "./client";
 import { API_BASE as BASE } from "./base";
 import type { CreativeTypeRef, TypeSnapshot } from './creativeTypes';
 
@@ -30,12 +30,61 @@ export interface WorkshopDesignRound {
   assumptions?: string[];
   conflicts?: string[];
   next_focus?: { topic: string; why: string };
+  guidance?: WorkshopGuidance;
+  story?: StoryMap;
+}
+
+export interface WorkshopGuidance {
+  status: 'assessed' | 'unavailable';
+  reviewed_revision: number;
+  notice?: string;
+  groups?: Array<{ id: string; topic: string; why: string; option_ids: string[]; recommended_id: string | null }>;
+  coverage?: Array<{ area: 'premise' | 'characters' | 'plot' | 'ending'; status: 'missing' | 'proposed' | 'settled' | 'conflict'; summary: string;
+    evidence: Array<{ message_index?: number; input_field?: string; quote: string }> }>;
+  next_action?: 'choose' | 'refine' | 'generate';
+  reason?: string;
+  missing?: string[];
+}
+
+export type StoryAction = { mode: 'select' | 'custom' | 'delegate' | 'question' | 'reframe' | 'reopen'; question_id: string };
+export type StoryArea = 'direction' | 'opening' | 'middle' | 'climax' | 'ending';
+export interface StoryMap {
+  synopsis: string; focus: StoryArea; reviewed_revision: number; source_revision: number;
+  changes: string[];
+  nodes: Array<{ area: StoryArea; summary: string; status: 'missing' | 'proposed' | 'settled' | 'conflict'; evidence: Array<{ quote: string }> }>;
+  opening?: { situation: string; anchor: string; reader_experience: string; genre_cause: string; first_value: string; next_expectation: string; preview?: string };
+}
+export interface StoryQuestion {
+  id: string; topic: string; why: string; option_ids: string[]; recommended_id: string | null;
+  proposals: WorkshopProposal[]; recommendation_reason?: string;
+}
+export interface StoryState {
+  map: StoryMap | null; pending: StoryQuestion | null; notice?: string;
+  validation?: {
+    schema: 'story-validation.v1'; source_revision: number; reviewed_revision: number;
+    status: 'complete' | 'partial' | 'unavailable'; map_status: 'updated' | 'preserved' | 'unavailable';
+    opening_status: 'updated' | 'unavailable'; candidate_path?: string; candidate_save_failed?: boolean;
+    issues: Array<{ component: string; path: string; code: string; message: string }>;
+  };
+  actions: Array<{ mode: StoryAction['mode']; question: StoryQuestion; proposal_ids: string[]; note: string; revision: number; created_at: string }>;
+  assumptions: Array<{ id: string; text: string; kind: 'major_premise' | 'causal_gap' | 'detail' | 'external_fact'; status: string; source_revision: number; proposal_id?: string | null; question_id?: string | null; resolution?: string }>;
+}
+export interface GuidedTurn {
+  capacity_replan?: { proposal_sha256: string; option_id: string; chapters: number };
+  capacity_choice?: { proposal_sha256: string; option_id: string };
+  story_action?: StoryAction;
+  revision: number;
+  message: string;
+  intent: WorkshopTurnIntent;
+  proposal_ids: string[];
+  operation_id: string;
 }
 
 export interface WorkshopDesign {
   schema: string;
   policy_sha256: string;
-  policy: { type_snapshot?: TypeSnapshot; guidance: {
+  story_state?: StoryState;
+  policy: { capacity_version?: string; story_workshop_version?: string; guided_choices_version?: string; type_snapshot?: TypeSnapshot; guidance: {
     version: string;
     selections: Array<{ selection: string; coverage: "specialized_guidance" | "general_guidance" | "user_guidance" }>;
   } };
@@ -63,12 +112,13 @@ export interface WorkshopDeliveryProgress {
 }
 
 export interface WorkshopInput {
+  length_planning?: 'story_first' | null;
   title: string;
   author: string;
   genres: string[];
   creative_types?: CreativeTypeRef[] | null;
-  creation_flow?: 'h5_guided.v1' | null;
-  publication_classification?: BookClassificationSelection | null;
+  creation_flow?: 'genre_tags.v1' | null;
+  source_book?: import('./sourceBooks').SourceSelection | null;
   premise: string;
   chapters?: number;
   words_per_chapter?: number;
@@ -91,6 +141,16 @@ export interface BookClassificationSelection {
 }
 
 export interface WorkshopRuntimeProgress {
+  completion_grace_seconds?: number;
+  completion_grace_limit?: number;
+  failure_summary?: { kind: 'no_content_timeout' | 'timeout'; consecutive_count: number } | null;
+  upstream_error_event_count?: number;
+  last_upstream_failure_kind?: string | null;
+  last_upstream_failure_at?: string | null;
+  last_diagnostic_code?: string | null;
+  last_diagnostic_component?: string | null;
+  last_diagnostic_level?: string | null;
+  last_diagnostic_at?: string | null;
   revision: number;
   operation: "brainstorm" | "titles";
   job_id: string | null;
@@ -132,6 +192,9 @@ export interface WorkshopRuntimeProgress {
 }
 
 export interface WorkshopSession {
+  capacity_replan?: { request: NonNullable<GuidedTurn['capacity_replan']>; chapter_words_limit: number; total_words: number } | null;
+  skeleton_review?: SkeletonReview;
+  capacity?: StoryCapacity;
   id: string;
   revision: number;
   input: WorkshopInput;
@@ -166,9 +229,10 @@ export interface WorkshopSession {
   history?: Array<{ revision: number; archived_at: string; title: string; message_count: number; has_prompt: boolean }>;
   naming?: {
     source_sha256: string;
-    candidates: Array<{ title: string; reason: string }>;
+    candidates: Array<{ title: string; reason: string; angle?: string; source_ids?: string[] }>;
     confirmed_title: string | null;
-    requests: Array<{ instructions: string; current_title?: string; created_at: string; candidates?: Array<{ title: string; reason: string }>; error?: string }>;
+    requests: Array<{ instructions: string; current_title?: string; created_at: string; candidates?: Array<{ title: string; reason: string; angle?: string }>; error?: string;
+      metrics?: { input_bytes: number; context_bytes: number; skeleton_bytes: number; prompt_version?: number; attempts: number } }>;
   } | null;
 }
 
@@ -185,8 +249,32 @@ export interface WorkshopSessionSummary {
   restart_required?: boolean;
 }
 
-async function request<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${BASE}${path}`, body === undefined ? undefined : {
+export interface CapacityOption {
+  id: string; title: string; tradeoff: string; recommended: boolean; total_words: number;
+  chapters: Array<{ number: number; scene_ids: string[]; target_words: number }>;
+}
+
+export interface SkeletonReview {
+  schema: 'skeleton-review.v1'; status: 'proposed' | 'clear' | 'unavailable' | 'resolved';
+  source_sha256: string; source_revision: number; review_sha256?: string;
+  summary?: string; notice?: string; notes?: string[];
+  issues: Array<{ id: string; chapter: number; category: string; quote: string; replacement: string; problem: string }>;
+  selected_ids?: string[]; decision?: 'apply_selected' | 'keep_original'; resolved_revision?: number;
+}
+export interface SkeletonRevisionRequest {
+  revision: number; review_sha256: string; selected_ids: string[]; operation_id: string;
+}
+export interface StoryCapacity {
+  schema: 'story-capacity.v1'; status: 'proposed' | 'confirmed' | 'stale' | 'unavailable';
+  notice?: string; proposal_sha256?: string; reviewed_revision?: number;
+  plan?: { language: string; count_unit: 'words' | 'characters'; rationale: string;
+    scenes: Array<{ id: string; title: string; partition_label?: string; source_quote: string; presentation: 'on_page' | 'summary'; reader_value: string; minimum: number; maximum: number; reason: string }>;
+    options: CapacityOption[] };
+  confirmed?: { option: CapacityOption; language: string; count_unit: 'words' | 'characters' } | null;
+}
+
+async function request<T>(path: string, body?: unknown, method?: "DELETE"): Promise<T> {
+  const response = await fetch(`${BASE}${path}`, method ? { method } : body === undefined ? undefined : {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
   if (!response.ok) {
@@ -196,9 +284,9 @@ async function request<T>(path: string, body?: unknown): Promise<T> {
       if (typeof result.detail === "string") detail = result.detail;
       else if (typeof result.detail?.message === "string") detail = result.detail.message;
     } catch { /* Keep the HTTP status when the proxy does not return JSON. */ }
-    throw new Error(detail);
+    throw new ApiError(detail, response.status);
   }
-  return response.json() as Promise<T>;
+  return response.status === 204 ? undefined as T : response.json() as Promise<T>;
 }
 
 const sessionPath = (id: string) => `${ROOT}/${encodeURIComponent(id)}`;
@@ -209,8 +297,14 @@ export const workshopApi = {
   ),
   create: (input: WorkshopInput) => request<WorkshopSession>(ROOT, input),
   get: (id: string) => request<WorkshopSession>(sessionPath(id)),
+  delete: (id: string, revision: number) =>
+    request<void>(`${sessionPath(id)}?revision=${revision}`, undefined, "DELETE"),
   turn: (id: string, message: string, revision: number, intent: WorkshopTurnIntent = "discuss") =>
     request<JobStatus>(`${sessionPath(id)}/turns`, { message, revision, intent }),
+  guidedTurn: (id: string, body: GuidedTurn) => request<JobStatus>(`${sessionPath(id)}/turns`, body),
+  saveChoices: (id: string, body: GuidedTurn) => request<WorkshopSession>(`${sessionPath(id)}/choices`, body),
+  upgradeGuidance: (id: string, revision: number, operation_id: string, protocol: 'guided-choices.v1' | 'story-workshop.v1' = 'guided-choices.v1') =>
+    request<WorkshopSession>(`${sessionPath(id)}/guidance`, { revision, operation_id, protocol }),
   decide: (id: string, revision: number, proposal_id: string, status: WorkshopDecisionStatus, note = "") =>
     request<WorkshopSession>(`${sessionPath(id)}/decisions`, { revision, proposal_id, status, note }),
   pause: (id: string, revision: number, job_id: string) =>
@@ -227,6 +321,8 @@ export const workshopApi = {
     request<WorkshopSession>(`${sessionPath(id)}/input`, { revision, input }),
   prepare: (id: string, revision: number, title?: string) =>
     request<WorkshopSession>(`${sessionPath(id)}/prepare`, { revision, ...(title !== undefined ? { title } : {}) }),
+  reviseSkeleton: (id: string, body: SkeletonRevisionRequest) =>
+    request<WorkshopSession>(`${sessionPath(id)}/skeleton-revision`, body),
   launch: (id: string, revision: number) =>
     request<{ project_id: string; job_id: string }>(`${sessionPath(id)}/launch`, { revision }),
   promptUrl: (id: string) => `${BASE}${sessionPath(id)}/prompt`,

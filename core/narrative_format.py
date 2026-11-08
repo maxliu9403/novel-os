@@ -16,8 +16,10 @@ from typing import Any, Mapping, Sequence
 
 try:  # Package imports in tests; top-level imports in the legacy CLI.
     from .novel_classification import NovelClassification
+    from .narrative_format_input import FormatInput, SuitabilityInput, VolumeInput, validate_input
 except ImportError:  # pragma: no cover
     from novel_classification import NovelClassification
+    from narrative_format_input import FormatInput, SuitabilityInput, VolumeInput, validate_input
 
 
 SCHEMA_VERSION = "narrative-format.v1"
@@ -139,8 +141,7 @@ class LongFormSuitability:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "LongFormSuitability":
-        if not isinstance(value, Mapping):
-            raise ValueError("long_form_suitability must be an object")
+        validate_input(SuitabilityInput, value, "long_form_suitability")
         return cls(
             score=value["score"],
             recommendation=str(value["recommendation"]),
@@ -186,6 +187,7 @@ class VolumeSpan:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "VolumeSpan":
+        validate_input(VolumeInput, value, "volume")
         return cls(
             volume_id=str(value["volume_id"]),
             volume_number=value["volume_number"],
@@ -299,8 +301,7 @@ class NarrativeFormat:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "NarrativeFormat":
-        if not isinstance(value, Mapping):
-            raise ValueError("narrative format must be an object")
+        validate_input(FormatInput, value, "narrative_format")
         series = value.get("series") or {}
         if not isinstance(series, Mapping):
             raise ValueError("narrative format series must be an object")
@@ -680,12 +681,12 @@ def validate_volume_contracts(
         )
         payoff = _story_required(raw.get("payoff"), f"{span.volume_id}.payoff")
         climax = _integer(raw.get("climax_chapter"), f"{span.volume_id}.climax_chapter")
-        earliest_climax = span.chapter_start + max(
-            0, math.floor((span.chapter_end - span.chapter_start + 1) * 0.65) - 1
-        )
-        if not earliest_climax <= climax <= span.chapter_end:
+        # An adopted plot can climax early and devote the remainder to its
+        # consequences. Timing is a craft concern, not a serialization rule.
+        if not span.chapter_start <= climax <= span.chapter_end:
             raise ValueError(
-                f"{span.volume_id}.climax_chapter must be in the final 35% of its range"
+                f"{span.volume_id}.climax_chapter must be within its volume range "
+                f"{span.chapter_start}–{span.chapter_end}"
             )
         carryover = str(raw.get("carryover_hook") or "").strip()
         if span.volume_number < len(format_contract.volumes) and not carryover:

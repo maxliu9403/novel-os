@@ -89,3 +89,5 @@
   .library-book__statuses { gap: 8px 11px; margin-top: 12px; }
   .library-book__byline { font-size: 10px; }
 }
+.library-book__source { position: relative; z-index: 2; display: block; color: var(--color-ink-muted, #7684a3); font-size: 12px; margin: 8px 0; }
+.library-book__source:hover { color: #6c5fe9; text-decoration: underline; }

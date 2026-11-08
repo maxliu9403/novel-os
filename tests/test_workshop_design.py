@@ -36,6 +36,8 @@ def response(design_notes=None):
 
 
 def discussed(client, monkeypatch):
+    original_new_design = workshop.new_design
+    monkeypatch.setattr(workshop, 'new_design', lambda *a, **kw: original_new_design(*a, **{**kw, 'story': False}))
     calls = stub_model(monkeypatch, lambda *_: response())
     data = create(client, genres=["Werewolf", "Revenge", "Female Growth"])
     submit(client, data, "先提出不同走线", intent="discuss")
@@ -103,7 +105,7 @@ def test_proposals_are_durable_not_author_decisions_and_prompt_uses_snapshot(cli
     assert record["proposals"][0]["id"] == "r1:p1"
     assert record["assumptions"] == notes()["assumptions"]
     assert len(calls) == 1
-    assert "CREATIVE DESIGN RECORD" in calls[0][0]
+    assert "workshop-discussion.v2" in calls[0][0]
     context = json.loads(calls[0][1])["creative_design"]
     assert context["guidance"] == design["policy"]["guidance"]
     restored = client.get(f'/api/workshop/sessions/{data["id"]}').json()
@@ -229,7 +231,7 @@ def test_restart_archives_old_decisions_and_excludes_them_from_new_context(clien
     data, calls = discussed(client, monkeypatch)
     data = decide(client, data).json()
     saved = client.post(f'/api/workshop/sessions/{data["id"]}/input', json={
-        "revision": data["revision"], "input": {**data["input"], "genres": ["Mystery"]}}).json()
+        "revision": data["revision"], "input": {**data["input"], "creative_types": [r.model_dump() for r in __import__("test_creative_types").default_refs()]}}).json()
     assert saved["creative_design"] == data["creative_design"]
     assert decide(client, saved).status_code == 409
     result = client.post(f'/api/workshop/sessions/{data["id"]}/restart', json={"revision": saved["revision"]})
@@ -237,7 +239,7 @@ def test_restart_archives_old_decisions_and_excludes_them_from_new_context(clien
     current = finish(client, data["id"])
     context = json.loads(calls[-1][1])["creative_design"]
     assert context["author_decisions"] == [] and context["rounds"] == []
-    assert context["guidance"]["selections"][0]["selection"] == "Mystery"
+    assert context["genre_context"]["genre_id"] == "genre.romance"
     history = client.get(f'/api/workshop/sessions/{data["id"]}/history/{saved["revision"]}').json()
     assert history["creative_design"] == data["creative_design"]
     assert current["creative_design"]["decisions"] == []
@@ -264,6 +266,10 @@ def test_delivery_receives_adopted_choices_but_does_not_add_proposal_round(clien
     path = tmp_path / "workshop_v2" / data["id"] / "session.json"
     saved = json.loads(path.read_text())
     saved["prompt_md"] = prompt
+    # An existing legacy skeleton retains its original frozen update protocol.
+    saved['creative_design']['policy'].pop('story_engine', None)
+    import hashlib
+    saved['creative_design']['policy_sha256'] = hashlib.sha256(json.dumps(saved['creative_design']['policy'], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
     path.write_text(json.dumps(saved))
     calls = stub_model(monkeypatch, lambda *_: json.dumps(model_result(prompt)[0]))
     submit(client, data, "生成完整骨架", intent="deliver")

@@ -76,5 +76,7 @@ def project_costs(project_id: str, svc: ProjectService = Depends(get_service)):
 @router.get("/workshop/sessions/{session_id}/costs")
 def workshop_costs(session_id: str, svc: WorkshopService = Depends(get_workshop_service)):
     session = _session(svc, session_id)
+    if session.get("deleted_at"):
+        raise HTTPException(404, "Workshop session not found")
     return costs_payload(owner_records(svc._path(session_id)), get_pricing(),
                          session_id=session_id, project_id=session.get("project_id"))

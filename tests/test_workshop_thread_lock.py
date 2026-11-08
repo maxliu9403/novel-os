@@ -4,6 +4,7 @@ import threading
 import time
 from types import SimpleNamespace
 
+from test_creative_types import default_refs
 import pytest
 
 from api import workshop
@@ -47,7 +48,7 @@ def _join_reader(thread, acquired, errors):
 
 
 def test_turn_worker_reads_only_after_running_state_is_persisted(service, monkeypatch):
-    session = service.create(workshop.SessionInput(premise="A disputed inheritance"))
+    session = service.create(workshop.SessionInput(creative_types=default_refs(), premise="A disputed inheritance"))
     save_pending, worker_started, worker_finished = (threading.Event() for _ in range(3))
     original_save, original_run = service._save, service._run_turn
     calls = []
@@ -98,7 +99,7 @@ def test_turn_worker_reads_only_after_running_state_is_persisted(service, monkey
 
 @pytest.mark.parametrize("alias", [False, True])
 def test_same_session_lock_is_shared_by_service_instances(service, tmp_path, alias):
-    session = service.create(workshop.SessionInput())
+    session = service.create(workshop.SessionInput(creative_types=default_refs(), ))
     other = workshop.WorkshopService(service.projects)
     if alias:
         linked_root = tmp_path / "linked-workshop"
@@ -118,10 +119,10 @@ def test_same_session_lock_is_shared_by_service_instances(service, tmp_path, ali
 
 @pytest.mark.parametrize("scope", ["session", "workspace", "project_root"])
 def test_independent_session_paths_do_not_share_lock(service, tmp_path, scope):
-    session = service.create(workshop.SessionInput())
+    session = service.create(workshop.SessionInput(creative_types=default_refs(), ))
     if scope == "session":
         other = workshop.WorkshopService(service.projects)
-        other_session = other.create(workshop.SessionInput())
+        other_session = other.create(workshop.SessionInput(creative_types=default_refs(), ))
     else:
         workspace = SimpleNamespace(id="other-workspace", slug="other-workspace") if scope == "workspace" else None
         projects_root = service.projects.root if scope == "workspace" else tmp_path / "other" / "projects"
@@ -142,7 +143,7 @@ def test_independent_session_paths_do_not_share_lock(service, tmp_path, scope):
 
 @pytest.mark.parametrize("failure", ["body", "read", "flock"])
 def test_session_lock_is_released_after_exception(service, monkeypatch, failure):
-    session = service.create(workshop.SessionInput())
+    session = service.create(workshop.SessionInput(creative_types=default_refs(), ))
     path = service._path(session["id"]) / "session.json"
     if failure == "read":
         path.write_text("invalid JSON")

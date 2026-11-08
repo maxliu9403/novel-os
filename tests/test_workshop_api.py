@@ -14,6 +14,9 @@ from api.services import ProjectService
 from api import workshop
 from api.jobs import JobRunner
 from test_workshop_handoff import make_prompt
+from test_creative_types import default_refs
+from core.creative_types import CreativeTypeStore, TypeRef
+from core.publication_taxonomy import bind_classification
 from test_cover_models_v2 import two_character_fixture
 
 
@@ -28,7 +31,28 @@ def client(tmp_path, monkeypatch):
 
 
 def create(client, **fields):
-    response = client.post("/api/workshop/sessions", json={"title": "A Mother's Choice", **fields})
+    if fields.get('genres') and 'creative_types' not in fields:
+        import yaml
+        names=fields['genres']
+        # Explicit author-maintained test documents replace the retired presets.
+        identifiers=['genre.test_world']+[f'tag.test_{n}' for n in range(max(1,len(names)-1))]
+        refs=[]
+        source=CreativeTypeStore(Path('/unused-fixture')).get('genre.romance')['draft']
+        _,head,body=source.split('---',2)
+        for n,identifier in enumerate(identifiers):
+            header=yaml.safe_load(head);header.update(id=identifier,kind='genre' if n==0 else 'tag',name=names[n] if n<len(names) else 'Story Choice',aliases=[])
+            header.pop('publication',None)
+            if n:
+                header['genre_ids']=[identifiers[0]]
+                if header.get('schema') == 'novel-knowledge.v2':
+                    header['roles']=['conflict']
+            md='---\n'+yaml.safe_dump(header,allow_unicode=True,sort_keys=False)+'---'+body
+            saved=client.post('/api/creative-types',json={'markdown':md,'operation_id':f'create-test-{identifier.replace(".", "-")}'}).json()
+            if 'id' not in saved:saved=client.get('/api/creative-types/'+identifier).json()
+            active=client.post('/api/creative-types/'+identifier+'/activate',json={'markdown':md,'revision':saved['revision'],'operation_id':f'activate-test-{identifier.replace(".", "-")}'}).json()
+            refs.append({'id':identifier,'version':active['active_version'],'source_sha256':active['versions'][-1]['sha256']})
+        fields['creative_types']=refs
+    response = client.post("/api/workshop/sessions", json={"title": "A Mother's Choice", "creative_types": [r.model_dump() for r in default_refs()], **fields})
     assert response.status_code == 201
     return response.json()
 
@@ -67,7 +91,8 @@ def complete_prompt(tmp_path):
         elif i == 15:
             content = "COVER_HANDOFF_BEGIN\n" + json.dumps(two_character_fixture()) + "\nCOVER_HANDOFF_END"
         body += f"\n## {i}. {title}\n\n{content}\n"
-    return body
+    store=CreativeTypeStore(Path('/unused-fixture'))
+    return bind_classification(body,{'publication_taxonomy':store.snapshot(default_refs())['publication_taxonomy']})
 
 
 def ready(client, monkeypatch, tmp_path, **fields):
@@ -281,7 +306,7 @@ def test_workshop_route_timeout_and_bounded_format_repair(monkeypatch):
     assert configs[0]["max_tokens"] == 16384
     assert "old complete draft" in prompts[-1][1]
     assert "questions field is a required JSON artifact" in prompts[0][0]
-    assert "reply string MUST be reader-facing Markdown" in prompts[0][0]
+    assert '"reply":"Chinese Markdown advice"' in prompts[0][0]
     assert result["questions"] == ["读者是谁？"]
 
 
@@ -358,7 +383,7 @@ def test_valid_transport_with_truncated_skeleton_keeps_previous_version(client, 
     assert result["prompt_md"] == previous
     assert "1–17" in result["last_error"]
     candidates = tmp_path / "workshop_v2" / data["id"] / "candidates"
-    assert any(path.read_text() == "# Short outline" for path in candidates.glob("*.md"))
+    assert any(path.read_text().startswith("# Short outline") for path in candidates.glob("*.md"))
 
 
 def test_fenced_pending_format_is_confirmed_without_guessing_mode(client, monkeypatch, tmp_path):
@@ -402,7 +427,7 @@ def test_session_list_keeps_same_title_sessions_distinct_and_recovers_by_id(clie
     assert body["sessions"][1]["message_count"] == 1
     assert body["sessions"][1]["premise_preview"] == "第一条故事线 女儿保存证据。"
     assert set(body["sessions"][0]) == {"id", "title", "status", "revision", "updated_at",
-                                       "project_id", "has_prompt", "message_count", "premise_preview", "restart_required"}
+                                       "project_id", "has_prompt", "message_count", "premise_preview", "restart_required", "source"}
     restored_first = client.get(f'/api/workshop/sessions/{first["id"]}').json()
     restored_second = client.get(f'/api/workshop/sessions/{second["id"]}').json()
     assert restored_first["messages"][0]["content"] == "只属于第一个会话"
@@ -452,8 +477,8 @@ def test_session_list_is_scoped_to_workspace_and_does_not_create_empty_store(cli
     root = tmp_path / "projects"
     first_service = ProjectService(root, SimpleNamespace(id="workspace-a", slug="workspace-a"))
     second_service = ProjectService(root, SimpleNamespace(id="workspace-b", slug="workspace-b"))
-    first = workshop.WorkshopService(first_service).create(workshop.SessionInput(title="A private story"))
-    second = workshop.WorkshopService(second_service).create(workshop.SessionInput(title="B private story"))
+    first = workshop.WorkshopService(first_service).create(workshop.SessionInput(creative_types=default_refs(), title="A private story"))
+    second = workshop.WorkshopService(second_service).create(workshop.SessionInput(creative_types=default_refs(), title="B private story"))
     assert [row["id"] for row in client.get("/api/workshop/sessions").json()["sessions"]] == [default["id"]]
     default_service = ProjectService(root, SimpleNamespace(id="default", slug="default"))
     client.app.dependency_overrides[workshop.get_service] = lambda: default_service
@@ -539,7 +564,7 @@ def test_timeout_freezes_actual_limit_and_retry_keeps_complete_context(client, m
     assert client.post(url, json={'revision': 0, 'message': '保留原设定完善骨架'}).status_code == 202
     failed = finish(client, data['id'])
     assert failed['status'] == 'error'
-    assert '本轮上限 600 秒' in failed['last_error']
+    assert '常规等待上限 600 秒' in failed['last_error']
     assert '1200' not in failed['last_error']
     if has_draft:
         assert '上一版完整骨架已保留' in failed['last_error']

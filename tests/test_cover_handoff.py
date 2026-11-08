@@ -223,3 +223,18 @@ def test_legacy_artifact_adapter_preserves_explicit_market_or_leaves_unspecified
     assert f"Source-declared release market: {declared or 'unspecified'}." in prompt
     assert "United States" not in prompt and "premium US" not in prompt
     assert all(path.read_bytes() == data for path, data in source_before.items())
+
+
+def test_legacy_cover_theme_fallback_keeps_structured_argument(tmp_path):
+    from core.cover_handoff import resolve_cover_brief
+    inputs = tmp_path / 'outputs/input'
+    inputs.mkdir(parents=True)
+    (inputs / 'prompt.md').write_text('A caretaker claims her key.')
+    (inputs / 'brief.json').write_text(json.dumps({'title': 'Her Key', 'genre': 'drama'}))
+    source = json.dumps({'title': 'Her Key', 'premise': 'A caretaker claims her key from a controlling partner.',
+        'themes': [{'name': 'Agency', 'argument': 'Affection does not require surrendering independence.'}],
+        'characters': [{'name': 'Mara', 'role': 'protagonist', 'external_goal': 'Claim her own home'}]})
+    (inputs / 'foundation.json').write_text(source)
+    adapted = resolve_cover_brief(tmp_path)
+    assert adapted.emotional_promise == 'Agency: Affection does not require surrendering independence.'
+    assert (inputs / 'foundation.json').read_text() == source

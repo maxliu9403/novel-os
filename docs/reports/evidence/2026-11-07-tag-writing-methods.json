@@ -1,0 +1,731 @@
+{
+  "updated": 36,
+  "protected": [
+    "genre.romance",
+    "tag.action",
+    "tag.adventurous",
+    "tag.affair",
+    "tag.dark_romance"
+  ],
+  "full_body_stage_checks": 252,
+  "old_frozen_stage_checks": 252,
+  "largest_twenty_by_stage_bytes": {
+    "brainstorm": 90876,
+    "story_design": 90861,
+    "chapter_plan": 88474,
+    "draft": 88475,
+    "review": 88507,
+    "publication": 83130,
+    "cover": 82973
+  },
+  "four_tag_brainstorm_bytes": [
+    {
+      "tag_ids": [
+        "tag.dark_romance",
+        "tag.possessive",
+        "tag.badboy",
+        "tag.age_gap"
+      ],
+      "before": 36285,
+      "after": 30458
+    },
+    {
+      "tag_ids": [
+        "tag.affair",
+        "tag.betrayal",
+        "tag.regret",
+        "tag.second_chance"
+      ],
+      "before": 27826,
+      "after": 29398
+    },
+    {
+      "tag_ids": [
+        "tag.ceo",
+        "tag.contract_marriage",
+        "tag.comedy",
+        "tag.sweet_love"
+      ],
+      "before": 23095,
+      "after": 25818
+    }
+  ],
+  "versions": [
+    {
+      "id": "tag.age_gap",
+      "action": "replaced",
+      "version": 5,
+      "source_sha256": "583c9cd34d6b7bef0151a2546479e28408d4ef5bc8271a4f1187b4aa2cf798f1"
+    },
+    {
+      "id": "tag.arrogant",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "ee476e05e3fc030f09586a9a8f2de0fe70d8c04598e6b6a5bc34b8862b1e5467"
+    },
+    {
+      "id": "tag.badboy",
+      "action": "replaced",
+      "version": 5,
+      "source_sha256": "dbb049842763ccd27370f59a762a32367dd83592b6c24b87bc8c26a6880a7c8a"
+    },
+    {
+      "id": "tag.betrayal",
+      "action": "replaced",
+      "version": 5,
+      "source_sha256": "1531344713101cde8c20431f69e1ca70bd067dff54185111acd263de07e9836a"
+    },
+    {
+      "id": "tag.ceo",
+      "action": "replaced",
+      "version": 5,
+      "source_sha256": "1a57cf288fb5d7c4426cb20fc104deaf95a09d9ad2d34d75550d92e5b2310d38"
+    },
+    {
+      "id": "tag.comedy",
+      "action": "replaced",
+      "version": 5,
+      "source_sha256": "3e4ddb5adff74995383552e113e74657af68d69cc61af4ae5bba91b1acf6ecb0"
+    },
+    {
+      "id": "tag.contemporary",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "51ea3541fd275f48728086fe4ce85cfd2130c5f6e893afed42ad0a24566224ae"
+    },
+    {
+      "id": "tag.contract_marriage",
+      "action": "replaced",
+      "version": 5,
+      "source_sha256": "41566b43b575b4cdd27de46723bfb2d8b27e249a7c96f70da3b23d9150e4c637"
+    },
+    {
+      "id": "tag.divorce",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "d5ed676e0c53e309ced26db689f0e2db92467f69947df2d715eac4189aa850d9"
+    },
+    {
+      "id": "tag.dominant",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "4af1dbfa89510b647b1a1593617cf43c7cc9990a587e01108375690241e24587"
+    },
+    {
+      "id": "tag.drama",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "b2eba3dcfb32ec3eaa232cf7c7fcd44d122e7d8aa53e1bebb3fba2bef4ad31a4"
+    },
+    {
+      "id": "tag.face_slapping",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "cb43415828b6bb910c851ef1d13e1bfd98b2f5e68466ec3b53aec89bb1ed8512"
+    },
+    {
+      "id": "tag.fast_paced_plot",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "84f98f379f30b091a42eab67760fff025c984a57ed8ec293a47f0fff7478e5f2"
+    },
+    {
+      "id": "tag.first_person_pov",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "9784bc1f5348803d19ece563ae65b4b882f075038da0ab880407575c885fd4cd"
+    },
+    {
+      "id": "tag.forbidden_love",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "8baecbd3b2333632d6b6faa1725a66a6ee58d5edb1a373b713e67d816f73ae05"
+    },
+    {
+      "id": "tag.girl_power",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "f00444999bcc537cf845f9a2d1a1c9c5058ed023b1cc179b5949f00de490d5fc"
+    },
+    {
+      "id": "tag.hate_to_love",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "4217bad6dde601b9c63e3fcc4096a1fe370d78576f2d1dece5dfe24781ff3bf4"
+    },
+    {
+      "id": "tag.heir_heirness",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "5a365411be2b8c40830146b34d26894e2295d60c2028ce51949dc0cfeda63576"
+    },
+    {
+      "id": "tag.hidden_identity",
+      "action": "replaced",
+      "version": 5,
+      "source_sha256": "e637956b280e4b11df7701be4718ad4be64eabb30c66ddf0603d0035447a5fbf"
+    },
+    {
+      "id": "tag.independent",
+      "action": "replaced",
+      "version": 5,
+      "source_sha256": "f350914d55cdcf5ce4ef654b02de4649220765d01795a84e5ae1f9fc4baf2905"
+    },
+    {
+      "id": "tag.intelligent",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "ae943bdf5271a86895ddf5462c67371769d46e068348a233456478d65c2300ce"
+    },
+    {
+      "id": "tag.love_triangle",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "982ede3814a1764dec14be158bebfede607b136aa6289a1c9b8c3a4e84af555c"
+    },
+    {
+      "id": "tag.misunderstanding",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "ace512a99ec0495c18f47f8f4664becaf650847487656b04286ba5d81aff1e3a"
+    },
+    {
+      "id": "tag.mystery",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "9013f4be2c062910d2e5786a4a490213f35ef5a79d372797ae8e1161b99e1f48"
+    },
+    {
+      "id": "tag.office_relationship",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "76ffa03ca355afca0c35189662109f1e75d2e5db13f3e7408a08bd1054dd51ea"
+    },
+    {
+      "id": "tag.possessive",
+      "action": "replaced",
+      "version": 5,
+      "source_sha256": "e4eada6a21deeec2657089333ff8ab019ddef25da0421cd6b8423afefb4f7022"
+    },
+    {
+      "id": "tag.pregnant",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "034387482e6eecff26d1119ba079c397af7f4e9798f93950c91bced98368ab3d"
+    },
+    {
+      "id": "tag.rebel",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "ed22d66bdeadb9b681f561e63b8a36243d1c1317fb3aee0d4e1f2b2ad5eab63c"
+    },
+    {
+      "id": "tag.regret",
+      "action": "replaced",
+      "version": 5,
+      "source_sha256": "32a4329ec2a7d45a354507b02f039d9525e0900f1f121c096fce61e435b71491"
+    },
+    {
+      "id": "tag.revenge",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "c1f3a3797a87ea9110272eb69174c07ff145d0e01cc8f7ad4d276ca7fd0a8382"
+    },
+    {
+      "id": "tag.runaway_with_a_baby",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "2669d680431517f06ddfb8b438b2f8a21533124f4f6b733fd09040dfd126241b"
+    },
+    {
+      "id": "tag.ruthless",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "a91226c42d91c4700f10cba928bdfecba8177e724b4efca56fdf168bd6f83b6c"
+    },
+    {
+      "id": "tag.second_chance",
+      "action": "replaced",
+      "version": 5,
+      "source_sha256": "6fc722caf3d3eccb1ed518492c3ef989fab792dbbe115cc81cf5bd6c7bc68422"
+    },
+    {
+      "id": "tag.secretary",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "242a5315a7580d12977395c7cbd6d41476c0e34c4f84514db0af8dea5901c073"
+    },
+    {
+      "id": "tag.sweet_love",
+      "action": "replaced",
+      "version": 5,
+      "source_sha256": "eb88414d947da051214eec7cfa78a12c57ffa1a9611162c11078b755afb6d0fd"
+    },
+    {
+      "id": "tag.tragedy",
+      "action": "replaced",
+      "version": 4,
+      "source_sha256": "d2d0e366abbf574dfab6d4f82e9ed28b3878ddbfaa2325935ba98ed7b53b9991"
+    }
+  ],
+  "repeat_import": "unchanged",
+  "stale_batch": "rejected_without_mutation",
+  "activation": {
+    "items": [
+      {
+        "id": "tag.age_gap",
+        "action": "replaced",
+        "version": 5,
+        "source_sha256": "583c9cd34d6b7bef0151a2546479e28408d4ef5bc8271a4f1187b4aa2cf798f1"
+      },
+      {
+        "id": "tag.arrogant",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "ee476e05e3fc030f09586a9a8f2de0fe70d8c04598e6b6a5bc34b8862b1e5467"
+      },
+      {
+        "id": "tag.badboy",
+        "action": "replaced",
+        "version": 5,
+        "source_sha256": "dbb049842763ccd27370f59a762a32367dd83592b6c24b87bc8c26a6880a7c8a"
+      },
+      {
+        "id": "tag.betrayal",
+        "action": "replaced",
+        "version": 5,
+        "source_sha256": "1531344713101cde8c20431f69e1ca70bd067dff54185111acd263de07e9836a"
+      },
+      {
+        "id": "tag.ceo",
+        "action": "replaced",
+        "version": 5,
+        "source_sha256": "1a57cf288fb5d7c4426cb20fc104deaf95a09d9ad2d34d75550d92e5b2310d38"
+      },
+      {
+        "id": "tag.comedy",
+        "action": "replaced",
+        "version": 5,
+        "source_sha256": "3e4ddb5adff74995383552e113e74657af68d69cc61af4ae5bba91b1acf6ecb0"
+      },
+      {
+        "id": "tag.contemporary",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "51ea3541fd275f48728086fe4ce85cfd2130c5f6e893afed42ad0a24566224ae"
+      },
+      {
+        "id": "tag.contract_marriage",
+        "action": "replaced",
+        "version": 5,
+        "source_sha256": "41566b43b575b4cdd27de46723bfb2d8b27e249a7c96f70da3b23d9150e4c637"
+      },
+      {
+        "id": "tag.divorce",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "d5ed676e0c53e309ced26db689f0e2db92467f69947df2d715eac4189aa850d9"
+      },
+      {
+        "id": "tag.dominant",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "4af1dbfa89510b647b1a1593617cf43c7cc9990a587e01108375690241e24587"
+      },
+      {
+        "id": "tag.drama",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "b2eba3dcfb32ec3eaa232cf7c7fcd44d122e7d8aa53e1bebb3fba2bef4ad31a4"
+      },
+      {
+        "id": "tag.face_slapping",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "cb43415828b6bb910c851ef1d13e1bfd98b2f5e68466ec3b53aec89bb1ed8512"
+      },
+      {
+        "id": "tag.fast_paced_plot",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "84f98f379f30b091a42eab67760fff025c984a57ed8ec293a47f0fff7478e5f2"
+      },
+      {
+        "id": "tag.first_person_pov",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "9784bc1f5348803d19ece563ae65b4b882f075038da0ab880407575c885fd4cd"
+      },
+      {
+        "id": "tag.forbidden_love",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "8baecbd3b2333632d6b6faa1725a66a6ee58d5edb1a373b713e67d816f73ae05"
+      },
+      {
+        "id": "tag.girl_power",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "f00444999bcc537cf845f9a2d1a1c9c5058ed023b1cc179b5949f00de490d5fc"
+      },
+      {
+        "id": "tag.hate_to_love",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "4217bad6dde601b9c63e3fcc4096a1fe370d78576f2d1dece5dfe24781ff3bf4"
+      },
+      {
+        "id": "tag.heir_heirness",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "5a365411be2b8c40830146b34d26894e2295d60c2028ce51949dc0cfeda63576"
+      },
+      {
+        "id": "tag.hidden_identity",
+        "action": "replaced",
+        "version": 5,
+        "source_sha256": "e637956b280e4b11df7701be4718ad4be64eabb30c66ddf0603d0035447a5fbf"
+      },
+      {
+        "id": "tag.independent",
+        "action": "replaced",
+        "version": 5,
+        "source_sha256": "f350914d55cdcf5ce4ef654b02de4649220765d01795a84e5ae1f9fc4baf2905"
+      },
+      {
+        "id": "tag.intelligent",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "ae943bdf5271a86895ddf5462c67371769d46e068348a233456478d65c2300ce"
+      },
+      {
+        "id": "tag.love_triangle",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "982ede3814a1764dec14be158bebfede607b136aa6289a1c9b8c3a4e84af555c"
+      },
+      {
+        "id": "tag.misunderstanding",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "ace512a99ec0495c18f47f8f4664becaf650847487656b04286ba5d81aff1e3a"
+      },
+      {
+        "id": "tag.mystery",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "9013f4be2c062910d2e5786a4a490213f35ef5a79d372797ae8e1161b99e1f48"
+      },
+      {
+        "id": "tag.office_relationship",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "76ffa03ca355afca0c35189662109f1e75d2e5db13f3e7408a08bd1054dd51ea"
+      },
+      {
+        "id": "tag.possessive",
+        "action": "replaced",
+        "version": 5,
+        "source_sha256": "e4eada6a21deeec2657089333ff8ab019ddef25da0421cd6b8423afefb4f7022"
+      },
+      {
+        "id": "tag.pregnant",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "034387482e6eecff26d1119ba079c397af7f4e9798f93950c91bced98368ab3d"
+      },
+      {
+        "id": "tag.rebel",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "ed22d66bdeadb9b681f561e63b8a36243d1c1317fb3aee0d4e1f2b2ad5eab63c"
+      },
+      {
+        "id": "tag.regret",
+        "action": "replaced",
+        "version": 5,
+        "source_sha256": "32a4329ec2a7d45a354507b02f039d9525e0900f1f121c096fce61e435b71491"
+      },
+      {
+        "id": "tag.revenge",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "c1f3a3797a87ea9110272eb69174c07ff145d0e01cc8f7ad4d276ca7fd0a8382"
+      },
+      {
+        "id": "tag.runaway_with_a_baby",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "2669d680431517f06ddfb8b438b2f8a21533124f4f6b733fd09040dfd126241b"
+      },
+      {
+        "id": "tag.ruthless",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "a91226c42d91c4700f10cba928bdfecba8177e724b4efca56fdf168bd6f83b6c"
+      },
+      {
+        "id": "tag.second_chance",
+        "action": "replaced",
+        "version": 5,
+        "source_sha256": "6fc722caf3d3eccb1ed518492c3ef989fab792dbbe115cc81cf5bd6c7bc68422"
+      },
+      {
+        "id": "tag.secretary",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "242a5315a7580d12977395c7cbd6d41476c0e34c4f84514db0af8dea5901c073"
+      },
+      {
+        "id": "tag.sweet_love",
+        "action": "replaced",
+        "version": 5,
+        "source_sha256": "eb88414d947da051214eec7cfa78a12c57ffa1a9611162c11078b755afb6d0fd"
+      },
+      {
+        "id": "tag.tragedy",
+        "action": "replaced",
+        "version": 4,
+        "source_sha256": "d2d0e366abbf574dfab6d4f82e9ed28b3878ddbfaa2325935ba98ed7b53b9991"
+      }
+    ],
+    "backup": "import-backups/1410f55a089fc5527897f8f8d3263cc1f713ed3035cf18193881a54a2bca6953.json"
+  },
+  "live": {
+    "live_verified_tags": [
+      "tag.age_gap",
+      "tag.arrogant",
+      "tag.badboy",
+      "tag.betrayal",
+      "tag.ceo",
+      "tag.comedy",
+      "tag.contemporary",
+      "tag.contract_marriage",
+      "tag.divorce",
+      "tag.dominant",
+      "tag.drama",
+      "tag.face_slapping",
+      "tag.fast_paced_plot",
+      "tag.first_person_pov",
+      "tag.forbidden_love",
+      "tag.girl_power",
+      "tag.hate_to_love",
+      "tag.heir_heirness",
+      "tag.hidden_identity",
+      "tag.independent",
+      "tag.intelligent",
+      "tag.love_triangle",
+      "tag.misunderstanding",
+      "tag.mystery",
+      "tag.office_relationship",
+      "tag.possessive",
+      "tag.pregnant",
+      "tag.rebel",
+      "tag.regret",
+      "tag.revenge",
+      "tag.runaway_with_a_baby",
+      "tag.ruthless",
+      "tag.second_chance",
+      "tag.secretary",
+      "tag.sweet_love",
+      "tag.tragedy"
+    ],
+    "protected_records_unchanged": [
+      "genre.romance",
+      "tag.action",
+      "tag.adventurous",
+      "tag.affair",
+      "tag.dark_romance"
+    ],
+    "health": {
+      "status": "ok",
+      "version": "0.3.0"
+    }
+  },
+  "file_sizes": [
+    {
+      "id": "tag.age_gap",
+      "before_bytes": 5426,
+      "after_bytes": 2990
+    },
+    {
+      "id": "tag.arrogant",
+      "before_bytes": 2703,
+      "after_bytes": 2862
+    },
+    {
+      "id": "tag.badboy",
+      "before_bytes": 5258,
+      "after_bytes": 2951
+    },
+    {
+      "id": "tag.betrayal",
+      "before_bytes": 3205,
+      "after_bytes": 2971
+    },
+    {
+      "id": "tag.ceo",
+      "before_bytes": 3006,
+      "after_bytes": 2898
+    },
+    {
+      "id": "tag.comedy",
+      "before_bytes": 2772,
+      "after_bytes": 2841
+    },
+    {
+      "id": "tag.contemporary",
+      "before_bytes": 2690,
+      "after_bytes": 2945
+    },
+    {
+      "id": "tag.contract_marriage",
+      "before_bytes": 2968,
+      "after_bytes": 2907
+    },
+    {
+      "id": "tag.divorce",
+      "before_bytes": 2752,
+      "after_bytes": 2867
+    },
+    {
+      "id": "tag.dominant",
+      "before_bytes": 2741,
+      "after_bytes": 2820
+    },
+    {
+      "id": "tag.drama",
+      "before_bytes": 2693,
+      "after_bytes": 2843
+    },
+    {
+      "id": "tag.face_slapping",
+      "before_bytes": 2732,
+      "after_bytes": 2859
+    },
+    {
+      "id": "tag.fast_paced_plot",
+      "before_bytes": 2689,
+      "after_bytes": 2885
+    },
+    {
+      "id": "tag.first_person_pov",
+      "before_bytes": 2739,
+      "after_bytes": 2864
+    },
+    {
+      "id": "tag.forbidden_love",
+      "before_bytes": 2714,
+      "after_bytes": 2909
+    },
+    {
+      "id": "tag.girl_power",
+      "before_bytes": 2754,
+      "after_bytes": 2854
+    },
+    {
+      "id": "tag.hate_to_love",
+      "before_bytes": 2768,
+      "after_bytes": 2770
+    },
+    {
+      "id": "tag.heir_heirness",
+      "before_bytes": 2744,
+      "after_bytes": 2862
+    },
+    {
+      "id": "tag.hidden_identity",
+      "before_bytes": 2885,
+      "after_bytes": 2862
+    },
+    {
+      "id": "tag.independent",
+      "before_bytes": 2872,
+      "after_bytes": 2856
+    },
+    {
+      "id": "tag.intelligent",
+      "before_bytes": 2612,
+      "after_bytes": 2813
+    },
+    {
+      "id": "tag.love_triangle",
+      "before_bytes": 2707,
+      "after_bytes": 2874
+    },
+    {
+      "id": "tag.misunderstanding",
+      "before_bytes": 2685,
+      "after_bytes": 2872
+    },
+    {
+      "id": "tag.mystery",
+      "before_bytes": 2712,
+      "after_bytes": 2828
+    },
+    {
+      "id": "tag.office_relationship",
+      "before_bytes": 2697,
+      "after_bytes": 2847
+    },
+    {
+      "id": "tag.possessive",
+      "before_bytes": 5131,
+      "after_bytes": 2964
+    },
+    {
+      "id": "tag.pregnant",
+      "before_bytes": 2944,
+      "after_bytes": 2971
+    },
+    {
+      "id": "tag.rebel",
+      "before_bytes": 2580,
+      "after_bytes": 2727
+    },
+    {
+      "id": "tag.regret",
+      "before_bytes": 2789,
+      "after_bytes": 2830
+    },
+    {
+      "id": "tag.revenge",
+      "before_bytes": 2839,
+      "after_bytes": 2858
+    },
+    {
+      "id": "tag.runaway_with_a_baby",
+      "before_bytes": 3088,
+      "after_bytes": 2977
+    },
+    {
+      "id": "tag.ruthless",
+      "before_bytes": 2756,
+      "after_bytes": 2816
+    },
+    {
+      "id": "tag.second_chance",
+      "before_bytes": 2871,
+      "after_bytes": 2902
+    },
+    {
+      "id": "tag.secretary",
+      "before_bytes": 2745,
+      "after_bytes": 2809
+    },
+    {
+      "id": "tag.sweet_love",
+      "before_bytes": 2829,
+      "after_bytes": 2866
+    },
+    {
+      "id": "tag.tragedy",
+      "before_bytes": 2802,
+      "after_bytes": 2927
+    }
+  ],
+  "tests_passed": 88,
+  "existing_workshop_files_unchanged": 380,
+  "real_model_calls": 0,
+  "service_restarted": false
+}

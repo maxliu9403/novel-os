@@ -23,7 +23,9 @@
 [data-status="error"] .workshop-archive-status { color: var(--color-ink-text); border: 1px solid var(--color-ink-line); }
 [data-status="launched"] .workshop-archive-status { color: var(--color-st-drafted); background: color-mix(in srgb, var(--color-st-drafted) 7%, white); }
 .workshop-archive-action { flex-shrink: 0; padding: 9px 12px; border: 1px solid var(--color-paper-line); border-radius: 999px; background: var(--color-surface-warm); font-size: 11px; color: var(--color-violet); white-space: nowrap; }
-.workshop-archive-project { display: block; width: fit-content; margin: -8px 22px 20px 76px; color: var(--color-violet); font-size: 11px; text-decoration: underline; text-underline-offset: 4px; }
+.workshop-archive-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 22px 14px 76px; }
+.workshop-archive-project { display: block; width: fit-content; color: var(--color-violet); font-size: 11px; text-decoration: underline; text-underline-offset: 4px; }
+.workshop-archive-delete { margin-left: auto; font-size: 12px; color: #a35066; }
 .workshop-library button:focus-visible, .workshop-library a:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -3px; }
 @media (max-width: 760px) {
   .workshop-archive > div:first-child input { flex-basis: 100%; }
@@ -33,7 +35,7 @@
   .workshop-archive-number { width: 30px; height: 30px; border-radius: 10px; font-size: 11px; }
   .workshop-archive-copy > div:first-child { flex-direction: column; gap: 8px; }
   .workshop-archive-controls { grid-column: 1 / -1; justify-content: space-between; width: 100%; gap: 8px; }
-  .workshop-archive-project { margin-left: 56px; margin-top: -6px; }
+  .workshop-archive-footer { padding: 0 14px 12px 56px; }
 }
 
 @media (max-width: 600px) {

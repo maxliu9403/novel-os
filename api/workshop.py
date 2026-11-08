@@ -11,6 +11,7 @@ import hashlib
 import importlib.util
 import json
 import logging
+from copy import deepcopy
 import os
 from pathlib import Path
 import re
@@ -27,15 +28,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, model_validator
 
-from .jobs import runner
+from .jobs import SessionJobsRunning, runner
 from . import db, tenancy
 from .project_operations import project_operations, ProjectMutationBlocked
 from .routes import get_service
 from .services import ProjectService
 from .workshop_contract_repair import normalize_workshop_contracts
 from .workshop_diagnostics import diagnostic_error_category, make_diagnostic_callback, runtime_progress
-from .workshop_design import DecisionStatus, apply_decision, design_rules, new_design, record_round
-from .workshop_classification import BookClassificationSelection, bind_classification, selection_labels
+from . import workshop_story
+from .workshop_design import DecisionStatus, apply_decision, apply_selected_choices, design_rules, new_design, record_round
+from . import workshop_capacity
+from . import workshop_repartition
+from . import workshop_guidance
+from core.publication_taxonomy import bind_classification
 
 LOG = logging.getLogger("uvicorn.error.workshop")
 REPO = Path(__file__).resolve().parents[1]
@@ -76,15 +81,17 @@ class DeliveryTimeoutError(TimeoutError):
 
 
 from core.creative_types import TypeRef, compile_snapshot, digest as type_digest
+from .source_library import SourceSelection
 
 
 class SessionInput(BaseModel):
+    length_planning: Literal['story_first'] | None = None
     title: str = ""
     author: str = ""
     genres: list[str] = Field(default_factory=list)
-    creative_types: list[TypeRef] | None = Field(default=None, max_length=60)
-    creation_flow: Literal['h5_guided.v1'] | None = None
-    publication_classification: BookClassificationSelection | None = None
+    creative_types: list[TypeRef] | None = Field(default=None, max_length=21)
+    creation_flow: Literal['genre_tags.v1'] | None = None
+    source_book: SourceSelection | None = None
     premise: str = ""
     chapters: int | None = Field(default=None, ge=1)
     words_per_chapter: int | None = Field(default=None, ge=1)
@@ -96,14 +103,11 @@ class SessionInput(BaseModel):
     method_mode: Literal["off", "advisory"] = "advisory"
 
     @model_validator(mode='after')
-    def require_publication_selection(self):
-        if self.creation_flow and self.publication_classification is None:
-            raise ValueError('请先选择与 H5 一致的题材主类型。')
-        if self.publication_classification is not None:
-            from core.novel_classification import catalog_payload
-            known = {entry['labels']['zh-CN'] for items in catalog_payload()['axes'].values() for entry in items}
-            self.genres = list(dict.fromkeys(selection_labels(self.publication_classification.model_dump()) +
-                                             [g for g in self.genres if g not in known]))
+    def validate_creative_selection(self):
+        if self.length_planning and self.mode in {'multi_volume', 'series_installment'}:
+            raise ValueError('故事容量规划当前用于单本连续章节；分卷/系列请使用原篇幅设置。')
+        if self.creation_flow and not self.creative_types:
+            raise ValueError('请选择一个 Genre 和至少一个 Tag。')
         return self
 
 
@@ -112,8 +116,24 @@ class RevisionInput(BaseModel):
 
 
 class TurnInput(RevisionInput):
-    message: str = Field(min_length=1)
+    capacity_replan: workshop_repartition.Request | None = None
+    capacity_choice: workshop_capacity.Choice | None = None
+    story_action: workshop_story.Action | None = None
+    message: str = ""
     intent: Literal["discuss", "deliver"] = "discuss"
+    proposal_ids: list[str] = Field(default_factory=list, max_length=2)
+    operation_id: str | None = Field(default=None, min_length=8, max_length=100, pattern=r'^[a-zA-Z0-9_-]+$')
+
+
+def _turn_request_hash(body: TurnInput) -> str:
+    payload = body.model_dump()
+    if payload.get('story_action') is None:
+        payload.pop('story_action')  # retain persisted v1 idempotency keys
+    if payload.get('capacity_choice') is None:
+        payload.pop('capacity_choice')
+    if payload.get('capacity_replan') is None:
+        payload.pop('capacity_replan')
+    return type_digest(payload)
 
 
 class DecisionInput(RevisionInput):
@@ -122,17 +142,28 @@ class DecisionInput(RevisionInput):
     note: str = Field(default="", max_length=6000)
 
 
+class GuidanceUpgradeInput(RevisionInput):
+    protocol: Literal['guided-choices.v1', 'story-workshop.v1'] = 'guided-choices.v1'
+    operation_id: str = Field(min_length=8, max_length=100, pattern=r'^[a-zA-Z0-9_-]+$')
+
+
 class PauseInput(RevisionInput):
     job_id: str = Field(min_length=1)
 
 
 class TitleInput(RevisionInput):
-    instructions: str = ""
-    current_title: str = ""
+    instructions: str = Field(default="", max_length=4000)
+    current_title: str = Field(default="", max_length=500)
 
 
 class PrepareInput(RevisionInput):
     title: str | None = None
+
+
+class SkeletonRevisionInput(RevisionInput):
+    review_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    selected_ids: list[str] = Field(default_factory=list, max_length=8)
+    operation_id: str = Field(min_length=8, max_length=100, pattern=r'^[a-zA-Z0-9_-]+$')
 
 
 class UpdateInput(RevisionInput):
@@ -180,6 +211,11 @@ def _skill_bundle(phase: str = "design") -> tuple[str, str]:
     files.insert(-1, "references/commercial-story-design.md")
     parts = {name: f"\n--- {name} ---\n{(SKILL / name).read_text(encoding='utf-8')}" for name in files}
     version = hashlib.sha256("\n".join(parts.values()).encode()).hexdigest()[:16]
+    if phase == 'discussion':
+        # Discussion owns one creative reference. Keep delivery's skill identity
+        # stable so this change cannot invalidate an unfinished export checkpoint.
+        name = 'references/web-discussion.md'
+        return f"\n--- {name} ---\n{(SKILL / name).read_text(encoding='utf-8')}", version
     # Runtime profiles follow the author's operation, never a model's handoff.
     if phase == "exploration":
         selected = ["SKILL.md", "references/interaction.md", "references/creation-path.md",
@@ -211,6 +247,7 @@ def _skill_bundle(phase: str = "design") -> tuple[str, str]:
     export_files = {"references/prompt-contract.md", "references/narrative-format.md",
                     "references/novel-classification.md", "references/launch-command.md",
                     "references/title-naming.md", "assets/novel-skeleton-template.md"}
+    selected = [name for name in selected if name != "references/title-naming.md"]
     creative = [parts[name] for name in selected if name not in export_files]
     export = [parts[name] for name in selected if name in export_files]
     return ("\n".join(creative) + "\n\nFINAL EXPORT REFERENCES — consult when producing the complete "
@@ -221,14 +258,15 @@ def _skill_bundle(phase: str = "design") -> tuple[str, str]:
 _NARRATIVE_MODES = ("short_novel", "standalone_long", "multi_volume", "series_installment")
 
 
-def _narrative_contract_reference(mode: str | None = None) -> str:
+def _narrative_contract_reference(mode: str | None = None, *, stage_response: bool = False) -> str:
     """Supply serialized engine fields to the tool-free model, not helper arguments."""
     from core.narrative_format import infer_narrative_format
     from core.novel_classification import infer_classification
 
     classification = infer_classification(genre="Fantasy")
     examples = {}
-    for mode in ((mode,) if mode in _NARRATIVE_MODES else _NARRATIVE_MODES):
+    selected_mode = mode if mode in _NARRATIVE_MODES else None
+    for mode in ((selected_mode,) if selected_mode else _NARRATIVE_MODES):
         contract = infer_narrative_format(
             classification, chapters=20, target_words=12000, mode=mode,
             volume_count=2 if mode == "multi_volume" else 1,
@@ -239,11 +277,16 @@ def _narrative_contract_reference(mode: str | None = None) -> str:
         for key in ("format_id", "is_long_form", "volume_count", "chapter_target_words", "audit_policy"):
             contract.pop(key, None)
         examples[mode] = contract
+    placement = ("Return the contract object directly as narrative_format inside the stage JSON. "
+                 "narrative_format.mode is a string; never wrap the contract in a mode-name key. "
+                 "Do not use Markdown markers."
+                 if stage_response else "Return ONE NARRATIVE_FORMAT_JSON object for the author's chosen mode.")
+    example = examples[selected_mode] if selected_mode else examples
     return """
 
 ENGINE NARRATIVE FORMAT REFERENCE (serialized by the current engine):
 These are schema examples ONLY, not author decisions or recommended story lengths.
-Return ONE NARRATIVE_FORMAT_JSON object for the author's chosen mode. Adapt every
+""" + placement + """ Adapt every
 chapter/word target, volume boundary, series identity and suitability assessment
 to the current story and latest decisions. Preserve approved unequal volume spans.
 Use total_chapters (not chapters), selection_source (not source), and volume_number,
@@ -253,7 +296,7 @@ names and explicit_length flag are NOT the serialized output schema.
 Omit optional engine-derived hashes and fields when composing a new contract;
 never fabricate format_id. Keep confirmation_status pending_confirmation until
 the author confirms the structure. Do not copy the examples' confirmation decisions.
-""" + json.dumps(examples, ensure_ascii=False, indent=2)
+""" + json.dumps(example, ensure_ascii=False, indent=2)
 
 
 def _skeleton_mode(prompt: str) -> str | None:
@@ -314,7 +357,8 @@ def _complete(session: dict, skill: str) -> tuple[dict, dict]:
 def _complete_impl(session: dict, skill: str) -> tuple[dict, dict]:
     from core import provider_settings
     from core.llm_client import LLMClient, LLMCancelledError
-    from .workshop_delivery import DeliveryError, DeliveryPlan, author_context, parse_stage
+    from .workshop_delivery import DeliveryError, DeliveryPlan, NarrativeFormatResponseError, author_context, parse_stage
+    from .workshop_format_repair import NarrativeFormatRepair
     from .workshop_assembly import AssemblyError, AssemblyPlan, parse_part, repair_part
 
     route = provider_settings.resolve_text_route("workshop")
@@ -402,6 +446,8 @@ JSON and current draft are not an additional mandatory user confirmation round.
     # to stop discussing. A verified legacy checkpoint is reusable only through
     # its explicit resume operation, which sets turn_intent below.
     delivering = session.get("turn_intent") == "deliver"
+    from core.story_design import enabled as story_first_enabled, render as render_story
+    story_first = story_first_enabled(session)
     profile = "delivery" if delivering else "exploration"
     narrative_mode = session["input"].get("mode")
     if "mode" not in session.get("pending_input_fields", []):
@@ -413,42 +459,38 @@ JSON and current draft are not an additional mandatory user confirmation round.
     def build_system() -> str:
         # Keep custom prompt callers compatible. Standard bundles are disclosed
         # by runtime phase without trimming the author's conversation.
-        rules = _skill_bundle(profile)[0] if "--- SKILL.md ---" in skill else skill
+        rules = _skill_bundle('discussion' if profile == 'exploration' and not delivering else profile)[0] if "--- SKILL.md ---" in skill else skill
+        if profile == "exploration":
+            from .workshop_request import discussion_system
+            return discussion_system(session, rules)
         if profile == "delivery":
+            if story_first:
+                from core.story_design import DESIGN_RULES
+                return DESIGN_RULES
+            if workshop_capacity.enabled(session):
+                review_rules = session['creative_design']['policy']['skeleton_review_rules']
+                rules += review_rules + '\nFor a complete-document response, put this review object in the top-level skeleton_review field (not sections). Quote the exact final chapter plan from prompt_md.\n'
             return (rules + transport + _narrative_contract_reference(narrative_mode or "short_novel")
                     + _commercial_contract_reference())
-        return rules + transport + """
+        raise ValueError(f"Unknown workshop request profile: {profile}")
 
-CURRENT REQUEST PROFILE: AUTHOR-GUIDED EXPLORATION.
-This request carries creative guidance and the FULL author context, but intentionally
-omits detailed export schemas. Do not attempt all 17 sections or invent their fields here.
-For story exploration, return the four public response fields above, prompt_md null and
-ready_for_confirmation false. Develop useful concrete ideas now; missing export metadata
-does not block brainstorming. Do not read files or invoke tools to obtain omitted references.
-The author's selected operation is CONTINUE DISCUSSION. This operation controls scope even
-when there is a complete brief, an existing skeleton, no unanswered questions, or a selected
-direction. Choosing a route, answering intake questions, saying continue, or delegating a
-city or other detail does NOT approve the whole story or authorize skeleton delivery.
-After route selection, develop that route with concrete character conflicts, motivated
-choices, major turns and consequences. Offer a manageable, coherent next design proposal
-for the author to guide and revise; do not finish all later stages in the same response.
-Distinguish confirmed decisions, this round's proposals, and unresolved meaningful choices.
-Do not ask routine questions just to fill a round quota or repeat accepted choices.
-Discuss changes to an existing skeleton in reply; preserve its saved version with prompt_md
-null. Never emit requests_delivery or delivery_mode, and never silently start chapter mapping
-or final assembly. The separate Generate/Update Complete Skeleton action authorizes delivery.
-If the message asks for a complete artifact in this discussion operation, explain that action
-briefly and still give a useful current design proposal. Do not claim to have generated it.
-"""
-
-    system = build_system() + design_rules(session)
+    system = build_system() + (design_rules(session) if delivering else '')
     context = author_context(session)
+    if not delivering:
+        from .workshop_request import discussion_context
+        context = discussion_context(context)
     if delivering and session.get("_previous_candidate"):
         context["previous_unvalidated_skeleton"] = session["_previous_candidate"]
         context["candidate_instruction"] = (
             "This earlier candidate failed validation and is NOT an approved skeleton. "
             "Reuse its story content where consistent with the latest author decisions; "
             "repair its contracts using the engine reference. Return the complete revised skeleton.")
+    repartitioning = session.get('capacity_replan') if not delivering else None
+    if repartitioning:
+        # The complete story remains available, but this explicit operation only
+        # arranges chapter breaks. No new story map or whole-book design round.
+        system = workshop_repartition.RULES
+        context['chapter_repartition'] = repartitioning
     user = json.dumps(context, ensure_ascii=False)
     LOG.info("workshop.model.start session=%s route=workshop provider=%s model=%s timeout=%s revision=%s",
              session["id"], route["provider"], route["model"], timeout, session["revision"])
@@ -466,13 +508,14 @@ briefly and still give a useful current design proposal. Do not claim to have ge
     assembly = None
     assembly_part = None
     assembly_repair_part = None
+    format_repair = None
     if delivering and session.get("_delivery_record"):
         narrative_mode = session["_delivery_record"]["narrative_mode"]
         profile = "delivery"
         plan = DeliveryPlan(session, narrative_mode)
         deadline = discussion_deadline + timeout * 2
         task_budget = timeout * 3
-    elif delivering and not (session.get("prompt_md") or session.get("_previous_candidate")):
+    elif delivering and (story_first or not (session.get("prompt_md") or session.get("_previous_candidate"))):
         # The first real design call selects the narrative mode from the full
         # author context. No separate intent/handoff model call is needed.
         plan = DeliveryPlan(session, None)
@@ -483,16 +526,22 @@ briefly and still give a useful current design proposal. Do not claim to have ge
     def stage_request():
         nonlocal assembly, assembly_part
         assert plan is not None
+        if format_repair is not None:
+            return format_repair.request(_narrative_contract_reference(format_repair.mode, stage_response=True))
         stage_context = context
         type_snapshot = (session.get('creative_design') or {}).get('policy', {}).get('type_snapshot')
         if type_snapshot is not None and plan.stage == 'chapter_plan':
             stage_context = {**context, 'creative_design': {**context['creative_design'],
                 'genre_context': compile_snapshot(type_snapshot, 'chapter_plan')}}
         if plan.stage == "assembly":
+            if story_first:
+                return "", ""  # Pure projection; never open another model request.
             if "assembly" in plan.record["completed"]:
                 return "", ""  # Saved final artifacts are verified locally.
             assembly = AssemblyPlan(plan.record["completed"]["story_design"]["content"],
-                                    plan.record["completed"]["chapter_plan"]["content"], plan.saved_parts)
+                                    plan.record["completed"]["chapter_plan"]["content"], plan.saved_parts,
+                                    editorial_review=session.get('creative_design', {}).get('policy', {}).get('skeleton_review_rules', ''),
+                                    compact=session.get('creative_design', {}).get('policy', {}).get('reader_investment', {}).get('schema') in {'reader-investment.v2', 'reader-investment.v3'})
             assembly_part = assembly_repair_part or assembly.part
             if assembly_part is None:
                 return "", ""  # All pieces are saved; do not ask the model to copy them.
@@ -506,8 +555,16 @@ briefly and still give a useful current design proposal. Do not claim to have ge
                     + _commercial_contract_reference() + assembly.rules(assembly_part),
                     json.dumps(part_context, ensure_ascii=False))
         # Early stages have creative guidance but no 17-section schema burden.
-        rules = _skill_bundle("exploration")[0] if "--- SKILL.md ---" in skill else skill
-        return rules + design_rules(session) + plan.rules(), json.dumps(plan.context(stage_context), ensure_ascii=False)
+        rules = _skill_bundle("discussion")[0] if story_first else (_skill_bundle("exploration")[0] if "--- SKILL.md ---" in skill else skill)
+        format_mode = narrative_mode or session["input"].get("mode")
+        format_rules = (_narrative_contract_reference(format_mode, stage_response=True)
+                        if story_first and plan.stage == 'story_design'
+                        and format_mode in {"multi_volume", "series_installment"} else "")
+        request_context = plan.context(stage_context)
+        if story_first:
+            from .workshop_request import delivery_context
+            request_context = delivery_context(request_context)
+        return rules + ("" if story_first else design_rules(session)) + plan.rules() + format_rules, json.dumps(request_context, ensure_ascii=False, separators=(",", ":"))
 
     if plan is not None:
         system, user = stage_request()
@@ -542,11 +599,18 @@ briefly and still give a useful current design proposal. Do not claim to have ge
                         "task_budget_seconds": task_budget, "request_timeout_seconds": timeout,
                         "prompt_profile": profile, "narrative_mode": narrative_mode,
                         "system_bytes": len(system.encode("utf-8"))})
+        received_model_response = False
         try:
             if plan is not None and "assembly" in plan.record["completed"]:
                 # Crash after stage save and before session publication: revalidate
                 # locally rather than paying for the same completed result again.
                 text = json.dumps(plan.record["completed"]["assembly"]["content"], ensure_ascii=False)
+            elif stage == "assembly" and story_first:
+                try:
+                    compiled = render_story(session, plan.record["completed"]["story_design"]["content"], plan.record["completed"]["chapter_plan"]["content"])
+                except (ValueError, KeyError, TypeError) as exc:
+                    raise ModelResponseError("本地骨架编译失败；已保存设计，没有追加模型调用：" + str(exc)) from exc
+                text = json.dumps(compiled, ensure_ascii=False)
             elif stage == "assembly" and assembly_part is None:
                 text = json.dumps(assembly.assemble(), ensure_ascii=False)
             else:
@@ -572,8 +636,13 @@ briefly and still give a useful current design proposal. Do not claim to have ge
                     if session.get('_save_type_request'):
                         session['_save_type_request'](receipt)
                 client = LLMClient(**client_options, timeout_seconds=remaining,
+                                   # A discussion can finish a reply already
+                                   # arriving at its deadline. Delivery stages
+                                   # retain their existing strict total budget.
+                                   completion_grace_seconds=180 if route['provider'] == 'codex' and not delivering else 0,
                                    **({"diagnostic_callback": diagnostic} if diagnostic is not None else {}))
-                text = client.complete(system, user).strip()
+                text = client.complete(system, user)
+                received_model_response = True
                 if receipt is not None and session.get('_save_type_request'):
                     session['_save_type_request']({**receipt, 'status': 'response_received'})
         except Exception as exc:
@@ -588,14 +657,34 @@ briefly and still give a useful current design proposal. Do not claim to have ge
             if diagnostic is not None:
                 diagnostic({"event": "attempt.cancelled", "error_category": "cancelled"})
             raise LLMCancelledError("Workshop inference was paused")
+        from .workshop_responses import StageResponse, ResponseStorageError
+        try:
+            response_record = (StageResponse(session, attempt=attempt, stage=stage,
+                                            part='narrative_format' if format_repair is not None else assembly_part,
+                                            text=text, system=system, user=user)
+                               if plan is not None and received_model_response else None)
+        except ResponseStorageError:
+            if diagnostic is not None:
+                diagnostic({"event": "attempt.failed", "phase": "response_parse", "error_category": "storage_error"})
+            raise
+        text = text.strip()
         data = None
         validation_phase = "response_parse"
         try:
             if diagnostic is not None:
                 diagnostic({"event": "validation.start", "phase": validation_phase})
+            if repartitioning:
+                # Validate and persist under the normal worker's source lock.
+                # A malformed answer does not buy an automatic extra call.
+                data = {'capacity_partition': json.loads(text)}
+                if diagnostic is not None:
+                    diagnostic({'event': 'attempt.completed'})
+                break
             if stage == "assembly" and assembly_part is not None:
                 part_data = parse_part(text, assembly_part, narrative_mode, plan.chapter_count)
                 assembly.accept(assembly_part, part_data)
+                if response_record is not None:
+                    response_record.validated()
                 if assembly_repair_part is not None:
                     plan.revise_part(assembly_part, part_data)
                 else:
@@ -609,9 +698,17 @@ briefly and still give a useful current design proposal. Do not claim to have ge
                 system, user = stage_request()
                 continue
             if plan is not None and stage != "assembly":
-                data = parse_stage(text, stage, narrative_mode,
-                                   plan.chapter_count if stage == "chapter_plan" else None)
+                stage_text = format_repair.merge(text) if format_repair is not None else text
+                data = parse_stage(stage_text, stage, narrative_mode,
+                                   plan.chapter_count if stage == "chapter_plan" else None, story_first=story_first)
+                try:
+                    data = workshop_capacity.bind_stage(session, stage, data)
+                except ValueError as exc:
+                    raise DeliveryError(str(exc)) from None
+                if response_record is not None:
+                    response_record.validated()
                 plan.finish(stage, data)
+                format_repair = None
                 narrative_mode = plan.mode
                 if diagnostic is not None:
                     diagnostic({"event": "attempt.completed"})
@@ -662,7 +759,11 @@ briefly and still give a useful current design proposal. Do not claim to have ge
                 # Persist failed candidates as well, so a later retry can reuse the work.
                 raw_prompt = data["prompt_md"]
                 data["prompt_md"], normalized_fields = normalize_workshop_contracts(raw_prompt)
-                data["prompt_md"] = bind_classification(data["prompt_md"], session['input'])
+                try:
+                    data["prompt_md"] = bind_classification(data["prompt_md"], session['input'])
+                    data['prompt_md'] = workshop_capacity.bind(session, data['prompt_md'])
+                except ValueError as exc:
+                    raise ModelResponseError(str(exc)) from None
                 if normalized_fields and diagnostic is not None:
                     diagnostic({"event": "contract.normalized", "normalized_fields": len(normalized_fields)})
                 candidate_path = session.get("_candidate_path")
@@ -688,6 +789,8 @@ briefly and still give a useful current design proposal. Do not claim to have ge
                 raise ModelResponseError("本轮需要返回修复后的完整骨架，不能以空骨架或旧版本代替。")
             if plan is not None:
                 plan.validate_assembly(data, _skeleton_mode(data.get("prompt_md") or ""))
+                if response_record is not None:
+                    response_record.validated()
                 if "assembly" not in plan.record["completed"] and plan.saved_parts:
                     plan.clear_part_repair()
                 plan.finish("assembly", data)
@@ -697,6 +800,8 @@ briefly and still give a useful current design proposal. Do not claim to have ge
                     diagnostic(plan.event("completed", "assembly"))
             break
         except (json.JSONDecodeError, ModelResponseError, DeliveryError, AssemblyError) as exc:
+            if response_record is not None:
+                response_record.failed(exc, phase=validation_phase, contract_error=True)
             if diagnostic is not None:
                 category = "json_decode" if isinstance(exc, json.JSONDecodeError) else {
                     "response_parse": "response_schema", "skeleton_validation": "skeleton_contract",
@@ -704,21 +809,32 @@ briefly and still give a useful current design proposal. Do not claim to have ge
                 }[validation_phase]
                 diagnostic({"event": "validation.failure", "phase": validation_phase, "error_category": category})
                 diagnostic({"event": "attempt.failed", "phase": validation_phase, "error_category": category})
-            if repair_count == 2:
+            if repartitioning or repair_count == 2:
                 raise
             repair_count += 1
             LOG.warning("workshop.model.format_retry session=%s attempt=%s", session["id"], attempt)
             if diagnostic is not None:
                 diagnostic({"event": "format_retry", "retry_count": repair_count, "error_category": category})
             if plan is not None and stage != "assembly":
+                if isinstance(exc, NarrativeFormatResponseError) and format_repair is None:
+                    allocation = (session.get('capacity', {}).get('confirmed') or {}).get('option')
+                    target_words = (allocation['total_words'] if allocation else
+                                    exc.candidate['total_chapters'] * session['input']['words_per_chapter'])
+                    format_repair = NarrativeFormatRepair(exc.candidate, str(exc), target_words=target_words)
+                if format_repair is not None:
+                    format_repair.error = str(exc)
+                    system, user = stage_request()
+                    continue
                 context.update(previous_model_response=text, validation_error=str(exc),
-                               repair_instruction="Repair this stage's complete JSON and content. Preserve the full author context and saved story stages; do not change the saved mode or chapter count.")
+                               repair_instruction="Repair only the reported structural fields and check all required fields together. Return the complete stage JSON, preserving valid story text, author choices and saved stages; do not redesign the story or change the saved mode, chapter count or approved volume boundaries.")
                 system, user = stage_request()
                 continue
             if plan is not None and "assembly" in plan.record["completed"]:
                 # Immutable saved output failing a changed validator must not be
                 # silently regenerated during an explicit local publication retry.
                 raise ModelResponseError("已保存整合结果未通过当前骨架校验，请重新发起修改；阶段成果仍保留。") from exc
+            if plan is not None and stage == "assembly" and story_first:
+                raise ModelResponseError("本地骨架编译未通过；已保存故事设计与章卡，没有追加模型调用：" + str(exc)) from exc
             if plan is not None and stage == "assembly":
                 target = assembly_part or repair_part(str(exc))
                 if target is None:
@@ -761,6 +877,14 @@ briefly and still give a useful current design proposal. Do not claim to have ge
                 system, user = stage_request()
             else:
                 user = json.dumps(context, ensure_ascii=False)
+        except Exception as exc:
+            if response_record is not None and not isinstance(exc, ResponseStorageError):
+                response_record.failed(exc, phase=validation_phase, contract_error=False)
+            if diagnostic is not None:
+                diagnostic({"event": "attempt.failed", "phase": validation_phase,
+                            "error_category": "storage_error" if isinstance(exc, ResponseStorageError) else "internal_error",
+                            "error_type": type(exc).__name__})
+            raise
     return data, {"provider": route["provider"], "model": route["model"], "timeout_seconds": timeout}
 
 
@@ -806,13 +930,17 @@ def _failure(exc: Exception, *, timeout_seconds: float, has_prompt: bool) -> str
     from .workshop_delivery import DeliveryError
     from .workshop_assembly import AssemblyError
     from .workshop_checkpoints import CheckpointError
+    from .workshop_responses import ResponseStorageError
+    from core.llm_client import LLMInputLimitError
     retained = _preserved_context(has_prompt)
+    if isinstance(exc, LLMInputLimitError):
+        return str(exc) + retained
     if isinstance(exc, DeliveryTimeoutError):
         scope = (f"整轮交付上限 {exc.request_seconds * 3:g} 秒" if exc.task_expired
                  else f"单次请求上限 {exc.request_seconds:g} 秒")
         return f"骨架交付超时（{scope}）。已完成的阶段和补全部分已保存，可继续未完成部分；不会自动重试模型调用。{retained}"
     if isinstance(exc, (TimeoutError,)) or any(word in str(exc).lower() for word in ("timeout", "timed out")):
-        return f"模型响应超时（本轮上限 {timeout_seconds:g} 秒）。{retained}可以携带完整上下文重试。"
+        return f"模型响应超时（常规等待上限 {timeout_seconds:g} 秒，实际截止见运行详情）。{retained}请先查看运行详情与模型连接状态；不会自动重试模型调用。"
     if isinstance(exc, json.JSONDecodeError):
         return f"模型响应不完整或不是有效 JSON。{retained}可以重试。"
     if isinstance(exc, (ModelResponseError, DeliveryError, AssemblyError)):
@@ -820,6 +948,10 @@ def _failure(exc: Exception, *, timeout_seconds: float, has_prompt: bool) -> str
         return f"{detail[:400]}。{retained}"
     if isinstance(exc, CheckpointError):
         return f"阶段成果未能安全保存或恢复，请检查存储与当前设定；已保存文件保持不变。{retained}"
+    if isinstance(exc, ResponseStorageError):
+        return f"{exc}{retained}"
+    if isinstance(exc, (KeyError, TypeError, AttributeError)):
+        return f"故事处理发生内部错误（{type(exc).__name__}），需要检查解析与处理逻辑。{retained}不会自动重试。"
     # Provider exceptions can contain authentication headers or request bodies.
     return f"模型调用失败（{type(exc).__name__}），请检查头脑风暴模型配置。{retained}"
 
@@ -859,8 +991,10 @@ def _validate_candidate(path: Path) -> dict:
     """Reject incomplete transport artifacts, without evaluating prose or rigid word counts."""
     text = path.read_text(encoding="utf-8")
     headings = list(re.finditer(r"^##\s+(\d+)\.\s+[^\n]+", text, flags=re.MULTILINE))
-    if [int(match.group(1)) for match in headings] != list(range(1, 18)):
-        raise ModelResponseError("模型骨架缺少完整的 1–17 节，请补全；上一版完整骨架已保留。")
+    from core.story_design import MARKER
+    compact = text.startswith(MARKER + "\n")
+    if [int(match.group(1)) for match in headings] != list(range(1, 7 if compact else 18)):
+        raise ModelResponseError(f"骨架缺少完整的 1–{6 if compact else 17} 节；上一版完整骨架已保留。")
     if re.search(r"\{\{[^}]+\}\}|\b(?:TODO|TBD)\b|后续略|待补充", text):
         raise ModelResponseError("模型骨架仍含未填写的模板占位内容；上一版完整骨架已保留。")
     if text.count("```") % 2:
@@ -870,7 +1004,7 @@ def _validate_candidate(path: Path) -> dict:
         if not text[match.end():end].strip():
             raise ModelResponseError(f"模型骨架第 {i+1} 节为空；上一版完整骨架已保留。")
     chapters = re.search(r"^Chapters:\s*([1-9][0-9]*)\s*$", text, flags=re.MULTILINE)
-    section = text[headings[11].end():headings[12].start()]
+    section = text[headings[3 if compact else 11].end():headings[4 if compact else 12].start()]
     found = [int(number) for number in re.findall(r"^###\s+Chapter\s+([0-9]+)\b", section, flags=re.MULTILINE | re.IGNORECASE)]
     if not chapters or found != list(range(1, int(chapters.group(1))+1)):
         raise ModelResponseError("模型骨架的分章细纲缺章、重复或顺序不一致；上一版完整骨架已保留。")
@@ -882,7 +1016,8 @@ def _validate_candidate(path: Path) -> dict:
             check_path.write_text(confirmed, encoding="utf-8")
             validated = _handoff().validate(check_path, REPO)
         from core.cover_handoff import parse_cover_handoff
-        parse_cover_handoff(text)
+        if not compact:
+            parse_cover_handoff(text)
     except (ValueError, KeyError, TypeError) as exc:
         raise ModelResponseError(f"模型骨架的结构合同尚不完整：{str(exc)[:240]}；上一版骨架已保留。") from None
     return validated
@@ -916,9 +1051,10 @@ class WorkshopService:
         return path
 
     @contextmanager
-    def _locked(self, session_id: str):
+    def _locked(self, session_id: str, *, include_deleted: bool = False):
         path = self._path(session_id)
-        if not (path / "session.json").is_file():
+        if (path.is_symlink() or (path / "session.json").is_symlink()
+                or (path / ".lock").is_symlink() or not (path / "session.json").is_file()):
             raise HTTPException(404, "找不到头脑风暴会话。")
         with _session_thread_lock(path), (path / ".lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
@@ -928,6 +1064,9 @@ class WorkshopService:
                     raise HTTPException(409, "此会话版本不兼容，请创建新会话。")
                 if data.get("id") != session_id:
                     raise HTTPException(409, "会话记录与其标识不一致，无法恢复。")
+                if data.get("deleted_at") and not include_deleted:
+                    raise HTTPException(404, "这条头脑风暴记录已删除。")
+                workshop_story.restore_unanswered_options(data)
                 yield data
             finally:
                 fcntl.flock(lock, fcntl.LOCK_UN)
@@ -1020,40 +1159,33 @@ class WorkshopService:
             save_checkpoint(self._path(data["id"]) / "delivery", data["delivery_run_id"], record)
 
     def create(self, body: SessionInput) -> dict:
+        if not body.creative_types:
+            raise HTTPException(422, '请选择一个 Genre 和至少一个关联 Tag。')
         _, version = _skill_bundle()
         initial_input = body.model_dump()
+        initial_input['creation_flow'] = 'genre_tags.v1'
         snapshot = self._type_snapshot(initial_input)
+        from .source_library import freeze
+        source_context = freeze(self.projects, initial_input.get('source_book'))
         session_id = uuid.uuid4().hex
         self._path(session_id).mkdir(parents=True)
         data = {"schema": SCHEMA, "id": session_id, "revision": 0, "input": initial_input,
                 "messages": [], "prompt_md": "", "questions": [], "status": "draft",
                 "last_error": None, "job_id": None, "skill_version": version, "prepared": None,
                 "project_id": None, "logs": [], "created_at": _now(), "updated_at": _now(),
-                "ready_for_confirmation": False, "creative_design": new_design(initial_input, snapshot)}
+                "ready_for_confirmation": False, "source_context": source_context, "creative_design": new_design(initial_input, snapshot)}
         self._save(data)
         return data
 
-    def _type_snapshot(self, initial_input: dict) -> dict | None:
+    def _type_snapshot(self, initial_input: dict, *, parent_sha256: str | None = None) -> dict | None:
         refs = initial_input.get('creative_types')
         if refs is None:
             return None
         from .creative_types import store_for
-        snapshot = store_for(self.projects).snapshot([TypeRef.model_validate(r) for r in refs])
-        # Retain custom/legacy labels. The selected stable profiles also have an
-        # exact display name in the brief for M1 proposal attribution.
-        profiles = [r['profile'] for r in snapshot['profiles']]
-        if initial_input.get('publication_classification'):
-            # H5 labels retain their identity even when a creative alias shares
-            # the same spelling (e.g. 女性成长 / 女性觉醒).
-            initial_input['genres'] = list(dict.fromkeys([*initial_input.get('genres', []), *[p['name'] for p in profiles]]))
-            return snapshot
-        names = []
-        for label in initial_input.get('genres', []):
-            matches = [p for p in profiles if label.strip().casefold() in {s.casefold() for s in [p['name'], *p['aliases']]}]
-            if len(matches) > 1:
-                raise HTTPException(422, f'类型别名“{label}”不唯一，请明确选择对应资料。')
-            names.append(matches[0]['name'] if matches else label)
-        initial_input['genres'] = list(dict.fromkeys([*names, *[p['name'] for p in profiles]]))
+        snapshot = store_for(self.projects).snapshot([TypeRef.model_validate(r) for r in refs], parent_sha256=parent_sha256)
+        from core.creative_types import parse_document
+        initial_input['publication_taxonomy'] = snapshot['publication_taxonomy']
+        initial_input['genres'] = [parse_document(r['markdown'])['name'] for r in snapshot['documents']]
         return snapshot
 
     def type_context(self, session_id: str) -> dict:
@@ -1064,8 +1196,8 @@ class WorkshopService:
             latest = store_for(self.projects).records()
             return {'snapshot': snapshot, 'contexts': contexts,
                     'context_sha256': {k: type_digest(v) for k, v in contexts.items()},
-                    'latest': [summary(latest[r['profile']['profile_id']]) for r in (snapshot or {}).get('profiles', [])
-                               if r['profile']['profile_id'] in latest],
+                    'latest': [summary(latest[r['id']]) for r in (snapshot or {}).get('documents', [])
+                               if r['id'] in latest],
                     'revision': data['revision'], 'last_request': data.get('last_type_request')}
 
     def _save_type_request(self, snapshot: dict, receipt: dict):
@@ -1076,6 +1208,18 @@ class WorkshopService:
                     json.dumps(receipt, ensure_ascii=False, indent=2))
             data['last_type_request'] = receipt
             self._save(data)
+
+    def _save_delivery_response(self, snapshot: dict, receipt: dict):
+        from core.llm_client import LLMCancelledError
+        with self._locked(snapshot['id']) as data:
+            if not self._current_operation(data, snapshot) or snapshot['_cancellation_event'].is_set():
+                raise LLMCancelledError('Workshop response belongs to a stopped turn')
+            directory = self._path(data['id']) / 'stage-responses'
+            directory.mkdir(mode=0o700, exist_ok=True)
+            if directory.is_symlink():
+                raise OSError('Response directory must not be a symlink')
+            _atomic(directory / f"{snapshot['revision']}-{receipt['attempt']}.json",
+                    json.dumps(receipt, ensure_ascii=False, indent=2))
 
     def adopt_types(self, session_id: str, body: TypeSnapshotInput) -> dict:
         with self._locked(session_id) as data:
@@ -1089,16 +1233,26 @@ class WorkshopService:
             if data.get('restart_required'):
                 raise HTTPException(409, '请先处理已保存的基础设定修改。')
             old = data.get('creative_design')
-            previous_snapshot = (old or {}).get('policy', {}).get('type_snapshot')
             initial_input = dict(data['input'])
             initial_input['creative_types'] = [r.model_dump() for r in body.refs]
-            previous_names = {r['profile']['name'] for r in (previous_snapshot or {}).get('profiles', [])}
-            initial_input['genres'] = [g for g in initial_input['genres'] if g not in previous_names]
-            snapshot = self._type_snapshot(initial_input)
-            updated = new_design(initial_input, snapshot)
+            parent = (old or {}).get('policy', {}).get('type_snapshot') or {}
+            snapshot = self._type_snapshot(initial_input, parent_sha256=parent.get('snapshot_sha256'))
+            updated = new_design(initial_input, snapshot, guided=workshop_guidance.enabled(old) if old else True,
+                                 story=workshop_story.enabled(old) if old else False)
+            if workshop_story.enabled(old):
+                # Updating references must not also upgrade the frozen method.
+                for key in ('rules', 'delivery_rules', 'reader_investment', 'story_workshop_version',
+                            'capacity_version', 'skeleton_review_version', 'skeleton_review_rules'):
+                    if key in old['policy']:
+                        updated['policy'][key] = json.loads(json.dumps(old['policy'][key]))
+                    else:
+                        updated['policy'].pop(key, None)
+                updated['policy_sha256'] = hashlib.sha256(json.dumps(updated['policy'], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+                updated['story_state'] = json.loads(json.dumps(old['story_state']))
             if old:
                 updated.update(rounds=old['rounds'], decisions=old['decisions'])
             data.setdefault('type_snapshot_history', []).append({'revision': data['revision'], 'design': old})
+            workshop_capacity.invalidate(data)
             data.update(input=initial_input, creative_design=updated, revision=data['revision'] + 1,
                         prepared=None, ready_for_confirmation=False, design_needs_revision=True,
                         delivery_run_id=None, delivery_source_revision=None, delivery_published_run_id=None,
@@ -1127,6 +1281,7 @@ class WorkshopService:
 
     def list_sessions(self, *, q: str = "", limit: int = 50, offset: int = 0, status: str = "") -> dict:
         """List only this workspace's recoverable sessions; UUID remains the identity."""
+        from core.source_provenance import source_summary
         if not self.root.is_dir():
             return {"sessions": [], "total": 0}
         query = q.strip().casefold()
@@ -1167,6 +1322,7 @@ class WorkshopService:
                     updated = updated.replace(tzinfo=timezone.utc)
                 preview = " ".join(premise.split())
                 rows.append((updated.timestamp(), {
+                    "source": source_summary(data.get("source_context")),
                     "id": data["id"], "title": title, "status": data["status"],
                     "revision": data["revision"], "updated_at": data["updated_at"],
                     "project_id": data.get("project_id"), "has_prompt": bool(data["prompt_md"].strip()),
@@ -1181,6 +1337,29 @@ class WorkshopService:
         rows.sort(key=lambda row: (row[0], row[1]["id"]), reverse=True)
         return {"sessions": [row for _, row in rows[offset:offset + limit]], "total": len(rows)}
 
+    def delete(self, session_id: str, revision: int) -> None:
+        """Remove a discussion from use; retain private provenance and accounting.
+
+        The durable marker shares the same transaction as every workshop write.
+        Pending/stale operations cannot restore a deleted session. Linked books
+        and their frozen inputs are independent and must never be deleted here.
+        """
+        with self._locked(session_id, include_deleted=True) as data:
+            if data.get("deleted_at"):
+                return
+            if revision != data["revision"]:
+                raise HTTPException(409, "讨论已有更新，请刷新列表后再删除。")
+            if data["status"] == "running":
+                raise HTTPException(409, "本轮讨论仍在运行，请先暂停或等待完成后再删除。")
+            try:
+                with runner.session_deletion(session_id):
+                    data["deleted_at"] = _now()
+                    data["revision"] += 1
+                    self._log(data, "deleted", "讨论已删除；关联作品、参考资料和费用记录保留。")
+                    self._save(data)
+            except SessionJobsRunning as exc:
+                raise HTTPException(409, str(exc)) from exc
+
     @staticmethod
     def _available(data: dict, revision: int):
         if revision != data["revision"]:
@@ -1191,9 +1370,20 @@ class WorkshopService:
             raise HTTPException(409, "此骨架已启动创作，请新建会话设计另一本作品。")
 
     def turn(self, session_id: str, body: TurnInput) -> dict:
-        if not body.message.strip():
+        if not body.message.strip() and not body.proposal_ids and body.story_action is None and body.capacity_choice is None and body.capacity_replan is None:
             raise HTTPException(422, "请输入想法或修改要求。")
+        if (body.proposal_ids or body.story_action or body.capacity_choice or body.capacity_replan) and not body.operation_id:
+            raise HTTPException(422, "请选择方案后重新提交。")
         with self._locked(session_id) as data:
+            request_hash = _turn_request_hash(body)
+            previous = data.get('turn_requests', {}).get(body.operation_id) if body.operation_id else None
+            if previous:
+                if previous['request_hash'] != request_hash:
+                    raise HTTPException(409, '同一请求标识不能用于不同的讨论内容。')
+                # A process restart cannot turn a repeated HTTP request into a new paid call.
+                job = runner.get(previous.get('job_id') or '')
+                return job or {'job_id': previous.get('job_id'), 'kind': 'workshop.turn',
+                              'status': 'error', 'error': '本次请求已记录，请刷新查看保存的讨论；不会重复调用模型。'}
             self._available(data, body.revision)
             if data.get("restart_required"):
                 raise HTTPException(409, "基础设定已保存，请确认从头推导后继续；旧讨论不会自动用于新设定。")
@@ -1202,11 +1392,43 @@ class WorkshopService:
             phase = "revision" if data["prompt_md"] else "design" if data["messages"] or complete_input else "intake"
             skill, version = _skill_bundle(phase)
             timeout = _timeout()
+            try:
+                repartitioning = workshop_repartition.prepare(data, body.capacity_replan, intent=body.intent,
+                    mixed=bool(body.message.strip() or body.proposal_ids or body.story_action or body.capacity_choice))
+                allocation = workshop_capacity.validate_choice(data, body.capacity_choice, body.intent,
+                    body.message, bool(body.story_action or body.proposal_ids))
+                if workshop_story.enabled(data.get('creative_design')):
+                    workshop_story.validate_action(data, body.story_action, body.proposal_ids, body.message, body.intent)
+                elif body.story_action:
+                    raise ValueError('请先明确启用新版故事共创。')
+                if body.proposal_ids:
+                    workshop_guidance.selected_options(data, body.proposal_ids)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from None
             # Explicit new work may adopt M1; GET/resume never migrate old turns.
             if "creative_design" not in data:
-                data["creative_design"] = new_design(data["input"])
+                data["creative_design"] = new_design(data["input"], story=False)
+            if body.intent == 'discuss':
+                workshop_capacity.invalidate(data)
+            capacity_message = workshop_capacity.adopt(data, allocation, _now()) if allocation else ''
+            data['capacity_replan'] = repartitioning
+            if repartitioning:
+                capacity_message = workshop_repartition.message(repartitioning)
+            choices = apply_selected_choices(data, body.proposal_ids, now=_now()) if body.proposal_ids else []
+            action_message = workshop_story.apply_action(data, body.story_action, body.proposal_ids, body.message, _now()) if body.story_action else ''
+            message = '\n\n'.join([*choices, *([capacity_message] if capacity_message else []), *([action_message] if action_message else []), *([body.message.strip()] if body.message.strip() else [])])
+            if body.story_action and body.story_action.mode in {'select', 'custom', 'delegate', 'reopen'}:
+                data['design_needs_revision'] = True
+            if choices:
+                message += '\n\n请结合以上选择和补充，' + ('生成完整骨架。' if body.intent == 'deliver' else '推进下一轮故事设计。')
+                data['design_needs_revision'] = True
             data["revision"] += 1
-            data["messages"].append({"role": "user", "content": body.message.strip()})
+            data["messages"].append({"role": "user", "content": message})
+            if repartitioning:
+                repartitioning['request_basis'] = workshop_capacity.digest(workshop_capacity.source(data))
+            if body.operation_id:
+                data.setdefault('turn_requests', {})[body.operation_id] = {'request_hash': request_hash, 'job_id': None}
+            data['active_turn_request'] = body.operation_id
             data.update(status="running", last_error=None, prepared=None, skill_version=version,
                         turn_intent=body.intent,
                         turn_timeout_seconds=timeout, active_operation="brainstorm", ready_for_confirmation=False,
@@ -1217,14 +1439,75 @@ class WorkshopService:
             self._log(data, "turn_started", "模型正在按小说骨架 Skill 处理本轮意见。", timeout_seconds=timeout)
             return self._submit_inference(data, skill=skill)
 
+    def upgrade_guidance(self, session_id: str, body: GuidanceUpgradeInput) -> dict:
+        with self._locked(session_id) as data:
+            request_hash = type_digest(body.model_dump(exclude={'protocol'} if body.protocol == 'guided-choices.v1' else set()))
+            previous = data.get('guidance_upgrades', {}).get(body.operation_id)
+            if previous:
+                if previous != request_hash:
+                    raise HTTPException(409, '同一更新标识不能用于不同版本。')
+                return data
+            self._available(data, body.revision)
+            if data.get('restart_required'):
+                raise HTTPException(409, '请先处理基础设定修改。')
+            design = data.get('creative_design')
+            story_upgrade = body.protocol == workshop_story.VERSION
+            if (not workshop_story.enabled(design) if story_upgrade else not workshop_guidance.enabled(design)):
+                data.setdefault('guidance_history', []).append({'revision': data['revision'], 'design': design})
+                base = design or new_design(data['input'], guided=False)
+                data['creative_design'] = workshop_story.enable(base) if story_upgrade else workshop_guidance.enable(base)
+                data['revision'] += 1
+                self._log(data, 'guidance_upgraded', '已启用选项式共创；已有讨论与设定保留，下一轮开始生效，尚未调用模型。')
+            data.setdefault('guidance_upgrades', {})[body.operation_id] = request_hash
+            self._save(data)
+            return data
+
+    def save_choices(self, session_id: str, body: TurnInput) -> dict:
+        if body.capacity_replan or body.capacity_choice or not body.proposal_ids or not body.operation_id or body.intent != 'discuss':
+            raise HTTPException(422, '请先选择本轮方案。')
+        with self._locked(session_id) as data:
+            if workshop_story.enabled(data.get('creative_design')):
+                raise HTTPException(422, '新版请使用采用并继续推演，选择与补充会一并保存。')
+            digest = _turn_request_hash(body)
+            previous = data.get('choice_save_requests', {}).get(body.operation_id)
+            if previous:
+                if previous != digest:
+                    raise HTTPException(409, '同一请求标识不能保存不同内容。')
+                return data
+            self._available(data, body.revision)
+            if data.get('restart_required'):
+                raise HTTPException(409, '请先处理基础设定修改。')
+            try:
+                workshop_guidance.selected_options(data, body.proposal_ids)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from None
+            messages = apply_selected_choices(data, body.proposal_ids, now=_now())
+            workshop_capacity.invalidate(data)
+            if body.message.strip():
+                messages.append(body.message.strip())
+            data['messages'].append({'role': 'user', 'content': '\n\n'.join(messages)})
+            data.update(revision=data['revision'] + 1, status='draft', prepared=None,
+                        ready_for_confirmation=False, design_needs_revision=True, last_error=None,
+                        turn_intent='discuss', active_operation='brainstorm', paused_at=None,
+                        delivery_run_id=None, delivery_source_revision=None, delivery_published_run_id=None)
+            if data.get('naming'):
+                data['naming'].update(source_sha256='', confirmed_title=None, candidates=[])
+            data.setdefault('choice_save_requests', {})[body.operation_id] = digest
+            self._log(data, 'choices_saved', '方案与补充已保存，尚未调用模型。')
+            self._save(data)
+            return data
+
     def decide(self, session_id: str, body: DecisionInput) -> dict:
         with self._locked(session_id) as data:
+            if workshop_story.enabled(data.get('creative_design')):
+                raise HTTPException(422, '历史决定仅供回看；请在故事全貌中重新讨论。')
             self._available(data, body.revision)
             if data.get("restart_required"):
                 raise HTTPException(409, "基础设定已变更，请先确认从头推导；旧方案仅供回看。")
             try:
                 message = apply_decision(data, proposal_id=body.proposal_id, status=body.status,
                                          note=body.note, now=_now())
+                workshop_capacity.invalidate(data)
             except ValueError as exc:
                 raise HTTPException(422, str(exc)) from None
             data["revision"] += 1
@@ -1277,6 +1560,8 @@ class WorkshopService:
                             "message_count": len(archived["messages"]), "has_prompt": bool(archived["prompt_md"]),
                             "title": archived["input"].get("title") or "未命名讨论"})
             data["revision"] += 1
+            data.pop('capacity', None)
+            data.pop('skeleton_review', None)
             data.update(messages=[{"role": "user", "content": "请只依据当前基础设定，从头开始头脑风暴；提出有因果差异的故事方向并完善人物、冲突与结局。"}],
                         turn_intent="discuss",
                         creative_design=new_design(data["input"], data.get('pending_type_snapshot')),
@@ -1317,6 +1602,9 @@ class WorkshopService:
                                {"session_id": session_id}, unique_key=f"workshop:{self._path(session_id)}:{revision}",
                                cancel_event=cancel_event)
         data["job_id"] = job_id
+        request = data.get('turn_requests', {}).get(data.get('active_turn_request'))
+        if request is not None and request['job_id'] is None:
+            request['job_id'] = job_id
         if data.get("context_start_revision") == revision and data.get("restarted_from_revision") == revision - 1:
             data["restart_job_id"] = job_id
         self._save(data)
@@ -1385,19 +1673,27 @@ class WorkshopService:
                 LOG.info("workshop.worker.skipped session=%s expected_revision=%s revision=%s status=%s cancelled=%s",
                          session_id, revision, data["revision"], data["status"], cancel_event.is_set())
                 return
-            snapshot = dict(data)
+            snapshot = deepcopy(data)
         snapshot["_cancellation_event"] = cancel_event
         snapshot["_diagnostic_dir"] = self._path(session_id) / "diagnostics"
         snapshot["_candidate_path"] = self._path(session_id) / "candidates" / f"{revision}.md"
         snapshot["_inference_lock_path"] = self._path(session_id) / ".inference.lock"
         snapshot["_save_delivery_checkpoint"] = lambda record: self._save_delivery_checkpoint(snapshot, record, cancel_event)
         snapshot['_save_type_request'] = lambda receipt: self._save_type_request(snapshot, receipt)
+        snapshot['_save_delivery_response'] = lambda receipt: self._save_delivery_response(snapshot, receipt)
         try:
             snapshot["_delivery_record"] = self._load_delivery_checkpoint(snapshot)
             try:
+                # An editorial import supersedes older failed transport
+                # candidates, but preserves their files for audit. Never feed
+                # an obsolete pre-edit skeleton back as the next repair source.
+                candidate_floor = max(
+                    int(snapshot.get("context_start_revision", 0)),
+                    max((item["new_revision"] for item in snapshot.get("editorial_revisions", [])), default=0),
+                )
                 earlier = sorted(
                     (path for path in snapshot["_candidate_path"].parent.glob("*.md")
-                     if path.stem.isdigit() and int(snapshot.get("context_start_revision", 0)) <= int(path.stem) < revision),
+                     if path.stem.isdigit() and candidate_floor <= int(path.stem) < revision),
                     key=lambda path: int(path.stem), reverse=True,
                 )
                 if snapshot.get("turn_intent") == "deliver" and earlier and not snapshot["_delivery_record"]:
@@ -1411,10 +1707,14 @@ class WorkshopService:
             result, route = _complete(snapshot, skill)
             if cancel_event.is_set():
                 return
+            repartition_receipt = None
+            if snapshot.get('capacity_replan'):
+                result, repartition_receipt = workshop_repartition.finish(snapshot, result.get('capacity_partition'))
             if (snapshot.get("input_needs_revision") or snapshot.get("design_needs_revision")) and result["ready_for_confirmation"] and result.get("prompt_md") is None:
                 raise ModelResponseError("基础设定或创作决定已修改，模型尚未返回更新后的完整骨架。请继续推导。")
             if result.get("prompt_md") is not None:
                 result["prompt_md"] = bind_classification(result["prompt_md"], snapshot['input'])
+                result['prompt_md'] = workshop_capacity.bind(snapshot, result['prompt_md'])
                 candidate = self._path(session_id) / "candidates" / f'{snapshot["revision"]}.md'
                 _atomic(candidate, result["prompt_md"])
                 validated = _validate_candidate(candidate)
@@ -1432,9 +1732,36 @@ class WorkshopService:
                     data["design_needs_revision"] = False
                     data["pending_input_fields"] = []
                     _atomic(self._path(session_id) / "versions" / f'{data["revision"]}.md', data["prompt_md"])
+                    if workshop_capacity.enabled(snapshot):
+                        from core.skeleton_review import record as record_review
+                        if data.get('skeleton_review'):
+                            data.setdefault('skeleton_review_history', []).append(data['skeleton_review'])
+                        data['skeleton_review'] = record_review(data['prompt_md'], result.get('skeleton_review'), data['revision'])
                 data["messages"].append({"role": "assistant", "content": result["reply"],
                                          "questions": list(result["questions"])})
-                record_round(data, result, source_revision=snapshot["revision"])
+                if not snapshot.get('capacity_replan'):
+                    record_round(data, result, source_revision=snapshot["revision"])
+                if workshop_story.enabled(data.get('creative_design')) and snapshot.get('turn_intent') == 'discuss' and not snapshot.get('capacity_replan'):
+                    from .workshop_story_result import candidate_artifact
+                    record = data['creative_design']['rounds'][-1]
+                    validation = data['creative_design']['story_state']['validation']
+                    relative = f"story-candidates/{snapshot['revision']}.json"
+                    validation['candidate_path'] = relative
+                    record['story_validation'] = deepcopy(validation)
+                    raw = result.get('design_notes')
+                    raw = raw.get('story') if isinstance(raw, dict) else None
+                    try:
+                        _atomic(self._path(session_id) / relative,
+                                json.dumps(candidate_artifact(raw, record, snapshot), ensure_ascii=False, indent=2))
+                    except OSError:
+                        validation.pop('candidate_path', None)
+                        validation['candidate_save_failed'] = True
+                        record['story_validation'] = deepcopy(validation)
+                        LOG.warning('workshop.story_candidate.save_failed session=%s revision=%s', session_id, snapshot['revision'])
+                workshop_capacity.record(data, result, snapshot)
+                if repartition_receipt:
+                    data['capacity']['repartition'] = repartition_receipt
+                    data['capacity_replan'] = None
                 data.update(questions=result["questions"], ready_for_confirmation=result["ready_for_confirmation"],
                             status="ready" if result["ready_for_confirmation"] else "draft", last_error=None)
                 self._log(data, "turn_completed", "本轮讨论已完成。", elapsed_seconds=round(time.monotonic()-started, 2), **route)
@@ -1456,8 +1783,10 @@ class WorkshopService:
             self._available(data, body.revision)
             new_input = body.input.model_dump()
             if data['input'].get('creation_flow') and not new_input.get('creation_flow'):
-                raise HTTPException(422, '新建小说需保留 H5 分类选择；不能退回旧版创建协议。')
+                raise HTTPException(422, '请保留 Genre / Tags 创建协议。')
             pending_snapshot = self._type_snapshot(new_input)
+            from .source_library import freeze
+            new_source_context = freeze(self.projects, new_input.get('source_book'))
             changes = {key: {"before": data["input"].get(key), "after": value}
                        for key, value in new_input.items() if data["input"].get(key) != value}
             if not changes:
@@ -1466,10 +1795,12 @@ class WorkshopService:
                 _atomic(self._history_path(session_id, f'before-edit-{data["revision"]}.json'),
                         json.dumps(data, ensure_ascii=False, indent=2))
                 data["pending_restart_revision"] = data["revision"]
+            workshop_capacity.invalidate(data)
             data.setdefault("initial_input", json.loads(json.dumps(data["input"])))
             data["pending_input_fields"] = sorted(set(data.get("pending_input_fields", [])) | set(changes))
             data["input"] = new_input
             data['pending_type_snapshot'] = pending_snapshot
+            data['source_context'] = new_source_context
             data["revision"] += 1
             data.update(status="draft", last_error=None, prepared=None, ready_for_confirmation=False,
                         active_operation="brainstorm", input_needs_revision=True, restart_required=True,
@@ -1485,13 +1816,18 @@ class WorkshopService:
 
     def titles(self, session_id: str, body: TitleInput) -> dict:
         from .workshop_titles import clean_title
+        from .system_prompts import store_for as prompt_store_for
+        from core.title_context import build_title_context
         current_title = clean_title(body.current_title) if body.current_title.strip() else ""
         with self._locked(session_id) as data:
             self._available(data, body.revision)
+            if data.get('skeleton_review', {}).get('status') == 'proposed':
+                raise HTTPException(422, '请先处理骨架修订建议，再推荐书名。')
             if not data["prompt_md"] or not data["ready_for_confirmation"] or data["questions"]:
                 raise HTTPException(422, "请先完成并确认小说骨架，再推荐书名。")
             confirmed = _confirm_format(data["prompt_md"])
             confirmed = bind_classification(confirmed, data['input'])
+            confirmed = workshop_capacity.bind(data, confirmed)
             with tempfile.TemporaryDirectory(prefix="workshop-title-check-") as directory:
                 candidate = Path(directory) / "prompt.md"
                 candidate.write_text(confirmed, encoding="utf-8")
@@ -1503,6 +1839,11 @@ class WorkshopService:
             naming["source_sha256"] = digest
             naming["requests"].append({"instructions": body.instructions.strip(), "created_at": _now(),
                                        "current_title": current_title, "source_sha256": digest})
+            try:
+                projection = build_title_context({**data, "prompt_md": confirmed, "naming": naming})
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+            naming["requests"][-1].update(title_context=projection, system_prompt=prompt_store_for(self.projects).snapshot())
             data["revision"] += 1
             data.update(prompt_md=confirmed, naming=naming, active_operation="titles", status="running",
                         last_error=None, prepared=None, turn_timeout_seconds=_timeout(), paused_at=None, resumed_from_revision=None)
@@ -1523,13 +1864,25 @@ class WorkshopService:
         snapshot["_cancellation_event"] = cancel_event
         snapshot["_diagnostic_dir"] = self._path(session_id) / "diagnostics"
         try:
-            rules = (SKILL / "references" / "title-naming.md").read_text(encoding="utf-8")
+            from .system_prompts import store_for as prompt_store_for
+            prompt = snapshot["naming"]["requests"][-1].get("system_prompt")
+            if prompt is None:
+                # A pre-upgrade interrupted request gets an explicit snapshot before execution.
+                prompt = prompt_store_for(self.projects).snapshot()
+                with self._locked(session_id) as data:
+                    if not self._current_operation(data, snapshot):
+                        return
+                    data["naming"]["requests"][-1]["system_prompt"] = prompt
+                    self._save(data)
+                snapshot["naming"]["requests"][-1]["system_prompt"] = prompt
+            rules = prompt["markdown"]
             candidates, route = complete_titles(snapshot, rules)
             with self._locked(session_id) as data:
                 if not self._current_operation(data, snapshot):
                     return
                 data["naming"]["candidates"] = candidates
                 data["naming"]["requests"][-1]["candidates"] = candidates
+                data["naming"]["requests"][-1]["metrics"] = route
                 data["revision"] += 1
                 data.update(status="ready", last_error=None)
                 self._log(data, "turn_completed", "书名建议已生成，请选择或修改后确认最终书名。", operation="titles",
@@ -1548,10 +1901,13 @@ class WorkshopService:
     def prepare(self, session_id: str, body: PrepareInput) -> dict:
         with self._locked(session_id) as data:
             self._available(data, body.revision)
+            if data.get('skeleton_review', {}).get('status') == 'proposed':
+                raise HTTPException(422, '请先查看骨架修订建议，采用修改或保留当前骨架，再确认启动。')
             if not data["prompt_md"] or not data["ready_for_confirmation"] or data["questions"]:
                 raise HTTPException(422, "请先完成必要信息和小说骨架，再确认并生成启动命令。")
             confirmed = _confirm_format(data["prompt_md"])
             confirmed = bind_classification(confirmed, data['input'])
+            confirmed = workshop_capacity.bind(data, confirmed)
             if data.get("naming") and body.title is None:
                 raise HTTPException(422, "请选择或输入最终书名。")
             if body.title is not None:
@@ -1590,6 +1946,57 @@ class WorkshopService:
             self._save(data)
             return data
 
+    def revise_skeleton(self, session_id: str, body: SkeletonRevisionInput) -> dict:
+        """One author decision applies reviewed excerpts, then rechecks contracts.
+
+        The session JSON is the atomic publication point. Orphaned history/version
+        artifacts from a failed save cannot become the current source or launch it.
+        """
+        from core.skeleton_review import annotate_resolution, revise, source_hash
+        with self._locked(session_id) as data:
+            request_hash = type_digest(body.model_dump())
+            previous = data.get('skeleton_revision_requests', {}).get(body.operation_id)
+            if previous:
+                if previous != request_hash:
+                    raise HTTPException(409, '同一请求标识不能用于不同修订。')
+                return data
+            self._available(data, body.revision)
+            if data.get('restart_required') or not data['ready_for_confirmation']:
+                raise HTTPException(409, '请先完成当前骨架推导，再确认修订。')
+            review = data.get('skeleton_review') or {}
+            if review.get('review_sha256') != body.review_sha256:
+                raise HTTPException(409, '修订建议已变化，请刷新后查看。')
+            try:
+                candidate = revise(data['prompt_md'], review, body.selected_ids)
+                candidate = annotate_resolution(candidate, review, body.selected_ids)
+                candidate = workshop_capacity.bind(data, candidate)
+                with tempfile.TemporaryDirectory(prefix='workshop-editorial-check-') as directory:
+                    path = Path(directory) / 'prompt.md'
+                    path.write_text(candidate, encoding='utf-8')
+                    _validate_candidate(path)
+            except (ValueError, KeyError, TypeError) as exc:
+                raise HTTPException(422, f'修订尚未通过结构校验，原骨架已保留：{str(exc)[:240]}') from None
+            _atomic(self._history_path(session_id, f'review-{body.review_sha256}.json'), json.dumps(data, ensure_ascii=False, indent=2))
+            data['revision'] += 1
+            resolution = {**review, 'status': 'resolved', 'selected_ids': body.selected_ids,
+                'decision': 'apply_selected' if body.selected_ids else 'keep_original',
+                'resolved_revision': data['revision'], 'resolved_at': _now(),
+                'result_sha256': source_hash(candidate), 'verification': 'exact_edits_and_structure_validated',
+                'reader_validation': 'not_run'}
+            data['skeleton_review'] = resolution
+            data['prompt_md'] = candidate
+            data.update(prepared=None, naming=None, delivery_run_id=None, delivery_source_revision=None,
+                        delivery_published_run_id=None, resumed_from_revision=None)
+            data.setdefault('editorial_revisions', []).append({'new_revision': data['revision'],
+                'source_sha256': review['source_sha256'], 'result_sha256': source_hash(candidate),
+                'review_sha256': body.review_sha256, 'selected_ids': body.selected_ids})
+            data.setdefault('skeleton_revision_requests', {})[body.operation_id] = request_hash
+            _atomic(self._path(session_id) / 'versions' / f'{data["revision"]}.md', candidate)
+            self._log(data, 'skeleton_revised', '已保存作者的骨架修订决定，结构检查通过；正文尚未启动，阅读效果尚未验证。',
+                      selected_issues=body.selected_ids)
+            self._save(data)
+            return data
+
     def launch(self, session_id: str, body: RevisionInput) -> dict:
         with self._locked(session_id) as data:
             if data["status"] == "launched" and body.revision == data["revision"]:
@@ -1624,6 +2031,12 @@ class WorkshopService:
                     created = True
                     prompt_path = project_path / "outputs" / "input" / "prompt.md"
                     _atomic(prompt_path, data["prompt_md"])
+                    if handoff.get('type_snapshot'):
+                        _atomic(prompt_path.with_name('knowledge.json'), json.dumps(handoff['type_snapshot'], ensure_ascii=False))
+                    if data.get('source_context'):
+                        _atomic(project_path / 'outputs/private/source-context.json', json.dumps(data['source_context'], ensure_ascii=False))
+                        from .source_library import carry_cover
+                        carry_cover(self.projects, project_path, data['source_context'])
                     # Make the project immediately readable without generating an author/model call.
                     ingest_prompt(project_path, prompt_path,
                                   {"title": validated["title"], "genre": validated["genre"]},
@@ -1689,6 +2102,13 @@ def get_session(session_id: str, service: WorkshopService = Depends(get_workshop
     return {**result, "delivery_progress": delivery} if delivery is not None else result
 
 
+@router.delete("/sessions/{session_id}", status_code=204)
+def delete_session(session_id: str, revision: int = Query(ge=0),
+                   service: WorkshopService = Depends(get_workshop_service)):
+    service.delete(session_id, revision)
+    return Response(status_code=204)
+
+
 @router.post("/sessions/{session_id}/turns", status_code=202)
 def add_turn(session_id: str, body: TurnInput, service: WorkshopService = Depends(get_workshop_service)):
     return service.turn(session_id, body)
@@ -1697,6 +2117,16 @@ def add_turn(session_id: str, body: TurnInput, service: WorkshopService = Depend
 @router.post("/sessions/{session_id}/decisions")
 def decide_proposal(session_id: str, body: DecisionInput, service: WorkshopService = Depends(get_workshop_service)):
     return service.decide(session_id, body)
+
+
+@router.post('/sessions/{session_id}/guidance')
+def upgrade_guidance(session_id: str, body: GuidanceUpgradeInput, service: WorkshopService = Depends(get_workshop_service)):
+    return service.upgrade_guidance(session_id, body)
+
+
+@router.post('/sessions/{session_id}/choices')
+def save_choices(session_id: str, body: TurnInput, service: WorkshopService = Depends(get_workshop_service)):
+    return service.save_choices(session_id, body)
 
 
 @router.get('/sessions/{session_id}/type-context')
@@ -1735,6 +2165,11 @@ def prepare_session(session_id: str, body: PrepareInput, service: WorkshopServic
         return service.prepare(session_id, body)
     except (ValueError, KeyError, TypeError) as exc:
         raise HTTPException(422, f"骨架格式尚需修正：{exc}") from exc
+
+
+@router.post('/sessions/{session_id}/skeleton-revision')
+def revise_session_skeleton(session_id: str, body: SkeletonRevisionInput, service: WorkshopService = Depends(get_workshop_service)):
+    return service.revise_skeleton(session_id, body)
 
 
 @router.post("/sessions/{session_id}/input")

@@ -247,6 +247,17 @@ class PosterImageService:
                     if (generated.operation != "edit" or generated.reference_image_sha256 != reference["sha256"]
                             or media_lib.digest(generated.data) == reference["sha256"]):
                         raise CoverServiceError("图片服务未返回可验证的原图编辑结果。")
+                elif concept.scene_plan.get('_reference_asset'):
+                    from core.reference_assets import ReferenceAssets
+                    binding = concept.scene_plan['_reference_asset']
+                    assets_store = ReferenceAssets(project / 'outputs/private/references')
+                    asset = assets_store.get(binding['asset_id'])
+                    if asset != binding['asset']:
+                        raise CoverServiceError('参考图来源已变化，请重新规划。')
+                    generated = self.service.image_client.edit(concept.generation_prompt, assets_store.path(asset['asset_id']),
+                        expected_reference_sha256=asset['sha256'])
+                    if generated.operation != 'edit' or generated.reference_image_sha256 != asset['sha256'] or media_lib.digest(generated.data) == asset['sha256']:
+                        raise CoverServiceError('图片服务未返回可验证的参考图创作结果。')
                 else:
                     generated = self.service.image_client.generate(concept.generation_prompt)
                 self._validate_generated_model(generated)
@@ -274,7 +285,7 @@ class PosterImageService:
             from api.poster_tasks import error_message
             error = (error_message(exc) if isinstance(exc, (ImageClientError, CoverServiceError, CoverTypographyError))
                      else self.service._safe_error(exc))[:500]
-            attempt = {"attempt_id": attempt_id, "status": "failed", "operation": "edit" if concept.scene_plan.get("_poster_refinement") else "generate",
+            attempt = {"attempt_id": attempt_id, "status": "failed", "operation": "edit" if concept.scene_plan.get("_poster_refinement") or concept.scene_plan.get("_reference_asset") else "generate",
                        "error": error, "created_at": self.service._now(), "generation_prompt": concept.generation_prompt}
             ready = replace(candidate, status="failed", error=error, attempt_history=(*candidate.attempt_history, attempt),
                 safe_request_parameters={**candidate.safe_request_parameters, "poster_render_state": "failed"})

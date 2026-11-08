@@ -6,7 +6,13 @@ export interface PosterDirection {
   medium: string; palette: string | string[]; characters: string[];
   image_prompt: string; title_position: "top" | "bottom" | "left";
 }
+export interface PosterReference {
+  asset_id: string; mode: 'visual_inspiration' | 'adaptation_reference'; url: string;
+  asset: {asset_id: string; sha256: string; width: number; height: number; size_bytes: number; content_type: string; origin: 'upload' | 'source_book'};
+}
 export interface PosterPlan {
+  reference?: PosterReference | null;
+  reference_analysis?: Record<'observations' | 'interpretations' | 'retain' | 'translate' | 'exclude', string[]>;
   plan_id: string; plan_hash: string; pipeline_kind: "skeleton_poster";
   created_at: string; source_sha256: string; status: "draft" | "approved"; stale?: boolean;
   story: { premise: string; core_conflict: string; emotional_promise: string;
@@ -40,6 +46,7 @@ export interface PosterSet extends Omit<CoverSet, "candidates"> {
   repair_lineage?: {parent_cover_set_id?: string; parent_candidate_id?: string; target_concept_id?: string; operation?: string};
 }
 export interface PosterOverview {
+  reference?: PosterReference | null;
   enabled: boolean; title: string;
   source: {bytes: number; sha256: string; preview: string; path?: string; error?: string};
   plans: PosterPlan[]; sets: PosterSet[]; tasks: PosterTask[];
@@ -79,9 +86,17 @@ async function request<T>(url: string, method = "GET", body?: unknown, signal?: 
   return response.json() as Promise<T>;
 }
 export const posterApi = {
+  selectReference: (id: string, assetId: string | null, mode: PosterReference['mode']) => request<PosterReference | null>(`${path(id)}/reference/selection`, 'POST', {asset_id: assetId, mode}),
+  async uploadReference(id: string, file: File): Promise<PosterReference> {
+    const body=new FormData(); body.append('file',file);
+    const response=await fetch(`${API_BASE}${path(id)}/reference`, {method:'POST',body});
+    const data=await response.json();
+    if(!response.ok) throw new Error(typeof data.detail==='string'?data.detail:'图片上传失败');
+    return data;
+  },
   overview: (id: string, signal?: AbortSignal) => request<PosterOverview>(path(id), "GET", undefined, signal),
   rebuildDelivery: (id: string) => request<{delivery: PosterDelivery}>(`/api/projects/${encodeURIComponent(id)}/deliverables/package/rebuild`, "POST"),
-  plan: (id: string, requestId: string, preferences: PosterPreferences) => request<PosterTask>(`${path(id)}/plans`, "POST", {request_id: requestId, preferences}),
+  plan: (id: string, requestId: string, preferences: PosterPreferences, reference?: PosterReference | null) => request<PosterTask>(`${path(id)}/plans`, "POST", {request_id: requestId, preferences, reference: reference ? {asset_id: reference.asset_id, mode: reference.mode} : null}),
   editPlan: (id: string, plan: PosterPlan, directions: PosterDirection[]) => request<PosterPlan>(`${path(id)}/plans/${encodeURIComponent(plan.plan_id)}`, "PATCH", {expected_hash: plan.plan_hash, directions}),
   generate: (id: string, requestId: string, plan: PosterPlan) => request<PosterTask>(`${path(id)}/batches`, "POST", {request_id: requestId, plan_id: plan.plan_id, plan_hash: plan.plan_hash}),
   retry: (id: string, requestId: string, setId: string, candidateIds?: string[]) => request<PosterTask>(`${path(id)}/sets/${encodeURIComponent(setId)}/retry`, "POST", {request_id: requestId, ...(candidateIds ? {candidate_ids: candidateIds} : {})}),

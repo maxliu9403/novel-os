@@ -22,6 +22,7 @@ from project_identity import load_project_instance_id_unlocked
 from project_lock import ProjectLock
 from promotion import PromotionService
 from state_manager import StoryState
+from plot_thread_contract import PLOT_THREAD_STATUSES
 
 
 REVIEWS_RELATIVE = "outputs/state/ending_evidence_reviews"
@@ -75,7 +76,7 @@ def _digest(value, label, pattern=_SHA):
 
 
 def _claim_key(claim):
-    return (claim["kind"], claim.get("payoff_id", claim.get("character_id")))
+    return (claim["kind"], claim.get("payoff_id", claim.get("character_id", claim.get("thread_id"))))
 
 
 def _unpublished_temp(path):
@@ -127,6 +128,12 @@ def _validate_schema(payload):
                 raise EndingEvidenceError("invalid arc stage")
             if not isinstance(claim["outcome_state"], str):
                 raise EndingEvidenceError("outcome state must be text")
+        elif claim.get("kind") == "main_conflict":
+            _fields(claim, {"kind", "thread_id", "status", "required_status", "evidence", "sources"}, "main conflict claim")
+            _text(claim["thread_id"], "thread ID")
+            _text(claim["required_status"], "original required status")
+            if claim["status"] != "resolved":
+                raise EndingEvidenceError("main conflict review may only attest an already resolved thread")
         else:
             raise EndingEvidenceError("unknown ending claim kind")
         key = _claim_key(claim)
@@ -322,7 +329,7 @@ class EndingEvidenceStore:
                     )
                     if conflicting_open:
                         raise EndingEvidenceError("review cannot override intentionally open canonical payoff")
-                else:
+                elif claim["kind"] == "arc":
                     identifier = claim["character_id"]
                     if identifier not in arcs or identifier not in state.characters:
                         raise EndingEvidenceError("ending review claims an unknown character obligation")
@@ -340,6 +347,22 @@ class EndingEvidenceStore:
                     current = state.characters[identifier].outcome_state.strip().lower()
                     if current and current != claim["outcome_state"].strip().lower():
                         raise EndingEvidenceError("review cannot override conflicting canonical outcome")
+                elif claim["kind"] == "main_conflict":
+                    obligation = contract.get("main_conflict") or {}
+                    required = obligation.get("required_status")
+                    thread = state.plot_threads.get(claim["thread_id"])
+                    if (not isinstance(required, str) or not required.strip()
+                            or required.strip().lower() in PLOT_THREAD_STATUSES
+                            or claim["required_status"] != required
+                            or claim["thread_id"] != obligation.get("thread_id")):
+                        raise EndingEvidenceError("main conflict review must bind an unsupported historical status obligation")
+                    if thread is None or thread.status != claim["status"]:
+                        raise EndingEvidenceError("main conflict review cannot override canonical thread status")
+                    window = contract.get("finale_window") or {}
+                    start = int(window.get("start_chapter") or 1)
+                    end = int(window.get("end_chapter") or as_of)
+                    if not any(start <= s["chapter"] <= end for s in claim["sources"]):
+                        raise EndingEvidenceError("main conflict review requires approved finale evidence")
                 for source in claim["sources"]:
                     self._source(source, state, as_of)
         return active

@@ -99,6 +99,21 @@ def test_foundation_hydrates_approved_commercial_contract(tmp_path):
     assert state.story_bible["commercial_story_contract"] == contract.to_dict()
 
 
+def test_source_restoration_reaches_character_context_and_story_bible(tmp_path):
+    project = tmp_path / 'restored'
+    initialize_project(str(project), 'North Door', 'suspense')
+    foundation = _foundation()
+    foundation['characters'][0].update(arc='Learn independence.', background='Repairs instruments for partial income.')
+    foundation['reader_profile'] = 'Adult women, English, US market.'
+    foundation['story_lead_plan'] = 'Before chapter 1; 120–180 words; no ending spoilers.'
+    FoundationCanonService(project).initialize(foundation, target_words=200, idempotency_key='restored')
+    state = StoryState(str(project))
+    assert 'Learn independence.' in state.characters['char_001'].notes
+    assert 'Repairs instruments' in state.characters['char_001'].notes
+    assert state.story_bible['reader_profile'] == foundation['reader_profile']
+    assert state.story_bible['story_lead_plan'] == foundation['story_lead_plan']
+
+
 def test_foundation_idempotency_key_rejects_different_content(tmp_path):
     project = tmp_path / "project"
     initialize_project(str(project), "North Door", "suspense")

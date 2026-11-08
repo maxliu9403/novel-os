@@ -148,6 +148,8 @@ def parse_part(text: str, part_id: str, mode: str, chapter_count: int) -> dict:
     expected = {"part_id", "narrative_mode", "total_chapters", "sections"}
     if part_id == "publication":
         expected.add("metadata")
+    if part_id == 'delivery_review' and isinstance(data, dict) and 'review' in data:
+        expected.add('review')  # optional companion; old saved parts remain valid
     if not isinstance(data, dict) or set(data) != expected:
         _fail(part_id, "只返回当前片段规定的字段，不能返回完整骨架或额外片段。")
     if (data["part_id"] != part_id or mode not in _MODES or data["narrative_mode"] != mode
@@ -272,7 +274,9 @@ def repair_part(error: str) -> str | None:
 class AssemblyPlan:
     """Pure plan over complete story artifacts and scoped saved supplements."""
 
-    def __init__(self, story_data: dict, chapter_data: dict, saved_parts: dict | None = None):
+    def __init__(self, story_data: dict, chapter_data: dict, saved_parts: dict | None = None, *, editorial_review: str = '', compact: bool = False):
+        self.compact = compact
+        self.editorial_review = editorial_review
         self.story = deepcopy(story_data)
         self.chapters = deepcopy(chapter_data)
         self.mode = self.story.get("narrative_mode")
@@ -320,6 +324,21 @@ class AssemblyPlan:
         if part == "publication":
             example["metadata"] = {k: "actual accepted value" for k in _METADATA}
             example["metadata"]["words"] = "positive integer actual target, not this schema string"
+        review_rules = ''
+        if part == 'delivery_review' and self.editorial_review:
+            review_rules = self.editorial_review
+            example['review'] = {'summary': 'concrete design assessment', 'checked': ['opening', 'causality', 'reader_value', 'character', 'capacity', 'payoff'], 'issues': [], 'notes': []}
+        guidance = _GUIDANCE[part]
+        if self.compact and part == 'reader_style':
+            guidance = guidance.replace(
+                'emotional transition and draft review guidance, along with existing Agent state/continuity\nand payoff protocols.',
+                'emotional transition and book-specific draft review guidance. Code appends the standard\nruntime protocol. Do NOT reproduce generic Agent instructions, state block examples,\nlifecycle enums, export specifications or a second chapter outline.')
+        compact_rules = ("\nEach fact has one primary home: identities/arcs in section 5, relationship changes in 6, "
+                         "world constraints in 7, reveals in 8, causal turns in 9, payoff schedule in 10, chapter scenes in 12. "
+                         "Use existing IDs plus the local context needed to understand an interaction. Do not replace "
+                         "a necessary cause, qualification or cost with an opaque ID. No repeated plot retellings, "
+                         "generic checklists or template examples. Keep the whole story and unresolved assumptions.\n"
+                         if self.compact else '')
         return f"""
 CURRENT REQUEST PROFILE: BOUNDED SKELETON ASSEMBLY PART ({ASSEMBLY_PROTOCOL_VERSION}).
 This dedicated transport replaces the full-skeleton response format in the references.
@@ -334,7 +353,9 @@ supplement, referencing saved chapter/character/payoff IDs instead of repeating 
 Section bodies omit numbered ## section headings and top metadata labels. Keep nested
 metadata in JSON with quoted keys, and close all JSON/Markdown fences. Do not invoke
 tools, produce chapter prose, generate images or claim execution of external validation.
-{_GUIDANCE[part]}
+{guidance}
+{compact_rules}
+{review_rules}
 Return ONLY this JSON shape (fill actual complete content; no additional response keys):
 {json.dumps(example, ensure_ascii=False)}
 """
@@ -354,8 +375,12 @@ Return ONLY this JSON shape (fill actual complete content; no additional respons
             label = "POV" if key == "pov" else key.title()
             headers.append(f"{label}: {metadata[key]}")
         headers.extend((f"Chapters: {self.chapter_count}", f"Words: {metadata['words']}"))
-        body = "\n".join(headers) + "\n\n" + story["premise"]
-        sections = {3: story["premise"] + "\n\n" + story["causal_chain"]
+        # New deliveries keep the full premise in section 3 only. Legacy
+        # assemblies preserve their exact rendering for checkpoint recovery.
+        body = "\n".join(headers) + ("" if self.compact else "\n\n" + story["premise"])
+        # The complete causal chain belongs to section 9. Duplicating it in
+        # the synopsis buys no facts and inflates every downstream request.
+        sections = {3: story["premise"]
                        + _supplement("故事设计补充记录", _extra_fields(saved_story, story_fields)),
                     5: story["characters"], 9: story["causal_chain"],
                     12: "\n\n".join(_chapter(chapter) for chapter in self.chapters["chapters"])
@@ -364,6 +389,9 @@ Return ONLY this JSON shape (fill actual complete content; no additional respons
                     16: story["decisions"] + _supplement("全局设计补充记录", _extra_fields(self.story, {"narrative_mode", "total_chapters", "story_design"}))}
         for data in self.parts.values():
             sections.update({int(number): text for number, text in data["sections"].items()})
+        if self.compact:
+            from core.skeleton_projection import RUNTIME_NOTE
+            sections[14] += "\n\n" + RUNTIME_NOTE
         # The chosen structure is already validated in publication. Showing its
         # actual serialized spans here adds no model-invented structure or facts.
         from core.narrative_format import parse_narrative_format_block
@@ -375,4 +403,5 @@ Return ONLY this JSON shape (fill actual complete content; no additional respons
                 sections[9] += f"\n\n系列《{narrative.series_title}》第 {narrative.series_book_number} 册，本次仅创作当前册。"
         prompt = body + "\n\n" + "\n\n".join(_section(n, sections[n]) for n in range(1, 18)) + "\n"
         return {"reply": "### 骨架已整理\n\n已复用保存的故事设计和完整章节规划，补齐创作规格与交付内容。请查看并确认本版骨架。",
-                "prompt_md": prompt, "ready_for_confirmation": True, "questions": []}
+                "prompt_md": prompt, "ready_for_confirmation": True, "questions": [],
+                **({'skeleton_review': self.parts['delivery_review'].get('review')} if self.editorial_review else {})}

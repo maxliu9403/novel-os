@@ -4,6 +4,7 @@ import json
 import threading
 import time
 
+from test_creative_types import default_refs
 import pytest
 
 from api import workshop, workshop_titles
@@ -26,7 +27,7 @@ def stored_session(service, session_id):
 
 
 def seed_ready_session(service, tmp_path):
-    data = service.create(workshop.SessionInput(title="A Mother's Choice"))
+    data = service.create(workshop.SessionInput(creative_types=default_refs(), title="A Mother's Choice"))
     with service._locked(data["id"]) as stored:
         stored.update(
             status="ready", ready_for_confirmation=True,
@@ -208,7 +209,7 @@ def test_actual_turn_calls_model_and_commits_result_within_bounded_wait(service,
         return model_result(questions=["结局要保留什么情绪？"])
 
     monkeypatch.setattr(workshop, "_complete", complete)
-    data = service.create(workshop.SessionInput(title="A Mother's Choice"))
+    data = service.create(workshop.SessionInput(creative_types=default_refs(), title="A Mother's Choice"))
     job = service.turn(data["id"], workshop.TurnInput(revision=0, message="开始构思"))
     wait_for_job(job["job_id"], "done")
     finished = service.get(data["id"])

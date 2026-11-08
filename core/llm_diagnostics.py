@@ -172,6 +172,9 @@ class CLIDiagnostics:
         if self._finished is None and time.monotonic() - self._last_emitted_at >= self._heartbeat_seconds:
             self._publish("heartbeat")
 
+    def completion_window(self, seconds: float) -> None:
+        self._publish('cli.completion_window', completion_grace_seconds=seconds)
+
     def finish(self, event: str, **fields) -> dict:
         """Flush an unterminated last line and emit a safe terminal snapshot."""
         if self._finished is not None:
@@ -342,7 +345,15 @@ class CLIDiagnostics:
                     self._publish("cli.model_output")
 
     def _observe_stderr_line(self, line: bytes) -> None:
-        self._classify_error(line[:_MAX_ERROR_CHARS].decode("utf-8", errors="replace"))
+        try:
+            from .codex_diagnostic_codes import stderr_metadata
+        except ImportError:
+            from codex_diagnostic_codes import stderr_metadata
+        text = line[:_MAX_ERROR_CHARS].decode("utf-8", errors="replace")
+        self._classify_error(text)
+        metadata = stderr_metadata(text)
+        if metadata is not None:
+            self._publish('cli.diagnostic', **metadata)
 
     def _record_status(self, status: int) -> None:
         self._http_status = status

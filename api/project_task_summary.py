@@ -76,12 +76,15 @@ def task_runtime(project: Path, manifest: dict, *, is_latest: bool) -> dict:
     resuming = bool(resume and resume["status"] == "running")
     matching = next((job for job in active if job.get('kind') in {'novel.run', 'novel.resume'}
                      and job.get('run_id') == manifest['run_id']), None)
+    planning = task_sidecar(project, manifest['run_id'], 'planning/progress.json') if manifest.get('current_phase') == 'outline' else None
+    needs_design = bool(planning and planning.get('status') == 'failed'
+                        and (planning.get('recovery') or {}).get('retryable') is False)
     return {
         "status": "running" if resuming or matching else manifest["status"],
         "can_resume": bool(
             is_latest and manifest["status"] in RESUMABLE_STATUSES
             and not manifest["spec"].get("dry_run") and not active
-            and _valid_resume_contract(manifest)
+            and _valid_resume_contract(manifest) and not needs_design
         ),
         "resume_job_id": resume["job_id"] if resume else None,
         "resume_job_status": resume["status"] if resume else None,
@@ -129,6 +132,16 @@ def task_sidecar(project: Path, run_id: str, relative: str) -> dict | None:
             reuse = data.get('workshop_reuse')
             safe['workshop_reuse'] = {key: reuse[key] for key in ('used', 'reason') if key in reuse
                 and isinstance(reuse[key], (bool, str))} if isinstance(reuse, dict) else None
+            recovery = data.get('recovery')
+            safe['recovery'] = {'retryable': recovery['retryable'],
+                'action': str(recovery.get('action', ''))[:80], 'reason': str(recovery.get('reason', ''))[:2000]} \
+                if isinstance(recovery, dict) and type(recovery.get('retryable')) is bool else None
+            from core.planning_recovery import source_restoration_available
+            if source_restoration_available(project, run_id, data):
+                message = ('新版支持按骨架补全遗漏。恢复后复用已保存章节，执行一次来源补全并完整核查；'
+                           '通过后继续正文，会产生模型用量。')
+                safe['recovery'] = {'retryable': True, 'action': 'restore_source_omissions', 'reason': message}
+                safe['next_action'] = message
             return safe
         return None
     except (OSError, ValueError, TypeError):

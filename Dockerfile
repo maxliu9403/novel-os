@@ -13,7 +13,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Deterministic cover typography uses local, redistributable Latin/CJK fonts.
-RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core fonts-noto-cjk \
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core fonts-noto-cjk poppler-utils antiword \
     && rm -rf /var/lib/apt/lists/*
 
 # Keep the production API on the same authenticated Codex transport as local
@@ -23,10 +23,8 @@ COPY --from=codex-cli /usr/local/lib/node_modules/@openai/codex /usr/local/lib/n
 RUN ln -s ../lib/node_modules/@openai/codex/bin/codex.js /usr/local/bin/codex \
     && codex --version
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-ENV TIKTOKEN_CACHE_DIR=/opt/tiktoken-cache
-RUN python -c 'import tiktoken; tiktoken.get_encoding("cl100k_base")'
+COPY requirements.txt requirements.lock ./
+RUN pip install --no-cache-dir -r requirements.txt -c requirements.lock
 
 COPY api ./api
 COPY core ./core
@@ -34,6 +32,7 @@ COPY resources ./resources
 COPY agents ./agents
 COPY templates ./templates
 COPY skills ./skills
+COPY scripts ./scripts
 COPY deploy.sh ./deploy.sh
 COPY docker-entrypoint.sh /usr/local/bin/novel-os-entrypoint
 RUN chmod +x /usr/local/bin/novel-os-entrypoint

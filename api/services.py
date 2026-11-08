@@ -279,6 +279,7 @@ class ProjectService:
         return out
 
     def _summary(self, project_id: str, s: StoryState, state_file: Path | None = None) -> ProjectSummary:
+        from core.source_provenance import project_source
         chapters = list(s.chapters.values())
         task = project_task_summary(self._project_dir(project_id), s.metadata, chapters)
         words = sum(c.word_count for c in chapters)
@@ -294,6 +295,7 @@ class ProjectService:
         target = int(s.metadata.get("target_word_count") or 80000)
         session_target = int(s.metadata.get("session_word_target") or 1000)
         return ProjectSummary(
+            source=project_source(self._project_dir(project_id)),
             id=project_id,
             title=s.metadata.get("title", project_id),
             genre=s.metadata.get("genre", "") or _genre_label(genres),
@@ -326,6 +328,7 @@ class ProjectService:
         )
 
     def project_detail(self, project_id: str) -> ProjectDetail:
+        from core.source_provenance import project_source
         s = self._load(project_id)
         chapters = list(s.chapters.values())
         task = project_task_summary(self._project_dir(project_id), s.metadata, chapters)
@@ -337,6 +340,7 @@ class ProjectService:
         target = int(s.metadata.get("target_word_count") or 80000)
         session_target = int(s.metadata.get("session_word_target") or 1000)
         return ProjectDetail(
+            source=project_source(self._project_dir(project_id)),
             id=project_id,
             title=s.metadata.get("title", project_id),
             genre=s.metadata.get("genre", "") or _genre_label(genres),

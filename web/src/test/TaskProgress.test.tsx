@@ -90,6 +90,15 @@ test.each([["paused", "已暂停"], ["failed", "未完成"]])("a %s task cannot 
   expect(screen.getByText("第 5–8 章大纲已保存")).toBeInTheDocument();
 });
 
+test("failed outline retains its recovery instructions without showing them in later phases", () => {
+  const failed = { ...task, status: "failed", planning: { ...planning, status: "failed", next_action: "请检查已保存的故事设计，不要重复恢复相同请求。" } };
+  const view = render(<TaskProgress task={failed} />);
+  expect(screen.getByText("下一步：请检查已保存的故事设计，不要重复恢复相同请求。")).toBeInTheDocument();
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  view.rerender(<TaskProgress task={{ ...failed, current_phase: "draft" }} />);
+  expect(screen.queryByText(/下一步：请检查已保存的故事设计/)).not.toBeInTheDocument();
+});
+
 test("elapsed times reject unknown or future timestamps", () => {
   expect(projectTaskElapsed("invalid", Date.parse(now))).toBeNull();
   expect(projectTaskElapsed("2026-10-22T10:03:00Z", Date.parse(now))).toBeNull();

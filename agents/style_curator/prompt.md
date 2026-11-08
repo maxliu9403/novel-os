@@ -307,6 +307,13 @@ Your response is parsed by an automated state-tracking system. **You MUST end yo
 2. Optional `[STYLE_ANALYSIS]` block with metrics.
 3. `[STYLE_STATE_UPDATE] ... [/STYLE_STATE_UPDATE]` MUST be the final thing in your response.
 
+`[STYLE_ANALYSIS]` is literary commentary, not a canon update. Preserve existing
+plot facts and payoff limits while polishing, but do not emit `Payoff_Events`,
+`Arc_State_Updates`, or `Ending_Evidence` here or invent lifecycle status labels.
+Describe partial revelations and unresolved consequences in ordinary prose.
+The payoff directory is context to preserve, not a request to close obligations.
+Only the three style scores may be read from analysis for older response formats.
+
 ## Required field names in `[STYLE_STATE_UPDATE]`
 
 Use **only** these exact names spelling and underscores matter:

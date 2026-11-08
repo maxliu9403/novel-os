@@ -1,0 +1,367 @@
+{
+  "schema_version": "novel-h5-acceptance-plan.v1",
+  "cases": [
+    {
+      "id": "dynamic_initial",
+      "action": "initial",
+      "package": "/Users/max/OpenSource/Novel-OS/docs/examples/h5-import/dynamic-taxonomy/valid-dynamic-taxonomy.zip",
+      "baseline": null,
+      "free_trial_end": 1,
+      "expected_error": null,
+      "package_sha256": "6ba64a7a8b439c3ff89216b2cff636e39025f1f0019660a1dc2d11e9f094dfda",
+      "before": null,
+      "incoming": {
+        "engine_contract_status": "passed",
+        "external_import_status": "pending",
+        "target_profile": "novel-h5-export.dynamic-taxonomy.v1",
+        "catalog_sha256": "673790cff115315d55c49ffe14ec3c476ef087daa81c5a02b4729fb94ed65cff",
+        "validator_revision": "novel-os:dynamic-taxonomy.v1",
+        "required_h5_capabilities": [
+          "novel-classification.v2",
+          "novel-taxonomy.v1"
+        ],
+        "package_sha256": "6ba64a7a8b439c3ff89216b2cff636e39025f1f0019660a1dc2d11e9f094dfda",
+        "package_revision_sha256": "60648e1f1ef14ab9c32968a3faf88064a459666d978b53a1c907854de4422366",
+        "import_revision_sha256": "785eef5224fb75db280b26ce303e4fff81a28a97fbda341af7315ef6aefd2688",
+        "book_id": "novel-os:154fcd09518c403e9ab776182052bc0d",
+        "author": "Fixture Author",
+        "author_present": true,
+        "versions": {
+          "epub_sha256": "b9f36f44690f95222d15d3c1f3f355ab8ea80fe049dcfc54a08a059ad033e673",
+          "content_sha256": "63ed3d5679a2b9a05ba2d7a343ea8ee0e16ab063d2bb300a8259f97378a8a275",
+          "front_matter_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "selected_cover_sha256": null,
+          "author_sha256": "394f2e5761b95465bff43f3fb931c2dad9c90a717d8760b7abdb72ac2a790af1",
+          "classification_sha256": "f8471e2489cbac57423b6d5649011f131ef170b8b2bc2f189a20107b5ec03f86",
+          "serialization_sha256": "26b3fff5d36ab40284ac6af502556f0cd5407ed2f5d094e36e8a173b9c36a486",
+          "publication_copy_sha256": null,
+          "cover_metadata_sha256": null
+        },
+        "chapters": [
+          {
+            "chapter_id": "novel-os:154fcd09518c403e9ab776182052bc0d:chapter:1",
+            "chapter_in_volume": 1,
+            "epub": {
+              "href": "chap001.xhtml",
+              "item_id": "c1",
+              "spine_index": 0,
+              "xhtml_sha256": "a441261cd62c044336ae8279ec58baf0fcdf9c41256c34b8483b5b6ab58d13c2",
+              "xhtml_size": 432,
+              "zip_path": "OEBPS/chap001.xhtml"
+            },
+            "kind": "chapter",
+            "number": 1,
+            "series_book_number": null,
+            "series_id": "",
+            "volume_id": "volume_01",
+            "volume_number": 1,
+            "volume_role": "setup"
+          },
+          {
+            "chapter_id": "novel-os:154fcd09518c403e9ab776182052bc0d:chapter:2",
+            "chapter_in_volume": 2,
+            "epub": {
+              "href": "chap002.xhtml",
+              "item_id": "c2",
+              "spine_index": 1,
+              "xhtml_sha256": "98721764ea5fa00490ac802817762af02ac4baead6dd0be4d37cc6a9e4365b00",
+              "xhtml_size": 428,
+              "zip_path": "OEBPS/chap002.xhtml"
+            },
+            "kind": "chapter",
+            "number": 2,
+            "series_book_number": null,
+            "series_id": "",
+            "volume_id": "volume_01",
+            "volume_number": 1,
+            "volume_role": "climax"
+          }
+        ],
+        "chapter_count": 2,
+        "volumes": [
+          {
+            "volume_id": "volume_01",
+            "volume_number": 1,
+            "title": "Volume 1",
+            "chapter_start": 1,
+            "chapter_end": 2
+          }
+        ],
+        "volume_count": 1,
+        "introduction_count": 0,
+        "non_chapter_items": []
+      },
+      "changed_components": [],
+      "expected_outcome": "created"
+    },
+    {
+      "id": "dynamic_repeat",
+      "action": "repeat",
+      "package": "/Users/max/OpenSource/Novel-OS/docs/examples/h5-import/dynamic-taxonomy/valid-dynamic-taxonomy.zip",
+      "baseline": "/Users/max/OpenSource/Novel-OS/docs/examples/h5-import/dynamic-taxonomy/valid-dynamic-taxonomy.zip",
+      "free_trial_end": 1,
+      "expected_error": null,
+      "package_sha256": "6ba64a7a8b439c3ff89216b2cff636e39025f1f0019660a1dc2d11e9f094dfda",
+      "before": {
+        "engine_contract_status": "passed",
+        "external_import_status": "pending",
+        "target_profile": "novel-h5-export.dynamic-taxonomy.v1",
+        "catalog_sha256": "673790cff115315d55c49ffe14ec3c476ef087daa81c5a02b4729fb94ed65cff",
+        "validator_revision": "novel-os:dynamic-taxonomy.v1",
+        "required_h5_capabilities": [
+          "novel-classification.v2",
+          "novel-taxonomy.v1"
+        ],
+        "package_sha256": "6ba64a7a8b439c3ff89216b2cff636e39025f1f0019660a1dc2d11e9f094dfda",
+        "package_revision_sha256": "60648e1f1ef14ab9c32968a3faf88064a459666d978b53a1c907854de4422366",
+        "import_revision_sha256": "785eef5224fb75db280b26ce303e4fff81a28a97fbda341af7315ef6aefd2688",
+        "book_id": "novel-os:154fcd09518c403e9ab776182052bc0d",
+        "author": "Fixture Author",
+        "author_present": true,
+        "versions": {
+          "epub_sha256": "b9f36f44690f95222d15d3c1f3f355ab8ea80fe049dcfc54a08a059ad033e673",
+          "content_sha256": "63ed3d5679a2b9a05ba2d7a343ea8ee0e16ab063d2bb300a8259f97378a8a275",
+          "front_matter_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "selected_cover_sha256": null,
+          "author_sha256": "394f2e5761b95465bff43f3fb931c2dad9c90a717d8760b7abdb72ac2a790af1",
+          "classification_sha256": "f8471e2489cbac57423b6d5649011f131ef170b8b2bc2f189a20107b5ec03f86",
+          "serialization_sha256": "26b3fff5d36ab40284ac6af502556f0cd5407ed2f5d094e36e8a173b9c36a486",
+          "publication_copy_sha256": null,
+          "cover_metadata_sha256": null
+        },
+        "chapters": [
+          {
+            "chapter_id": "novel-os:154fcd09518c403e9ab776182052bc0d:chapter:1",
+            "chapter_in_volume": 1,
+            "epub": {
+              "href": "chap001.xhtml",
+              "item_id": "c1",
+              "spine_index": 0,
+              "xhtml_sha256": "a441261cd62c044336ae8279ec58baf0fcdf9c41256c34b8483b5b6ab58d13c2",
+              "xhtml_size": 432,
+              "zip_path": "OEBPS/chap001.xhtml"
+            },
+            "kind": "chapter",
+            "number": 1,
+            "series_book_number": null,
+            "series_id": "",
+            "volume_id": "volume_01",
+            "volume_number": 1,
+            "volume_role": "setup"
+          },
+          {
+            "chapter_id": "novel-os:154fcd09518c403e9ab776182052bc0d:chapter:2",
+            "chapter_in_volume": 2,
+            "epub": {
+              "href": "chap002.xhtml",
+              "item_id": "c2",
+              "spine_index": 1,
+              "xhtml_sha256": "98721764ea5fa00490ac802817762af02ac4baead6dd0be4d37cc6a9e4365b00",
+              "xhtml_size": 428,
+              "zip_path": "OEBPS/chap002.xhtml"
+            },
+            "kind": "chapter",
+            "number": 2,
+            "series_book_number": null,
+            "series_id": "",
+            "volume_id": "volume_01",
+            "volume_number": 1,
+            "volume_role": "climax"
+          }
+        ],
+        "chapter_count": 2,
+        "volumes": [
+          {
+            "volume_id": "volume_01",
+            "volume_number": 1,
+            "title": "Volume 1",
+            "chapter_start": 1,
+            "chapter_end": 2
+          }
+        ],
+        "volume_count": 1,
+        "introduction_count": 0,
+        "non_chapter_items": []
+      },
+      "incoming": {
+        "engine_contract_status": "passed",
+        "external_import_status": "pending",
+        "target_profile": "novel-h5-export.dynamic-taxonomy.v1",
+        "catalog_sha256": "673790cff115315d55c49ffe14ec3c476ef087daa81c5a02b4729fb94ed65cff",
+        "validator_revision": "novel-os:dynamic-taxonomy.v1",
+        "required_h5_capabilities": [
+          "novel-classification.v2",
+          "novel-taxonomy.v1"
+        ],
+        "package_sha256": "6ba64a7a8b439c3ff89216b2cff636e39025f1f0019660a1dc2d11e9f094dfda",
+        "package_revision_sha256": "60648e1f1ef14ab9c32968a3faf88064a459666d978b53a1c907854de4422366",
+        "import_revision_sha256": "785eef5224fb75db280b26ce303e4fff81a28a97fbda341af7315ef6aefd2688",
+        "book_id": "novel-os:154fcd09518c403e9ab776182052bc0d",
+        "author": "Fixture Author",
+        "author_present": true,
+        "versions": {
+          "epub_sha256": "b9f36f44690f95222d15d3c1f3f355ab8ea80fe049dcfc54a08a059ad033e673",
+          "content_sha256": "63ed3d5679a2b9a05ba2d7a343ea8ee0e16ab063d2bb300a8259f97378a8a275",
+          "front_matter_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "selected_cover_sha256": null,
+          "author_sha256": "394f2e5761b95465bff43f3fb931c2dad9c90a717d8760b7abdb72ac2a790af1",
+          "classification_sha256": "f8471e2489cbac57423b6d5649011f131ef170b8b2bc2f189a20107b5ec03f86",
+          "serialization_sha256": "26b3fff5d36ab40284ac6af502556f0cd5407ed2f5d094e36e8a173b9c36a486",
+          "publication_copy_sha256": null,
+          "cover_metadata_sha256": null
+        },
+        "chapters": [
+          {
+            "chapter_id": "novel-os:154fcd09518c403e9ab776182052bc0d:chapter:1",
+            "chapter_in_volume": 1,
+            "epub": {
+              "href": "chap001.xhtml",
+              "item_id": "c1",
+              "spine_index": 0,
+              "xhtml_sha256": "a441261cd62c044336ae8279ec58baf0fcdf9c41256c34b8483b5b6ab58d13c2",
+              "xhtml_size": 432,
+              "zip_path": "OEBPS/chap001.xhtml"
+            },
+            "kind": "chapter",
+            "number": 1,
+            "series_book_number": null,
+            "series_id": "",
+            "volume_id": "volume_01",
+            "volume_number": 1,
+            "volume_role": "setup"
+          },
+          {
+            "chapter_id": "novel-os:154fcd09518c403e9ab776182052bc0d:chapter:2",
+            "chapter_in_volume": 2,
+            "epub": {
+              "href": "chap002.xhtml",
+              "item_id": "c2",
+              "spine_index": 1,
+              "xhtml_sha256": "98721764ea5fa00490ac802817762af02ac4baead6dd0be4d37cc6a9e4365b00",
+              "xhtml_size": 428,
+              "zip_path": "OEBPS/chap002.xhtml"
+            },
+            "kind": "chapter",
+            "number": 2,
+            "series_book_number": null,
+            "series_id": "",
+            "volume_id": "volume_01",
+            "volume_number": 1,
+            "volume_role": "climax"
+          }
+        ],
+        "chapter_count": 2,
+        "volumes": [
+          {
+            "volume_id": "volume_01",
+            "volume_number": 1,
+            "title": "Volume 1",
+            "chapter_start": 1,
+            "chapter_end": 2
+          }
+        ],
+        "volume_count": 1,
+        "introduction_count": 0,
+        "non_chapter_items": []
+      },
+      "changed_components": [],
+      "expected_outcome": "unchanged"
+    },
+    {
+      "id": "invalid_hash",
+      "action": "reject_invalid",
+      "package": "/Users/max/OpenSource/Novel-OS/docs/examples/h5-import/dynamic-taxonomy/invalid-classification-hash.zip",
+      "baseline": "/Users/max/OpenSource/Novel-OS/docs/examples/h5-import/dynamic-taxonomy/valid-dynamic-taxonomy.zip",
+      "free_trial_end": 1,
+      "expected_error": "file_digest",
+      "package_sha256": "14ffc1c310d2dc4b1fa0e916c98b31f76218ab2ea00835aa65ed23b175a3ef93",
+      "before": {
+        "engine_contract_status": "passed",
+        "external_import_status": "pending",
+        "target_profile": "novel-h5-export.dynamic-taxonomy.v1",
+        "catalog_sha256": "673790cff115315d55c49ffe14ec3c476ef087daa81c5a02b4729fb94ed65cff",
+        "validator_revision": "novel-os:dynamic-taxonomy.v1",
+        "required_h5_capabilities": [
+          "novel-classification.v2",
+          "novel-taxonomy.v1"
+        ],
+        "package_sha256": "6ba64a7a8b439c3ff89216b2cff636e39025f1f0019660a1dc2d11e9f094dfda",
+        "package_revision_sha256": "60648e1f1ef14ab9c32968a3faf88064a459666d978b53a1c907854de4422366",
+        "import_revision_sha256": "785eef5224fb75db280b26ce303e4fff81a28a97fbda341af7315ef6aefd2688",
+        "book_id": "novel-os:154fcd09518c403e9ab776182052bc0d",
+        "author": "Fixture Author",
+        "author_present": true,
+        "versions": {
+          "epub_sha256": "b9f36f44690f95222d15d3c1f3f355ab8ea80fe049dcfc54a08a059ad033e673",
+          "content_sha256": "63ed3d5679a2b9a05ba2d7a343ea8ee0e16ab063d2bb300a8259f97378a8a275",
+          "front_matter_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "selected_cover_sha256": null,
+          "author_sha256": "394f2e5761b95465bff43f3fb931c2dad9c90a717d8760b7abdb72ac2a790af1",
+          "classification_sha256": "f8471e2489cbac57423b6d5649011f131ef170b8b2bc2f189a20107b5ec03f86",
+          "serialization_sha256": "26b3fff5d36ab40284ac6af502556f0cd5407ed2f5d094e36e8a173b9c36a486",
+          "publication_copy_sha256": null,
+          "cover_metadata_sha256": null
+        },
+        "chapters": [
+          {
+            "chapter_id": "novel-os:154fcd09518c403e9ab776182052bc0d:chapter:1",
+            "chapter_in_volume": 1,
+            "epub": {
+              "href": "chap001.xhtml",
+              "item_id": "c1",
+              "spine_index": 0,
+              "xhtml_sha256": "a441261cd62c044336ae8279ec58baf0fcdf9c41256c34b8483b5b6ab58d13c2",
+              "xhtml_size": 432,
+              "zip_path": "OEBPS/chap001.xhtml"
+            },
+            "kind": "chapter",
+            "number": 1,
+            "series_book_number": null,
+            "series_id": "",
+            "volume_id": "volume_01",
+            "volume_number": 1,
+            "volume_role": "setup"
+          },
+          {
+            "chapter_id": "novel-os:154fcd09518c403e9ab776182052bc0d:chapter:2",
+            "chapter_in_volume": 2,
+            "epub": {
+              "href": "chap002.xhtml",
+              "item_id": "c2",
+              "spine_index": 1,
+              "xhtml_sha256": "98721764ea5fa00490ac802817762af02ac4baead6dd0be4d37cc6a9e4365b00",
+              "xhtml_size": 428,
+              "zip_path": "OEBPS/chap002.xhtml"
+            },
+            "kind": "chapter",
+            "number": 2,
+            "series_book_number": null,
+            "series_id": "",
+            "volume_id": "volume_01",
+            "volume_number": 1,
+            "volume_role": "climax"
+          }
+        ],
+        "chapter_count": 2,
+        "volumes": [
+          {
+            "volume_id": "volume_01",
+            "volume_number": 1,
+            "title": "Volume 1",
+            "chapter_start": 1,
+            "chapter_end": 2
+          }
+        ],
+        "volume_count": 1,
+        "introduction_count": 0,
+        "non_chapter_items": []
+      },
+      "incoming": null,
+      "changed_components": [],
+      "expected_outcome": "rejected"
+    }
+  ],
+  "engine_contract_status": "passed_for_expected_valid_and_invalid_cases",
+  "external_import_status": "pending",
+  "plan_sha256": "ffff238e1733d6e56549d1fe66f23011f6552909e4e63c3d2151a99f173d963d"
+}

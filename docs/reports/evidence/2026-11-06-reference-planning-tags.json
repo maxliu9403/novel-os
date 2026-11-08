@@ -1,0 +1,289 @@
+[
+  {
+    "id": "genre.romance",
+    "previous_version": 2,
+    "active_version": 3,
+    "sha256": "b7c201473f25cdbc1f38ab78ed05fbaa522b6a480dc3c1e8b6b007546f65907e",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.action",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "75d5ac64aa520b4b75d3354e585a57820f25616632934dafd6bf8bee0dc2b204",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.adventurous",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "77041948bd5340ed503fab33e5bfd7e9efe35914f578c6b25491b5e5f186ad46",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.affair",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "cbb1953b97d787a2ee9d5f22b5421afd5dc70c3210d68c78c9b10826e1cffa41",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.age_gap",
+    "previous_version": 2,
+    "active_version": 3,
+    "sha256": "9a5e6aa82d32f5ec25aeb58702e696b239da788df689d66fd9f8c1ea328a5679",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.arrogant",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "bf8f2db4c931914fc17c6f16930ba74a14cd8088f64d12e0526aaf54c8d75ad5",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.badboy",
+    "previous_version": 2,
+    "active_version": 3,
+    "sha256": "f83e6632bcd461769c829ba3395501588939e8706d3db89b743308a86d0689e9",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.betrayal",
+    "previous_version": 2,
+    "active_version": 3,
+    "sha256": "61aea8e23dd70d3620ddb28b6a606fda918dcc00dd45ae088d73054f39db39f1",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.ceo",
+    "previous_version": 2,
+    "active_version": 3,
+    "sha256": "4244f9b0ae6e81e65fad201a1de0f2782eae46e153a758bd7a2e332273523a80",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.comedy",
+    "previous_version": 2,
+    "active_version": 3,
+    "sha256": "a9993e9c000b9955219f971baea4f36ed0bac1b52c97982513a3edd561d0a51a",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.contemporary",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "00efc1336c3da0364c908b2069e8894dd20a183c10f6724c878af8488fa8a35d",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.contract_marriage",
+    "previous_version": 2,
+    "active_version": 3,
+    "sha256": "d9785dbbc684b1e197e628bf4a500cde9ce29ff9d9c45490de267a3e6e16a165",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.dark_romance",
+    "previous_version": 3,
+    "active_version": 4,
+    "sha256": "71471567e6909e58065583ff0ff2f4916243420b8c59bd9a28ee087689bb0dfe",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.divorce",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "ac3b89eaef72430128add9f1a8ac7f30981bfd391caf87b6eef5e6260df71334",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.dominant",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "170612faccbf6cbc5c017323ce375791fde59117c164b0e21a6ffb8c59e15faa",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.drama",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "f2111a240bcd51d76feea6ffe3605d7c41da75c9ac6bd66b3f2781a575917d21",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.face_slapping",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "396e7f08305591f1609b1888bdfc9026586361910b1b8a2cf5c069e6f1bc9d60",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.fast_paced_plot",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "5b4be0e9a9a7f571233708219b14012aad5a560144b7fdd4cb391a00ab911028",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.first_person_pov",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "19c81b3627ae1af6b4487bc49d86b9c7c9295146105a493d7366c8e904516f2d",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.forbidden_love",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "aee799467648c4844cac5bdb0f804bb49f59066c80bfe327ce1f1d3377406672",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.girl_power",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "97fc75dbcf9697145c27d63f0ad2309608606805a13bdfac7806026809b7e621",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.hate_to_love",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "fbf1a80cd774605e9c825193b0942f3dc196b2f2f76097df966287b06a18c049",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.heir_heirness",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "5d1c2f7d3085f525d161b8780825e80eb82aebe18879964274bce4959851892e",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.hidden_identity",
+    "previous_version": 2,
+    "active_version": 3,
+    "sha256": "8f3f68feb8e03a025b92af9c252858bb691096b5baa1da4ca9f6ea741b8bd4f1",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.independent",
+    "previous_version": 2,
+    "active_version": 3,
+    "sha256": "f41c8cd293334748c64af61d8be50821965846594a74833f2c9c7a1622c880fb",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.intelligent",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "d28da81932a9d55d7160167f10738dc3a0ca95c29ea792ab051eaf0cde47e619",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.love_triangle",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "83759a2a7c9878c594dd88b6ee6ed7e1645453a8a8ca73e0be025d17754c6801",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.misunderstanding",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "7416936fb6fe6f4e14445ca29cd5969ef8d4e9f8db972f44d51c3c83ce64ee60",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.mystery",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "9f78d94ab577df197f4de223dba22f1dc22fcad8991d3c57f6d25f9a24348c9f",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.office_relationship",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "87608b9cd00e55d7e6072d8da34d8069baeaaf07fb1d1aab9d1aea357f6f8113",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.possessive",
+    "previous_version": 2,
+    "active_version": 3,
+    "sha256": "12fe1d67afa1ae6354ab407739cdd16cb35f0aa5ed29db683b08dbf8a5f4e401",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.pregnant",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "c86c6e92005d974165b5eaa2d28427c73e341f4e69db4fc3380f4d606d7c27b0",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.rebel",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "8628caefeb8f0224248ff7bf2cdacc30400563084320ffb51fafe4b81fd9430c",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.regret",
+    "previous_version": 2,
+    "active_version": 3,
+    "sha256": "cf9259a4eeba91e81376611a7f85cfce314ce9c942ce1850631fe9c87552d8d5",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.revenge",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "b7ed8cf30247dfb5023afbe374d894dd63f7a2dfe32482bbf5a8dbe0a787c7a1",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.runaway_with_a_baby",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "c40e51c3942ae89aca134bb38016fcbc464bfc451dce0ae7f75a9e28830349b5",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.ruthless",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "700230c2f1330224a5c1fc67df9c61a13c189a4a146bc1f75dffbd1022cd3877",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.second_chance",
+    "previous_version": 2,
+    "active_version": 3,
+    "sha256": "eb9d7ff2ed1ed17f5a84094326da4ca2496a58882790e9e764fa0dfaf68da23c",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.secretary",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "960f8a8f08695f7824026560720209e25cb42030d41fc065f7683e611548d087",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.sweet_love",
+    "previous_version": 2,
+    "active_version": 3,
+    "sha256": "fdb2ca9884ed82335cd31d37f44d665c0fb4d2880046978bb6d8a03b8cc7c5a7",
+    "history_preserved": true
+  },
+  {
+    "id": "tag.tragedy",
+    "previous_version": 1,
+    "active_version": 2,
+    "sha256": "fb076fd292daab4aab566cd789a5c5e020bd8d9f443b62499fd594da635a7b07",
+    "history_preserved": true
+  }
+]

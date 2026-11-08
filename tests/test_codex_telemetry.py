@@ -312,3 +312,61 @@ Path(sys.argv[sys.argv.index('--output-last-message')+1]).write_text('result')
     assert rows[0]['usage']['input_tokens'] == 20 and rows[0]['usage']['output_tokens'] == 7
     assert os.environ['OTEL_METRIC_EXPORT_INTERVAL'] == '73000'
     assert not any(t.name == 'codex-otel-local' and t.is_alive() for t in threading.enumerate())
+
+
+def test_safe_error_codes_do_not_persist_arbitrary_upstream_error_messages():
+    safe = project_record(record('codex.websocket_request', success=False,
+        error='stream disconnected before completion: deadline has elapsed TOKEN_SECRET'))
+    assert safe['diagnostic_code'] == 'upstream_timeout'
+    assert safe['success'] is False
+    assert 'SECRET' not in json.dumps(safe)
+    unknown = project_record(record('codex.websocket_request', success=False, error='UNRECOGNIZED_SECRET'))
+    assert unknown['diagnostic_code'] == 'unclassified_error'
+    assert 'SECRET' not in json.dumps(unknown)
+
+
+def test_only_new_successful_public_text_opens_completion_window():
+    from test_codex_metric_activity import payload
+    collector = CodexTelemetry(lambda _: None).start()
+    try:
+        url = next(x for x in collector.config_args if x.startswith('otel.metrics_exporter=')).split('endpoint="', 1)[1].split('"', 1)[0]
+        for kind in ['response.in_progress', 'response.reasoning_summary_text.delta', 'response.output_text.done']:
+            assert post(url, payload(kind=kind)) == 200
+            collector.poll()
+            assert collector.last_public_text_at is None
+        assert post(url, payload()) == 200
+        collector.poll()
+        first = collector.last_public_text_at
+        assert first is not None
+        assert post(url, payload()) == 200
+        collector.poll()
+        assert collector.last_public_text_at == first  # repeated metric batch is not new progress
+        assert post(url, payload(success='false', start=1, end=2)) == 200
+        collector.poll()
+        assert collector.last_public_text_at is None
+    finally:
+        collector.close()
+
+
+def test_native_adapter_completion_window_returns_one_full_reply(tmp_path, monkeypatch):
+    from test_codex_metric_activity import payload
+    monkeypatch.setenv('NOVEL_TEST_INHERITED_ENV', 'preserved')
+    body = FAKE_CLI + '''
+metrics_url = re.search(r'endpoint="([^"]+)"', next(arg for arg in sys.argv if arg.startswith('otel.metrics_exporter='))).group(1)
+'''+f"metric = {payload()!r}\n"+'''
+with urllib.request.urlopen(urllib.request.Request(metrics_url,data=json.dumps(metric).encode()),timeout=2) as response:
+    assert response.status == 200
+import time
+time.sleep(3.1)
+output.write_text('complete')
+'''
+    stub(tmp_path, monkeypatch, body)
+    events = []
+    client = LLMClient(provider='codex', model='fake', timeout_seconds=3,
+                       completion_grace_seconds=2, diagnostic_callback=events.append)
+    assert client.complete('system', 'full context') == 'complete'
+    assert [x['event'] for x in events].count('request.start') == 1
+    assert [x['event'] for x in events].count('cli.completion_window') == 1
+    assert events[-1]['event'] == 'request.completed'
+    assert events[0]['completion_grace_limit'] == 2
+    assert next(x for x in events if x['event']=='cli.completion_window')['completion_grace_seconds'] == 2

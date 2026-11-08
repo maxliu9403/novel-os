@@ -103,11 +103,12 @@ export default function PricingSettings() {
       </fieldset>)}
       {!draft.models.length && <p className="pricing-settings__empty">还没有单价。添加模型后，已记录的用量即可参与费用估算。</p>}
     </div>
-    <datalist id="pricing-providers"><option value="codex"/><option value="openai"/><option value="openai_compatible"/><option value="anthropic"/><option value="claude_cli"/></datalist>
+    <datalist id="pricing-providers"><option value="codex"/><option value="openai"/><option value="openai_compatible"/><option value="anthropic"/><option value="claude_cli"/><option value="gemini"/><option value="gemini_openai"/><option value="deepseek"/></datalist>
     <aside className="pricing-settings__footnote">
       <p>Codex / Claude 订阅的估算金额不等同于实际扣款。预置文本单价以标准短上下文为参考；服务档位、长上下文或供应商折扣应按你的计费规则调整。</p>
       <p>图像按“每张图片”的配置估算；图片 Token 仅在服务返回可用记录时计入。缺失用量或未配置单价会保留为“待核算”，不补造历史费用。</p>
       <a href="https://developers.openai.com/api/docs/pricing" target="_blank" rel="noreferrer">查看 OpenAI 官方价格参考 ↗</a>
+      <a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noreferrer">查看 Gemini 官方价格参考 ↗</a>
     </aside>
   </form>;
 }

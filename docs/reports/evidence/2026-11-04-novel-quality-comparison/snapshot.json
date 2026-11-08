@@ -1,0 +1,318 @@
+{
+  "a-night-of-her-own-b3f80487": {
+    "run_id": "f249a13144d5",
+    "status": "paused",
+    "phase": "ending.review",
+    "error": "Book ending gate blocked compile: Main conflict PT_MAIN_AUTONOMY is resolved, expected resolved_with_bounded_autonomy.",
+    "updated_at": "2026-11-02T08:40:20.917596+00:00",
+    "chapters": [
+      {
+        "chapter": 1,
+        "title": "The Name on the Notice",
+        "words": 1222,
+        "sha256": "fe1616643abd424807831c739dd98df30c6762b26f30ed663d446da814546393",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/a-night-of-her-own-b3f80487/outputs/manuscript/chapter_001_final.md"
+      },
+      {
+        "chapter": 2,
+        "title": "The Road Out",
+        "words": 1086,
+        "sha256": "6a354326979c3fe7daa16b5d59f8aa1635bf6c61bad55086a6dbb0537a70e6ca",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/a-night-of-her-own-b3f80487/outputs/manuscript/chapter_002_final.md"
+      },
+      {
+        "chapter": 3,
+        "title": "A Different Rhythm",
+        "words": 1013,
+        "sha256": "aba51e24f85bbc023973935f3eda16cc1bd2c498378a34a0c9546d0e95370c75",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/a-night-of-her-own-b3f80487/outputs/manuscript/chapter_003_final.md"
+      },
+      {
+        "chapter": 4,
+        "title": "What Rest Costs",
+        "words": 880,
+        "sha256": "ad4d856769d1f74a8a421cccd958bf159206fad98633fb0d5ecada140931a06f",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/a-night-of-her-own-b3f80487/outputs/manuscript/chapter_004_final.md"
+      },
+      {
+        "chapter": 5,
+        "title": "The Missing Hours",
+        "words": 1110,
+        "sha256": "3c5c77c2cff9ca3aec27f3708fd557f256d3a3800fbf8c569e2ec35250b7abd6",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/a-night-of-her-own-b3f80487/outputs/manuscript/chapter_005_final.md"
+      },
+      {
+        "chapter": 6,
+        "title": "One Bed",
+        "words": 1056,
+        "sha256": "2c78717030ee5d0deb9697850d94e63f0cbf035540d92a85f4b20045e14a1966",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/a-night-of-her-own-b3f80487/outputs/manuscript/chapter_006_final.md"
+      },
+      {
+        "chapter": 7,
+        "title": "Rain at the Eaves",
+        "words": 1061,
+        "sha256": "2212824b3a14f65a50b482ecd4566f4cedbf76b4c0a3ca98f44f5cc37b773d93",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/a-night-of-her-own-b3f80487/outputs/manuscript/chapter_007_final.md"
+      },
+      {
+        "chapter": 8,
+        "title": "The Breath Between",
+        "words": 996,
+        "sha256": "a80393cfaa36da435984e156095589b0101aeefb11c740db54a42e470e8f1253",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/a-night-of-her-own-b3f80487/outputs/manuscript/chapter_008_final.md"
+      },
+      {
+        "chapter": 9,
+        "title": "After the Signal",
+        "words": 1037,
+        "sha256": "a250b953e7245f6289cca738a95aa89ff79332398c80ce411fdcaea367968b8b",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/a-night-of-her-own-b3f80487/outputs/manuscript/chapter_009_final.md"
+      },
+      {
+        "chapter": 10,
+        "title": "What Remains",
+        "words": 1113,
+        "sha256": "963e224a333a433c883cbdc2290242620edf90d2e8e42432ae321d80da3b7beb",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/a-night-of-her-own-b3f80487/outputs/manuscript/chapter_010_final.md"
+      },
+      {
+        "chapter": 11,
+        "title": "The Price of Her Place",
+        "words": 1254,
+        "sha256": "4005953c7ea20d336bf6df525bbbe1f56745296d7da50a77dc238d9d01d627b9",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/a-night-of-her-own-b3f80487/outputs/manuscript/chapter_011_final.md"
+      },
+      {
+        "chapter": 12,
+        "title": "Before Supper",
+        "words": 957,
+        "sha256": "e78c065cf7e1a128b473f6feaad3fbee34bbc80ed875e8be793eb51851a77129",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/a-night-of-her-own-b3f80487/outputs/manuscript/chapter_012_final.md"
+      }
+    ],
+    "words_total": 12785,
+    "skeleton_bytes": 175381,
+    "foundation_bytes": 302394,
+    "reader_investment_schema": "reader-investment.v1",
+    "type_snapshot_sha256": "5a0fe5595ff0ccb9d253e628b1dc45c11e82dc688cc1219012ea90404e1c2426",
+    "evaluation_count": 12,
+    "semantic_evaluation_count": 0,
+    "verified_canonical_final_chapters": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "promotion_states": {
+      "committed": 12
+    },
+    "chapter_word_count_method": "Remove Markdown headings; count Unicode word runs with internal apostrophe/hyphen retained as one word.",
+    "quality_review_files": [
+      "outputs/quality/long-form/plan-report.json",
+      "outputs/quality/methods/.lock",
+      "outputs/quality/methods/policy.json",
+      "outputs/quality/methods/runs/f249a13144d5/lock.json"
+    ],
+    "source_sha256": "6b1b67a44afcda9a20616e4e6f7370d4e4e06a8f66c59075b253e0ae274f10e6",
+    "foundation_sha256": "fb44414b90b494112f3f4e7639bc6031e83c78d5c745ecee4ed6115c50b79706",
+    "scribe_request_bytes": {
+      "10": 423174,
+      "12": 472476,
+      "5": 276607,
+      "11": 458015,
+      "6": 297289,
+      "9": 392575,
+      "4": 257663,
+      "3": 243819,
+      "7": 318726,
+      "1": 182950,
+      "8": 362541,
+      "2": 221342
+    }
+  },
+  "saving-her-son-s-enemy-be38860f": {
+    "run_id": "a3f117e1cb71",
+    "status": "paused",
+    "phase": "publication.copy",
+    "error": "publication copy remained invalid after two repair attempts: not_chapter_one_copy",
+    "updated_at": "2026-11-04T09:00:34.036659+00:00",
+    "chapters": [
+      {
+        "chapter": 1,
+        "title": "The Man on the Table",
+        "words": 1066,
+        "sha256": "ece528ba4366334658889e3084afbfcdabca498f9f77fd3417153dcc2a21f0f8",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/saving-her-son-s-enemy-be38860f/outputs/manuscript/chapter_001_final.md"
+      },
+      {
+        "chapter": 2,
+        "title": "The Whistle in the Wound",
+        "words": 1014,
+        "sha256": "d718f7bc8ce159813e7a5fad97ea336c1b42c4398a3e68f28374c65ca46f31e8",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/saving-her-son-s-enemy-be38860f/outputs/manuscript/chapter_002_final.md"
+      },
+      {
+        "chapter": 3,
+        "title": "What Healing Erased",
+        "words": 1047,
+        "sha256": "4e6b2855d7bda70b16617559081bf84c3133238ac58c2e5aedd1799b1969efe3",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/saving-her-son-s-enemy-be38860f/outputs/manuscript/chapter_003_final.md"
+      },
+      {
+        "chapter": 4,
+        "title": "The Price of Staying",
+        "words": 1030,
+        "sha256": "39eb4624f271d5ab1980e13e4a05e138ff7c83e8eb42f5406c112f88150687fc",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/saving-her-son-s-enemy-be38860f/outputs/manuscript/chapter_004_final.md"
+      },
+      {
+        "chapter": 5,
+        "title": "What Ruth Heard",
+        "words": 929,
+        "sha256": "d5ae643267049a6ed972b8c348051f2832f5c1d548c5afe479b47db9636503e2",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/saving-her-son-s-enemy-be38860f/outputs/manuscript/chapter_005_final.md"
+      },
+      {
+        "chapter": 6,
+        "title": "After He Was Free",
+        "words": 1023,
+        "sha256": "2e093fb418aa9a540f8eacc64b1b54b8777ea048fa5ad89f14c0b9ade400fcc2",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/saving-her-son-s-enemy-be38860f/outputs/manuscript/chapter_006_final.md"
+      },
+      {
+        "chapter": 7,
+        "title": "The Statement He Brought",
+        "words": 1013,
+        "sha256": "38d3e51017ea9bad7ee32b248d2c0f172d42791b9b2d67f416c9338b19550ea0",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/saving-her-son-s-enemy-be38860f/outputs/manuscript/chapter_007_final.md"
+      },
+      {
+        "chapter": 8,
+        "title": "What He Feared They Would Say",
+        "words": 992,
+        "sha256": "3f7be2797f68cf2c89135b8a507511ee1d6d8c4f2a971bcdff34df051e95ffec",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/saving-her-son-s-enemy-be38860f/outputs/manuscript/chapter_008_final.md"
+      },
+      {
+        "chapter": 9,
+        "title": "Two Versions",
+        "words": 1052,
+        "sha256": "44bfb72125b09664dd99076c34be18418c505a21d80a652569c923521642ccf3",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/saving-her-son-s-enemy-be38860f/outputs/manuscript/chapter_009_final.md"
+      },
+      {
+        "chapter": 10,
+        "title": "When He Called",
+        "words": 1014,
+        "sha256": "7a0c39552216d00ac131d9b098931ea6c1744455d3b939544bc45e6832a6e3fb",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/saving-her-son-s-enemy-be38860f/outputs/manuscript/chapter_010_final.md"
+      },
+      {
+        "chapter": 11,
+        "title": "No Promise in Return",
+        "words": 1020,
+        "sha256": "e8f284de6d3395f203eeb59e1f2dc0dafb55fca9332024556ec0b1c6b6bac847",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/saving-her-son-s-enemy-be38860f/outputs/manuscript/chapter_011_final.md"
+      },
+      {
+        "chapter": 12,
+        "title": "Her Own Account",
+        "words": 1046,
+        "sha256": "94d5aec9faa1f162341308f6307119cab9dff96dd0372e4331b7bad67bf0826b",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/saving-her-son-s-enemy-be38860f/outputs/manuscript/chapter_012_final.md"
+      },
+      {
+        "chapter": 13,
+        "title": "The Whole of It",
+        "words": 1016,
+        "sha256": "6cb7e6d7c6ff211d512ef774b163b98b9fc6449b9d7635517dfc9471df7be883",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/saving-her-son-s-enemy-be38860f/outputs/manuscript/chapter_013_final.md"
+      },
+      {
+        "chapter": 14,
+        "title": "Separate Judgments",
+        "words": 1083,
+        "sha256": "ad553cfad7c008478b96dbc9a968904872c9441ef249da2f1563516bda114844",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/saving-her-son-s-enemy-be38860f/outputs/manuscript/chapter_014_final.md"
+      },
+      {
+        "chapter": 15,
+        "title": "The Work of Returning",
+        "words": 1113,
+        "sha256": "a006825fafa099cd0d1d796d87c0016a5fac54d14c9a2ee884e73e9644e78f97",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/saving-her-son-s-enemy-be38860f/outputs/manuscript/chapter_015_final.md"
+      },
+      {
+        "chapter": 16,
+        "title": "Until He Finished",
+        "words": 994,
+        "sha256": "ba9723e1cb7304190f0122c7142c304ec1a8908b9d1e67ee71b7d46eca36edaa",
+        "path": "/Users/max/OpenSource/Novel-OS/docker-data/projects/saving-her-son-s-enemy-be38860f/outputs/manuscript/chapter_016_final.md"
+      }
+    ],
+    "words_total": 16452,
+    "skeleton_bytes": 178904,
+    "foundation_bytes": 337003,
+    "reader_investment_schema": "reader-investment.v2",
+    "type_snapshot_sha256": "5a0fe5595ff0ccb9d253e628b1dc45c11e82dc688cc1219012ea90404e1c2426",
+    "evaluation_count": 16,
+    "semantic_evaluation_count": 0,
+    "verified_canonical_final_chapters": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16
+    ],
+    "promotion_states": {
+      "committed": 16
+    },
+    "chapter_word_count_method": "Remove Markdown headings; count Unicode word runs with internal apostrophe/hyphen retained as one word.",
+    "quality_review_files": [
+      "outputs/quality/long-form/plan-report.json",
+      "outputs/quality/methods/.lock",
+      "outputs/quality/methods/policy.json",
+      "outputs/quality/methods/runs/a3f117e1cb71/lock.json"
+    ],
+    "source_sha256": "93eb4fb2de2bb6d8323161c4f67799133c3c7b38a2654e18cd6efa95c57d1156",
+    "foundation_sha256": "91d6d3c134ce6a96f2fe36da0a357ec88d97ac3099c6c18791d13e2a6f15f62f",
+    "scribe_request_bytes": {
+      "3": 224000,
+      "4": 237532,
+      "16": 538301,
+      "14": 488887,
+      "6": 270602,
+      "9": 330939,
+      "5": 251021,
+      "1": 165722,
+      "13": 457147,
+      "12": 426605,
+      "2": 200547,
+      "7": 290924,
+      "10": 351761,
+      "15": 523883,
+      "11": 372972,
+      "8": 310213
+    }
+  }
+}

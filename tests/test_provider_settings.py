@@ -1377,3 +1377,38 @@ def test_connection_rename_keeps_catalog_but_endpoint_or_key_change_clears_it(mo
         "api_key": "new-secret",
     }, connection["id"])
     assert replaced["model_details"] == {}
+
+
+def test_gemini_connection_native_catalog_and_routes(monkeypatch):
+    connection = _connection(provider='gemini', base_url='https://gemini.test/v1beta',
+                             capabilities=['text_generation', 'image_input'])
+    assert connection['base_url'] == 'https://gemini.test'
+    assert 'image_generation' not in connection['capabilities']
+    monkeypatch.setattr(provider_settings.gemini_provider, 'discover_models',
+                        lambda *args: {'gemini-4-argon': {'id': 'gemini-4-argon', 'name': 'Argon',
+                            'reasoning': {'supported_levels': ['low', 'medium', 'high']}}})
+    catalog = provider_settings.refresh_connection_model_catalog(connection['id'])
+    assert catalog['models'] == ['gemini-4-argon']
+    assert catalog['details']['gemini-4-argon']['reasoning']['supported_levels'] == ['low', 'medium', 'high']
+    provider_settings.save_text_routes([{'id': 'default', 'connection_id': connection['id'],
+        'model': 'gemini-4-argon', 'reasoning_effort': 'high', 'inherits_default': False}])
+    assert provider_settings.resolve_text_route('workshop')['provider'] == 'gemini'
+    assert provider_settings.resolve_text_route('scribe')['reasoning_effort'] == 'high'
+    provider_settings.save_vision_route('cover_review', {'connection_id': connection['id'], 'model': 'gemini-4-argon'})
+    assert provider_settings.resolve_vision_route()['provider'] == 'gemini'
+    with pytest.raises(provider_settings.ProviderSettingsError):
+        provider_settings.save_image_profile('cover', {'connection_id': connection['id'], 'model': 'gpt-image-2'})
+
+
+def test_gemini_rejects_incompatible_inherited_effort_atomically():
+    original = _connection()
+    provider_settings.save_text_routes([
+        {'id': 'default', 'connection_id': original['id'], 'model': 'writing', 'inherits_default': False},
+        {'id': 'workshop', 'inherits_default': True, 'reasoning_effort': 'ultra'},
+    ])
+    gemini = _connection(provider='gemini', base_url='https://gemini.test', capabilities=['text_generation'])
+    before = studio_settings.settings_path().read_bytes()
+    with pytest.raises(provider_settings.ProviderSettingsError, match='workshop'):
+        provider_settings.save_text_routes([{'id': 'default', 'connection_id': gemini['id'],
+            'model': 'gemini-4-argon', 'inherits_default': False}])
+    assert studio_settings.settings_path().read_bytes() == before

@@ -31,7 +31,7 @@ def snapshot(root):
             for p in root.rglob("*") if p.is_file()}
 
 
-def test_install_all_three_without_copying_junk_or_touching_other_skills(tmp_path):
+def test_install_all_project_skills_without_copying_junk_or_touching_other_skills(tmp_path):
     source, home = release(tmp_path)
     first = source / sync.PUBLISHED_SKILLS[0]
     (first / "__pycache__").mkdir()
@@ -43,7 +43,7 @@ def test_install_all_three_without_copying_junk_or_touching_other_skills(tmp_pat
     (other / "keep.md").write_text("personal", encoding="utf-8")
     before_other = snapshot(other)
     result = sync.sync_skills(source, home)
-    assert [item["status"] for item in result["skills"]] == ["installed"] * 3
+    assert [item["status"] for item in result["skills"]] == ["installed"] * len(sync.PUBLISHED_SKILLS)
     assert result["backup_root"] is None
     assert snapshot(other) == before_other
     for name in sync.PUBLISHED_SKILLS:
@@ -88,7 +88,7 @@ def test_changed_skill_is_fully_backed_up_and_stale_files_removed(tmp_path):
     assert not (target / "personal.md").exists()
     assert not (target / "__pycache__").exists()
     assert (target / "SKILL.md").read_text() == "# Updated release\n"
-    assert [item["status"] for item in result["skills"]] == ["updated", "unchanged", "unchanged"]
+    assert [item["status"] for item in result["skills"]] == ["updated"] + ["unchanged"] * (len(sync.PUBLISHED_SKILLS) - 1)
 
 
 def test_prevalidates_every_source_before_creating_home(tmp_path):
@@ -207,7 +207,7 @@ def test_cli_uses_explicit_temporary_home_and_reports_clear_error(tmp_path):
     source, home = release(tmp_path)
     args = [sys.executable, str(SCRIPT), "--source", str(source), "--codex-home", str(home)]
     result = subprocess.run(args, capture_output=True, text=True, check=True)
-    assert len(json.loads(result.stdout)["skills"]) == 3
+    assert len(json.loads(result.stdout)["skills"]) == len(sync.PUBLISHED_SKILLS)
     assert not result.stderr
     (source / sync.PUBLISHED_SKILLS[2] / "SKILL.md").unlink()
     before = snapshot(home)

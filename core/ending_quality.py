@@ -19,6 +19,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from state_manager import StoryState
 from ending_evidence import EndingEvidenceError, EndingEvidenceStore
+from plot_thread_contract import PLOT_THREAD_STATUSES
 
 
 ENDING_CONTRACT_RELATIVE = "outputs/input/ending_contract.json"
@@ -390,6 +391,7 @@ def evaluate_ending(project: Path | str, as_of_chapter: Optional[int] = None) ->
         # Never rewrite canon or historical proposals to satisfy the gate.
         reviewed_arcs: Dict[str, Dict[str, Any]] = {}
         reviewed_payoffs: Dict[str, Dict[str, Any]] = {}
+        reviewed_main: Dict[str, Dict[str, Any]] = {}
         try:
             reviews = EndingEvidenceStore(root).load_validated(contract, state, final_chapter)
         except EndingEvidenceError as exc:
@@ -406,7 +408,9 @@ def evaluate_ending(project: Path | str, as_of_chapter: Optional[int] = None) ->
                 evidence = {**claim, "review_id": review["review_id"]}
                 if claim["kind"] == "arc":
                     reviewed_arcs[claim["character_id"]] = evidence
-                else:
+                elif claim["kind"] == "main_conflict":
+                    reviewed_main[claim["thread_id"]] = evidence
+                elif claim["kind"] == "payoff":
                     reviewed_payoffs[claim["payoff_id"]] = {
                         **evidence, "chapter": max(source["chapter"] for source in claim["sources"]),
                     }
@@ -416,6 +420,14 @@ def evaluate_ending(project: Path | str, as_of_chapter: Optional[int] = None) ->
         actual_status = _thread_status(state, thread_id) if thread_id else None
         if not thread_id or actual_status is None:
             critical.append({"category": "main_conflict_missing", "message": f"Main conflict thread {thread_id or '[missing]'} is not present in canon."})
+        elif required_status not in PLOT_THREAD_STATUSES:
+            if thread_id not in reviewed_main:
+                critical.append({
+                    "category": "main_conflict_status_invalid", "entity_id": thread_id,
+                    "message": f"Main conflict {thread_id} requires unsupported lifecycle status {required_status!r}. "
+                    "This is a contract error, not proof of an unfinished story. Review the original semantic obligation "
+                    "against approved finale prose before recording a source-bound main_conflict adjudication.",
+                })
         elif actual_status != required_status:
             critical.append({"category": "main_conflict_unresolved", "message": f"Main conflict {thread_id} is {actual_status}, expected {required_status}."})
 

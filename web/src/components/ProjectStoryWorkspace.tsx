@@ -4,7 +4,6 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChapterSummary } from "../api/client";
 import { chapterHasProse } from "../lib/chapterProse";
-import { useChapterReviews } from "../hooks/useChapterReviews";
 import {
   projectStoryApi,
   projectStorySourceUrl,
@@ -96,7 +95,6 @@ export function ProjectChaptersTab({
   onPlanChapter: (number: number) => void;
 }) {
   const [query, setQuery] = useState("");
-  const chapterReviews = useChapterReviews(projectId);
   const [filter, setFilter] = useState<"all" | "drafted" | "attention">("all");
   const summaries = useMemo(
     () => new Map((story?.chapters ?? []).map((chapter) => [chapter.number, chapter])),
@@ -179,7 +177,6 @@ export function ProjectChaptersTab({
                     <td>
                       <div className="pw-row-actions">
                         {hasProse && <Link className="pw-text-button" to={`/projects/${encodeURIComponent(projectId)}/read?chapter=${chapter.number}`}>阅读正文</Link>}
-                        {chapterReviews[chapter.number] && <Link className="pw-text-button" title="查看已保存正文版本的阅读评议" to={`/projects/${encodeURIComponent(projectId)}/reader-reviews/${chapterReviews[chapter.number]}`}>阅读评议 ↗</Link>}
                         <Link className="pw-mini-button" to={`/projects/${encodeURIComponent(projectId)}/chapters/${chapter.number}`}>编辑章节</Link>
                         {!hasProse && canPlan && <button type="button" className="pw-mini-button pw-mini-button--accent" disabled={isRunning} onClick={() => onPlanChapter(chapter.number)}>规划此章</button>}
                       </div>

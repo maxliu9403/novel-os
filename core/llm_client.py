@@ -48,6 +48,17 @@ except ModuleNotFoundError as exc:
         raise
     from usage_tracking import current_request, http_attempt_started, observe_usage, tracking_enabled, usage_request
 
+
+def _gemini_http_attempt_started(request):
+    try:
+        from .gemini_provider import is_continuation
+    except ImportError:
+        from gemini_provider import is_continuation
+    # The SDK combines continuation usage. Keep it on the original generation
+    # instead of counting the previous hop again as a failed retry.
+    if not is_continuation(request):
+        http_attempt_started(request)
+
 import base64
 from datetime import datetime, timezone
 import json
@@ -66,7 +77,7 @@ from typing import Callable, Optional, Tuple
 # aliases without this capability must not receive image bytes merely because
 # they share the OpenAI shape. Arbitrary openai_compatible endpoints are
 # validated by the vision-route connection capability.
-IMAGE_INPUT_PROVIDERS = frozenset({"codex", "openai", "azure", "openai_compatible", "openrouter"})
+IMAGE_INPUT_PROVIDERS = frozenset({"codex", "openai", "azure", "openai_compatible", "openrouter", "gemini", "gemini_openai"})
 # DeepSeek V4 exposes low/high/max thinking effort through the OpenAI-format
 # ``reasoning_effort`` field. Its default is high, so an empty route field
 # intentionally omits the parameter.
@@ -98,7 +109,7 @@ OPENAI_COMPAT_ALIASES = {
 
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 DEFAULT_OPENAI_MODEL = "gpt-4o"
-DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 DEFAULT_AZURE_API_VERSION = "2024-10-21"
 
 
@@ -151,6 +162,16 @@ class LLMError(RuntimeError):
     """Raised when the LLM call cannot be made or fails."""
 
 
+class LLMInputLimitError(LLMError):
+    """Safe local budget metadata; never stores provider response text."""
+    def __init__(self, actual_bytes: int, limit_bytes: int):
+        self.actual_bytes, self.limit_bytes = actual_bytes, limit_bytes
+        super().__init__(
+            f"本次模型输入为 {actual_bytes:,} 字节（含封装预留），超过当前连接的 "
+            f"{limit_bytes:,} 字节上限。请求未发送，内容未截断。"
+            "请精简重复上下文或切换支持更大输入的连接；原样重试无法解决。")
+
+
 class LLMCancelledError(LLMError):
     """The caller cancelled this completion; it must not be retried automatically."""
 
@@ -179,6 +200,7 @@ class LLMClient:
         azure_api_version: str | None = None,
         cancellation_event: threading.Event | None = None,
         diagnostic_callback: Callable[[dict], None] | None = None,
+        completion_grace_seconds: float = 0,
     ):
         self._configured_timeout_seconds = timeout_seconds
         runtime = current_runtime()
@@ -192,6 +214,10 @@ class LLMClient:
             raise ValueError("LLM timeout must be positive")
         self.cancellation_event = cancellation_event
         self.diagnostic_callback = diagnostic_callback
+        if not 0 <= completion_grace_seconds <= 180:
+            raise ValueError('Completion grace must be between 0 and 180 seconds')
+        # Pipeline runtime owns its own absolute deadline; do not extend it.
+        self.completion_grace_seconds = 0 if runtime is not None else completion_grace_seconds
         self._check_cancelled()
         self.provider_name = (provider or self._resolve_provider()).lower()
         self.max_tokens = max_tokens or int(os.environ.get("NOVEL_OS_MAX_TOKENS", DEFAULT_MAX_TOKENS))
@@ -210,8 +236,9 @@ class LLMClient:
                         getattr(getattr(self._backend, "_api_client", None), "_httpx_client", None))
         for client in http_clients:
             hooks = getattr(client, "event_hooks", None)
-            if isinstance(hooks, dict) and http_attempt_started not in hooks.get("request", []):
-                hooks.setdefault("request", []).append(http_attempt_started)
+            hook = _gemini_http_attempt_started if self.provider_name == "gemini" else http_attempt_started
+            if isinstance(hooks, dict) and hook not in hooks.get("request", []):
+                hooks.setdefault("request", []).append(hook)
 
     # ----- resolution
 
@@ -266,6 +293,17 @@ class LLMClient:
             return backend, deployment
         if name == "gemini":
             return self._build_gemini(), model or env_model or DEFAULT_GEMINI_MODEL
+        if name == "gemini_openai":
+            try:
+                from .gemini_gateway import normalize_base_url, validate_model
+            except ImportError:
+                from gemini_gateway import normalize_base_url, validate_model
+            validate_model(model or env_model or "", self.reasoning_effort or "")
+            base = normalize_base_url(self._explicit_base_url or os.environ.get("NOVEL_OS_BASE_URL", ""))
+            key = self._explicit_api_key or os.environ.get("NOVEL_OS_API_KEY")
+            if not key:
+                raise LLMError("Gemini OpenAI 网关需要 Token")
+            return self._build_openai_compatible(base, key), model or env_model
         if name in OPENAI_COMPAT_ALIASES:
             base_url, default_model, key_env = OPENAI_COMPAT_ALIASES[name]
             key = self._explicit_api_key or os.environ.get(key_env) or os.environ.get("NOVEL_OS_API_KEY") or "not-needed"
@@ -339,7 +377,7 @@ class LLMClient:
         except ImportError as e:
             raise LLMError("Install: pip install openai") from e
         options = _openai_compatible_options(self.timeout_seconds)
-        if self.cancellation_event is not None:
+        if self.cancellation_event is not None or self.provider_name == "gemini_openai":
             options["max_retries"] = 0
         return OpenAI(
             api_key=api_key,
@@ -374,19 +412,14 @@ class LLMClient:
 
     def _build_gemini(self):
         try:
-            from google import genai  # type: ignore
-        except ImportError as e:
-            raise LLMError("Install: pip install google-genai") from e
-        key = self._explicit_api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+            from .gemini_provider import create_client
+        except ImportError:  # legacy top-level imports
+            from gemini_provider import create_client
+        native_default = os.environ.get("NOVEL_OS_LLM_PROVIDER", "").lower() == "gemini"
+        key = self._explicit_api_key or (os.environ.get("NOVEL_OS_API_KEY") if native_default else None) or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not key:
             raise LLMError("GEMINI_API_KEY (or GOOGLE_API_KEY) is not set.")
-        if self.cancellation_event is not None:
-            from google.genai import types  # type: ignore
-            options = {"retry_options": types.HttpRetryOptions(attempts=1)}
-            if self.timeout_seconds is not None:
-                options["timeout"] = int(self.timeout_seconds * 1000)
-            return genai.Client(api_key=key, http_options=types.HttpOptions(**options))
-        return genai.Client(api_key=key)
+        return create_client(key, self._explicit_base_url or (os.environ.get("NOVEL_OS_BASE_URL", "") if native_default else ""), self.timeout_seconds)
 
     # ----- public API
 
@@ -397,6 +430,10 @@ class LLMClient:
     @property
     def supports_image_input(self) -> bool:
         return self.provider_name in IMAGE_INPUT_PROVIDERS
+
+    def _completion_grace(self) -> float:
+        # Cached clients can enter a strict pipeline runtime after construction.
+        return 0 if current_runtime() is not None else getattr(self, 'completion_grace_seconds', 0)
 
     def complete(self, system: str, user: str) -> str:
         with client_scope(self):
@@ -413,8 +450,9 @@ class LLMClient:
         self._record_diagnostic("request.start", provider=self.provider_name, model=self.model,
                                 reasoning_effort=self.reasoning_effort, timeout_seconds=self.timeout_seconds,
                                 max_tokens=self.max_tokens, configured_max_tokens=self.max_tokens,
-                                effective_max_tokens=None if self.provider_name in {"codex", "claude_cli"} else self.max_tokens,
-                                max_tokens_supported=self.provider_name not in {"codex", "claude_cli"},
+                                effective_max_tokens=None if self.provider_name in {"codex", "claude_cli", "gemini_openai"} else self.max_tokens,
+                                max_tokens_supported=self.provider_name not in {"codex", "claude_cli", "gemini_openai"},
+                                completion_grace_limit=self._completion_grace() if self.provider_name == 'codex' else 0,
                                 timeout_scope="local_process" if self.provider_name in {"codex", "claude_cli"} else "sdk_request",
                                 system_chars=len(system), user_chars=len(user),
                                 system_bytes=len(system.encode("utf-8")), user_bytes=len(user.encode("utf-8")))
@@ -457,6 +495,8 @@ class LLMClient:
             return self._complete_codex_cli(system, user)
         if self.provider_name == "anthropic":
             return self._call_http(lambda: self._complete_anthropic(system, user))
+        if self.provider_name == "gemini_openai":
+            return self._call_http(lambda: self._complete_gemini_gateway(system, user))
         if self.provider_name == "gemini":
             return self._call_http(lambda: self._complete_gemini(system, user))
         # openai, azure, openai_compatible, and all aliases share the chat-completions shape
@@ -560,6 +600,10 @@ class LLMClient:
             )
         if self.provider_name == "codex":
             return self._complete_codex_cli(system, user, images=payload)
+        if self.provider_name == "gemini_openai":
+            return self._call_http(lambda: self._complete_gemini_gateway(system, user, images=payload))
+        if self.provider_name == "gemini":
+            return self._call_http(lambda: self._complete_gemini(system, user, images=payload))
         return self._call_http(lambda: self._complete_openai_shape_with_images(system, user, payload))
 
     def run_agent(self, agent_name: str, user: str, agents_dir: Optional[Path] = None) -> str:
@@ -719,7 +763,8 @@ class LLMClient:
                     if diagnostics is not None:
                         process = self._run_cancellable_cli(command, prompt, self.timeout_seconds,
                                                             self.cancellation_event or threading.Event(),
-                                                            diagnostics=diagnostics, upstream_observer=telemetry)
+                                                            diagnostics=diagnostics, upstream_observer=telemetry,
+                                                            completion_grace_seconds=self._completion_grace())
                     elif self.cancellation_event is not None:
                         process = self._run_cancellable_cli(command, prompt, self.timeout_seconds, self.cancellation_event)
                     elif self.timeout_seconds is None:
@@ -741,9 +786,9 @@ class LLMClient:
                     if telemetry is not None:
                         telemetry.close()
             except subprocess.TimeoutExpired as exc:
-                finish_diagnostics("cli.timeout", timeout_seconds=self.timeout_seconds)
+                finish_diagnostics("cli.timeout", timeout_seconds=exc.timeout)
                 raise LLMError(
-                    f"Codex CLI timed out after {self.timeout_seconds:g} seconds"
+                    f"Codex CLI timed out after {exc.timeout:g} seconds"
                 ) from exc
             except OSError as exc:
                 finish_diagnostics("cli.failed")
@@ -775,7 +820,7 @@ class LLMClient:
     def _run_cancellable_cli(
         command: list[str], prompt: str, timeout_seconds: float | None,
         cancellation_event: threading.Event,
-        *, diagnostics=None, upstream_observer=None,
+        *, diagnostics=None, upstream_observer=None, completion_grace_seconds: float = 0,
     ) -> subprocess.CompletedProcess[str]:
         def observe(method, *args):
             if upstream_observer is not None:
@@ -791,7 +836,10 @@ class LLMClient:
 
         if cancellation_event.is_set():
             raise LLMCancelledError("Model request was cancelled")
+        if not 0 <= completion_grace_seconds <= 180:
+            raise ValueError('Completion grace must be between 0 and 180 seconds')
         deadline = time.monotonic() + timeout_seconds if timeout_seconds is not None else None
+        completion_window_used = False
         # Python 3.11 communicate(None) no longer polls a partially written
         # stdin after TimeoutExpired. A slow-starting CLI and a large prompt
         # therefore deadlock. Hand over complete UTF-8 input via an anonymous
@@ -822,8 +870,20 @@ class LLMClient:
                     if cancellation_event.is_set():
                         raise LLMCancelledError("Model request was cancelled")
                     remaining = deadline - time.monotonic() if deadline is not None else 0.1
+                    now = time.monotonic()
+                    last_text = getattr(upstream_observer, 'last_public_text_at', None)
+                    recent_text = (type(last_text) in (int, float) and 0 <= now - last_text <= 20)
+                    if remaining <= 0 and not completion_window_used and completion_grace_seconds and recent_text:
+                        # One bounded finish window, never a rolling timeout.
+                        # No extra request, lowered effort or model switch.
+                        deadline += completion_grace_seconds
+                        completion_window_used = True
+                        observe('completion_window', completion_grace_seconds)
+                        remaining = deadline - time.monotonic()
+                    if completion_window_used and (type(last_text) not in (int, float) or now - last_text > 30):
+                        raise subprocess.TimeoutExpired(command, timeout_seconds + completion_grace_seconds)
                     if remaining <= 0:
-                        raise subprocess.TimeoutExpired(command, timeout_seconds)
+                        raise subprocess.TimeoutExpired(command, timeout_seconds + (completion_grace_seconds if completion_window_used else 0))
                     try:
                         stdout, stderr = process.communicate(timeout=min(0.1, remaining))
                     except subprocess.TimeoutExpired as exc:
@@ -1012,23 +1072,36 @@ class LLMClient:
         observe_usage(getattr(response, "usage", None), provider=self.provider_name, observed_model=getattr(response, "model", None))
         return response.choices[0].message.content or ""
 
-    def _complete_gemini(self, system: str, user: str) -> str:
-        from google.genai import types  # type: ignore
-        options = {}
-        if getattr(self, 'cancellation_event', None) is not None:
-            timeout = getattr(self, 'timeout_seconds', None)
-            options['http_options'] = types.HttpOptions(
-                timeout=int(timeout * 1000) if timeout else None,
-                retry_options=types.HttpRetryOptions(attempts=1),
+    def _complete_gemini_gateway(self, system: str, user: str, *, images=()) -> str:
+        try:
+            from .gemini_gateway import complete, GatewayError, GatewayInputLimitError
+        except ImportError:
+            from gemini_gateway import complete, GatewayError, GatewayInputLimitError
+        self.last_response_metadata = {}
+        try:
+            text, self.last_response_metadata = complete(
+                self._backend, model=self.model, system=system, user=user,
+                effort=self.reasoning_effort or "", images=images,
+                check_cancelled=self._check_cancelled, diagnostic=self._record_diagnostic,
+                observe=observe_usage, set_stream=lambda stream: setattr(self, "_active_stream", stream),
             )
-        resp = self._backend.models.generate_content(
-            model=self.model,
-            contents=user,
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-                max_output_tokens=self.max_tokens,
-                **options,
-            ),
-        )
-        observe_usage(getattr(resp, "usage_metadata", None), provider="gemini", observed_model=getattr(resp, "model_version", None))
-        return resp.text or ""
+            return text
+        except GatewayInputLimitError as exc:
+            raise LLMInputLimitError(exc.actual_bytes, exc.limit_bytes) from exc
+        except GatewayError as exc:
+            raise LLMError(str(exc)) from exc
+
+    def _complete_gemini(self, system: str, user: str, *, images=()) -> str:
+        try:
+            from .gemini_provider import complete, GeminiError
+        except ImportError:  # legacy top-level imports
+            from gemini_provider import complete, GeminiError
+        try:
+            return complete(
+                self._backend, model=self.model, system=system, user=user,
+                max_tokens=self.max_tokens, effort=self.reasoning_effort or "", images=images,
+                check_cancelled=self._check_cancelled, diagnostic=self._record_diagnostic,
+                observe=observe_usage, set_stream=lambda stream: setattr(self, "_active_stream", stream),
+            )
+        except GeminiError as exc:
+            raise LLMError(str(exc)) from exc

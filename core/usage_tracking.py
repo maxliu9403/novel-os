@@ -62,7 +62,7 @@ def normalize_usage(value, provider="") -> dict:
     # Anthropic reports uncached input separately; canonical input is inclusive.
     if provider == "anthropic" and input_count is not None:
         input_count += (cached or 0) + (cache_write or 0)
-    if provider == "gemini" and output_count is not None:
+    if provider in {"gemini", "gemini_openai"} and output_count is not None:
         output_count += reasoning or 0
     if input_count is not None and cached is not None and cached > input_count:
         cached = None

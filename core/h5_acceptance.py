@@ -28,11 +28,14 @@ MEDIA = {'.epub': 'application/epub+zip', '.json': 'application/json', '.md': 't
          '.pdf': 'application/pdf', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
          '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
 PRIVATE_KEYS = {'method_policy', 'method_lock', 'method_lock_sha256', 'raw_critique', 'secret_knowledge',
+                'story_capacity', 'story_capacity_json', 'capacity_plan', 'capacity_history', 'skeleton_review', 'skeleton_revision',
                 'method_reviews', 'knowledge_observations', 'run_method_lock', 'preference_id', 'raw_response',
                 'creative_handoff', 'creative_lock_sha256', 'creative_snapshot_started', 'creative_execution_context',
-                'reader_reviews', 'reader_review', 'reading_observations', 'review_snapshot'}
+                'reader_reviews', 'reader_review', 'reading_observations', 'review_snapshot',
+                'reader_investment', 'story_state', 'story_workshop_version', 'story_action', 'creative_design', 'design_notes', 'guided_choices_version', 'guidance_history', 'turn_requests'}
 PRIVATE_SCHEMAS = ('novel-method-', 'narrative-method', 'novel-knowledge', 'novel-preference', 'novel-experiment',
-                   'creative-handoff.', 'creative-execution.', 'reader-experience.')
+                   'story-capacity.', 'skeleton-review.',
+                   'reader-investment.', 'story-workshop.', 'creative-handoff.', 'creative-execution.', 'reader-experience.', 'guided-choices.', 'workshop-design.')
 
 
 def _public_json(value):
@@ -265,9 +268,10 @@ def inspect_package_bytes(raw: bytes) -> dict:
                 versions[name + '_sha256'] = entry['sha256'] if entry else None
             _require(data['versions'] == versions, 'component_revisions')
             _require(data['import_revision_sha256'] == object_digest({'book_id': data['book_id'], 'versions': versions}), 'import_revision')
+            from core.publication_taxonomy import export_target
+            target = export_target(classification)
             return {'engine_contract_status': 'passed', 'external_import_status': 'pending',
-                    'target_profile': PROFILE.id, 'catalog_sha256': PROFILE.catalog_sha256,
-                    'validator_revision': PROFILE.validator_revision,
+                    **target,
                     'package_sha256': digest(raw), 'package_revision_sha256': manifest['package_revision_sha256'],
                     'import_revision_sha256': data['import_revision_sha256'], 'book_id': data['book_id'],
                     'author': author,

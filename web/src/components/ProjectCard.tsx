@@ -61,6 +61,7 @@ export default function ProjectCard({ p, onDelete, onResume, onDeliveryChanged }
       <div className="library-book__body">
         <div className="library-book__byline">{p.genre || "未设置类型"}{p.author ? ` / ${p.author}` : ""}</div>
         <h2 className="library-book__title" title={p.title}>{p.title}</h2>
+        {p.source && <Link className="library-book__source" to={`/source-books?source=${encodeURIComponent(p.source.source_id)}&version=${encodeURIComponent(p.source.analysis_sha256)}`}>参考资料 · {p.source.title}</Link>}
         <p className="library-book__words">{(p.word_count ?? 0).toLocaleString("zh-CN")} 字 <span>·</span> 已写 {p.drafted_count ?? 0}/{p.chapter_count} 章
           {p.content_rating === "mature" && <span className="library-book__rating">成人内容</span>}
         </p>

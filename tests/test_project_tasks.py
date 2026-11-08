@@ -116,6 +116,48 @@ def test_task_details_and_cards_expose_actual_failure(tmp_path):
         assert row["task_phase"] == "publication.copy"
 
 
+def test_exhausted_planning_correction_is_not_advertised_as_retryable(tmp_path):
+    project, manifest, path = _seed(tmp_path)
+    manifest.current_phase = 'outline'
+    path.write_text(json.dumps(manifest.to_dict()))
+    sidecar = path.parent / 'planning/progress.json'
+    sidecar.parent.mkdir()
+    sidecar.write_text(json.dumps({'schema_version': 1, 'run_id': manifest.run_id, 'status': 'failed',
+        'next_action': '需要检查保存的设计；不会自动重试。',
+        'recovery': {'retryable': False, 'action': 'inspect_saved_design', 'reason': 'Needs a story choice'}}))
+    client = _client(tmp_path)
+    url = f'/api/projects/book/tasks/{manifest.run_id}'
+    detail = client.get(url).json()
+    assert detail['can_resume'] is False
+    assert detail['planning']['recovery']['retryable'] is False
+    assert client.get('/api/projects/book').json()['task_can_resume'] is False
+    assert client.post(url + '/resume').status_code == 409
+    # A previous outline advisory cannot block a different current stage.
+    manifest.current_phase = 'chapter.1'
+    path.write_text(json.dumps(manifest.to_dict()))
+    assert client.get(url).json()['can_resume'] is True
+
+
+def test_available_source_restoration_projects_explicit_recovery_without_writing(tmp_path, monkeypatch):
+    from core import planning_recovery
+    project, manifest, path = _seed(tmp_path)
+    manifest.current_phase = 'outline'
+    path.write_text(json.dumps(manifest.to_dict()))
+    sidecar = path.parent / 'planning/progress.json'
+    sidecar.parent.mkdir()
+    sidecar.write_text(json.dumps({'schema_version': 1, 'run_id': manifest.run_id, 'status': 'failed',
+        'recovery': {'retryable': False, 'action': 'inspect_saved_design', 'reason': 'Old scope'}}))
+    before = sidecar.read_bytes()
+    monkeypatch.setattr(planning_recovery, 'source_restoration_available', lambda *args: True)
+    client = _client(tmp_path)
+    detail = client.get(f'/api/projects/book/tasks/{manifest.run_id}').json()
+    assert detail['can_resume'] is True
+    assert detail['planning']['recovery']['action'] == 'restore_source_omissions'
+    assert '模型用量' in detail['planning']['next_action']
+    assert client.get('/api/projects/book').json()['task_can_resume'] is True
+    assert sidecar.read_bytes() == before
+
+
 def test_duplicate_resume_uses_same_native_run_and_preserves_policy(tmp_path, monkeypatch):
     from api import project_tasks, project_task_summary
     from pipeline_runner import PipelineRunner

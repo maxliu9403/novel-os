@@ -1,0 +1,1613 @@
+{
+  "schema": "novel-corpus-coverage.v1",
+  "books": [
+    {
+      "book_id": "31001109752",
+      "title": "30 Irresistible Romantic Encounters",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000325824",
+      "title": "A Contract with the Billionaire ",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000546153",
+      "title": "A Dangerous Atrophy",
+      "required_files": 21,
+      "matched_files": 21,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000471406",
+      "title": "A Life Debt Repaid",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000006402",
+      "title": "A Night With The Billionaire",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000003253",
+      "title": "A Ruling Passion: Mr Tremont's Priceless Little Bride",
+      "required_files": 22,
+      "matched_files": 22,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000535725",
+      "title": "A Wife For The Billionaire ",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001292618",
+      "title": "A Woman Worth Billions, Dated the Wrong Brother",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000526323",
+      "title": "Accidentally Married",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000012934",
+      "title": "Accidentally Yours",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000001691",
+      "title": "Addicted to Loving You: The Paranoid and Domineering Boss's Convicted Wife",
+      "required_files": 17,
+      "matched_files": 17,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000755823",
+      "title": "All For You, Daddy",
+      "required_files": 5,
+      "matched_files": 5,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001125364",
+      "title": "All Yours, Daddies",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000389261",
+      "title": "An affair with my billionaire boss (seducing his maid)",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000403877",
+      "title": "BILLIONAIRE QUADRUPLET BABIES",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000529047",
+      "title": "BURNING PASSION: MY FORBIDDEN LOVER",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000511405",
+      "title": "Baby Genius: Daddy Is A Billionaire ",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000014405",
+      "title": "Babysitting His Baby ",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000273857",
+      "title": "Barren Mother Give Birth To Sextuplets For The HOT CEO",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000054424",
+      "title": "Begin Again",
+      "required_files": 14,
+      "matched_files": 14,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000234665",
+      "title": "Being His Wife",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000580640",
+      "title": "Beyond the Divorce",
+      "required_files": 12,
+      "matched_files": 12,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000005929",
+      "title": "Billionaire's Ex-wife is Mommy of Twins",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001148338",
+      "title": "Billionaire's Match",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000101092",
+      "title": "Billionaire's Substitute Bride and Her Secret Child",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000788467",
+      "title": "Billionaire, Let's Divorce!",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000025883",
+      "title": "Black Card",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000496159",
+      "title": "Bogus Billionaire",
+      "required_files": 10,
+      "matched_files": 10,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000055508",
+      "title": "Bound to the CEO",
+      "required_files": 10,
+      "matched_files": 10,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000779881",
+      "title": "Burning Passion {steamiest short stories}",
+      "required_files": 4,
+      "matched_files": 4,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000014944",
+      "title": "CAGED: In the dark embrace of my Saviour ",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000004516",
+      "title": "CEO Husband's Crazy Love For His Little Wife",
+      "required_files": 10,
+      "matched_files": 10,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000696655",
+      "title": "CEO's Tears Over Pregnancy Test Discovery",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000357874",
+      "title": "CLAIMED BY MY EX-HUSBAND ",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000496163",
+      "title": "Can't Win Me Back",
+      "required_files": 10,
+      "matched_files": 10,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000703684",
+      "title": "Chasing My Pregnant Wife",
+      "required_files": 11,
+      "matched_files": 11,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000000603",
+      "title": "Cold Showers",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000965161",
+      "title": "Craving The Wrong Brother",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000013234",
+      "title": "DEVIN",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000570294",
+      "title": "Daddy’s Little Pet",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000789103",
+      "title": "Daddy's Naughty Girl",
+      "required_files": 5,
+      "matched_files": 5,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000968853",
+      "title": "Dead at Heart",
+      "required_files": 12,
+      "matched_files": 12,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000464759",
+      "title": "Dear Ex-Wife, You Are MINE! ",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000724055",
+      "title": "Divorced By Mistake: My Ex-wife Becomes a CEO",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000936275",
+      "title": "Divorced My Cheating Husband, Married A Billionaire",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000942967",
+      "title": "Dumping My Ex to Flash Marry the Untouchable CEO",
+      "required_files": 10,
+      "matched_files": 10,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000565662",
+      "title": "Even After Death",
+      "required_files": 19,
+      "matched_files": 19,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000657155",
+      "title": "Ex-Husband's Regret ",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000750233",
+      "title": "Ex-husband’s Regret",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000636443",
+      "title": "Fake Marriage: The Trillionire Tycoon's Fiesty Bride ",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001218698",
+      "title": "Five Years of Marriage to Mr. Bradford",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000194521",
+      "title": "Flash Marriage: A Billionaire For A Rebound",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000003117",
+      "title": "Forbidden Love Stories",
+      "required_files": 4,
+      "matched_files": 4,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000237756",
+      "title": "Forced marriage: Dear wife, you can't escape me",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000012245",
+      "title": "Forceful Marriage: Young Master's Mute Wife",
+      "required_files": 21,
+      "matched_files": 21,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001263201",
+      "title": "Game Over, Mr. CEO: Your Wife Is Done",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000649861",
+      "title": "Gone Too Long, The CEO Becomes A World-Class Doting Husband",
+      "required_files": 10,
+      "matched_files": 10,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000750278",
+      "title": "Goodbye, Mr. Ex: I've Remarried Mr. Right",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000393800",
+      "title": "HIRED AS A BILLIONAIRE'S WIFE",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001085593",
+      "title": "HIS REGRET (Ex-Husband wants Me Back)",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000487354",
+      "title": "Her Accidental Billionaire Husband ",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000763118",
+      "title": "Her Graceful War Song",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000585175",
+      "title": "Hiding the Twins from Their Billionaire Father",
+      "required_files": 10,
+      "matched_files": 10,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001058616",
+      "title": "Hired a Gigolo, Got a Billionaire",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000388532",
+      "title": "Hook Up With The Naughty Maid",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000304509",
+      "title": "I Fell For The Boy His Daddy Was A Bonus",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000044735",
+      "title": "I Kissed A CEO And He Liked It!",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000690808",
+      "title": "I Paid A Billionaire For A Hook Up",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001089435",
+      "title": "I Quit Being a Stepmother",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000657835",
+      "title": "I Refuse to Divorce!",
+      "required_files": 10,
+      "matched_files": 10,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000688792",
+      "title": "I Want You Back ",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000772543",
+      "title": "In Love With My Ex-Wife",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000384474",
+      "title": "In Love With The Hot CEO",
+      "required_files": 10,
+      "matched_files": 10,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000042209",
+      "title": "Incompatible Souls : Forced into a Contract Marriage ",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000861384",
+      "title": "Irresistible Boss: Succumbing to Your Touch",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000021848",
+      "title": "Let Me Go, Mr. Hill!",
+      "required_files": 15,
+      "matched_files": 15,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001271752",
+      "title": "Let’s Divorce. Mrs. Wright Is Done Playing Nice.",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000001052",
+      "title": "Love Reborn: The Boss's Love for His Wife Knows No Bounds",
+      "required_files": 14,
+      "matched_files": 14,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000434528",
+      "title": "Loving You In Secret",
+      "required_files": 20,
+      "matched_files": 20,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000675787",
+      "title": "MY STEP UNCLE IS MY SUGAR DADDY ",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000260093",
+      "title": "Madam Winters’s Fight For Her Children",
+      "required_files": 16,
+      "matched_files": 16,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000409129",
+      "title": "Married a Secret Billionaire",
+      "required_files": 15,
+      "matched_files": 15,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000384431",
+      "title": "Married at First Sight",
+      "required_files": 13,
+      "matched_files": 13,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000003975",
+      "title": "Married by Mistake: Mr. Whitman's Sinner Wife",
+      "required_files": 11,
+      "matched_files": 11,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000729973",
+      "title": "Marrying a Disabled CEO in My Sister's Place",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000333400",
+      "title": "Master Odell’s Secret Ex-wife",
+      "required_files": 5,
+      "matched_files": 5,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000648022",
+      "title": "Meet My Brothers",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000542011",
+      "title": "Mommy is precious, My Billionaire Daddy",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000003441",
+      "title": "Mommy, Where Is Daddy? The Forsaken Daughter's Return",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000023562",
+      "title": "Mr. CEO's Amazing Contract Wife",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000024300",
+      "title": "Mr. CEO's Mistress",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000543175",
+      "title": "Mr. CEO, I Came Back To Love You",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000631885",
+      "title": "Mr. CEO, I Was Forced To Marry You.",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000320509",
+      "title": "Mr. Ford Is Jealous",
+      "required_files": 22,
+      "matched_files": 22,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000442732",
+      "title": "Mr. Kane Got Blacklisted",
+      "required_files": 14,
+      "matched_files": 14,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000375960",
+      "title": "My Adorable Twins",
+      "required_files": 10,
+      "matched_files": 10,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000872066",
+      "title": "My Best Friend's Brother ",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000019015",
+      "title": "My Best Friend's Father",
+      "required_files": 5,
+      "matched_files": 5,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000668380",
+      "title": "My Bestfriend's Brother Shouldn't Know How I Taste",
+      "required_files": 10,
+      "matched_files": 10,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000002464",
+      "title": "My Boss Is Clueless",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000357192",
+      "title": "My Bully's Love",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000415196",
+      "title": "My Crippled Husband who loves me dearly ",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000539248",
+      "title": "My Dad's Bestfriend ",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000572745",
+      "title": "My Ex-Husband Wants Me Back",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000533954",
+      "title": "My Gorgeous Wife is an Ex-Convict!",
+      "required_files": 5,
+      "matched_files": 5,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000258755",
+      "title": "My Marriage Is A Contract ",
+      "required_files": 13,
+      "matched_files": 13,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000276233",
+      "title": "My Wife Wants a Divorce!",
+      "required_files": 19,
+      "matched_files": 19,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000264307",
+      "title": "My Wife is a Hacker",
+      "required_files": 21,
+      "matched_files": 21,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000081972",
+      "title": "Mysterious Husband: Pampering Wife",
+      "required_files": 21,
+      "matched_files": 21,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000397918",
+      "title": "NO ONE ELSE COMES CLOSE",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000397906",
+      "title": "ONLY YOU",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000017245",
+      "title": "Of Pillows and Pampering",
+      "required_files": 18,
+      "matched_files": 18,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000547969",
+      "title": "On Her Master’s Bed! ",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000726103",
+      "title": "On My Knees For Him!",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000681047",
+      "title": "On My Professor's Bed",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001082710",
+      "title": "Once a Doormat, Now Untouchable",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000654418",
+      "title": "One Night Stand With My Boss",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000314979",
+      "title": "One Night Stand ",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000386620",
+      "title": "One Night Stand",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000546351",
+      "title": "One Night With Mr Billionaire ",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000441125",
+      "title": "One night stand with a Billionaire",
+      "required_files": 5,
+      "matched_files": 5,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000271537",
+      "title": "One night with Ex-Husband",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000230041",
+      "title": "Oops! I Married A CEO By Mistake ",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000297886",
+      "title": "Our Billion-Worth Twins",
+      "required_files": 26,
+      "matched_files": 26,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000651302",
+      "title": "Overwhelming Pleasure",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001003432",
+      "title": "Please Me, Mr. Reed",
+      "required_files": 5,
+      "matched_files": 5,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000025496",
+      "title": "Please, Restrain Yourself",
+      "required_files": 21,
+      "matched_files": 21,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000576436",
+      "title": "Pleasured by her Step-Uncle",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000007241",
+      "title": "Pleasuring The Maid",
+      "required_files": 4,
+      "matched_files": 4,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000540249",
+      "title": "Possesive CEO Daddy",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000360405",
+      "title": "Powerful Papa with Triplet Babies",
+      "required_files": 17,
+      "matched_files": 17,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000522398",
+      "title": "Pregnant And Rejected On Her Wedding Day ",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000089205",
+      "title": "Pregnant and Favored: See You in the Morning, Young Master",
+      "required_files": 22,
+      "matched_files": 22,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000052033",
+      "title": "Punished by His Love",
+      "required_files": 21,
+      "matched_files": 21,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000089897",
+      "title": "Pursuing My Ex-Wife Isn't Easy",
+      "required_files": 21,
+      "matched_files": 21,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000403570",
+      "title": "Resent, Reject, Regret",
+      "required_files": 15,
+      "matched_files": 15,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000954155",
+      "title": "Revenge After Divorce",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000008120",
+      "title": "Revenge of the Hideous Lady",
+      "required_files": 22,
+      "matched_files": 22,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000351650",
+      "title": "Romantic Shots",
+      "required_files": 2,
+      "matched_files": 2,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000001163",
+      "title": "Rude Awakenings",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000049803",
+      "title": "SIN",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000331564",
+      "title": "Satisfying Her Darkest Fantasies",
+      "required_files": 12,
+      "matched_files": 12,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000660089",
+      "title": "Seduced by My Childhood Sweetheart’s Brother ",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000788960",
+      "title": "Seducing My Dad's Best Friend.",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000313756",
+      "title": "Sentenced to Marriage",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000794243",
+      "title": "She Accepted Divorce, He Panicked",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000980456",
+      "title": "Side Chick Era… Over",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000569552",
+      "title": "Sinful Desires: My Uncle Is Mine",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000002033",
+      "title": "Sir Ares, Goodnight!",
+      "required_files": 14,
+      "matched_files": 14,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000431829",
+      "title": "Spoiled and Pampered by my Cold CEO Husband",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000358664",
+      "title": "Spoiled by Mr. Russell",
+      "required_files": 11,
+      "matched_files": 11,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000392751",
+      "title": "Submitting to My Best Friend's Dad",
+      "required_files": 10,
+      "matched_files": 10,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000379564",
+      "title": "Sweet Dreams",
+      "required_files": 5,
+      "matched_files": 5,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000370905",
+      "title": "THE LOVE DOCTOR: HIS SUBMISSIVE ",
+      "required_files": 3,
+      "matched_files": 3,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000023163",
+      "title": "Taming The Wild CEO",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000418989",
+      "title": "Tempted by My Brother's Best Friend (Age Gap Romance)",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000065281",
+      "title": "The Abandoned Bride",
+      "required_files": 10,
+      "matched_files": 10,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000064559",
+      "title": "The Arranged Bride",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001092545",
+      "title": "The Billionaire’s Fight For Redemption ",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000033344",
+      "title": "The Billionaire's Runaway Lover",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000662329",
+      "title": "The Billionaires Heirs Series",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000893249",
+      "title": "The Breaking Point of Love",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000026717",
+      "title": "The CEO's Addiction To Love",
+      "required_files": 22,
+      "matched_files": 22,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001104597",
+      "title": "The CEO's Contractual Wife",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000666026",
+      "title": "The CEO's Ex-Wife Is A Famous Doctor",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000717427",
+      "title": "The CEO's Fabulous Ex-Wife",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000152252",
+      "title": "The CEO's Secret Woman",
+      "required_files": 11,
+      "matched_files": 11,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000257654",
+      "title": "The CEO's Ten Million Dollar Wife",
+      "required_files": 5,
+      "matched_files": 5,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000474405",
+      "title": "The Day I Kissed An Older Man",
+      "required_files": 18,
+      "matched_files": 18,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000004546",
+      "title": "The Deserted Bride",
+      "required_files": 10,
+      "matched_files": 10,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000001321",
+      "title": "The Deviant CEO",
+      "required_files": 5,
+      "matched_files": 5,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000359789",
+      "title": "The Devil's Love For The Heiress",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000148729",
+      "title": "The Divorced Billionaire Heiress",
+      "required_files": 20,
+      "matched_files": 20,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000898396",
+      "title": "The Heartbreak Prescription",
+      "required_files": 13,
+      "matched_files": 13,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000728593",
+      "title": "The Heiress' Return: Six Brothers at Her Beck and Call",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000006973",
+      "title": "The Playboy Superstar Versus The CEO",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000089209",
+      "title": "The President's Accidental Wife",
+      "required_files": 18,
+      "matched_files": 18,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000175694",
+      "title": "The Three Little Guardian Angels",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000004945",
+      "title": "The Trap Of Ace",
+      "required_files": 5,
+      "matched_files": 5,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000465786",
+      "title": "The Untouchable Ex-Wife",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000865971",
+      "title": "The Unwanted Wife and Her Secret Twins",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000670332",
+      "title": "The Wrong Woman",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000423189",
+      "title": "To Be Yours Again",
+      "required_files": 14,
+      "matched_files": 14,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000670040",
+      "title": "To Crave The Forbidden ",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000181374",
+      "title": "Touch Me While I Taste You",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000771151",
+      "title": "Trading My Ex for His Uncle",
+      "required_files": 8,
+      "matched_files": 8,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000522404",
+      "title": "Trapped in Love",
+      "required_files": 18,
+      "matched_files": 18,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001067286",
+      "title": "Triplet Temptation: My stepbrothers are triplets ",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000308862",
+      "title": "Triplets on Secret Mission",
+      "required_files": 21,
+      "matched_files": 21,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000785006",
+      "title": "Trouble in Paradise",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001626203",
+      "title": "Two Can Play",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000004472",
+      "title": "WE WERE DESTINED",
+      "required_files": 7,
+      "matched_files": 7,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000017248",
+      "title": "Warning: My Mommy is A Savage!",
+      "required_files": 30,
+      "matched_files": 30,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000028943",
+      "title": "Watch Out, CEO Daddy!",
+      "required_files": 21,
+      "matched_files": 21,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000272538",
+      "title": "When His Eyes Opened",
+      "required_files": 22,
+      "matched_files": 22,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001069714",
+      "title": "Wicked Cravings",
+      "required_files": 5,
+      "matched_files": 5,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000532599",
+      "title": "Wild Epic Stories",
+      "required_files": 6,
+      "matched_files": 6,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "21000015507",
+      "title": "Wrong Ride, Right Lover",
+      "required_files": 25,
+      "matched_files": 25,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31000589178",
+      "title": "You're Gonna Miss Me When I'm Gone",
+      "required_files": 11,
+      "matched_files": 11,
+      "declared_complete": true,
+      "gaps": []
+    },
+    {
+      "book_id": "31001200284",
+      "title": "Your Uncle’s My Husband Now—Back Off, Ex!",
+      "required_files": 9,
+      "matched_files": 9,
+      "declared_complete": true,
+      "gaps": []
+    }
+  ],
+  "total_books": 200,
+  "complete_books": 200,
+  "required_files": 1943,
+  "matched_files": 1943,
+  "complete": true,
+  "errors": [],
+  "inventory_errors": [],
+  "meaning": "Source hashes validate declared coverage, not literary understanding or actual reading."
+}

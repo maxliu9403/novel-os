@@ -79,8 +79,10 @@ class MetricActivityProjector:
         kind = values.get("kind")
         if not isinstance(kind, str) or kind not in _TRANSPORT | _CONTENT.keys():
             return None
-        if values.get("success") is not True and values.get("success") != "true":
+        success = values.get("success")
+        if type(success) is not bool and success not in ("true", "false"):
             return None
+        success = success is True or success == "true"
         count = _integer(point.get("asInt"))
         if count is None and "asInt" not in point:
             number = point.get("asDouble")
@@ -121,7 +123,9 @@ class MetricActivityProjector:
         self._series[key] = (start, end, count)
         if not delta:
             return None
-        return {"event": "upstream.activity", "activity_kind": _CONTENT.get(kind, "transport"),
+        failed = not success or kind in {'response.failed', 'response.incomplete', 'response.cancelled', 'error'}
+        return {"event": "upstream.activity", "activity_kind": 'error' if failed else _CONTENT.get(kind, "transport"),
+                "event_kind": kind, "success": success,
                 "metric_count": delta, "metric_temporality": "delta" if temporality == 1 else "cumulative",
                 "observation_source": "otel_metrics", "observed_at": observed_at,
                 "metric_window_start": window_start, "metric_window_end": window_end}

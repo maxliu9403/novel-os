@@ -491,6 +491,8 @@ def _mapping_job_result(result: object) -> dict:
 def test_studio_text_route(route_id: str, body: TextModelTestRequest):
     from core import provider_settings
     from core.llm_client import LLMClient
+    from core import model_context_probe
+    import threading
 
     prompt = body.prompt.strip()
     if not prompt:
@@ -504,29 +506,46 @@ def test_studio_text_route(route_id: str, body: TextModelTestRequest):
 
     def run_test() -> dict:
         started = time.monotonic()
+        first_content_ms = None
+
+        def diagnostic(event):
+            nonlocal first_content_ms
+            if first_content_ms is None and event.get("event") == "content.progress":
+                first_content_ms = round((time.monotonic() - started) * 1000)
+
+        expected = None
+        system = "You are a model connectivity test. Answer the user's prompt directly and briefly."
+        user = prompt
+        if body.mode == "context":
+            system, user, expected = model_context_probe.build_probe(body.context_bytes)
         client = LLMClient(
             provider=route["provider"] or None,
             model=route["model"] or None,
             base_url=route["base_url"] or None,
             api_key=route["api_key"] or None,
-            max_tokens=min(int(route["max_tokens"]), 1024),
-            timeout_seconds=120,
-            reasoning_effort="low",
+            max_tokens=min(int(route["max_tokens"]), 2048 if route["provider"] == "gemini" else 1024),
+            timeout_seconds=600 if body.mode == "context" else 120,
+            cancellation_event=threading.Event(),
+            diagnostic_callback=diagnostic,
+            # The short connectivity probe does not override saved creation settings.
+            reasoning_effort="" if route["provider"] in {"gemini", "gemini_openai"} else "low",
         )
-        reply = client.complete(
-            "You are a model connectivity test. Answer the user's prompt directly and briefly.",
-            prompt,
-        )
+        reply = client.complete(system, user)
         return {
             "route_id": route_id,
             "provider": route["provider"],
             "model": route["model"],
             "reply": reply,
             "duration_ms": round((time.monotonic() - started) * 1000),
+            "first_content_ms": first_content_ms,
+            "mode": body.mode,
+            "request_text_bytes": len(system.encode("utf-8")) + len(user.encode("utf-8")),
+            "context_check": model_context_probe.assess(reply, expected) if expected else None,
+            "transport": getattr(client, "last_response_metadata", {}),
         }
 
     fingerprint = hashlib.sha256(
-        f"{route_id}\0{route['connection_id']}\0{route['model']}\0{prompt}".encode("utf-8")
+        f"{route_id}\0{route['connection_id']}\0{route['model']}\0{prompt}\0{body.mode}\0{body.context_bytes}".encode("utf-8")
     ).hexdigest()
     job_id = runner.submit(
         "studio_text_test",

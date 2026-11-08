@@ -15,6 +15,7 @@ from test_workshop_prompt_profiles import snapshot
 from workshop_delivery_fixtures import chapter_plan, stage_response, story_design
 from workshop_assembly_fixtures import parts_from_prompt
 from api.workshop_assembly import ASSEMBLY_PARTS, AssemblyError
+from test_story_first_engine import freeze_legacy_policy
 
 
 def test_stage_timeout_retains_story_and_explicit_resume_skips_saved_work(client, monkeypatch, tmp_path):
@@ -27,6 +28,7 @@ def test_stage_timeout_retains_story_and_explicit_resume_skips_saved_work(client
 
     calls = stub_model(monkeypatch, initial)
     data = create(client, premise="保留最初故事事实和完整历史，不得在恢复时删减。")
+    freeze_legacy_policy(tmp_path, data["id"])
     submit(client, data, "接受推荐，完成骨架")
     failed = finish(client, data["id"])
     assert failed["status"] == "error" and len(calls) == 2
@@ -59,10 +61,11 @@ def test_stage_timeout_retains_story_and_explicit_resume_skips_saved_work(client
         assert value["saved_story_stages"]["story_design"] == before["completed"]["story_design"]["content"]
 
 
-def test_stage_repairs_share_one_global_allowance_and_cannot_publish_partial(client, monkeypatch):
+def test_stage_repairs_share_one_global_allowance_and_cannot_publish_partial(client, monkeypatch, tmp_path):
     replies = ["bad stage", stage_response("story_design"), "bad chapters", "still bad"]
     calls = stub_model(monkeypatch, lambda attempt, *_: replies[attempt - 1])
     data = create(client)
+    freeze_legacy_policy(tmp_path, data["id"])
     submit(client, data, "完整交付")
     failed = finish(client, data["id"])
     assert failed["status"] == "error"

@@ -74,7 +74,7 @@ def test_malformed_points_and_unbounded_series_are_rejected():
                     {"attributes": {}}, {"attributes": [None]}, {"flags": 1}):
         assert project(MetricActivityProjector(), **changes) == []
     assert project(MetricActivityProjector(), temporality=0) == []
-    assert project(MetricActivityProjector(), success="false") == []
+    assert project(MetricActivityProjector(), success="false")[0]["activity_kind"] == "error"
     projector = MetricActivityProjector(max_series=2)
     for index in range(8):
         value = payload()
@@ -92,3 +92,17 @@ def test_batch_work_is_bounded_even_for_deep_lists_and_empty_nodes():
     resource = value["resourceMetrics"][0]
     value["resourceMetrics"] = [{"scopeMetrics": []}] * 300 + [resource]
     assert list(projector.project(value, observed_at="2026-10-12T10:00:00Z")) == []
+
+
+def test_failure_kind_and_failed_frames_survive_without_becoming_content():
+    for kind, success in (("response.failed", "true"), ("response.incomplete", "true"),
+                          ("error", "false"), ("response.output_text.delta", "false")):
+        rows = project(MetricActivityProjector(), kind=kind, success=success)
+        assert len(rows) == 1
+        assert rows[0]["event_kind"] == kind
+        assert rows[0]["success"] == (success == "true")
+        assert rows[0]["activity_kind"] == "error"
+        assert "PRIVATE" not in json.dumps(rows)
+    created = project(MetricActivityProjector(), kind="response.created")[0]
+    assert created["event_kind"] == "response.created" and created["activity_kind"] == "transport"
+    assert project(MetricActivityProjector(), success="not-a-boolean") == []

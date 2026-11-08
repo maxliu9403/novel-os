@@ -175,6 +175,18 @@ class PipelineError(RuntimeError):
         self.blocked = blocked
 
 
+class ChapterRevisionRequired(PipelineError):
+    """A complete, candidate-bound review asks for literary revision.
+
+    Cancellation, transport failure and malformed reports must never authorize
+    a new editing call, even if an earlier review remains on disk.
+    """
+
+    def __init__(self, feedback: str):
+        super().__init__("Joint editorial review requires revision", blocked=True)
+        self.feedback = feedback
+
+
 @contextmanager
 def _project_execution_lock(project: Path, run_id: str):
     """Hold a non-blocking lock while one pipeline owns project outputs."""
@@ -749,6 +761,7 @@ class PipelineRunner:
             setattr(orchestrator, "quality_policy", manifest.spec.quality_policy)
             setattr(orchestrator, "pipeline_run_id", manifest.run_id)
             setattr(orchestrator, "outline_planning_mode", manifest.spec.outline_planning_mode)
+            setattr(orchestrator, "reader_investment", manifest.spec.reader_investment)
             if manifest.spec.creative_handoff is not None:
                 from creative_execution import CreativeExecution
                 started = manifest.creative_snapshot_started
@@ -1020,6 +1033,9 @@ class PipelineRunner:
                 )
                 print(f"Reusing completed chapter {number}/{spec.num_chapters}.", flush=True)
                 return
+        if (spec.creative_handoff or {}).get("story_engine") == "story-first.v1":
+            self._run_story_first_chapter(manifest, project, store, orchestrator, number)
+            return
         commercial_story = (
             self._foundation_commercial_story(project)
             if spec.quality_policy == "evidence_v1"
@@ -1202,9 +1218,17 @@ class PipelineRunner:
                 chapter=number,
                 repair_attempt=repair_attempt,
             )
+        previous_style = manifest.get("chapter.style", number)
+        recover_style_response = bool(
+            previous_style is not None
+            and previous_style.status == "failed"
+            and (previous_style.error or "").startswith("EndingProtocolError:")
+            and previous_style.input_hashes == self._stage_input_hashes(project, "chapter.style", number, manifest)
+            and (previous_style.provider, previous_style.model) == self._runtime_model("chapter.style")
+        )
         self._stage(
             manifest, project, store, "chapter.style", number,
-            lambda: self._curate(orchestrator, number),
+            lambda: self._curate(orchestrator, number, recover_saved_response=recover_style_response),
             lambda _value: self._require_files(
                 project,
                 [self._chapter_report(number, "style"), self._chapter_stage(number, "candidate_final")],
@@ -1290,6 +1314,78 @@ class PipelineRunner:
             lambda value: bool(value),
             [self._chapter_stage(number, "final" if spec.approval_policy == "auto" else "candidate_final")],
         )
+
+    def _run_story_first_chapter(self, manifest, project, store, orchestrator, number):
+        """Project approved design → write → joint review → conditional repair.
+
+        Existing immutable revision, state proposal and promotion machinery remains
+        authoritative. Local preparation/finalization are not model approvals.
+        """
+        from core.chapter_review import read_review
+
+        if self._foundation_commercial_story(project) is not None:
+            raise PipelineError("A frozen legacy commercial contract requires its original workflow", blocked=True)
+        outline = self._chapter_outline(number)
+        draft = self._chapter_stage(number, "draft")
+        revised = self._chapter_stage(number, "revised")
+        final = self._chapter_stage(number, "candidate_final")
+        report = self._chapter_report(number, "continuity")
+        self._stage(manifest, project, store, "chapter.plan", number,
+                    lambda: orchestrator.plan_chapter(number, dry_run=False),
+                    lambda _: self._parse_chapter_contract(project / outline, number), [outline])
+        self._stage(manifest, project, store, "chapter.write", number,
+                    lambda: orchestrator.write_chapter(number, dry_run=False),
+                    lambda _: self._require_files(project, [draft]), [draft])
+
+        def prepare():
+            orchestrator.last_canon_proposal_ids = []
+            self._atomic_text(project / revised, (project / draft).read_text(encoding="utf-8"))
+
+        self._stage(manifest, project, store, "chapter.prepare", number, prepare,
+                    lambda _: self._require_files(project, [revised]), [revised])
+        completed_repairs = [r for r in manifest.stages.values() if r.chapter == number
+                             and _is_repair_phase(r.phase) and r.status == "done"]
+        repair_count = max((_repair_number(r.phase) for r in completed_repairs), default=0)
+        while True:
+            self._stage(manifest, project, store, "chapter.check.post", number,
+                        lambda: orchestrator.run_checks(number), lambda _: None, [])
+
+            def validate(_):
+                current = read_review((project / report).read_text(encoding="utf-8"),
+                                      (project / revised).read_text(encoding="utf-8"))
+                critical = [f for f in getattr(orchestrator, "last_continuity_findings", [])
+                            if f.severity == "critical"]
+                if not current.passed or critical:
+                    feedback = "\n".join(
+                        f"{c.dimension}: {c.reason}\nEvidence: {c.quote}\n{c.repair}"
+                        for c in current.checks if c.status == "revise"
+                    )
+                    if critical:
+                        from continuity_engine import to_context_block
+                        feedback += "\n" + to_context_block(critical)
+                    raise ChapterRevisionRequired(feedback)
+                self._validate_guardian(project, number)
+
+            try:
+                self._stage(manifest, project, store, "chapter.validate", number,
+                            lambda: orchestrator.validate_chapter(number, dry_run=False), validate, [report])
+                break
+            except ChapterRevisionRequired as exc:
+                if (manifest.spec.approval_policy != "auto"
+                        or repair_count >= manifest.spec.max_quality_repairs):
+                    raise
+                feedback = exc.feedback
+                repair_count += 1
+                self._stage(manifest, project, store, f"chapter.repair.{repair_count}", number,
+                            lambda: orchestrator.repair_chapter(number, feedback, repair_count, dry_run=False),
+                            lambda _: self._require_files(project, [revised]), [revised])
+        self._stage(manifest, project, store, "chapter.style", number,
+                    lambda: orchestrator.curate_chapter(number, dry_run=False),
+                    lambda _: self._require_files(project, [final, self._chapter_report(number, "style")]),
+                    [final, self._chapter_report(number, "style")])
+        self._stage(manifest, project, store, "chapter.promote", number,
+                    lambda: self._promote(manifest, project, number), lambda value: bool(value),
+                    [self._chapter_stage(number, "final" if manifest.spec.approval_policy == "auto" else "candidate_final")])
 
     def _prepare_method_reviews(self, manifest, project, store, commercial_story):
         """Advisory sidecars never participate in production checkpoint invalidation."""
@@ -1736,6 +1832,11 @@ class PipelineRunner:
             from creative_execution import CreativeExecutionError
             if hashlib.sha256(Path(source).read_bytes()).hexdigest() != manifest.spec.creative_handoff["source_sha256"]:
                 raise CreativeExecutionError("Input skeleton differs from frozen creative handoff; intake stopped before author generation")
+        from core.knowledge_intake import validate_source_selection
+        validate_source_selection(Path(source).read_text(encoding='utf-8'), manifest.spec.creative_handoff)
+        selected_knowledge = (manifest.spec.creative_handoff or {}).get('type_snapshot')
+        if selected_knowledge is not None:
+            self._atomic_text(project / 'outputs/input/knowledge.json', json.dumps(selected_knowledge, ensure_ascii=False))
         result = ingest_prompt(
             project,
             source,
@@ -1747,6 +1848,7 @@ class PipelineRunner:
 
     @staticmethod
     def _persist_story_contract(project: Path) -> str:
+        from core.foundation_themes import theme_statements
         brief_path = project / "outputs/input/brief.json"
         brief = json.loads(brief_path.read_text(encoding="utf-8"))
         foundation_path = project / "outputs/input/foundation.json"
@@ -1776,7 +1878,7 @@ class PipelineRunner:
             title=str(foundation.get("title") or brief.get("title") or "Untitled"),
             genre=str(brief.get("genre") or "Fiction"),
             intent=intent,
-            themes=tuple(foundation.get("themes") or ()),
+            themes=theme_statements(foundation.get("themes")),
             non_negotiables=tuple(brief.get("must_have") or ()),
         )
         artifacts = ArtifactStore(project)
@@ -1842,6 +1944,7 @@ class PipelineRunner:
             "chapter.write": [PipelineRunner._chapter_outline(chapter or 0)],
             "chapter.check.pre": [PipelineRunner._chapter_stage(chapter or 0, "draft")],
             "chapter.edit": [PipelineRunner._chapter_stage(chapter or 0, "draft")],
+            "chapter.prepare": [PipelineRunner._chapter_stage(chapter or 0, "draft")],
             "chapter.check.post": [PipelineRunner._chapter_stage(chapter or 0, "revised")],
             "chapter.validate": [PipelineRunner._chapter_stage(chapter or 0, "revised")],
             "chapter.commercial_check": [
@@ -2386,6 +2489,7 @@ class PipelineRunner:
         revision_specs = {
             "chapter.write": ("draft", "scribe"),
             "chapter.edit": ("revised", "editor"),
+            "chapter.prepare": ("revised", "local_projection"),
             "chapter.style": ("final", "style_curator"),
         }
         revision_spec = (
@@ -2413,7 +2517,7 @@ class PipelineRunner:
                 artifacts, result.chapter, "chapter_contract"
             )
             parent_revision_id = None
-            if result.phase == "chapter.edit":
+            if result.phase in {"chapter.edit", "chapter.prepare"}:
                 previous = manifest.get("chapter.write", result.chapter)
                 parent_revision_id = previous.revision_id if previous else None
             elif _is_commercial_repair_phase(result.phase):
@@ -2753,7 +2857,7 @@ class PipelineRunner:
         """Return a valid repair that intentionally replaced a producer output."""
         if result.chapter is None:
             return None
-        if result.phase == "chapter.edit":
+        if result.phase in {"chapter.edit", "chapter.prepare"}:
             shared_path = cls._chapter_stage(result.chapter, "revised")
             latest = cls._latest_editor_stage(manifest, result.chapter)
         elif result.phase == "chapter.style":
@@ -3515,10 +3619,12 @@ class PipelineRunner:
             return None
 
     @staticmethod
-    def _curate(orchestrator: Any, number: int) -> Any:
+    def _curate(orchestrator: Any, number: int, *, recover_saved_response: bool = False) -> Any:
         method = getattr(orchestrator, "curate_chapter", None)
         if method is None:
             raise PipelineError("Style Curator is not available in this orchestrator")
+        if recover_saved_response:
+            return method(number, dry_run=False, recover_saved_response=True)
         return method(number, dry_run=False)
 
     def _promote(self, manifest: Any, project: Any, number: Any) -> Any:
@@ -3572,6 +3678,11 @@ class PipelineRunner:
         artifacts = ArtifactStore(project)
         candidate = artifacts.get_revision(candidate_stage.revision_id)
         candidate_text = artifacts.read_text(candidate.revision_id)
+        if (manifest.spec.creative_handoff or {}).get("story_engine") == "story-first.v1":
+            from core.chapter_review import read_review
+            reviewed = read_review((project / self._chapter_report(number, "continuity")).read_text(encoding="utf-8"), candidate_text)
+            if not reviewed.passed:
+                raise PipelineError("Joint editorial review has not passed", blocked=True)
         proposal_id = self._build_evidence_proposal_chain(
             manifest, project, number, candidate.sha256
         )
@@ -3676,6 +3787,8 @@ class PipelineRunner:
             )
             if manifest.get("chapter.commercial_check", number) is not None:
                 phases.append("chapter.commercial_check")
+            if (manifest.spec.creative_handoff or {}).get("story_engine") == "story-first.v1":
+                phases = ["chapter.validate"]  # Only the final reviewed text may establish canon.
             for phase in phases:
                 stage = manifest.get(phase, number)
                 if stage is None or not stage.canon_proposal_ids:
@@ -3951,6 +4064,7 @@ class PipelineRunner:
                 ending_contract_sha256=ending_sha256,
                 # The persisted gate timestamp is stable across stage retries.
                 finished_at=book_check.finished_at,
+                knowledge_snapshot=(manifest.spec.creative_handoff or {}).get('type_snapshot'),
             )
         except PipelineError:
             raise
@@ -4226,6 +4340,8 @@ class PipelineRunner:
         return _DeliveryStageValue(package_result, h5_result, decision)
 
     def _runtime_model(self, phase: str) -> tuple[str, str]:
+        if getattr(getattr(self, "_active_orchestrator", None), "story_first", False) and phase in {"chapter.plan", "chapter.prepare", "chapter.style"}:
+            return "local", "story-first.v1"
         agent_name = (
             "editor"
             if _is_repair_phase(phase) or _is_commercial_repair_phase(phase)
@@ -4256,7 +4372,7 @@ class PipelineRunner:
             if result.chapter == chapter
             and result.status == "done"
             and result.phase != exclude_phase
-            and (result.phase == "chapter.edit" or _is_repair_phase(result.phase))
+            and (result.phase in {"chapter.edit", "chapter.prepare"} or _is_repair_phase(result.phase))
         ]
         if not candidates:
             return None

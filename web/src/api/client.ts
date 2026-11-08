@@ -68,6 +68,7 @@ export interface ProjectDeliverySummary {
 }
 
 export interface ProjectSummary {
+  source?: { source_id: string; title: string; analysis_sha256: string; mode: string } | null;
   id: string; title: string; genre: string; chapter_count: number; status: string;
   author?: string; word_count?: number; drafted_count?: number;
   content_rating?: "general" | "mature"; updated_at?: string | null;
@@ -88,6 +89,7 @@ export interface ChapterDetail extends ChapterSummary {
 }
 
 export interface ProjectDetail {
+  source?: ProjectSummary["source"];
   id: string; title: string; genre: string; author: string;
   chapter_count: number; status: string; style: Record<string, string>;
   content_rating?: "general" | "mature"; word_count?: number;
@@ -159,6 +161,7 @@ export interface ProjectTaskPlanning {
   chapter_count: number;
   message?: string;
   next_action?: string;
+  recovery?: { retryable: boolean; action: string; reason: string } | null;
   steps: Array<{ id: string; label: string; status: string; summary?: string }>;
   milestones: Array<{ id: string; time: string; label: string; summary?: string }>;
 }
@@ -276,6 +279,7 @@ export interface ProviderTemplate {
 export interface ProviderModelDetail {
   id: string;
   name?: string;
+  description?: string;
   context_window?: number;
   max_output_tokens?: number;
   input_modalities?: string[];
@@ -411,6 +415,11 @@ export interface TextTestResult {
   model: string;
   reply: string;
   duration_ms: number;
+  first_content_ms?: number | null;
+  mode?: "response" | "context";
+  request_text_bytes?: number;
+  context_check?: { passed: boolean; matched: number; total: number; checks: Record<string, boolean>; scope: string } | null;
+  transport?: { reported_model?: string; actual_model_verified?: boolean; input_limit_bytes?: number; output_limit_enforced_by_provider?: boolean; usage_source?: string };
 }
 
 export interface CoverConcept {
@@ -1219,8 +1228,8 @@ export const api = {
     send<VisionRoute>(`/api/studio/vision-routes/${encodeURIComponent(routeId)}`, "PUT", body),
   updateTextRoutes: (routes: Array<Pick<TextModelRoute, "id" | "connection_id" | "model" | "max_tokens" | "reasoning_effort" | "inherits_default" | "timeout_seconds">>) =>
     send<TextModelRoute[]>("/api/studio/model-routes", "PUT", { routes }),
-  testTextRoute: (routeId: string, prompt: string) =>
-    send<JobStatus>(`/api/studio/model-routes/${encodeURIComponent(routeId)}/test`, "POST", { prompt }),
+  testTextRoute: (routeId: string, prompt: string, options?: { mode: "context"; context_bytes: number }) =>
+    send<JobStatus>(`/api/studio/model-routes/${encodeURIComponent(routeId)}/test`, "POST", { prompt, ...options }),
   updateCoverProfile: (body: {
     connection_id: string; model: string; size: string;
     quality: ImageModelProfile["quality"];

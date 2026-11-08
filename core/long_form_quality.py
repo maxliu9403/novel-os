@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import tempfile
@@ -133,6 +134,18 @@ def evaluate_foundation_plan(foundation: Mapping[str, Any]) -> LongFormReport:
                 "blocker", "invalid_volume_contracts", str(exc)
             ),),
         )
+
+    for volume in volumes:
+        suggested_start = volume['chapter_start'] + max(
+            0, math.floor((volume['chapter_end'] - volume['chapter_start'] + 1) * 0.65) - 1
+        )
+        if volume['climax_chapter'] < suggested_start:
+            findings.append(LongFormFinding(
+                'warning', 'early_volume_climax',
+                'The volume climax precedes its final 35%. Check that the remaining chapters '
+                'carry meaningful consequences and reader rewards; do not move an adopted event just to fit a template.',
+                volume_id=volume['volume_id'], chapter=volume['climax_chapter'],
+            ))
 
     chapters = foundation.get("chapters")
     if not isinstance(chapters, list):

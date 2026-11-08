@@ -6,11 +6,13 @@ export default function Modal({
   onClose,
   title,
   children,
+  wide = false,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
+  wide?: boolean;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -46,7 +48,7 @@ export default function Modal({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 16, scale: 0.98 }}
             transition={{ duration: 0.32, ease: [0.2, 0.9, 0.2, 1] }}
-            className="glass-shell relative flex max-h-[min(92dvh,100%)] w-full max-w-lg flex-col overflow-hidden !rounded-t-[28px] !rounded-b-none p-2.5 sm:max-h-[min(88dvh,640px)] sm:!rounded-[28px] sm:p-3"
+            className={`glass-shell relative flex max-h-[min(92dvh,100%)] w-full ${wide ? "max-w-6xl sm:max-h-[90dvh]" : "max-w-lg sm:max-h-[min(88dvh,640px)]"} flex-col overflow-hidden !rounded-t-[28px] !rounded-b-none p-2.5 sm:!rounded-[28px] sm:p-3`}
           >
             <div className="glass-panel flex min-h-0 flex-1 flex-col overflow-hidden p-0">
               <h2 className="shrink-0 px-5 pb-3 pt-5 font-display text-[20px] font-semibold tracking-[-0.035em] text-ink-text sm:px-7 sm:pt-6 sm:text-[22px]">

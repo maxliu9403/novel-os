@@ -1,0 +1,504 @@
+{
+  "date": "2026-11-06",
+  "source_directory": "/Users/max/workspace/goodnovel/GoodNovel_Romance_35_Tag_Prompts/Romance/tag_prompts",
+  "deployment": "http://localhost:5174",
+  "import": {
+    "mode": "applied",
+    "items": [
+      {
+        "id": "tag.adventurous",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "4d532c28b9fd2ffe90410b09a8385dd96263a67fae12e40a9697b03b9c28293b"
+      },
+      {
+        "id": "tag.affair",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "fe91c1d9b51d4a776b72d745ff36a810b2f165552ba646fd7b24f25ee9749b43"
+      },
+      {
+        "id": "tag.age_gap",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "cd43371294abb594a029b66ce9c9c1db84fc7446212c762e8f6c3d429751cf14"
+      },
+      {
+        "id": "tag.arrogant",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "539a1027230fce63d03b98d2b143d848a3209c195cddae4599ed2e336aa141bc"
+      },
+      {
+        "id": "tag.betrayal",
+        "action": "replaced",
+        "version": 2,
+        "source_sha256": "e9905a69a0de5dbc6872c5e4413651356d4d703f4956da4c86b41d48bf57f0aa"
+      },
+      {
+        "id": "tag.ceo",
+        "action": "replaced",
+        "version": 2,
+        "source_sha256": "3db7c654a9ca6a26299650570df763e53d4cbc58a893b2893a1afa37fba26adc"
+      },
+      {
+        "id": "tag.comedy",
+        "action": "replaced",
+        "version": 2,
+        "source_sha256": "18349397ee22dc14078d2d0d143312178fef15ed9ee4597de2cfadf39a5b2e40"
+      },
+      {
+        "id": "tag.contemporary",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "9f1b86931407ed6352bdc44a1aa6efd021dcb48e4a06e4a0e504ecf5c08bcd48"
+      },
+      {
+        "id": "tag.contract_marriage",
+        "action": "replaced",
+        "version": 2,
+        "source_sha256": "d0e20e0999d928548c27347e131adbc376a06b506151bb82f53f515469d02fae"
+      },
+      {
+        "id": "tag.dark_romance",
+        "action": "replaced",
+        "version": 2,
+        "source_sha256": "b6fe0c2e52934934f8c1cfa3ffd6b539aaff389ccb96b44ba2ac81d371c49ae0"
+      },
+      {
+        "id": "tag.divorce",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "d5c38bf2f67cc347d49cad351247fbc42b946e69f33eceb678cf42638915b295"
+      },
+      {
+        "id": "tag.dominant",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "b7f20eed2dbdb5178c0a2dfc7ff684fbdd33bf64a866c256d9d5d4a7f2163e5b"
+      },
+      {
+        "id": "tag.drama",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "4f852074f9ce50ab932fce3e1c3cb7955b61e13bc1067040558bf2106e215aa9"
+      },
+      {
+        "id": "tag.face_slapping",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "7952b59e18b07d3946407c1de709c2046486677ec1b633a10229ec0cd99f5ca2"
+      },
+      {
+        "id": "tag.fast_paced_plot",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "5f3111f08c468dae6a7bf56330d0751d3755dc33351ecd4dcec91541522c973f"
+      },
+      {
+        "id": "tag.first_person_pov",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "2122a6af33554e21227da9acc6c57df29afd0a0311f5442e64fc11d596af0386"
+      },
+      {
+        "id": "tag.forbidden_love",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "071f23118338930c3728140b64012e6c3fe270802278b8c295d2685f225888b8"
+      },
+      {
+        "id": "tag.girl_power",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "7103fd9d034fa169faaee37336700479f248bfd3ffb461b6e55319c8af075b6d"
+      },
+      {
+        "id": "tag.hate_to_love",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "df4f7d604d925310927f170316d460d3357706847aa2c51348e377885cf1d329"
+      },
+      {
+        "id": "tag.heir_heirness",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "ce36e2a63889b7682d05ce641bff0dda9423a336577d1f25f1a51afcaeed5cc9"
+      },
+      {
+        "id": "tag.hidden_identity",
+        "action": "replaced",
+        "version": 2,
+        "source_sha256": "b877e8d1cf2bec5e84edf232344feb2ac883db197e9e26cdd272b61660f0639f"
+      },
+      {
+        "id": "tag.independent",
+        "action": "replaced",
+        "version": 2,
+        "source_sha256": "67e42126eafe21b5d00eb393647c5630bd594bf479ce31e103e890851f36ae30"
+      },
+      {
+        "id": "tag.love_triangle",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "9653376d62fece8659783ea87667c18cd9a324811b8c0f2d5b8c606fe69928c5"
+      },
+      {
+        "id": "tag.misunderstanding",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "1063afc84eb1736c46708b9b7bf74657c7d4c867b1c4b06dadbb21396599f735"
+      },
+      {
+        "id": "tag.mystery",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "17bbd6a51164e402d4d59837c4c2ac30bc23f9b868f1c6eef2e6803b0a2839a5"
+      },
+      {
+        "id": "tag.office_relationship",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "be6613f93df55b40b94270ce08b612d575d3ad697e1533f5cbd84482dc1b3243"
+      },
+      {
+        "id": "tag.pregnant",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "80eb91dd5f921b6f93b51ee4fb79d773fd04991fb2fcef54ff33c5caee6ce261"
+      },
+      {
+        "id": "tag.rebel",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "8fb196e2582fc4b15e34c819da081a1ce13c580b250a0d46c1f07cf50a5811e2"
+      },
+      {
+        "id": "tag.regret",
+        "action": "replaced",
+        "version": 2,
+        "source_sha256": "7d590ce0af1014f3b5fcbd99ac3ac7ed8fc144445937c750199184133fcc830c"
+      },
+      {
+        "id": "tag.revenge",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "123207992c4f3f469d61c6980e80f28c0c3f7e202b2440f4eee50ad80a42716a"
+      },
+      {
+        "id": "tag.runaway_with_a_baby",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "97c1d2fd6e5a5b03bdf529e9f6ac3f18679e1c106afabd56344cf1c5b7e1589f"
+      },
+      {
+        "id": "tag.ruthless",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "870ba54aaeee8ea80ee77c7897769cdbac6e8fc935446627b2699efe96dd8c93"
+      },
+      {
+        "id": "tag.secretary",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "bdaff9d994efd90853655a9b7adbed7fa461a8626a176861d28bb4a31343518b"
+      },
+      {
+        "id": "tag.sweet_love",
+        "action": "replaced",
+        "version": 2,
+        "source_sha256": "675e5fe9b4aa85f8b318e820d754c156fc5208acfae0a056bfaaa5f0fe44b69d"
+      },
+      {
+        "id": "tag.tragedy",
+        "action": "created",
+        "version": 1,
+        "source_sha256": "74e1f654f7d6d9fae8a9f2d803529b4bfed7bc940156dc02a342fc6b97965313"
+      }
+    ],
+    "backup": "import-backups/b92f294a47df1eaf436bdf8c71e1c17f23d21b052ff4950603e65588a11ad342.json"
+  },
+  "verification": {
+    "records": 37,
+    "genres": 1,
+    "tags": 36,
+    "verified_files": [
+      {
+        "file": "Adventurous.md",
+        "id": "tag.adventurous",
+        "bytes": 4803,
+        "sha256": "4d532c28b9fd2ffe90410b09a8385dd96263a67fae12e40a9697b03b9c28293b",
+        "version": 1
+      },
+      {
+        "file": "Affair.md",
+        "id": "tag.affair",
+        "bytes": 11100,
+        "sha256": "fe91c1d9b51d4a776b72d745ff36a810b2f165552ba646fd7b24f25ee9749b43",
+        "version": 1
+      },
+      {
+        "file": "Age-Gap.md",
+        "id": "tag.age_gap",
+        "bytes": 4922,
+        "sha256": "cd43371294abb594a029b66ce9c9c1db84fc7446212c762e8f6c3d429751cf14",
+        "version": 1
+      },
+      {
+        "file": "Arrogant.md",
+        "id": "tag.arrogant",
+        "bytes": 5999,
+        "sha256": "539a1027230fce63d03b98d2b143d848a3209c195cddae4599ed2e336aa141bc",
+        "version": 1
+      },
+      {
+        "file": "Betrayal.md",
+        "id": "tag.betrayal",
+        "bytes": 6459,
+        "sha256": "e9905a69a0de5dbc6872c5e4413651356d4d703f4956da4c86b41d48bf57f0aa",
+        "version": 2
+      },
+      {
+        "file": "CEO.md",
+        "id": "tag.ceo",
+        "bytes": 6115,
+        "sha256": "3db7c654a9ca6a26299650570df763e53d4cbc58a893b2893a1afa37fba26adc",
+        "version": 2
+      },
+      {
+        "file": "Comedy.md",
+        "id": "tag.comedy",
+        "bytes": 4753,
+        "sha256": "18349397ee22dc14078d2d0d143312178fef15ed9ee4597de2cfadf39a5b2e40",
+        "version": 2
+      },
+      {
+        "file": "Contemporary.md",
+        "id": "tag.contemporary",
+        "bytes": 4367,
+        "sha256": "9f1b86931407ed6352bdc44a1aa6efd021dcb48e4a06e4a0e504ecf5c08bcd48",
+        "version": 1
+      },
+      {
+        "file": "Contract-Marriage.md",
+        "id": "tag.contract_marriage",
+        "bytes": 5210,
+        "sha256": "d0e20e0999d928548c27347e131adbc376a06b506151bb82f53f515469d02fae",
+        "version": 2
+      },
+      {
+        "file": "Dark-Romance.md",
+        "id": "tag.dark_romance",
+        "bytes": 5006,
+        "sha256": "b6fe0c2e52934934f8c1cfa3ffd6b539aaff389ccb96b44ba2ac81d371c49ae0",
+        "version": 2
+      },
+      {
+        "file": "Divorce.md",
+        "id": "tag.divorce",
+        "bytes": 6502,
+        "sha256": "d5c38bf2f67cc347d49cad351247fbc42b946e69f33eceb678cf42638915b295",
+        "version": 1
+      },
+      {
+        "file": "Dominant.md",
+        "id": "tag.dominant",
+        "bytes": 6036,
+        "sha256": "b7f20eed2dbdb5178c0a2dfc7ff684fbdd33bf64a866c256d9d5d4a7f2163e5b",
+        "version": 1
+      },
+      {
+        "file": "Drama.md",
+        "id": "tag.drama",
+        "bytes": 4517,
+        "sha256": "4f852074f9ce50ab932fce3e1c3cb7955b61e13bc1067040558bf2106e215aa9",
+        "version": 1
+      },
+      {
+        "file": "Face-Slapping.md",
+        "id": "tag.face_slapping",
+        "bytes": 6520,
+        "sha256": "7952b59e18b07d3946407c1de709c2046486677ec1b633a10229ec0cd99f5ca2",
+        "version": 1
+      },
+      {
+        "file": "Fast-Paced-Plot.md",
+        "id": "tag.fast_paced_plot",
+        "bytes": 4297,
+        "sha256": "5f3111f08c468dae6a7bf56330d0751d3755dc33351ecd4dcec91541522c973f",
+        "version": 1
+      },
+      {
+        "file": "First-Person-POV.md",
+        "id": "tag.first_person_pov",
+        "bytes": 4654,
+        "sha256": "2122a6af33554e21227da9acc6c57df29afd0a0311f5442e64fc11d596af0386",
+        "version": 1
+      },
+      {
+        "file": "Forbidden-Love.md",
+        "id": "tag.forbidden_love",
+        "bytes": 5267,
+        "sha256": "071f23118338930c3728140b64012e6c3fe270802278b8c295d2685f225888b8",
+        "version": 1
+      },
+      {
+        "file": "Girl-Power.md",
+        "id": "tag.girl_power",
+        "bytes": 5147,
+        "sha256": "7103fd9d034fa169faaee37336700479f248bfd3ffb461b6e55319c8af075b6d",
+        "version": 1
+      },
+      {
+        "file": "Hate-to-Love.md",
+        "id": "tag.hate_to_love",
+        "bytes": 5188,
+        "sha256": "df4f7d604d925310927f170316d460d3357706847aa2c51348e377885cf1d329",
+        "version": 1
+      },
+      {
+        "file": "Heir-Heirness.md",
+        "id": "tag.heir_heirness",
+        "bytes": 6034,
+        "sha256": "ce36e2a63889b7682d05ce641bff0dda9423a336577d1f25f1a51afcaeed5cc9",
+        "version": 1
+      },
+      {
+        "file": "Hidden-Identity.md",
+        "id": "tag.hidden_identity",
+        "bytes": 5220,
+        "sha256": "b877e8d1cf2bec5e84edf232344feb2ac883db197e9e26cdd272b61660f0639f",
+        "version": 2
+      },
+      {
+        "file": "Independent.md",
+        "id": "tag.independent",
+        "bytes": 5192,
+        "sha256": "67e42126eafe21b5d00eb393647c5630bd594bf479ce31e103e890851f36ae30",
+        "version": 2
+      },
+      {
+        "file": "Love-Triangle.md",
+        "id": "tag.love_triangle",
+        "bytes": 5205,
+        "sha256": "9653376d62fece8659783ea87667c18cd9a324811b8c0f2d5b8c606fe69928c5",
+        "version": 1
+      },
+      {
+        "file": "Misunderstanding.md",
+        "id": "tag.misunderstanding",
+        "bytes": 6538,
+        "sha256": "1063afc84eb1736c46708b9b7bf74657c7d4c867b1c4b06dadbb21396599f735",
+        "version": 1
+      },
+      {
+        "file": "Mystery.md",
+        "id": "tag.mystery",
+        "bytes": 4512,
+        "sha256": "17bbd6a51164e402d4d59837c4c2ac30bc23f9b868f1c6eef2e6803b0a2839a5",
+        "version": 1
+      },
+      {
+        "file": "Office-Relationship.md",
+        "id": "tag.office_relationship",
+        "bytes": 6069,
+        "sha256": "be6613f93df55b40b94270ce08b612d575d3ad697e1533f5cbd84482dc1b3243",
+        "version": 1
+      },
+      {
+        "file": "Pregnant.md",
+        "id": "tag.pregnant",
+        "bytes": 5197,
+        "sha256": "80eb91dd5f921b6f93b51ee4fb79d773fd04991fb2fcef54ff33c5caee6ce261",
+        "version": 1
+      },
+      {
+        "file": "Rebel.md",
+        "id": "tag.rebel",
+        "bytes": 4704,
+        "sha256": "8fb196e2582fc4b15e34c819da081a1ce13c580b250a0d46c1f07cf50a5811e2",
+        "version": 1
+      },
+      {
+        "file": "Regret.md",
+        "id": "tag.regret",
+        "bytes": 6528,
+        "sha256": "7d590ce0af1014f3b5fcbd99ac3ac7ed8fc144445937c750199184133fcc830c",
+        "version": 2
+      },
+      {
+        "file": "Revenge.md",
+        "id": "tag.revenge",
+        "bytes": 6494,
+        "sha256": "123207992c4f3f469d61c6980e80f28c0c3f7e202b2440f4eee50ad80a42716a",
+        "version": 1
+      },
+      {
+        "file": "Runaway-with-a-Baby.md",
+        "id": "tag.runaway_with_a_baby",
+        "bytes": 5247,
+        "sha256": "97c1d2fd6e5a5b03bdf529e9f6ac3f18679e1c106afabd56344cf1c5b7e1589f",
+        "version": 1
+      },
+      {
+        "file": "Ruthless.md",
+        "id": "tag.ruthless",
+        "bytes": 5980,
+        "sha256": "870ba54aaeee8ea80ee77c7897769cdbac6e8fc935446627b2699efe96dd8c93",
+        "version": 1
+      },
+      {
+        "file": "Secretary.md",
+        "id": "tag.secretary",
+        "bytes": 4791,
+        "sha256": "bdaff9d994efd90853655a9b7adbed7fa461a8626a176861d28bb4a31343518b",
+        "version": 1
+      },
+      {
+        "file": "Sweet-Love.md",
+        "id": "tag.sweet_love",
+        "bytes": 4749,
+        "sha256": "675e5fe9b4aa85f8b318e820d754c156fc5208acfae0a056bfaaa5f0fe44b69d",
+        "version": 2
+      },
+      {
+        "file": "Tragedy.md",
+        "id": "tag.tragedy",
+        "bytes": 4431,
+        "sha256": "74e1f654f7d6d9fae8a9f2d803529b4bfed7bc940156dc02a342fc6b97965313",
+        "version": 1
+      }
+    ],
+    "stages": {
+      "brainstorm": {
+        "bytes": 35569,
+        "tag_documents": 4
+      },
+      "story_design": {
+        "bytes": 36308,
+        "tag_documents": 4
+      },
+      "chapter_plan": {
+        "bytes": 35595,
+        "tag_documents": 4
+      },
+      "draft": {
+        "bytes": 34424,
+        "tag_documents": 4
+      },
+      "review": {
+        "bytes": 34897,
+        "tag_documents": 4
+      },
+      "publication": {
+        "bytes": 33347,
+        "tag_documents": 4
+      },
+      "cover": {
+        "bytes": 33340,
+        "tag_documents": 4
+      }
+    },
+    "model_calls": 0
+  }
+}

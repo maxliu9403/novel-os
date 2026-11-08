@@ -7,7 +7,6 @@ import ChoiceGroup from "../components/ChoiceGroup";
 import CompilePanel from "../components/CompilePanel";
 import DeliveryPackageButton from "../components/DeliveryPackageButton";
 import GenerationCostPanel from "../components/GenerationCostPanel";
-import ReaderReviewPanel from "../components/ReaderReviewPanel";
 import {
   ProjectChaptersTab,
   ProjectCharactersTab,
@@ -242,7 +241,6 @@ function ProjectOverview({ project, chapters, words, drafted, isRunning, running
       <div className="pw-progress-line" aria-label={`章节进度 ${percent}%`}><span style={{ width: `${percent}%` }} /></div>
       {project.task_id && <TaskStatusPanel key={`${project.id}:${project.task_id}`} projectId={project.id} runId={project.task_id} onTaskChanged={onTaskChanged} />}
       <div className="pw-overview-grid"><article className="pw-quiet-card"><span className="pw-eyebrow">故事简介</span><h3>{project.title}</h3><p>{project.premise || "尚未填写作品简介。故事骨架中的内容会在“故事骨架”标签按来源展示。"}</p><button type="button" className="pw-text-button" onClick={() => onGo("story", true)}>查看故事骨架 →</button></article><article className="pw-quiet-card"><span className="pw-eyebrow">继续创作</span><h3>规划与设置</h3><p>规划操作会启动创作任务；章节阅读和编辑使用各自独立入口。</p><div className="pw-card-actions"><button type="button" className="pw-soft-button" disabled={isRunning} onClick={() => onRun("plan_outline", { chapters: total || 12, words: project.target_word_count || 24000 })}>{runningStage === "plan_outline" ? "正在规划…" : "规划全书大纲"}</button><button type="button" className="pw-soft-button" disabled={isRunning} onClick={() => onRun("plan_chapter", { number: nextChapter })}>{runningStage === "plan_chapter" ? "正在规划…" : `规划第 ${nextChapter} 章`}</button></div></article></div>
-      <ReaderReviewPanel key={project.id} projectId={project.id} />
       <div className="pw-overview-settings">
         <WritingTargets projectId={project.id} project={project} wordCount={words} onUpdated={onProject} />
         <section className="pw-rating-setting" aria-label="内容分级"><div><strong>内容分级</strong><p>用于封面、发布和阅读提示。</p></div><ChoiceGroup label="内容分级" variant="segmented" size="sm" value={project.content_rating === "mature" ? "mature" : "general"} onChange={async (next) => {

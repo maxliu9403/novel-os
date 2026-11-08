@@ -1,0 +1,15 @@
+
+> web@0.3.0 test
+> vitest run --run
+
+(node:77239) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v4.1.8 /Users/max/OpenSource/Novel-OS/web
+
+
+ Test Files  55 passed (55)
+      Tests  602 passed (602)
+   Start at  17:22:16
+   Duration  10.85s (transform 3.73s, setup 2.25s, import 11.41s, tests 47.47s, environment 24.51s)
+

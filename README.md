@@ -760,6 +760,10 @@ Cover Director 单独配置服务。模型名称必须是该设备和供应商�
 
 ### 迁移到新环境（不迁移小说产物）
 
+需要携带当前 Genre、Tags、自定义提示词及版本记录时，先阅读
+[通用源码部署与换机说明](docs/deployment/machine-transfer.md)。该说明使用现有
+`deploy.sh` 从源码构建；下文仅适用于主动放弃历史数据的全新安装。
+
 以下步骤用于在另一台电脑上重新部署 Novel OS 和 Codex Skill，只迁移源码，
 不迁移已有小说、运行记录、数据库或导出文件。命令以 macOS、Linux 或 WSL
 的 shell 环境为例。
@@ -884,6 +888,7 @@ Skill 的发布源是仓库目录：
 skills/novel-brainstorm-workshop/
 skills/high-retention-web-novel/
 skills/novel-cover-studio/
+skills/novel-corpus-study/
 ```
 
 小说创作由两个 Skill 衔接：`novel-brainstorm-workshop` 负责素材用途分流、
@@ -896,7 +901,7 @@ skills/novel-cover-studio/
 工作流程、必要内容和已确认设定的一致性。
 
 后端镜像包含完整的 `/app/skills/`。首次部署和升级项目时，`./deploy.sh up`
-与 `./deploy.sh restart` 会自动把上面三个 Skill 同步到宿主机的
+与 `./deploy.sh restart` 会自动把上面四个 Skill 同步到宿主机的
 `${CODEX_HOME:-$HOME/.codex}/skills/`，无需额外安装命令或更新参数：
 
 ```bash

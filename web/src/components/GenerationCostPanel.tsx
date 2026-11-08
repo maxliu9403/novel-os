@@ -5,7 +5,7 @@ import "./generation-costs.css";
 
 const stages: Record<CostStage, {label: string; detail: string; number: string}> = {
   brainstorming: {label: "头脑风暴", detail: "构思、讨论与骨架", number: "01"},
-  manuscript: {label: "正文创作", detail: "规划、写作、审校与阅读评议", number: "02"},
+  manuscript: {label: "正文创作", detail: "规划、写作与审校", number: "02"},
   cover: {label: "封面设计", detail: "方向、出图、精修与建议", number: "03"},
 };
 const coverActivities: Record<CoverCostActivity, string> = {

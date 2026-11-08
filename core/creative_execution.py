@@ -78,7 +78,7 @@ def text_hash(value: str) -> str:
 
 
 def make_handoff(*, source: str, origin: dict, type_snapshot: dict | None = None,
-                 adopted_proposals: list | None = None, legacy_guidance: dict | None = None) -> dict:
+                 adopted_proposals: list | None = None, legacy_guidance: dict | None = None, reader_investment: dict | None = None, story_engine: str | None = None, source_context: dict | None = None) -> dict:
     from core.creative_types import compile_snapshot
 
     if not source.strip():
@@ -89,6 +89,15 @@ def make_handoff(*, source: str, origin: dict, type_snapshot: dict | None = None
                "legacy_guidance": copy.deepcopy(legacy_guidance or {}),
                "stage_contexts": {stage: compile_snapshot(type_snapshot, stage)
                                   for stage in STAGES} if type_snapshot is not None else {}}
+    if reader_investment is not None:
+        from core.reader_investment import validate
+        payload['schema'] = 'creative-handoff.v2'
+        payload['reader_investment'] = validate(reader_investment)
+    if story_engine is not None:
+        from core.story_design import VERSION as engine_version
+        if story_engine != engine_version or reader_investment is None:
+            raise CreativeExecutionError("Unsupported story execution policy")
+        payload.update(schema="creative-handoff.v3", story_engine=story_engine, source_context=copy.deepcopy(source_context))
     payload["handoff_sha256"] = digest(payload)
     return validate_handoff(payload)
 
@@ -96,7 +105,21 @@ def make_handoff(*, source: str, origin: dict, type_snapshot: dict | None = None
 def validate_handoff(value: dict) -> dict:
     expected = {"schema", "source_sha256", "origin", "type_snapshot", "adopted_proposals",
                 "legacy_guidance", "stage_contexts", "handoff_sha256"}
-    if not isinstance(value, dict) or set(value) != expected or value.get("schema") != HANDOFF_VERSION:
+    if isinstance(value, dict) and value.get('schema') in {'creative-handoff.v2', 'creative-handoff.v3'}:
+        from core.reader_investment import validate
+        expected.add('reader_investment')
+        if validate(value.get('reader_investment')) is None:
+            raise CreativeExecutionError('Missing reader investment snapshot')
+    if isinstance(value, dict) and value.get("schema") == "creative-handoff.v3":
+        from core.story_design import VERSION as engine_version
+        expected.update({"story_engine", "source_context"})
+        if value.get("story_engine") != engine_version:
+            raise CreativeExecutionError("Unsupported story engine")
+        source = value.get("source_context")
+        if source is not None:
+            from core.creation_mode import source_policy
+            source_policy(source)
+    if not isinstance(value, dict) or set(value) != expected or value.get("schema") not in {HANDOFF_VERSION, 'creative-handoff.v2', 'creative-handoff.v3'}:
         raise CreativeExecutionError("Unsupported creative handoff; no model was called")
     if (not re.fullmatch(r"[0-9a-f]{64}", str(value["source_sha256"]))
             or not isinstance(value["origin"], dict) or not isinstance(value["adopted_proposals"], list)
@@ -165,6 +188,29 @@ class CreativeExecution:
                 raise CreativeExecutionError("Frozen creative execution lock is missing; cannot adopt newer references on resume")
             lock = {"schema": VERSION, "run_id": run_id, "project_instance_id": identity,
                     "handoff": handoff, "rules": RULES, "system_prompts": _system_prompts()}
+            method = (handoff.get('reader_investment') or {}).get('schema')
+            if method in {'reader-investment.v2', 'reader-investment.v3'}:
+                lock['context_projection'] = 'creative-context.v2'
+            if method == 'reader-investment.v3':
+                lock['context_projection'] = 'creative-context.v3'
+            from core.reader_investment import instructions
+            planning_base = lock['system_prompts']['outline_planner']
+            for agent in lock['system_prompts']:
+                addition = instructions(handoff.get('reader_investment'), agent)
+                if addition:
+                    lock['system_prompts'][agent] += '\n\n' + addition
+            if lock.get('context_projection') in {'creative-context.v2', 'creative-context.v3'}:
+                lock['planning_system_prompts'] = {
+                    stage: planning_base + '\n\n' + instructions(handoff['reader_investment'], stage)
+                    for stage in ('story_design', 'chapter_plan', 'review')
+                }
+            if handoff.get("story_engine") == "story-first.v1":
+                lock["system_prompts"]["continuity_guardian"] = (
+                    "You are the joint developmental, continuity and prose editor. "
+                    "Follow the supplied joint review schema and existing continuity state protocol. "
+                    "Assess the exact manuscript; do not rewrite it or substitute fixed emotion quotas.\n" + RULES
+                    + "\n# OUTPUT CONTRACT (MANDATORY DO NOT OMIT)\n"
+                    + lock["system_prompts"]["continuity_guardian"].split("# OUTPUT CONTRACT (MANDATORY DO NOT OMIT)", 1)[-1])
             _write(directory / "lock.json", lock)
         else:
             lock = json.loads(raw)
@@ -187,17 +233,36 @@ class CreativeExecution:
         if hashlib.sha256(raw).hexdigest() != self._lock["handoff"]["source_sha256"]:
             raise CreativeExecutionError("Adopted skeleton changed after creative handoff; start a new design run")
 
+    @property
+    def story_first(self) -> bool:
+        return self._lock["handoff"].get("story_engine") == "story-first.v1"
+
     def design_context(self, stage: str) -> dict:
         self.verify_source()
         if stage not in STAGES:
             raise CreativeExecutionError("Unsupported creative execution stage")
         handoff = self._lock["handoff"]
-        return copy.deepcopy({"schema": VERSION, "lock_sha256": self.lock_sha256,
+        context = copy.deepcopy({"schema": VERSION, "lock_sha256": self.lock_sha256,
             "stage": stage,
             "source_sha256": handoff["source_sha256"], "origin": handoff["origin"],
             "adopted_proposals": handoff["adopted_proposals"],
             "genre_context": handoff["stage_contexts"].get(stage),
             "legacy_guidance": handoff["legacy_guidance"], "rules": self._lock["rules"]})
+        if self._lock.get('context_projection') in {'creative-context.v2', 'creative-context.v3'}:
+            # The exact same rules already exist in every frozen system prompt.
+            # No story/reference fields are omitted and old locks keep their shape.
+            context.pop('rules')
+        if self.story_first and handoff.get("source_context"):
+            from core.creation_mode import source_policy
+            context["source_context"] = copy.deepcopy(handoff["source_context"])
+            context["source_policy"] = source_policy(handoff["source_context"])
+        return context
+
+    def outline_for_execution(self, outline: str) -> str:
+        if self._lock.get('context_projection') == 'creative-context.v3':
+            from core.scene_execution import render_outline
+            return render_outline(outline)
+        return outline
 
     def chapter_context(self, chapter: int, agent: str, state: Any) -> dict:
         stage = "chapter_plan" if agent == "architect" else "draft" if agent == "scribe" else "review"
@@ -252,11 +317,26 @@ class CreativeExecution:
         return context
 
     def prepare(self, agent: str, prompt: str, chapter: int | None, state: Any,
-                *, stage: str = "story_design") -> tuple[str, dict]:
+                *, stage: str = "story_design", format_correction: bool = False) -> tuple[str, dict]:
         context = (self.chapter_context(chapter, agent, state) if chapter is not None
                    else self.design_context(stage))
+        from core.planning_context import compact_guidance
+        if format_correction:
+            if agent != 'outline_planner' or chapter is not None:
+                raise CreativeExecutionError('Format-only context is restricted to staged outline corrections')
+            guidance = context.pop('genre_context', None)
+            context['format_correction'] = {
+                'schema': 'planning-format-correction.v1',
+                'guidance_sha256': digest(guidance),
+                'rule': 'Correct only the reported contract defect in the supplied completed response. '
+                        'The original source and adopted choices remain supplied. Genre writing guidance '
+                        'was applied in the original request and is not repeated for this format-only step. '
+                        'Do not redesign the story or change valid creative choices.',
+            }
+        else:
+            context['genre_context'] = compact_guidance(context.get('genre_context'))
         user = prompt + "\n\n[CREATIVE_EXECUTION_CONTEXT]\n" + encoded(context).decode() + "\n[/CREATIVE_EXECUTION_CONTEXT]\n"
-        system = self._lock["system_prompts"][agent]
+        system = self._system_for(agent, context['stage'])
         actual = len(system.encode()) + len(user.encode())
         if actual > MAX_REQUEST_BYTES:
             raise CreativeExecutionError(f"Creative request exceeds engineering byte budget: {actual} > {MAX_REQUEST_BYTES}; nothing was truncated")
@@ -266,17 +346,13 @@ class CreativeExecution:
             "system_sha256": text_hash(system), "user_sha256": text_hash(user), "request_bytes": actual}
 
     def complete(self, client: Any, agent: str, user: str, receipt: dict) -> str:
-        self.verify_source()
-        if (receipt.get("lock_sha256") != self.lock_sha256 or receipt.get("agent") != agent
-                or receipt.get("user_sha256") != text_hash(user)
-                or receipt.get("system_sha256") != text_hash(self._lock["system_prompts"][agent])):
-            raise CreativeExecutionError("Creative request differs from its prepared receipt")
-        self._verify_dependencies(receipt)
+        self._validate_request(agent, user, receipt)
+        system = self._system_for(agent, receipt['context']['stage'])
         path = self.directory / "requests" / f"{uuid.uuid4().hex}.json"
         receipt = {**receipt, "status": "adapter_started"}
         _write(path, receipt)
         try:
-            result = client.complete(system=self._lock["system_prompts"][agent], user=user)
+            result = client.complete(system=system, user=user)
         except Exception as exc:
             _write(path, {**receipt, "status": "failed", "error_type": type(exc).__name__})
             raise
@@ -287,6 +363,52 @@ class CreativeExecution:
         self.verify_source()
         self._verify_dependencies(receipt)
         return result
+
+    def recover_response(self, agent: str, user: str, receipt: dict, response: str) -> str | None:
+        """Recover an exact received reply after a local processing failure.
+
+        The caller explicitly opts in for a failed stage with unchanged inputs
+        and model. A loose raw file is never enough to establish provenance.
+        """
+        self._validate_request(agent, user, receipt)
+        response_sha = text_hash(response)
+        for path in sorted((self.directory / "requests").glob("*.json")):
+            raw = read_project_bytes(self.project, tuple(path.relative_to(self.project).parts),
+                                     max_bytes=4 * MAX_REQUEST_BYTES)
+            try:
+                saved = json.loads(raw)
+            except (ValueError, UnicodeError):
+                continue
+            if (not isinstance(saved, dict) or saved.get("status") != "response_received"
+                    or saved.get("response_sha256") != response_sha
+                    or any(saved.get(key) != value for key, value in receipt.items())):
+                continue
+            response_path = path.with_suffix(".response.txt")
+            stored = read_project_bytes(self.project, tuple(response_path.relative_to(self.project).parts))
+            if hashlib.sha256(stored).hexdigest() != response_sha:
+                raise CreativeExecutionError("Saved creative response failed integrity verification")
+            self._validate_request(agent, user, receipt)
+            _write(self.directory / "requests" / f"{uuid.uuid4().hex}.json", {
+                **receipt, "status": "response_reused", "original_request_id": path.stem,
+                "response_sha256": response_sha,
+            })
+            return stored.decode("utf-8")
+        return None
+
+    def _validate_request(self, agent: str, user: str, receipt: dict) -> None:
+        self.verify_source()
+        system = self._system_for(agent, receipt['context']['stage'])
+        if (receipt.get("lock_sha256") != self.lock_sha256 or receipt.get("agent") != agent
+                or receipt.get("user_sha256") != text_hash(user)
+                or receipt.get("system_sha256") != text_hash(system)):
+            raise CreativeExecutionError("Creative request differs from its prepared receipt")
+        self._verify_dependencies(receipt)
+
+    def _system_for(self, agent: str, stage: str) -> str:
+        planning = self._lock.get('planning_system_prompts')
+        if agent == 'outline_planner' and planning is not None:
+            return planning[stage]
+        return self._lock['system_prompts'][agent]
 
     def _verify_dependencies(self, receipt: dict) -> None:
         chapter = receipt["chapter"]

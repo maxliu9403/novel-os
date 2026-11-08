@@ -19,6 +19,32 @@ function activityAge(value: string | null | undefined, now: number, missing: str
 
 const eventCount = (count: number | undefined) => Number.isFinite(count) ? Math.max(0, Math.floor(count!)) : 0;
 
+export function WorkshopRequestDiagnostic({ progress }: { progress: WorkshopRuntimeProgress | null }) {
+  if (!progress) return null;
+  const codes: Record<string, string> = {
+    authentication: '认证失败', rate_limit: '请求受到限流', context_length: '上下文超过模型限制',
+    invalid_request: '请求参数被拒绝', model_unavailable: '模型不可用', upstream_timeout: '等待上游超时',
+    transport_error: '连接异常', server_error: '上游服务异常', config_error: '配置读取失败',
+    sandbox_error: '运行环境异常', unclassified_error: '未分类诊断',
+  };
+  const components: Record<string, string> = { model_catalog: '模型列表查询', model_transport: '模型连接',
+    telemetry: '诊断上报', configuration: '配置', sandbox: '运行环境', cli: 'Codex' };
+  const code = progress.last_diagnostic_code && codes[progress.last_diagnostic_code];
+  const failure = progress.failure_summary;
+  const repeated = failure?.kind === 'no_content_timeout' && failure.consecutive_count > 1;
+  if (!failure && !code && !progress.last_upstream_failure_kind) return null;
+  return <div aria-label="模型请求诊断" className="mt-2 space-y-1 text-[13px] leading-relaxed text-ink-muted">
+    {failure?.kind === 'no_content_timeout' && <p className="font-medium text-ink-text">{repeated
+      ? `已连续 ${failure.consecutive_count} 次等待超时，均未观测到公开摘要或正文。`
+      : '本轮等待超时，未观测到公开摘要或正文。'}</p>}
+    {failure?.kind === 'timeout' && (progress.text_event_count ?? 0) > 0 && <p>本次请求曾收到文本增量，但未等到完整回复完成。</p>}
+    {code && <p>{components[progress.last_diagnostic_component ?? ''] ?? '上游事件'}：{code}。{progress.last_diagnostic_component === 'model_catalog' && '此记录不代表生成请求失败。'}</p>}
+    {progress.last_upstream_failure_kind && <p>观测到上游异常事件；不能据连接消息判断模型仍在生成。</p>}
+    {repeated && <p>基础设定与对话已保留。建议先检查模型连接和运行详情，再手动重试；系统不会自动追加调用。</p>}
+    {failure && <p>任务已结束，刷新页面不会重新发起请求。</p>}
+  </div>;
+}
+
 function AssemblyCheckpoints({ progress, running, complete, resumable, renderContent }: {
   progress: WorkshopAssemblyProgress; running: boolean; complete: boolean; resumable: boolean;
   renderContent: (markdown: string) => ReactNode;
@@ -115,6 +141,7 @@ export function WorkshopRuntimeStatus({ progress, label, now, startedAt }: {
   const endpointLabels = { models: "模型列表查询", responses: "响应连接", usage: "用量查询", instructions: "指令查询", other: "其他请求" };
   return <div aria-label="本轮运行状态">
     <p role="status" className="text-[14px] font-medium text-violet">{label}</p>
+    {!!progress?.completion_grace_seconds && <p className="mt-2 text-[13px] font-medium text-violet">已进入回复收尾窗口：截止前仍在收到文本，本次额外等待最多 {progress.completion_grace_seconds} 秒。不会重新发起请求。</p>}
     <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-[13px]">
       {nativeActivity ? <>
         <div className="flex flex-wrap gap-x-2"><dt>最近观测到推理摘要</dt><dd>{activityAge(progress.last_reasoning_observed_at, now, "尚未观测到")}</dd></div>
@@ -127,12 +154,15 @@ export function WorkshopRuntimeStatus({ progress, label, now, startedAt }: {
       : progress.last_transport_observed_at ? "连接有消息，尚未观测到新的推理摘要或正文。" : "尚未观测到模型内容进展，正在等待回执。"}摘要可能不返回，未观测到不代表模型已停止。</p>}
     {progress?.repairing_response && <p className="mt-1.5 text-[13px]">{progress.last_completed_attempt ? `第 ${progress.last_completed_attempt} 次请求已返回完整内容，` : "已收到的内容仍保留，"}正在修复格式；校验通过后才会更新骨架。</p>}
     {silentMinutes !== null && <p className="mt-1.5 text-[13px]">已有 {silentMinutes} 分钟未收到新内容，尚不能确认模型是否正在生成。你可以继续等待或暂停本轮。</p>}
+    <WorkshopRequestDiagnostic progress={progress} />
     <p className="mt-1.5">关闭窗口后后台请求会继续，返回此讨论可恢复查看。</p>
     <details className="mt-2">
       <summary className="w-fit cursor-pointer text-[12px] text-violet">运行详情</summary>
       <div className="mt-2 max-h-36 space-y-1 overflow-y-auto break-words rounded-lg bg-white/60 p-3 text-[12px]">
         <p>{taskMinutes !== null ? "本轮总时限" : "本轮最长等待"}：{timeoutMinutes !== null ? `${timeoutMinutes} 分钟` : "暂不可用"}{deadline !== null && progress?.deadline_at && <> · 预计截止时间 <time dateTime={progress.deadline_at}>{new Date(deadline).toLocaleString()}</time></>}</p>
-        {requestMinutes !== null && <p>单次模型请求上限：{requestMinutes} 分钟；同时受本轮总时限约束。内容进展不会无限延长截止时间。</p>}
+        {requestMinutes !== null && <p>单次模型请求上限：{requestMinutes} 分钟；同时受本轮总时限约束。{progress?.completion_grace_limit
+          ? `截止前仍有文本增量时，可获得一次最多 ${progress.completion_grace_limit} 秒的收尾窗口；无内容或仅有连接消息不会延长。`
+          : '内容进展不会无限延长截止时间。'}</p>}
         <p>请求尝试：{progress?.attempt ? `第 ${progress.attempt} 次` : progress ? "尚未开始" : "暂不可用"}{progress?.request_id && <> · 请求 ID <code>{progress.request_id}</code></>}</p>
         <p>本次请求内容：{chars > 0 ? `已收到 ${chars} 字符 · ${activityAge(progress?.last_content_at, now, "时间未记录")}` : "尚未收到"}</p>
         {nativeActivity && <>

@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { workshopApi, type WorkshopSessionSummary } from "../api/workshop";
 import { fieldClass } from "./Modal";
+import { useConfirm } from "./confirmContext";
+import { useToast } from "./toastContext";
+import { forgetWorkshopSession } from "../lib/workshopSessionCache";
 
 const STATUS = { draft: "待讨论", running: "推导中", paused: "已暂停", ready: "骨架待确认", error: "本轮失败", launched: "已启动创作" };
 const PAGE_SIZE = 20;
@@ -16,6 +19,11 @@ export default function WorkshopSessions({ currentId, busy, onSelect, onNew, stu
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [syncedAt, setSyncedAt] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deletionPending = useRef(false);
+  const confirm = useConfirm();
+  const toast = useToast();
 
   useEffect(() => {
     let active = true;
@@ -60,6 +68,32 @@ export default function WorkshopSessions({ currentId, busy, onSelect, onNew, stu
     setRequest((previous) => ({ ...previous, query: nextQuery.trim(), offset, refresh: previous.refresh + 1 }));
   }
 
+  async function deleteSession(item: WorkshopSessionSummary) {
+    if (deletionPending.current || busy || item.status === "running") return;
+    deletionPending.current = true;
+    setDeleting(item.id);
+    setDeleteError(null);
+    try {
+      if (!(await confirm({
+        title: "删除这条头脑风暴？",
+        message: `删除“${item.title}”后，将无法再查看或继续这条讨论。已生成的作品、参考资料及费用记录会保留。`,
+        confirmLabel: "删除记录",
+        danger: true,
+      }))) return;
+      await workshopApi.delete(item.id, item.revision);
+      forgetWorkshopSession(item.id);
+      setItems((previous) => previous.filter((row) => row.id !== item.id));
+      toast("头脑风暴记录已删除", "success");
+      load(request.query);
+    } catch (failure) {
+      setDeleteError(failure instanceof Error ? failure.message : String(failure));
+      load(request.query);
+    } finally {
+      deletionPending.current = false;
+      setDeleting(null);
+    }
+  }
+
   return <section aria-label="已有头脑风暴任务" className={studio ? "workshop-archive" : undefined}>
     <div className="flex flex-wrap items-center gap-2">
       <input aria-label="搜索头脑风暴书名或任务 ID" className={`${fieldClass} min-w-0 flex-1 !rounded-xl !text-[13px]`} type="search" value={query}
@@ -77,6 +111,7 @@ export default function WorkshopSessions({ currentId, busy, onSelect, onNew, stu
       {onNew && <button type="button" className="btn-secondary !py-1.5 !text-[12px]" onClick={onNew} disabled={busy}>新建另一部作品的讨论</button>}
     </div>
     {error && <p role="alert" className="mb-3 rounded-xl bg-violet-soft p-3 text-[12px] leading-relaxed">列表读取失败：{error}。{studio && "下方保留上次成功读取的结果，当前筛选和状态尚待确认。"}可以点击刷新重试。</p>}
+    {deleteError && <p role="alert" className="mb-3 rounded-xl bg-violet-soft p-3 text-[13px] leading-relaxed">删除失败：{deleteError}</p>}
     {!loading && !error && items.length === 0 && <p className="rounded-xl border border-dashed border-paper-line p-5 text-center text-[13px] text-ink-muted">{request.query ? "没有找到匹配的讨论，请尝试书名或任务 ID。" : "还没有保存的头脑风暴。"}</p>}
     <ul className={studio ? "workshop-archive-list" : "space-y-2"}>{items.map((item, index) => <li key={item.id} data-status={item.status}>
       <button type="button" aria-label={`恢复讨论 ${item.title}（${item.id}）`} disabled={busy || loading} onClick={() => onSelect(item.id)}
@@ -98,7 +133,14 @@ export default function WorkshopSessions({ currentId, busy, onSelect, onNew, stu
           <span className="workshop-archive-action">{item.status === "running" ? "查看进度" : item.status === "launched" ? "查看讨论" : "继续讨论"}<span aria-hidden="true"> ↗</span></span>
         </span>}
       </button>
-      {studio && item.project_id && <Link className="workshop-archive-project" to={`/projects/${encodeURIComponent(item.project_id)}`}>进入已关联作品 ↗</Link>}
+      {studio && <div className="workshop-archive-footer">
+        {item.project_id && <Link className="workshop-archive-project" to={`/projects/${encodeURIComponent(item.project_id)}`}>进入已关联作品 ↗</Link>}
+        <button type="button" className="btn-ghost workshop-archive-delete"
+          aria-label={`删除讨论 ${item.title}（${item.id}）`}
+          disabled={busy || loading || !!deleting || item.status === "running"}
+          title={item.status === "running" ? "请先暂停推导，再删除记录" : "删除头脑风暴记录"}
+          onClick={() => void deleteSession(item)}>{deleting === item.id ? "处理中…" : "删除"}</button>
+      </div>}
     </li>)}</ul>
     {!error && items.length < total && <button type="button" className="btn-secondary mt-3 w-full" disabled={loading || busy} onClick={() => load(request.query, items.length)}>{loading ? "正在加载…" : "加载更多讨论"}</button>}
   </section>;

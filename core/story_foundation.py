@@ -61,6 +61,9 @@ def apply_story_foundation(
         state.update_story_bible("premise", str(foundation["premise"]))
     state.update_story_bible("themes", list(foundation.get("themes") or []))
     state.update_story_bible("setting", dict(foundation.get("setting") or {}))
+    for key in ("reader_profile", "story_lead_plan"):
+        if isinstance(foundation.get(key), str) and foundation[key].strip():
+            state.update_story_bible(key, foundation[key])
     commercial_payload = foundation.get("commercial_story_contract")
     commercial_id = foundation.get("commercial_story_contract_id")
     if commercial_payload is not None or commercial_id is not None:
@@ -127,7 +130,10 @@ def apply_story_foundation(
             weakness=str(raw.get("weakness") or ""),
             strength=str(raw.get("strength") or ""),
             secret=str(raw.get("secret") or ""),
-            notes=str(raw.get("arc") or raw.get("notes") or ""),
+            notes="\n\n".join(filter(None, [
+                str(raw.get("arc") or raw.get("notes") or ""),
+                str(raw.get("background") or ""),
+            ])),
         )
     state.characters = hydrated_characters
 

@@ -89,6 +89,7 @@ function imageCatalog(models = ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]
 }
 
 beforeEach(() => {
+  window.history.replaceState(null, "", "/settings");
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
@@ -144,10 +145,10 @@ describe("model provider settings", () => {
   it("shows provider connections and capability health", async () => {
     renderSettings();
 
-    expect(await screen.findByRole("heading", { name: "模型与服务商" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "设置" })).toBeInTheDocument();
     expect(screen.getByText("Primary models")).toBeInTheDocument();
-    expect(screen.getByText("文本模型已就绪")).toBeInTheDocument();
-    expect(screen.getByText("图像模型已就绪")).toBeInTheDocument();
+    expect(screen.getByText("文本 已配置")).toBeInTheDocument();
+    expect(screen.getByText("出图 已配置")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "文本路由" })).toBeInTheDocument();
   });
 
@@ -368,6 +369,8 @@ describe("model provider settings", () => {
     renderSettings();
 
     await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+    expect(screen.queryByLabelText("执笔者模型")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /高级任务覆盖/ }));
     expect(screen.getByLabelText("执笔者模型")).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "保存路由" }));
 
@@ -383,6 +386,7 @@ describe("model provider settings", () => {
     renderSettings();
 
     await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+    await user.click(screen.getByRole("button", { name: /高级任务覆盖/ }));
     expect(screen.getByLabelText("封面指导模型")).toBeDisabled();
     await user.selectOptions(screen.getByLabelText("封面指导推理强度"), "high");
     await user.click(screen.getByRole("button", { name: "保存路由" }));
@@ -560,6 +564,7 @@ describe("model provider settings", () => {
     renderSettings();
     await user.click(await screen.findByRole("tab", { name: "文本路由" }));
     expect(screen.getByLabelText("头脑风暴请求超时（分钟）")).toHaveValue(0.5);
+    await user.click(screen.getByRole("button", { name: /高级任务覆盖/ }));
     await user.selectOptions(screen.getByLabelText("封面指导推理强度"), "high");
     await user.click(screen.getByRole("button", { name: "保存路由" }));
     await waitFor(() => {
@@ -584,6 +589,62 @@ describe("model provider settings", () => {
       expect.stringContaining("/api/studio/model-routes/default/test"),
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("uses gateway model IDs for thinking and disables ignored output controls", async () => {
+    const config = configuration();
+    config.connections[0].provider = "gemini_openai";
+    config.connections[0].discovered_models = ["gemini-4-argon", "gemini-4-argon-thinking-medium"];
+    config.text_routes = config.text_routes.map(route => ({ ...route,
+      model: route.id === "default" ? "gemini-4-argon" : "",
+      effective_model: "gemini-4-argon", reasoning_effort: "", effective_reasoning_effort: "",
+    }));
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/studio/models")) return response(config);
+      if (String(input).includes("/model-catalog?")) return response(catalog(config.connections[0].discovered_models));
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+    expect(screen.getByLabelText("默认写作模型推理强度")).toBeDisabled();
+    expect(screen.getByLabelText("默认写作模型输出 Token 上限")).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText("默认写作模型模型"), "model:gemini-4-argon-thinking-medium");
+    await user.click(screen.getByRole("button", { name: "保存路由" }));
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(item => String(item[0]).endsWith("/api/studio/model-routes") && item[1]?.method === "PUT");
+      const routes = JSON.parse(String(call?.[1]?.body)).routes;
+      expect(routes.find((route: {id: string}) => route.id === "default")).toMatchObject({model: "gemini-4-argon-thinking-medium", reasoning_effort: ""});
+    });
+  });
+
+  it("only starts the bounded synthetic probe on confirmation and reports its limited scope", async () => {
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/jobs/text-test-job")) return response({
+        job_id: "text-test-job", kind: "studio_text_test", status: "done", error: null,
+        meta: { reply: "probe response", provider: "gemini_openai", model: "gemini-4-argon", duration_ms: 3000,
+          request_text_bytes: 100000, first_content_ms: 2500,
+          transport: { usage_source: "gateway_estimate", reported_model: "gemini-4-argon", actual_model_verified: false },
+          context_check: {passed: false, matched: 4, total: 5, scope: "仅验证本次抽样，不代表小说质量"},
+        },
+      });
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("tab", { name: "文本路由" }));
+    await user.selectOptions(screen.getByLabelText("长上下文测试材料"), "100000");
+    await user.click(screen.getByRole("button", { name: "测试长上下文" }));
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    expect(fetchMock.mock.calls.some(call => call[1]?.method === "POST")).toBe(false);
+    await user.click(screen.getByRole("button", { name: "测试长上下文" }));
+    await user.click(screen.getByRole("button", { name: "开始测试" }));
+    expect(await screen.findByText(/本次长度抽样未通过 · 4\/5/)).toBeInTheDocument();
+    expect(screen.getByText(/实际模型尚未核验/)).toBeInTheDocument();
+    const call = fetchMock.mock.calls.find(item => item[1]?.method === "POST");
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({mode: "context", context_bytes: 100000});
   });
 
   it("polls an asynchronous image test and displays its preview", async () => {
@@ -747,3 +808,40 @@ describe("model provider settings", () => {
     expect(screen.getByLabelText("服务商")).toHaveValue("deepseek");
     expect(screen.getByLabelText("连接名称")).toHaveValue("DeepSeek");
   });
+
+it("offers Gemini native credentials and limits model-specific reasoning", async () => {
+  const user = userEvent.setup();
+  const config = configuration();
+  config.templates.push({id: "gemini", label: "Google Gemini", auth_type: "api_key",
+    default_base_url: "https://generativelanguage.googleapis.com", capabilities: ["text_generation", "image_input"],
+    requires_api_key: true, model_placeholder: "Gemini model"});
+  config.connections[0] = {...config.connections[0], provider: "gemini", name: "Gemini", base_url: "https://generativelanguage.googleapis.com",
+    capabilities: ["text_generation", "image_input"], discovered_models: ["gemini-4-argon"]};
+  config.text_routes = config.text_routes.map(route => route.id === "default"
+    ? {...route, model: "gemini-4-argon", effective_model: "gemini-4-argon"} : route);
+  const original = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((input, init) => {
+    if (String(input).endsWith("/api/studio/models")) return response(config);
+    if (String(input).endsWith("/models")) return response(catalog(["gemini-4-argon"], {
+      "gemini-4-argon": {id: "gemini-4-argon", reasoning: {supported_levels: ["low", "medium", "high"]}},
+    }));
+    return original(input, init);
+  });
+  renderSettings();
+  await user.click(await screen.findByRole("button", {name: "添加 Google Gemini 连接"}));
+  expect(screen.getByLabelText("API 基础地址")).toHaveValue("https://generativelanguage.googleapis.com");
+  expect(screen.getByRole("button", {name: "图像生成"})).toBeDisabled();
+  await user.click(screen.getByRole("button", {name: "取消"}));
+  await user.click(screen.getByRole("tab", {name: "文本路由"}));
+  const reasoning = screen.getByLabelText("默认写作模型推理强度");
+  await waitFor(() => expect(within(reasoning).getAllByRole("option").map(option => option.getAttribute("value"))).toEqual(["", "low", "medium", "high"]));
+  await user.selectOptions(reasoning, "high");
+  expect(screen.getByLabelText("默认写作模型输出 Token 上限")).toHaveValue(8192);
+  expect(screen.queryByLabelText("当前模型拓扑")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("执笔者模型")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", {name: "保存路由"}));
+  await waitFor(() => {
+    const call = fetchMock.mock.calls.find(item => String(item[0]).endsWith("/api/studio/model-routes") && item[1]?.method === "PUT");
+    expect(JSON.parse(String(call?.[1]?.body)).routes.find((route: {id: string}) => route.id === "default")).toMatchObject({model: "gemini-4-argon", reasoning_effort: "high"});
+  });
+});

@@ -1,5 +1,7 @@
 # H5 ZIP 导入交接：EPUB 正文、分类、分卷与独立更新
 
+> 2026-11-05：新 Genre/Tags 的动态分类 v2 已由引擎实现。H5 联合升级、真实ZIP夹具和待验收边界见 [动态分类交接手册](design/genre-tag-studio-v1/h5-taxonomy-handoff.md)。本文原有尺寸、正文、身份和散列规则仍适用。
+
 > 2026-10-31 目标核对：新小说固定 Manifest V4 + `novel-h5-import.v1` + `ready`，使用 `novel-types.2026-10`；正文只来自 EPUB。当前 H5 仅支持 PNG/JPEG 封面及至多一篇开头 Introduction。旧版本样包保留原证据，不只改版本字段。[完整代码强制验收方案](design/2026-10-31-h5-export-contract-gate.md) 列出实际 H5 限制；首批引擎实现及验证范围见[实施报告](reports/2026-10-31-h5-contract-gate-implementation.md)，业务导入验收仍待完成。
 
 本文取代早期对接说明中关于正文优先级、`serialization_id` 唯一索引、仅凭 MD snapshot 去重的建议。按当前引擎实现编写，接入方为 H5 开发团队。

@@ -1,6 +1,7 @@
 import { displayLabel } from "./displayLabels";
 
 export const TASK_POLL_INTERVAL_MS = 2500;
+export const TASK_IDLE_POLL_INTERVAL_MS = 30_000;
 
 const STATUS_LABELS: Record<string, string> = {
   in_progress: "未完成",
@@ -19,16 +20,18 @@ const PHASE_LABELS: Record<string, string> = {
   "planning.chapter_batch": "补齐章节设计",
   "planning.semantic_review": "全书一致性核查",
   "planning.targeted_repair": "定点修订大纲",
+  "planning.global_reference_repair": "修订全局章节标记",
   "foundation.commit": "保存故事设定",
   "chapter.plan": "规划章节",
   "chapter.design_check": "检查章节设计",
   "chapter.write": "撰写正文",
   "chapter.check.pre": "初稿质量检查",
   "chapter.edit": "编辑润色",
+  "chapter.prepare": "准备审稿版本",
   "chapter.check.post": "修订稿质量检查",
-  "chapter.validate": "连续性校验",
+  "chapter.validate": "章节审稿",
   "chapter.commercial_check": "章节阅读体验检查",
-  "chapter.style": "风格校验",
+  "chapter.style": "检查与保存候选",
   "chapter.promote": "审核定稿",
   "long_form.audit": "长篇一致性检查",
   "commercial.free_trial_review": "试读内容检查",

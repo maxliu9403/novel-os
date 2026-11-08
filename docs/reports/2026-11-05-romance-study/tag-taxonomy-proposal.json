@@ -1,0 +1,907 @@
+{
+  "schema": "corpus-tag-proposal.v1",
+  "source": "local Romance snapshot",
+  "definitions": "editorial proposals, not source facts or enabled production rules",
+  "tags": [
+    {
+      "source_label": "CEO",
+      "books": 144,
+      "creative_group": "人物与身份",
+      "proposed_label": "CEO",
+      "design_meaning": "职业资源、责任和权力边界影响关系",
+      "publication_candidate": "ceo_romance",
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Contemporary",
+      "books": 96,
+      "creative_group": "世界与背景",
+      "proposed_label": "当代背景",
+      "design_meaning": "当代工作、通讯、资源和社会关系影响行动，不默认都市",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Drama",
+      "books": 93,
+      "creative_group": "情绪与叙述",
+      "proposed_label": "戏剧冲突",
+      "design_meaning": "重要关系中的选择产生可感后果，不等于机械狗血",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Dark Romance",
+      "books": 69,
+      "creative_group": "情绪与叙述",
+      "proposed_label": "黑暗浪漫",
+      "design_meaning": "危险与吸引并存，明确权力、责任和叙述立场",
+      "publication_candidate": "dark_romance",
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Independent",
+      "books": 57,
+      "creative_group": "人物与身份",
+      "proposed_label": "独立自主",
+      "design_meaning": "有自己的目标和行动，接受帮助不等于丧失自主",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Divorce",
+      "books": 50,
+      "creative_group": "关系与冲突",
+      "proposed_label": "离婚",
+      "design_meaning": "分离改变责任、资源与未来选择；不等于必然复合",
+      "publication_candidate": "marriage_crisis",
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Fast-Paced Plot",
+      "books": 49,
+      "creative_group": "情绪与叙述",
+      "proposed_label": "快节奏",
+      "design_meaning": "高效推进有效变化，不靠省掉因果和情绪反应",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Betrayal",
+      "books": 44,
+      "creative_group": "关系与冲突",
+      "proposed_label": "背叛",
+      "design_meaning": "承诺被破坏后，信任和行动发生有代价的变化",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Revenge",
+      "books": 44,
+      "creative_group": "关系与冲突",
+      "proposed_label": "复仇",
+      "design_meaning": "伤害引出主动反制、对手回应与后果",
+      "publication_candidate": "revenge",
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Regret",
+      "books": 42,
+      "creative_group": "关系与冲突",
+      "proposed_label": "悔恨",
+      "design_meaning": "错误选择的后果迫使角色重新认识关系，不自动承诺复合",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Affair",
+      "books": 41,
+      "creative_group": "关系与冲突",
+      "proposed_label": "恋情/不忠（待辨义）",
+      "design_meaning": "先确认是否违反既存承诺；不能把普通恋情或丧偶后恋爱自动当作出轨",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Forbidden Love",
+      "books": 38,
+      "creative_group": "关系与冲突",
+      "proposed_label": "禁忌之恋",
+      "design_meaning": "明确禁止来自何种关系或制度，以及选择靠近的代价",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Heir/Heirness",
+      "books": 35,
+      "creative_group": "人物与身份",
+      "proposed_label": "继承人",
+      "design_meaning": "继承资格、资源与家族责任限制选择",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Hidden Identity",
+      "books": 35,
+      "creative_group": "人物与身份",
+      "proposed_label": "隐藏身份",
+      "design_meaning": "隐瞒或误认影响行动，揭示后改变信任和责任",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Contract Marriage",
+      "books": 35,
+      "creative_group": "关系与冲突",
+      "proposed_label": "契约婚姻",
+      "design_meaning": "约定及退出代价持续改变关系，不只用于安排同住",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Adventurous",
+      "books": 34,
+      "creative_group": "情绪与叙述",
+      "proposed_label": "冒险感",
+      "design_meaning": "未知与主动探索改变处境，不只是事件数量多",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Girl Power",
+      "books": 31,
+      "creative_group": "人物与身份",
+      "proposed_label": "女性能动性",
+      "design_meaning": "女性的能力、选择和互助产生可见结果",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Comedy",
+      "books": 29,
+      "creative_group": "情绪与叙述",
+      "proposed_label": "喜剧",
+      "design_meaning": "人物目标、认知和处境错位产生幽默，仍保留真实情感",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Pregnant",
+      "books": 28,
+      "creative_group": "人物与身份",
+      "proposed_label": "怀孕",
+      "design_meaning": "身体、抚育与人生计划产生具体选择，不能只当揭晓道具",
+      "publication_candidate": "pregnancy",
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Age Gap",
+      "books": 25,
+      "creative_group": "人物与身份",
+      "proposed_label": "年龄差",
+      "design_meaning": "人生阶段、资源与经验差异实际影响关系",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Misunderstanding",
+      "books": 23,
+      "creative_group": "关系与冲突",
+      "proposed_label": "误解",
+      "design_meaning": "有限信息导致有依据的误判与后果，避免无限拒绝沟通",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "First-Person POV",
+      "books": 20,
+      "creative_group": "情绪与叙述",
+      "proposed_label": "第一人称",
+      "design_meaning": "知识与观察受叙述者限制，声音体现个体差异",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Hate to Love",
+      "books": 19,
+      "creative_group": "关系与冲突",
+      "proposed_label": "从敌意到爱情",
+      "design_meaning": "互相冲突的目标经过理解和行动改变，不靠突然动心",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Face-Slapping",
+      "books": 19,
+      "creative_group": "情绪与叙述",
+      "proposed_label": "反击打脸",
+      "design_meaning": "基于已有能力或证据改变他人错误判断，后果明确",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Sweet Love",
+      "books": 19,
+      "creative_group": "情绪与叙述",
+      "proposed_label": "甜蜜爱情",
+      "design_meaning": "具体互惠、照顾和被理解带来温暖，不消除全部冲突",
+      "publication_candidate": "sweet_romance",
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Mystery",
+      "books": 18,
+      "creative_group": "情绪与叙述",
+      "proposed_label": "谜团",
+      "design_meaning": "未知信息驱动调查与关系判断；作为Tag不静默增加第二Genre",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Ruthless",
+      "books": 18,
+      "creative_group": "人物与身份",
+      "proposed_label": "冷酷决断",
+      "design_meaning": "追求目标时忽略何种代价，并承担后果",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Tragedy",
+      "books": 17,
+      "creative_group": "情绪与叙述",
+      "proposed_label": "悲剧体验",
+      "design_meaning": "不可逆损失产生意义；需确认指途中事件还是最终结局",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Office Relationship",
+      "books": 16,
+      "creative_group": "世界与背景",
+      "proposed_label": "职场关系",
+      "design_meaning": "工作合作、利益与私人情感冲突",
+      "publication_candidate": "office_romance",
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Arrogant",
+      "books": 14,
+      "creative_group": "人物与身份",
+      "proposed_label": "傲慢",
+      "design_meaning": "优越判断造成具体盲点与关系碰撞",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Rebel",
+      "books": 14,
+      "creative_group": "人物与身份",
+      "proposed_label": "反叛",
+      "design_meaning": "对什么规则或安排说不，如何承担代价",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Secretary",
+      "books": 13,
+      "creative_group": "人物与身份",
+      "proposed_label": "秘书",
+      "design_meaning": "专业劳动、信息与职业依赖参与冲突",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Dominant",
+      "books": 13,
+      "creative_group": "人物与身份",
+      "proposed_label": "主导性",
+      "design_meaning": "谁在何种范围主导，别人如何接受或抵抗",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Love-Triangle",
+      "books": 11,
+      "creative_group": "关系与冲突",
+      "proposed_label": "三角关系",
+      "design_meaning": "三方有不同诉求与选择，不把第三人只当障碍",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Runaway with a Baby",
+      "books": 11,
+      "creative_group": "关系与冲突",
+      "proposed_label": "带娃离开",
+      "design_meaning": "离开的理由、抚育资源和身份信息差共同影响行动",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Badboy",
+      "books": 10,
+      "creative_group": "人物与身份",
+      "proposed_label": "叛逆型男性",
+      "design_meaning": "外在不驯与实际动机存在张力，不等于无后果加害",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Possessive",
+      "books": 10,
+      "creative_group": "人物与身份",
+      "proposed_label": "占有欲",
+      "design_meaning": "害怕失去怎样影响行为；不把控制等同信任",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Second Chance",
+      "books": 10,
+      "creative_group": "关系与冲突",
+      "proposed_label": "第二次机会",
+      "design_meaning": "同一段关系在实际改变后重建，不只重逢；过程保留双方选择权",
+      "publication_candidate": "second_chance",
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Intelligent",
+      "books": 10,
+      "creative_group": "人物与身份",
+      "proposed_label": "聪明",
+      "design_meaning": "用有依据的判断和行动解决问题，不由旁白认证",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Love after Marriage",
+      "books": 9,
+      "creative_group": "关系与冲突",
+      "proposed_label": "婚后相爱",
+      "design_meaning": "既成关系中的日常、责任与新认识逐步建立感情",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Goodgirl",
+      "books": 7,
+      "creative_group": "人物与身份",
+      "proposed_label": "循规型女性",
+      "design_meaning": "对规范的期待与自身愿望冲突",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Campus",
+      "books": 7,
+      "creative_group": "世界与背景",
+      "proposed_label": "校园",
+      "design_meaning": "学习、同龄评价与校园结构影响生活和选择",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Secret Love",
+      "books": 7,
+      "creative_group": "关系与冲突",
+      "proposed_label": "隐秘爱意",
+      "design_meaning": "无法或不愿公开的感情改变说话与选择",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Flash Marriage",
+      "books": 7,
+      "creative_group": "关系与冲突",
+      "proposed_label": "闪婚",
+      "design_meaning": "快速作出的婚姻决定，让未被了解的差异在共同生活中产生后果",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Teenager",
+      "books": 6,
+      "creative_group": "人物与身份",
+      "proposed_label": "青少年",
+      "design_meaning": "发展阶段、家庭学校与同龄关系改变处境；不能据标签猜具体年龄",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Weak to Strong",
+      "books": 6,
+      "creative_group": "人物与身份",
+      "proposed_label": "由弱到强",
+      "design_meaning": "能力、资源与信念逐步获得，代价和限制仍存在",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Doctor",
+      "books": 6,
+      "creative_group": "人物与身份",
+      "proposed_label": "医生",
+      "design_meaning": "专业职责、能力边界与工作环境影响选择",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Lawyer",
+      "books": 5,
+      "creative_group": "人物与身份",
+      "proposed_label": "律师",
+      "design_meaning": "专业责任、利益冲突与行动限制进入故事",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Genius Baby",
+      "books": 5,
+      "creative_group": "人物与身份",
+      "proposed_label": "天才儿童",
+      "design_meaning": "能力有范围与年龄相符的需求，不作万能剧情工具",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Decisive",
+      "books": 5,
+      "creative_group": "人物与身份",
+      "proposed_label": "果断",
+      "design_meaning": "在不完整信息下作选择并承担代价",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "First Love",
+      "books": 5,
+      "creative_group": "关系与冲突",
+      "proposed_label": "初恋",
+      "design_meaning": "第一次亲密理解如何改变自我认识，不固定年龄",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Twist",
+      "books": 5,
+      "creative_group": "情绪与叙述",
+      "proposed_label": "转折",
+      "design_meaning": "新信息改变既有理解且与前文相容，不追求随机反转",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Third-Person POV",
+      "books": 5,
+      "creative_group": "情绪与叙述",
+      "proposed_label": "第三人称",
+      "design_meaning": "明确限知或全知策略，不随意跳人物内心",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Lovers Reunion",
+      "books": 5,
+      "creative_group": "关系与冲突",
+      "proposed_label": "恋人重逢",
+      "design_meaning": "时间与变化使重新认识必要，不等于已恢复信任",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Badgirl",
+      "books": 4,
+      "creative_group": "人物与身份",
+      "proposed_label": "越规范女性",
+      "design_meaning": "主动欲望或不顺从如何挑战他人期待",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Twins",
+      "books": 4,
+      "creative_group": "人物与身份",
+      "proposed_label": "双胞胎",
+      "design_meaning": "两名孩子有不同需求，身份信息与照护具体化",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Reborn",
+      "books": 4,
+      "creative_group": "世界与背景",
+      "proposed_label": "重生",
+      "design_meaning": "新旧记忆、机会与不能改变的限制推动选择",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "MxM",
+      "books": 3,
+      "creative_group": "关系身份",
+      "proposed_label": "男性间爱情",
+      "design_meaning": "男性角色之间的亲密关系是中心，不以身份替代具体人物",
+      "publication_candidate": "same_sex_romance",
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Eastern",
+      "books": 3,
+      "creative_group": "世界与背景",
+      "proposed_label": "东方背景（待具体化）",
+      "design_meaning": "明确实际地域与社会语境，避免抽象文化拼贴",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Hero/Heroin",
+      "books": 3,
+      "creative_group": "人物与身份",
+      "proposed_label": "英雄角色（待辨义）",
+      "design_meaning": "保留源站拼写；需按原书核实是角色定位还是勇敢行为",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Substitute Bride",
+      "books": 3,
+      "creative_group": "关系与冲突",
+      "proposed_label": "替身新娘",
+      "design_meaning": "被替代身份及知情差异改变同意、义务和关系",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Alpha",
+      "books": 3,
+      "creative_group": "人物与身份",
+      "proposed_label": "Alpha（待定世界语义）",
+      "design_meaning": "核实是狼人制度等级、强势人格还是称谓，不自动等于狼人",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Mafia",
+      "books": 3,
+      "creative_group": "世界与背景",
+      "proposed_label": "黑手党",
+      "design_meaning": "组织忠诚、利益与风险影响亲密关系",
+      "publication_candidate": "mafia",
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Playboy",
+      "books": 3,
+      "creative_group": "人物与身份",
+      "proposed_label": "浪子",
+      "design_meaning": "轻关系策略与真实投入的冲突需要行为变化",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Professor",
+      "books": 3,
+      "creative_group": "人物与身份",
+      "proposed_label": "教授",
+      "design_meaning": "专业、教育权力与身份责任实际影响关系",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Runaway Bride/Groom",
+      "books": 3,
+      "creative_group": "关系与冲突",
+      "proposed_label": "逃离婚礼",
+      "design_meaning": "从婚姻安排退出的行动带来现实后果和新方向",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Winning Back the Wife",
+      "books": 2,
+      "creative_group": "关系与冲突",
+      "proposed_label": "挽回妻子",
+      "design_meaning": "挽回要面对具体责任与对方选择，不等于占有",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Slave",
+      "books": 2,
+      "creative_group": "人物与身份",
+      "proposed_label": "受奴役身份",
+      "design_meaning": "失去自由的制度与行动限制必须具体，不浪漫化成单纯服从标签",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Familial Bond",
+      "books": 2,
+      "creative_group": "关系与冲突",
+      "proposed_label": "亲属纽带",
+      "design_meaning": "照护、责任和归属影响亲密关系与独立目标",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Artist",
+      "books": 2,
+      "creative_group": "人物与身份",
+      "proposed_label": "艺术工作者",
+      "design_meaning": "创作、表达、声誉和生计参与选择",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Actor / Actress",
+      "books": 2,
+      "creative_group": "人物与身份",
+      "proposed_label": "演员",
+      "design_meaning": "公众形象、表演工作与私人关系产生冲突",
+      "publication_candidate": "celebrity",
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Bully",
+      "books": 2,
+      "creative_group": "人物与身份",
+      "proposed_label": "欺凌者/欺凌",
+      "design_meaning": "权力不对等及损害有后果，不把伤害当自动吸引力",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Detective",
+      "books": 2,
+      "creative_group": "人物与身份",
+      "proposed_label": "侦查者",
+      "design_meaning": "调查能力和证据限制推动选择",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Triplets",
+      "books": 2,
+      "creative_group": "人物与身份",
+      "proposed_label": "三胞胎",
+      "design_meaning": "照护与人物差异具体化，不仅是数量升级",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Reject",
+      "books": 2,
+      "creative_group": "关系与冲突",
+      "proposed_label": "拒绝",
+      "design_meaning": "明确拒绝的对象、权力与后果，不自动解释为狼人拒绝配偶",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Action",
+      "books": 1,
+      "creative_group": "情绪与叙述",
+      "proposed_label": "行动张力",
+      "design_meaning": "危险与目标通过具体行动推进，保留后果",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Twisted",
+      "books": 1,
+      "creative_group": "情绪与叙述",
+      "proposed_label": "扭曲张力",
+      "design_meaning": "核实指关系、动机或情境的异常，不写成无逻辑反转",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Finance",
+      "books": 1,
+      "creative_group": "世界与背景",
+      "proposed_label": "金融环境",
+      "design_meaning": "资金、信息、职业责任及风险实际影响行动",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Reverse Harem",
+      "books": 1,
+      "creative_group": "关系与冲突",
+      "proposed_label": "多方追求关系",
+      "design_meaning": "多位对象分别具有动机与关系作用，不能只增加人数",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Nanny",
+      "books": 1,
+      "creative_group": "人物与身份",
+      "proposed_label": "照护者",
+      "design_meaning": "照护劳动、信任与家庭权力参与关系",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Protective",
+      "books": 1,
+      "creative_group": "人物与身份",
+      "proposed_label": "保护倾向",
+      "design_meaning": "保护以对方需要和选择为依据，区分帮助与控制",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Royal",
+      "books": 1,
+      "creative_group": "人物与身份",
+      "proposed_label": "王室身份",
+      "design_meaning": "继承、礼仪和公共责任影响私人选择，不自动等于宫斗",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Star",
+      "books": 1,
+      "creative_group": "人物与身份",
+      "proposed_label": "明星（待辨义）",
+      "design_meaning": "以原文确认公众身份及其关系压力，不凭单词扩展世界观",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Forgiveness",
+      "books": 1,
+      "creative_group": "关系与冲突",
+      "proposed_label": "宽恕",
+      "design_meaning": "承认伤害后自主选择如何处理关系；不等于遗忘或复合",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Love at First Sight",
+      "books": 1,
+      "creative_group": "关系与冲突",
+      "proposed_label": "一见钟情",
+      "design_meaning": "瞬间吸引成为行动起点，后续仍需具体理解",
+      "publication_candidate": "love_at_first_sight",
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Agent",
+      "books": 1,
+      "creative_group": "人物与身份",
+      "proposed_label": "Agent（待辨义）",
+      "design_meaning": "核实是经纪人、特工或其他职业，再编写指导",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Rogue",
+      "books": 1,
+      "creative_group": "人物与身份",
+      "proposed_label": "Rogue（待定世界语义）",
+      "design_meaning": "核实是狼群外成员或一般越轨者；无依据不添加狼人世界",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Werewolf",
+      "books": 1,
+      "creative_group": "世界与背景",
+      "proposed_label": "狼人",
+      "design_meaning": "身体体验、群体规则与身份责任改变关系和选择",
+      "publication_candidate": "werewolf",
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Blind Date",
+      "books": 1,
+      "creative_group": "关系与冲突",
+      "proposed_label": "相亲",
+      "design_meaning": "带着预期和社会安排见面，现实差异产生选择",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    },
+    {
+      "source_label": "Harem",
+      "books": 1,
+      "creative_group": "关系与冲突",
+      "proposed_label": "多重伴侣关系",
+      "design_meaning": "明确关系结构、当事人认知及冲突，不从标签猜具体配对",
+      "publication_candidate": null,
+      "status": "research_candidate",
+      "genre_id": "genre.romance"
+    }
+  ]
+}

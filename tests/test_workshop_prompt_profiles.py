@@ -35,9 +35,8 @@ def test_exploration_prompt_is_smaller_and_keeps_every_context_message(monkeypat
     workshop._complete(snapshot(turn_intent="discuss", messages=history, questions=["保留但还没回答的问题"]), skill)
     system, user = calls[0]
     assert len(system.encode()) < len(skill.encode()) * 0.5
-    assert "--- references/story-exploration.md ---" in system
-    assert "--- references/character-and-emotion.md ---" in system
-    assert "--- references/hooks-and-payoffs.md ---" in system
+    assert "--- references/web-discussion.md ---" in system
+    assert system.count('CURRENT REQUEST PROFILE:') == 1
     assert "--- references/prompt-contract.md ---" not in system
     assert "ENGINE NARRATIVE FORMAT REFERENCE" not in system
     assert "COMMERCIAL STORY SERIALIZATION" not in system
@@ -51,9 +50,8 @@ def test_exploration_prompt_is_smaller_and_keeps_every_context_message(monkeypat
 @pytest.mark.parametrize("mode", workshop._NARRATIVE_MODES)
 def test_narrative_reference_contains_one_complete_serialized_mode(mode):
     reference = workshop._narrative_contract_reference(mode)
-    examples = json.loads(reference[reference.index("{\n"):])
-    assert list(examples) == [mode]
-    contract = examples[mode]
+    contract = json.loads(reference[reference.index('{\n'):])
+    assert contract['mode'] == mode and mode not in contract
     assert contract["total_chapters"] == 20
     assert len(contract["long_form_suitability"]["dimensions"]) == 6
     assert all({"volume_number", "chapter_start", "chapter_end", "structural_role"} <= span.keys()
@@ -64,6 +62,7 @@ def test_narrative_reference_contains_one_complete_serialized_mode(mode):
 
 
 def test_explicit_delivery_starts_design_without_keyword_gate_or_extra_author_turn(client, monkeypatch, tmp_path):
+    from test_story_first_engine import freeze_legacy_policy
     valid = complete_prompt(tmp_path)
     replies = [stage_response("story_design"), stage_response("chapter_plan")]
     parts = parts_from_prompt(valid)
@@ -71,6 +70,9 @@ def test_explicit_delivery_starts_design_without_keyword_gate_or_extra_author_tu
                        else json.dumps(parts[json.loads(user)["assembly_part"]]))
     # Intent comes from the action, not a keyword or model-inferred delegation.
     data = create(client, premise="完整设定：21章，每章约550英文词，美国成年读者；单本连续。按我的完整细纲完成。")
+    # This fixture intentionally exercises the historical assembly protocol;
+    # new sessions otherwise select story-first cards with a different schema.
+    freeze_legacy_policy(tmp_path, data["id"])
     submit(client, data, "就这样吧，按照已经选定的方向处理。")
     current = finish(client, data["id"])
     assert current["status"] == "ready", current["last_error"]

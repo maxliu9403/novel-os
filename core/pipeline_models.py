@@ -16,6 +16,10 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+try:
+    from .reader_investment import snapshot as reader_snapshot, validate as validate_reader_policy
+except ImportError:  # Standalone CLI imports before the repository is on sys.path.
+    from reader_investment import snapshot as reader_snapshot, validate as validate_reader_policy
 
 
 STAGE_STATUSES = {"pending", "running", "done", "retryable", "blocked", "failed", "skipped"}
@@ -60,14 +64,18 @@ class RunSpec:
     outline_planning_mode: str = "staged"
     method_policy: Optional[Dict[str, Any]] = None
     creative_handoff: Optional[Dict[str, Any]] = None
+    reader_investment: Optional[Dict[str, Any]] = field(default_factory=reader_snapshot)
 
     def __post_init__(self) -> None:
+        self.reader_investment = validate_reader_policy(self.reader_investment)
         self.project_path = str(self.project_path)
         self.prompt_path = str(self.prompt_path)
         self.output_formats = _as_tuple(self.output_formats)
         if self.creative_handoff is not None:
             from creative_execution import validate_handoff
             self.creative_handoff = validate_handoff(self.creative_handoff)
+            # Workshop owns the frozen method; old handoffs retain old behavior.
+            self.reader_investment = validate_reader_policy(self.creative_handoff.get('reader_investment'))
             if self.quality_policy != "evidence_v1":
                 raise ValueError("Creative execution requires evidence_v1 promoted manuscript sources")
         if self.method_policy is not None:
@@ -103,7 +111,7 @@ class RunSpec:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RunSpec":
-        return cls(**{"outline_planning_mode": "legacy", **data})
+        return cls(**{"outline_planning_mode": "legacy", "reader_investment": None, **data})
 
 
 @dataclass

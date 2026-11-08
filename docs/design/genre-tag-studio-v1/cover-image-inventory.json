@@ -1,0 +1,54 @@
+{
+  "date": "2026-11-05",
+  "covers_observed": 4,
+  "covers": [
+    {
+      "book_id": "31000101092",
+      "source_path": "/Users/max/workspace/goodnovel/Romance/Billionaire's Substitute Bride and Her Secret Child__31000101092/cover.jpg",
+      "sha256": "0999bdb46dcf726d7b049c5647a41354939a01cd9570023ae237a8fb04eccb1a",
+      "bytes": 74451,
+      "dimensions": [
+        600,
+        800
+      ],
+      "read_method": "direct_visual_inspection",
+      "scope": "cover_only; relationship interpretations not source facts"
+    },
+    {
+      "book_id": "31000657155",
+      "source_path": "/Users/max/workspace/goodnovel/Romance/Ex-Husband's Regret__31000657155/cover.jpg",
+      "sha256": "180fd7b6354e17b48adb86204586ee0d4d6ec5492440cedaca8dfab3c4ceb1b9",
+      "bytes": 61131,
+      "dimensions": [
+        600,
+        800
+      ],
+      "read_method": "direct_visual_inspection",
+      "scope": "cover_only; relationship interpretations not source facts"
+    },
+    {
+      "book_id": "31000423189",
+      "source_path": "/Users/max/workspace/goodnovel/Romance/To Be Yours Again__31000423189/cover.jpg",
+      "sha256": "7bb570f7bd58e84dc611a518878bcf052e00509bb34cec35befbecc8b631b0d4",
+      "bytes": 600912,
+      "dimensions": [
+        3400,
+        4534
+      ],
+      "read_method": "direct_visual_inspection",
+      "scope": "cover_only; relationship interpretations not source facts"
+    },
+    {
+      "book_id": "31000403877",
+      "source_path": "/Users/max/workspace/goodnovel/Romance/BILLIONAIRE QUADRUPLET BABIES__31000403877/cover.jpg",
+      "sha256": "78901a8b9f3d1f65f4747b61eb35ee2cb5c74f88ebd7f37afba2874b9133c853",
+      "bytes": 46090,
+      "dimensions": [
+        437,
+        583
+      ],
+      "read_method": "direct_visual_inspection",
+      "scope": "cover_only; relationship interpretations not source facts"
+    }
+  ]
+}

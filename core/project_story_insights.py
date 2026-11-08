@@ -123,7 +123,7 @@ def _document_sections(text: str) -> tuple[list[dict[str, Any]], list[str]]:
 def _is_chapter_container(section: HeadingSection) -> bool:
     title = _normalized(section.title)
     return any(token in title for token in (
-        "完整分章", "分章细纲", "章节细纲", "章节大纲", "逐章大纲", "前三章",
+        "完整分章", "分章细纲", "章节细纲", "章节大纲", "逐章大纲", "逐章故事设计", "前三章",
         "chapteroutline", "chapterplan", "chaptersummaries",
     ))
 
@@ -131,7 +131,7 @@ def _is_chapter_container(section: HeadingSection) -> bool:
 def _is_narrative_section(section: HeadingSection) -> bool:
     title = _normalized(section.title)
     return any(token in title for token in (
-        "故事核心", "完整梗概", "故事梗概", "故事简介", "剧情梗概", "完整故事",
+        "故事核心", "完整梗概", "故事梗概", "故事简介", "剧情梗概", "完整故事", "全书故事走向",
         "synopsis", "storysummary", "storyoverview",
     ))
 

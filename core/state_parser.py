@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime
+from plot_thread_contract import PLOT_THREAD_STATUSES
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from commercial_story import (
@@ -259,13 +260,21 @@ def _store_parsed_field(out: Dict[str, Any], key: str, value: Any) -> None:
             out[key] = retained if isinstance(value, list) else (retained[0] if retained else "")
 
 
-def parse_fields(block: str) -> Dict[str, Any]:
+def parse_fields(block: str, *, interpret_state: bool = True) -> Dict[str, Any]:
     """Parse a block of 'Field: value' / 'Field:\\n  - item' lines into a dict.
 
     Field keys are normalized to lower_snake_case.
     Values are str, or List[str] for bulleted/multi-line fields.
+    Analysis-only callers may collect fields without interpreting declarations.
     """
     out: Dict[str, Any] = {}
+
+    def store(key: str, value: Any) -> None:
+        if interpret_state:
+            _store_parsed_field(out, key, value)
+        else:
+            out[key] = value
+
     lines = block.splitlines()
     i = 0
     while i < len(lines):
@@ -278,7 +287,7 @@ def parse_fields(block: str) -> Dict[str, Any]:
             bullet = _BULLET_RE.match(line)
             prefixed = _FIELD_RE.match(bullet.group(1)) if bullet else None
             if prefixed and _normalize_key(prefixed.group(1)) in _ENDING_FIELDS:
-                _store_parsed_field(out, _normalize_key(prefixed.group(1)), prefixed.group(2))
+                store(_normalize_key(prefixed.group(1)), prefixed.group(2))
             continue
         key = _normalize_key(m.group(1))
         rest = m.group(2).strip()
@@ -318,7 +327,7 @@ def parse_fields(block: str) -> Dict[str, Any]:
                 value = [s.strip() for s in inner.split(",") if s.strip()]
         else:
             value = rest
-        _store_parsed_field(out, key, value)
+        store(key, value)
     return out
 
 
@@ -419,10 +428,19 @@ def parse_continuity(text: str) -> Dict[str, Any]:
 
 def parse_style(text: str) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
-    for tag in ("STYLE_ANALYSIS", "STYLE_STATE_UPDATE"):
-        block = extract_block(text, tag)
-        if block:
-            out.update(parse_fields(block))
+    analysis = extract_block(text, "STYLE_ANALYSIS")
+    if analysis:
+        # Literary observations are not instructions to update canon. Keep
+        # them for inspection without guessing lifecycle states from prose.
+        fields = parse_fields(analysis, interpret_state=False)
+        out["style_analysis"] = fields
+        # Older style replies put their scores in the analysis block.
+        for key in ("consistency_score", "genre_adherence", "voice_strength"):
+            if key in fields:
+                out[key] = fields[key]
+    block = extract_block(text, "STYLE_STATE_UPDATE")
+    if block:
+        out.update(parse_fields(block))
     return out
 
 
@@ -545,7 +563,7 @@ def _apply_plot_thread_updates(
         status_ignored = False
         if status:
             normalized_status = status.strip().lower()
-            if normalized_status in {"active", "resolved", "abandoned", "foreshadowed"}:
+            if normalized_status in PLOT_THREAD_STATUSES:
                 reopen = fields.get("reopen", "").strip().lower() in {
                     "1", "true", "yes", "y", "reopen",
                 }

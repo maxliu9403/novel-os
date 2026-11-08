@@ -1,4 +1,4 @@
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import NovelWorkshop, { type WorkshopSeed } from "../components/NovelWorkshop";
 import WorkshopSessions from "../components/WorkshopSessions";
 import Icon from "../components/Icon";
@@ -20,6 +20,7 @@ export default function WorkshopLibrary() {
       </div>
       <button type="button" className="btn-primary workshop-library-create" onClick={() => setParams({ new: "1" })}><Icon name="plus" className="h-4 w-4" /> 新建头脑风暴</button>
     </header>
+    <div className="mb-4"><Link className="btn-secondary" to="/source-books">参考资料与分析任务 ↗</Link></div>
     <div className="workshop-library-section"><h2>全部讨论</h2><span>保存的设定、骨架与推导记录</span></div>
     <WorkshopSessions studio busy={false} onSelect={(id) => setParams({ session: id })} />
     </div></div>

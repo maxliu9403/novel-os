@@ -22,11 +22,15 @@ _TERMINAL = {"completed", "failed", "cancelled"}
 _STAGE_FIELDS = ("delivery_stage", "stage_index", "completed_stages", "current_stage_status")
 _BUDGET_FIELDS = ("task_budget_seconds", "request_timeout_seconds")
 _ACTIVITY_PREFIXES = {"reasoning_summary": "reasoning", "text": "text", "transport": "transport"}
+_DIAGNOSTIC_FIELDS = ('last_upstream_failure_kind', 'last_upstream_failure_at', 'upstream_error_event_count',
+                      'last_diagnostic_code', 'last_diagnostic_component', 'last_diagnostic_level',
+                      'last_diagnostic_at', 'terminal_event', 'completion_grace_seconds', 'completion_grace_limit')
 _REQUEST_FIELDS = ("request_id", "request_started_at", "last_cli_event_at", "last_content_at",
                    "last_upstream_event_at", "upstream_event", "upstream_endpoint_category",
                    "last_activity_observed_at", "activity_kind", "last_reasoning_observed_at",
                    "last_text_observed_at", "last_transport_observed_at",
-                   "reasoning_event_count", "text_event_count", "transport_event_count", "activity_time_basis", "request_closed")
+                   "reasoning_event_count", "text_event_count", "transport_event_count", "activity_time_basis", "request_closed",
+                   *_DIAGNOSTIC_FIELDS)
 
 
 def _read(directory_fd: int, name: str) -> dict:
@@ -126,8 +130,14 @@ def persist_progress(directory_fd: int, name: str, record: dict) -> None:
             p["request_id"] = record["request_id"]
         if event == "request.start" and not p.get("request_started_at"):
             p["request_started_at"] = now
+            limit = _number(record.get('completion_grace_limit')) or 0
+            p['completion_grace_limit'] = limit if limit <= 180 else 0
         if event in {"upstream.observer_started", "upstream.activity"}:
             p["activity_time_basis"] = "batch_observed"
+        if event == 'cli.completion_window' and not p.get('request_closed'):
+            grace = _number(record.get('completion_grace_seconds'))
+            if grace is not None and 0 < grace <= 180:
+                p['completion_grace_seconds'] = grace
         # Upstream export can be delayed; it never advances the task phase or
         # pretends that a heartbeat is model-generated text.
         if event == "upstream.event":
@@ -140,6 +150,21 @@ def persist_progress(directory_fd: int, name: str, record: dict) -> None:
             p["last_worker_check_at"] = now
         if event in {"first_cli_event", "cli_event", "cli_error"}:
             p["last_cli_event_at"] = now
+        # Error observations are evidence, not authority to terminate/retry a
+        # request. Keep them when a later model-catalog poll succeeds.
+        if not p.get('request_closed'):
+            failure_kind = record.get('event_kind')
+            if (event in {'upstream.event', 'upstream.activity'} and
+                    (record.get('success') is False or failure_kind in {'response.failed', 'response.incomplete', 'response.cancelled', 'error'})):
+                p['last_upstream_failure_kind'] = (failure_kind if failure_kind in
+                    {'response.failed', 'response.incomplete', 'response.cancelled', 'error'} else 'request_failed')
+                p['last_upstream_failure_at'] = now
+            if event == 'upstream.activity' and record.get('activity_kind') == 'error':
+                p['upstream_error_event_count'] = min(2**63 - 1, _count(p.get('upstream_error_event_count')) + _count(record.get('metric_count')))
+            if record.get('diagnostic_code'):
+                p.update(last_diagnostic_code=record['diagnostic_code'], last_diagnostic_at=now,
+                         last_diagnostic_component=record.get('diagnostic_component'),
+                         last_diagnostic_level=record.get('diagnostic_level'))
         for source, target in (("configured_max_tokens", "configured_max_tokens"),
                                ("effective_max_tokens", "effective_max_tokens"),
                                ("max_tokens_supported", "output_limit_supported")):
@@ -159,6 +184,7 @@ def persist_progress(directory_fd: int, name: str, record: dict) -> None:
         if event in {"request.completed", "request.failed", "request.cancelled", "request.timeout",
                      "attempt.completed", "attempt.failed", "attempt.cancelled", "attempt.timeout"}:
             p["request_closed"] = True
+            p['terminal_event'] = event
         # A validation failure ends an attempt; the bounded format repair loop
         # explicitly announces continuation before the next request starts.
         if event == "format_retry" and phase == "failed":
@@ -263,6 +289,11 @@ def runtime_progress(session: dict, directory: Path) -> dict | None:
         timeout = task_budget
     if start and timeout is not None and timeout <= 7 * 86400:
         deadline = (datetime.fromisoformat(start.replace("Z", "+00:00")) + timedelta(seconds=timeout)).isoformat()
+    grace = _number(p.get('completion_grace_seconds')) or 0
+    grace = grace if grace <= 180 else 0
+    grace_limit = _number(p.get('completion_grace_limit')) or 0
+    if grace and deadline:
+        deadline = (datetime.fromisoformat(deadline) + timedelta(seconds=grace)).isoformat()
     phase = p.get("phase") if isinstance(p.get("phase"), str) and p["phase"] in _PHASES else "preparing"
     if session.get("status") == "error":
         phase = "failed"
@@ -271,7 +302,9 @@ def runtime_progress(session: dict, directory: Path) -> dict | None:
     elif phase == "completed":
         phase = "validating"
     result = {**expected, "started_at": start, "deadline_at": deadline, "phase": phase,
-              "task_budget_seconds": timeout,
+              "task_budget_seconds": timeout + grace if timeout is not None else None,
+              "completion_grace_seconds": grace,
+              "completion_grace_limit": grace_limit if grace_limit <= 180 else 0,
               "request_timeout_seconds": request_budget if request_budget == _number(session.get("turn_timeout_seconds")) else _number(session.get("turn_timeout_seconds")),
               "attempt": p.get("attempt") if type(p.get("attempt")) is int and 1 <= p["attempt"] <= 32 else None,
               "request_id": None, "content_chars": _number(p.get("content_chars")) or 0,
@@ -312,4 +345,15 @@ def runtime_progress(session: dict, directory: Path) -> dict | None:
     result["request_id"] = safe.get("request_id")
     result["upstream_event"] = next((safe[key] for key in ("event_kind", "upstream_event")
                                       if safe.get(key) not in {None, "other"}), None)
+    from core.codex_diagnostic_codes import ERROR_CODES, COMPONENTS, LEVELS
+    for key, allowed in (('last_diagnostic_code', ERROR_CODES), ('last_diagnostic_component', COMPONENTS),
+                         ('last_diagnostic_level', LEVELS), ('last_upstream_failure_kind',
+                         {'response.failed', 'response.incomplete', 'response.cancelled', 'error', 'request_failed'})):
+        value = p.get(key)
+        result[key] = value if isinstance(value, str) and value in allowed else None
+    for key in ('last_upstream_failure_at', 'last_diagnostic_at'):
+        result[key] = _timestamp(p.get(key))
+    result['upstream_error_event_count'] = _count(p.get('upstream_error_event_count'))
+    from .workshop_failure import failure_summary
+    result['failure_summary'] = failure_summary(session, directory, p)
     return result

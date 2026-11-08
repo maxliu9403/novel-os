@@ -41,6 +41,8 @@ _ENV_KEYS = (
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
     "DEEPSEEK_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
 )
 
 _COVER_SIZE = "2048x3072"
@@ -93,6 +95,8 @@ _PROVIDER_KEY_NAMES = {
     "openai": "OPENAI_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "gemini_openai": "NOVEL_OS_API_KEY",
 }
 
 

@@ -33,6 +33,7 @@ except ModuleNotFoundError as exc:
     from usage_tracking import scoped_usage
 from model_router import ModelRouter
 from state_parser import (
+    EndingProtocolError,
     extract_manuscript_block,
     ingest_agent_output,
     normalize_agent_output,
@@ -173,7 +174,11 @@ class NovelOrchestrator:
 
     def _creative_prompt(self, agent: str, prompt: str, chapter: Optional[int]):
         runtime = getattr(self, "creative_execution", None)
-        return runtime.prepare(agent, prompt, chapter, self.state) if runtime else (prompt, None)
+        if runtime:
+            return runtime.prepare(agent, prompt, chapter, self.state)
+        from core.reader_investment import instructions
+        addition = instructions(getattr(self, 'reader_investment', None), agent)
+        return (prompt + '\n\n' + addition if addition else prompt), None
 
     def _agent_complete(self, llm, agent: str, prompt: str, receipt):
         runtime = getattr(self, "creative_execution", None)
@@ -864,6 +869,7 @@ genre-appropriate assumptions rather than asking questions.
             final_validator=validate,
             source_guard=source_guard,
             creative_execution=getattr(self, "creative_execution", None),
+            reader_investment=getattr(self, "reader_investment", None),
         )
         foundation = planner.run()
         text = render_foundation(foundation)
@@ -908,6 +914,8 @@ genre-appropriate assumptions rather than asking questions.
         data = json.loads(match.group(1))
         if not isinstance(data, dict):
             raise ValueError("story foundation must be a JSON object")
+        from core.foundation_themes import theme_statements
+        theme_statements(data.get('themes'))  # Validate text consumers before publishing this foundation.
         chapters = data.get("chapters")
         if not isinstance(chapters, list) or len(chapters) != num_chapters:
             raise ValueError(f"story foundation must contain exactly {num_chapters} chapters")
@@ -962,6 +970,8 @@ genre-appropriate assumptions rather than asking questions.
                     raise ValueError(
                         "enforced ending_contract is missing: " + ", ".join(missing)
                     )
+                from plot_thread_contract import validate_ending_statuses
+                validate_ending_statuses(ending)
         return data
 
     def _apply_story_foundation(
@@ -1096,7 +1106,8 @@ genre-appropriate assumptions rather than asking questions.
             "",
             "## Themes",
         ]
-        themes = foundation.get("themes") or []
+        from core.foundation_themes import theme_statements
+        themes = theme_statements(foundation.get("themes"))
         lines.extend(f"- {theme}" for theme in themes)
         if not themes:
             lines.append("- None specified")
@@ -1126,6 +1137,7 @@ genre-appropriate assumptions rather than asking questions.
                 f"- Flaw: {raw.get('weakness') or '[Not specified]'}",
                 f"- Secret: {raw.get('secret') or '[Not specified]'}",
                 f"- Arc: {raw.get('arc') or '[Not specified]'}",
+                *([f"- Source background: {raw['background']}"] if raw.get('background') else []),
                 "",
             ])
 
@@ -1176,6 +1188,10 @@ genre-appropriate assumptions rather than asking questions.
                 f"- Main conflict: {(ending.get('main_conflict') or {}).get('thread_id') or '[Not specified]'}",
                 f"- Required payoffs: {len(ending.get('plot_payoffs') or [])}",
             ])
+
+        for field, heading in (("reader_profile", "Reader Profile"), ("story_lead_plan", "Story Lead Plan")):
+            if foundation.get(field):
+                lines.extend(["", f"## {heading}", str(foundation[field])])
 
         style = foundation.get("style") or {}
         lines.extend([
@@ -1254,9 +1270,20 @@ genre-appropriate assumptions rather than asking questions.
             for i in range(1, num_chapters + 1)
         ]
     
+    @property
+    def story_first(self) -> bool:
+        return bool(getattr(getattr(self, "creative_execution", None), "story_first", False))
+
     def plan_chapter(self, chapter_number: int, summary: str = "", pov: str = "", dry_run: bool = False):
         """Plan a specific chapter in detail (Architect agent expands the outline)."""
         print(f"\n📋 Planning Chapter {chapter_number}...")
+        if self.story_first:
+            from core.chapter_review import project_outline
+            from core.outline_planning import atomic_write
+            foundation = json.loads((self.outputs_dir / "input/foundation.json").read_text(encoding="utf-8"))
+            self.last_canon_proposal_ids = []
+            atomic_write(self.outputs_dir / f"chapter_{chapter_number:03d}_outline.md", project_outline(foundation, chapter_number))
+            return
 
         canonical_state = self.state
         if self.state_update_mode == "proposal_only":
@@ -1741,12 +1768,23 @@ Do not substitute a repeated confrontation for an irreversible state change.
     # ===== Style Curation =====
 
     @scoped_usage("manuscript", lambda a: a["self"].project_path)
-    def curate_chapter(self, chapter_number: int, dry_run: bool = False):
+    def curate_chapter(self, chapter_number: int, dry_run: bool = False, *, recover_saved_response: bool = False):
         """Run the Style Curator and write a clean candidate-final manuscript."""
         self.last_canon_proposal_ids = []
         resolved_mode = self.state_update_mode
         self._validate_state_update_mode(resolved_mode)
         print(f"\n🎨 CURATING Chapter {chapter_number}...")
+        if self.story_first:
+            from core.chapter_review import read_review
+            from core.outline_planning import atomic_write
+            source = self.manuscript_dir / f"chapter_{chapter_number:03d}_revised.md"
+            manuscript = source.read_text(encoding="utf-8")
+            report = (self.feedback_dir / f"chapter_{chapter_number:03d}_continuity_report.md").read_text(encoding="utf-8")
+            if not read_review(report, manuscript).passed:
+                raise ValueError("联合审稿未通过，不能保存最终候选。")
+            atomic_write(self.manuscript_dir / f"chapter_{chapter_number:03d}_candidate_final.md", manuscript)
+            atomic_write(self.feedback_dir / f"chapter_{chapter_number:03d}_style_report.md", "联合审稿已覆盖文风；本步原样保存通过审稿的正文，没有调用润色模型。\n")
+            return
         chapter = self.state.get_chapter(chapter_number)
         if not chapter:
             message = f"Chapter {chapter_number} not found"
@@ -1788,10 +1826,26 @@ Do not substitute a repeated confrontation for an irreversible state change.
             print(f"   [dry-run] Prompt saved: {prompt_path}")
             return None
 
+        result = None
+        raw_path = report_path.with_suffix(report_path.suffix + ".raw")
+        runtime = getattr(self, "creative_execution", None)
+        if recover_saved_response and resolved_mode == "proposal_only" and runtime and raw_path.is_file():
+            saved_response = raw_path.read_text(encoding="utf-8")
+            try:
+                parse_agent_output("style_curator", normalize_agent_output(saved_response))
+            except EndingProtocolError:
+                # An invalid explicit state block still needs a fresh reply on
+                # author-requested retry; do not pin it to an unusable cache.
+                pass
+            else:
+                result = runtime.recover_response("style_curator", prompt, receipt, saved_response)
+            if result is not None:
+                print("   Reusing verified Style Curator reply; no model call.")
         try:
-            llm = self._get_llm("style_curator")
-            print(f"   Style Curator polishing ({llm.provider}:{llm.model})...")
-            result = self._agent_complete(llm, "style_curator", prompt, receipt)
+            if result is None:
+                llm = self._get_llm("style_curator")
+                print(f"   Style Curator polishing ({llm.provider}:{llm.model})...")
+                result = self._agent_complete(llm, "style_curator", prompt, receipt)
         except LLMError as exc:
             print(f"❌ LLM call failed: {exc}")
             print(f"   Prompt saved at {prompt_path} you can run it manually.")
@@ -1799,7 +1853,6 @@ Do not substitute a repeated confrontation for an irreversible state change.
                 raise
             return None
         if resolved_mode == "proposal_only":
-            raw_path = report_path.with_suffix(report_path.suffix + ".raw")
             raw_path.write_text(result, encoding="utf-8")
         normalized_result = normalize_agent_output(result)
         response = normalized_result if resolved_mode == "proposal_only" else result
@@ -2320,8 +2373,15 @@ certifies delivery after the candidate is reviewed.
         outline_path = self.outputs_dir / f"chapter_{chapter_number:03d}_outline.md"
         pack_md = self._context_pack(chapter_number, purpose="scribe")
         if outline_path.exists():
+            outline = outline_path.read_text(encoding="utf-8")
+            runtime = getattr(self, "creative_execution", None)
+            if runtime is not None:
+                outline = runtime.outline_for_execution(outline)
+            elif (getattr(self, "reader_investment", None) or {}).get('schema') == 'reader-investment.v3':
+                from core.scene_execution import render_outline
+                outline = render_outline(outline)
             user_prompt = (
-                outline_path.read_text(encoding="utf-8")
+                outline
                 + "\n\n"
                 + pack_md
                 + "\n"
@@ -2739,7 +2799,11 @@ Provide:
             if resolved_mode == "legacy_apply":
                 chapter.continuity_checks['pre_check_findings'] = [f.to_dict() for f in findings]
 
-        validation_prompt = self._generate_validation_prompt(chapter_number, chapter_text)
+        if self.story_first:
+            from core.chapter_review import prompt as joint_prompt
+            validation_prompt = joint_prompt(chapter_text)
+        else:
+            validation_prompt = self._generate_validation_prompt(chapter_number, chapter_text)
         if findings:
             validation_prompt = to_context_block(findings) + "\n" + validation_prompt
         validation_prompt_path = self.feedback_dir / f"chapter_{chapter_number:03d}_validation_prompt.md"
@@ -2755,6 +2819,9 @@ Provide:
             chapter_number=chapter_number,
         )
 
+        if result is not None and self.story_first:
+            from core.chapter_review import read_review
+            read_review(report_path.read_text(encoding="utf-8"), chapter_text)
         if result is not None and resolved_mode == "legacy_apply":
             chapter.status = 'validated'
             self.state.save_state()
@@ -3570,6 +3637,7 @@ Examples:
     run_parser = subparsers.add_parser('run', help='Run a prompt through the complete book pipeline')
     run_parser.add_argument('--project', required=True, help='Novel project directory')
     run_parser.add_argument('--prompt', required=True, help='UTF-8 prompt file, or - for stdin')
+    run_parser.add_argument('--knowledge', default='', help='Frozen Genre/Tags knowledge.json from Workshop')
     run_parser.add_argument('--title', default='', help='Override title inferred from the prompt')
     run_parser.add_argument('--genre', default='', help='Override genre inferred from the prompt')
     run_parser.add_argument('--author', default='', help='Author/byline')
@@ -3668,7 +3736,10 @@ Examples:
             if args.command == 'run':
                 if args.model:
                     os.environ['NOVEL_OS_MODEL'] = args.model
+                from core.knowledge_intake import load_handoff
+                handoff = load_handoff(args.prompt, args.knowledge) if args.knowledge else None
                 spec = RunSpec(
+                    creative_handoff=handoff,
                     project_path=args.project,
                     prompt_path=args.prompt,
                     num_chapters=args.chapters,

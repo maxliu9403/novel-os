@@ -75,6 +75,22 @@ def test_long_form_plan_gate_verifies_complete_volume_binding():
     assert report.checks["complete_chapter_binding"] is True
 
 
+def test_source_planned_early_climax_is_a_pacing_warning_not_a_format_failure():
+    contract = _contract()
+    foundation = _foundation(contract)
+    volume = foundation['volume_contracts'][1]
+    volume['climax_chapter'] = contract.volumes[1].chapter_start + 3
+    bound = bind_foundation_serialization(foundation, contract)
+    report = evaluate_foundation_plan(bound)
+    assert report.status == 'passed'
+    finding = next(f for f in report.findings if f.code == 'early_volume_climax')
+    assert finding.severity == 'warning'
+    assert finding.chapter == volume['climax_chapter']
+    assert finding.volume_id == volume['volume_id']
+    obligation = next(o for o in bound['volume_contracts'][1]['obligations'] if o['kind'] == 'climax')
+    assert obligation['due_chapter'] == volume['climax_chapter']
+
+
 def test_long_form_audits_every_five_chapters_and_at_volume_boundaries():
     contract = _contract(62)
 

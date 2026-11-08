@@ -1,0 +1,95 @@
+{
+  "source_sha256": "f15f1f093d2c6519d270399111c013121be10d3ba5e4ca1a22494d9fc5c873ac",
+  "source_bytes": 12170,
+  "active_version": 2,
+  "record_count": 41,
+  "unchanged_other_records": 40,
+  "historical_version_preserved": true,
+  "public_taxonomy_unchanged": true,
+  "stages": {
+    "brainstorm": {
+      "context_bytes": 36456,
+      "romance_sections": [
+        "核心承诺",
+        "故事机制",
+        "发散空间",
+        "组合原则",
+        "场景与表达",
+        "简介与兑现"
+      ],
+      "sha256": "b834746c02f29a74fcc2a1b3b43659be5dc7d93e869b4c57f7c7c48b5b5037a1"
+    },
+    "story_design": {
+      "context_bytes": 36441,
+      "romance_sections": [
+        "核心承诺",
+        "故事机制",
+        "发散空间",
+        "组合原则",
+        "场景与表达",
+        "简介与兑现"
+      ],
+      "sha256": "e6a517e84d0ac8bb7f77200c2809c9da583ddbe0a24693e624cf54ba449311e5"
+    },
+    "chapter_plan": {
+      "context_bytes": 27510,
+      "romance_sections": [
+        "核心承诺",
+        "故事机制",
+        "组合原则",
+        "场景与表达"
+      ],
+      "sha256": "04f7e9f9575ad82342dd44f9da263cd1f57bf15f3d2c975d9bd1470a727652df"
+    },
+    "draft": {
+      "context_bytes": 27511,
+      "romance_sections": [
+        "核心承诺",
+        "故事机制",
+        "组合原则",
+        "场景与表达"
+      ],
+      "sha256": "7f0d2e0a7cec318c4c3d8d081cebb03102b47925e5ff30b55b3ee7059fc671e2"
+    },
+    "review": {
+      "context_bytes": 27543,
+      "romance_sections": [
+        "核心承诺",
+        "故事机制",
+        "组合原则",
+        "场景与表达"
+      ],
+      "sha256": "092d630740d59b1baac8c04c99fd6ad03e0c19ec008e8ce5deaf485105db2c64"
+    },
+    "publication": {
+      "context_bytes": 12642,
+      "romance_sections": [
+        "核心承诺",
+        "简介与兑现"
+      ],
+      "sha256": "ef8b7e89e73f708b42e2347d24471b640188836c770535ae5595ea09c5b5ae8f"
+    },
+    "cover": {
+      "context_bytes": 11678,
+      "romance_sections": [
+        "核心承诺",
+        "封面表达"
+      ],
+      "sha256": "a976faf4a7dd9f16e5dc48a752b909a17926259e171caefc875d645aa2b93662"
+    }
+  },
+  "mixed_legacy_tag_bytes": 24135,
+  "mixed_legacy_tag_verbatim": true,
+  "real_model_calls": 0,
+  "import": {
+    "items": [
+      {
+        "id": "genre.romance",
+        "action": "replaced",
+        "version": 2,
+        "source_sha256": "f15f1f093d2c6519d270399111c013121be10d3ba5e4ca1a22494d9fc5c873ac"
+      }
+    ],
+    "backup": "import-backups/a53b6dfda9eaee99df8eebc350d04112b190234157155e06f6ceb46504cb82cf.json"
+  }
+}

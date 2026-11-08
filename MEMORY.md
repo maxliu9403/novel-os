@@ -1,5 +1,648 @@
 # Novel OS 项目记忆
 
+## 2026-11-08：通用源码换机部署整理，未重启服务
+
+用户最终选择现有deploy.sh源码构建，不以镜像搬运为主路径。当前42项有效知识（1 Genre/41 Tags）和书名提示词逐字同步resources；冒险此前仅在运行工作区。私有资料包保留206历史版本和启用/草稿/修订状态。scripts/export_creation_library.py只读导出有效资料与全文；scripts/portable_data.py提供带SHA的稳定窗口快照、SQLite backup及拒绝覆盖/路径越界的恢复。sync_skills补齐第四个novel-corpus-study。Docker Python依赖采用当前运行版本requirements.lock，前端lock不变，构建包含scripts。
+
+94项相关回归、前端构建、完整源码Docker构建及禁网恢复检查通过（42项/206版本/4Skills/health200），无模型调用。新镜像portable-source-20261108仅验证未部署。原工作分支保持，建立codex/migration-baseline-20261108迁移基线与Git bundle；不切换/合并旧分支，不推送远端。文档docs/deployment/machine-transfer.md和docs/reports/2026-11-08-source-deployment-handoff.md。
+
+3dca3ffb8137由用户恢复后，迁移核对时已再次failed/outline（updated_at07:55:57Z）：Chapter1及完整review dependencies超连接上限。已告知用户，本轮没有重启、暂停或恢复任务。两次运行中全量数据快照检测写入变化已拒绝；确认全系统无活动任务后16:03:02+08成功捕获33919文件/3038181470字节完整检查点。迁移资料在ignored migration-packages/novel-os-source-transfer-20261108；ARM64镜像仅本地备份，不随主要源码交付。Gemini网关扩容源码与数据库另带，不能切回上游latest；账号/密钥私有保存，不能进Git。网页MD修改后不会自动更新源码默认MD，须再次导出核对。
+
+## 2026-11-08：3dca3ffb8137 空来源引用与分卷节奏门修复，已部署5174
+
+附件扩容后的全局修正请求已返回，非容量问题。两份60章全局回复均56章source_anchor_ids=[]；初次先报一处引文非精确，修正后才报空引用。新增planning_source_anchors，用共享严格章节解析从已确认骨架绑定缺失/空引用（chapter_locator、标题、章号、原文字符区间、源哈希ID），细纲继承同章已验证映射。定位不是语义证据，不改剧情；未知/坏类型/重复引用、定位冲突和篡改仍拒绝。旧回复/提示哈希/修正次数保留，恢复不重做全局生成。
+
+全链路回放还发现第二卷21–45章高潮32被旧“最后35%”硬门阻断；改为卷内整数范围校验，百分比移到long_form_quality警告，保持原剧情、衔接与语义核查。186项相关回归通过；真实任务临时副本及禁网镜像回放复用两份回复，60章剧情不改，进入1–4章细纲前停止，137461字节含预留，真实模型调用0。
+
+发布前20作品/10讨论/2来源及全部封面无活动任务；只部署5后端模块，前端/网关不动。五文件SHA一致，5174页面/API200、healthy；20042份业务JSON/输入骨架哈希不变。任务仍failed/outline、can_resume=true，用户刷新恢复。镜像source-anchors-20261108，回滚before-source-anchors-20261108。报告docs/reports/2026-11-08-planning-source-anchors.md，私有证据/private/tmp/novel-anchor-20261108/，未提交Git。尚未生成的细纲/正文质量不作通过承诺。
+
+## 2026-11-08：Gemini 附件容量协议已接通，130495字节修正请求可恢复
+
+3dca3ffb8137的初次全局规划已返回，新的失败发生于global-format-correction：118400用户+11071系统+1024预留=130495，被旧128000本地检查拦截。前次初次规划减重未能覆盖实际修正回复增大后的输入。
+
+用户授权修改 /Users/max/OpenSource/gemini-web2api-go。网关已有附件上传，但内联约130KB、附件约160KB有上游可读边界，不能任意调大max_prompt_bytes。增加gw2a.context.v1能力查询与bounded-attachment-v1显式请求协议，文本完整上传、总量156000字节保护，同账号/出口，无超长内联回退。Novel适配器仅长纯文本查询能力，旧网关/无能力仍128000；设置说明同步。大纲核查窗口保留保守128000分组。
+
+146项Python回归、网关go test ./...、前端构建通过。真实失败请求候选镜像禁网回放逐字保留；另一次151024字节（含预留）合成请求经实际Gemini网关25.6秒返回5/5首中尾随机标记。不能据此声称更长输入、全书理解或文学质量通过。未发送小说正文重新创作。
+
+已部署网关与5174后端/前端，标签分别gemini-web2api:bounded-context-20261108（别名local）、novel-os-backend:gateway-context-20261108、novel-os-frontend:gateway-context-20261108；各有before-...回滚标签。网关新增docker-compose.override.yml固定本地镜像并保留源码构建，未改用户原compose、凭证/模型配置。20028份原业务JSON/骨架哈希不变。原任务failed/outline、can_resume=true，由用户恢复，未自动调用。证据/tmp/gw-context-20261108；报告docs/reports/2026-11-08-gemini-bounded-context.md。未提交Git。
+
+## 2026-11-08：正文任务3dca3ffb8137输入超限已修复并部署5174
+
+新任务在planning.global_design本地133531>128000字节被拒，未发到Gemini；不是思考或服务异常。完整骨架、Genre/Tag、来源分析叠加，加上分类/篇幅合同三处重复及七份公共规则重复。planning_context无损归并相同工程合同与结构化资料相同段落，完整故事和冻结文件不改；自由Markdown不拆。实际60章请求降至122528字节，原作分析、作者决定、全部故事原文保留，brief/Tag可精确恢复。
+
+同时为超限的大纲核查增加容量预检和分组：完整全局设计/章序保留，相邻章重叠，全组完成且无阻断才通过，逐组保存可恢复；不是重新引入正文阅读评议。格式纠正不重复Genre写作指导，保留原始来源/决定/完整回复，仅修格式。无静默截断或提高网关上限。
+
+206项回归通过，真实任务临时副本及禁网候选镜像回放通过。确认无活动任务后仅发布4后端模块；前后端healthy、5174页面/API200、18928份业务JSON未变。任务仍failed/outline、can_resume=true，用户刷新恢复原任务即可；没有真实模型调用或自动恢复。后端sha256:4d779fac2401d0644b5963483ca4a1bf1ef05d560502e44a58540954f290f152；回滚novel-os-backend:before-planning-budget-20261108。报告docs/reports/2026-11-08-outline-input-budget.md，私有证据/private/tmp/novel-planning-budget-20261108/，未提交Git。此前工作坊52482a7186d0已由用户确认并启动为本任务，不再是下条记录中的prepared为空。
+
+## 2026-11-08：新版六节骨架确认书名兼容修复已部署5174
+
+任务52482a7186d0第41版确认书名报“骨架必须包含唯一的封面交接块”：story-first.v1本来就不生成旧封面JSON，rename_prompt却沿用必填旧块规则。新版格式明确且两个旧标记均不存在时只更新顶部书名；如果包含任何封面标记仍严格验证唯一、完整与内容，并同步其title。旧/未知格式不放宽，重复或单边标记也拒绝。没有补写虚构封面JSON、修改故事或重调模型。
+
+新增16项回归先复现故障再修复，覆盖短篇/长篇/分卷/系列：真实render→命名→prepare→重复确认→launch入口→封面工作室读取最终书名（创作模型/写作runner替身）。合计141项相关回归通过，系列合同、章卡、讨论与输入不变。真实60章骨架临时副本及禁网候选镜像回放均通过，仅Title变化。上次测试遗漏新版骨架改名链路，本轮已补足。
+
+任务空闲后只发布api/workshop_titles.py至5174；页面/API200，运行SHA一致。18,908份已有讨论/来源/作品/类型/提示JSON未变，实际任务仍ready/revision41、prepared为空、三轮命名保留；没有自动确认书名/启动正文。用户刷新后重按“确认书名并生成命令”，不必重做骨架或命名。回滚镜像novel-os-backend:before-story-title-20261108；报告docs/reports/2026-11-08-story-first-title-confirmation.md；私有证据/private/tmp/novel-story-title-20261108/。未提交Git。
+
+## 2026-11-08：书名改为直白叙事、15 单位上限，已部署 5174
+
+作者反馈 v1 候选仍是三四词隐喻名，成熟读者难看懂。命名默认提示 v2 改为英文优先8–15词、中文10–15字，直白呈现关系/行动/冲突；不看推荐理由也应能理解故事看点。目标区间为创作指导，不设硬最低长度、不凑字、不固定句式、不绑定Genre。候选由代码限制15：中文汉字逐字、英文按词，混排合计，标点不计，撇号留词内、连字符分词；超长走现有最多一次格式修正，禁止截断。作者手动最终书名仍可自由编辑，旧候选不追溯作废。
+
+112项相关后端测试通过，隔离禁网候选镜像检查通过。运行任务为空后仅发布两文件后端；5174页面/API200，运行文件SHA一致。活动工作区提示经API新增v2，v1保留（无用户自定义修改被覆盖）。18,905份讨论/来源/作品/创作类型JSON校验未变，52482a7186d0仍ready/revision39、两次命名记录；未调用真实模型或自动重推。需作者点击“按要求重新推荐书名”验收新候选。回滚镜像novel-os-backend:before-title-clarity-20261108；提示回滚须另行显式载入并保存历史版。证据/private/tmp/novel-title-clarity-20261108/。
+
+## 2026-11-08：通用轻量书名设计与提示词编辑已部署 5174
+
+命名改为独立能力，不绑定 Genre。`core/title_context.py` 从已确认六节/旧十七节骨架提取完整故事主线、人物/关系、限制、结局防剧透边界与第一章，去除全书章卡、原始构想、聊天、Tag全文、旧候选理由及工程合同；保留全部作者命名要求和定向修改起点。无新增摘要模型调用，正常一次推荐五个不同切面；仅格式错误可修正一次，共用截止/取消。代码验证候选形状、规范化去重、来源ID；最终采用与 metadata/封面/启动命令同步仍由代码及作者确认处理，不能把有效引用ID等同文学真实性或保证CTR。
+
+新创作提示 `resources/system-prompts/title-design.md`（2,306字节）强调具体冲突、反差、情绪和诚实承诺，不设固定句式矩阵或硬编码女频/年龄/题材。作品类型 `/creative-types` 顶部“书名设计提示词”入口，阅读预览/Markdown/版本记录；未改隐藏保存，成功系统弹窗；历史版本先载入草稿再保存新增版本。`core/system_prompts.py` + `api/system_prompts.py` 独立工作区版本库，12,000字节提示词上限、修订号、幂等保存、原子写入；首次实际使用冻结内置版，命名提交冻结完整提示/内容/hash和精简故事资料，编辑不影响在途调用。API GET/PUT `/api/system-prompts/title-design`，数据 `<data>/system_prompts/<workspace>/title-design.json`。不复用 Genre/Tag 记录，也不影响H5分类。
+
+99项后端+87项前端相关回归通过，相关lint/生产构建与禁网候选镜像烟测通过。8份真实会话离线对比：输入字节减少67.9%–83.2%；52482a7186d0同状态请求52,806→8,861字节（不是实际token账单或实测耗时）。真实模型调用为0，文学效果待作者下一轮验收。
+
+13:08 +08:00 发布前任务空闲后部署前后端至5174，healthy，7个后端文件SHA一致。浏览器验证入口、编辑和未保存提示以及桌面/窄屏布局。594份已有讨论/来源/类型文件不变；52482a7186d0仍ready/revision37，未自动命名。回滚标签before-title-design-20261108（前后端各一），报告docs/reports/2026-11-08-title-design.md，私有证据/private/tmp/novel-title-design-20261108/。本轮未提交Git，保留原大批未提交改动。
+
+## 2026-11-07 21:55：分卷格式修正二次超限已修复并部署5174
+
+52482a7186d0 revision27真实回复离线精确复现：首次121082字节已返回，narrative_format多包一层multi_volume，被报顶层缺字段；整套创作上下文+完整回复进入修正导致128565>128000。前次普通请求投影漏了修正路径，不是新Tag串入。示例已改直接合同对象；无歧义包装本地无损解开，完整域校验保留。真正格式缺字段走独立NarrativeFormatRepair，只提交当前全局故事/合同/约束/错误，代码仅合并narrative_format，保护故事与有效结构；沿用两次修正、截止/取消/私有收据。章节阶段去除不需要的分卷输出示例。未提高限额。
+
+176项相关回归最终通过，旧协议8项基线失败已证明是夹具未冻结旧协议并修正。候选镜像禁网真实回放121050/117928字节；额外缺字段故障注入的修正10619字节。保存的真实包装回复无需额外格式修正调用；只验证工程完整性，未重做真实创作。发布前讨论/正文/来源/封面空闲；21:54:56后端重建healthy，4模块SHA一致、505份讨论文件不变。任务仍error/revision27，用户可刷新手动重试，无真实模型调用。回滚novel-os-backend:before-format-repair-20261107；报告docs/reports/2026-11-07-workshop-format-repair-budget.md；私有证据/private/tmp/novel-repair-budget-20261107/。其他超大创作请求仍有明确输入上限，不能宣称所有修正都无限可用。
+
+## 2026-11-07：其余 36 个 Tag 方法论重写已在 5174 启用
+
+用户指定其新改的动作、冒险、出轨、黑暗浪漫四份活动文档作为格式参照。四份及 Romance 未修改；其余36份改为自由Markdown v3，按定位/人物动力/推演方法/表达与发散/融合/自检/简介封面组织，分别编写机制，避免固定章序、回合数、循环和正文机制结算。沿用已确认年龄与尺度约定，保留来源年龄；不强制悲剧HE或把后悔等同复合。参照四份存在固定循环/输出结算/视角与年龄口径差异的建议仅记入设计文档，未擅改原文。
+
+默认资源同步36份，活动库通过现有import_documents原子追加版本；ID/名称/别名/Genre关联/roles/公开分类未变。36文件107898→103497字节；v3全文投影使部分组合略增，不能宣称所有请求更短。最长20Tags+Romance知识上下文90876B，仍不代表整个LLM请求小于网关上限。
+
+88项回归通过，真实副本252项全文阶段+252项旧快照哈希检查通过；线上36版本逐项一致、5份保护记录与380个讨论文件不变。无重启/真实模型调用，原容器healthy。新讨论使用新版，已有讨论/小说保持冻结版本。报告docs/reports/2026-11-07-tag-writing-methods.md；设计docs/design/2026-11-07-tag-writing-methods.md；证据docs/reports/evidence/2026-11-07-tag-writing-methods.json；原稿resources/knowledge-imports/romance-methods-before-20261107/。文学效果尚需真实作品验收。
+
+## 2026-11-07 16:15：已有骨架请求减重已部署 5174
+
+用户要求优先减重骨架并查清 Gemini/本地网关限制。网关源码默认 max_prompt_bytes=128000，历史网页通道实验约130KB后不稳定、附件约160KB可见；不能用调大本地数值冒充模型容量提升。本轮未改 Go 网关，Novel OS guard 从120000改128000（仍含1024封装预留）。新增可信 LLMInputLimitError / input_limit 分类，页面显示实际字节、上限、未发送和结果保留，不再误报模型配置。
+
+story-first 已有六节骨架再次交付使用纯函数阶段视图：全局阶段读全局原文+全部章节标题+完整对话；章节阶段读全部章节原文+刚完成全局设计+所有用户原话/最新助手回复/已采纳提案/待定事项/来源资料。旧模型探索消息仅在章节阶段用明确占位替代，索引不变；旧地图由最新全局设计代替。完整骨架/冻结知识不改。未知布局、缺章、坏合同等回退完整输入；首次交付不裁剪。紧凑JSON去包装空白，交付仍本地整合。
+
+任务52482a7186d0真实数据断网回放：旧请求154589字节，新两阶段120829/121977（含预留）；60章42956字节骨架与versions/23.md逐字一致。相关51后端、31设置页测试与构建/lint通过，候选镜像断网回放通过。16:15前后端healthy、6模块SHA一致、463份讨论文件SHA不变；任务仍error/revision25，未自动重试、无真实模型调用。回滚标签before-context-slim-20261107。报告docs/reports/2026-11-07-workshop-skeleton-context-slimming.md。离线验证不等于新模型文学质量或上游全文读取保证；真实新设计继续增大仍可能明确超限。
+
+## 2026-11-07 15:40 失败排查：再次生成骨架超过 Gemini 网关输入上限
+
+52482a7186d0 revision24/25 在请求层0.004/0.002秒失败，实际未发送模型。运行镜像内只读重建revision25用户上下文145769字节，与日志一致；系统7796+预留1024，总154589，超过本地gemini_openai的120000字节上限。离线禁止网络客户端复现确切GatewayError；当前reasoning_effort为空、前后端healthy。旧骨架JSON值44201字节，与完整对话29966、设计50792（Genre/Tags42060）、来源16733同时重发导致膨胀。story-first再次交付从全局设计重新开始；_failure又把本地长度异常隐藏成检查模型配置。
+
+versions/23.md原始42956字节与当前prompt_md SHA相同，任务error/revision25。建议可信本地错误分类、发送前预算校验、已有设计按阶段复用/消除重复，不能静默删故事或仅放大阈值。本次只读排查，未修复/重启/真实调用；报告docs/reports/2026-11-07-workshop-gemini-input-limit-diagnosis.md。
+
+## 2026-11-07 15:31：写作资料阅读排版与粘贴修复已部署5174
+
+用户第6版dark_romance在V3正文嵌入完整V2头，Markdown将其渲染成Setext大标题。共享KnowledgeMarkdownPreview分开折叠文件信息、优化标题/列表/表格/引用与阅读宽度；当前/历史版本统一，摘要不再显示元数据。全选粘贴完整文件经无写入prepare验证身份并提取正文；不同身份拒绝隐式覆盖，保存仍由作者点击。服务器编辑入口解开同身份重复文件头，原始创作正文保持相同。
+
+19后端+12前端测试、类型/lint/build通过；隔离真实副本桌面/手机及粘贴保存验证通过且服务已停止。15:31前后端healthy，线上预览7节无元数据标题，109份真实数据SHA不变，无模型调用。旧嵌套记录未自动改写，只做显示投影，后续编辑保存才整理。回滚标签before-reader-format-20261107；报告docs/reports/2026-11-07-knowledge-reading-format.md。
+
+## 2026-11-07 15:16：自由 Markdown 资料维护已部署5174
+
+用户指出格式固定、操作复杂。新增作者入口与冻结格式分离：/api/creative-types/prepare无写入解析身份/封装；无文件头时只补名称、Genre/Tag及关联，或明确替换现有资料；编辑器仅编辑正文，不要求手写YAML。新的novel-knowledge.v3允许前言、任意标题/层级、重复标题及普通文本；程序只升级元数据，正文不改。导入先预览，保存并启用才更换活动版本。
+
+knowledge-compiler.v4完整传递自由正文到七阶段，按当前任务应用创作要求，资料不能覆盖输出协议或把结算说明混入小说正文。旧v1/v2/raw与冻结输入仍按原规则，未自动迁移活动库。24KiB文件/96KiB组合上限、身份关联/分类/版本/哈希校验保留，无静默截断。
+
+113后端+9前端测试、类型/定向lint/构建通过；用户黑暗浪漫原文件临时导入及七阶段字节验证通过；隔离浏览器1440/390验收通过且服务已停止。15:16前后端重建健康，线上原文件prepare成功，4模块SHA一致，109份真实数据文件不变。未自动覆盖Tag或启动模型。回滚镜像before-freeform-knowledge-20261107。报告docs/reports/2026-11-07-freeform-knowledge-markdown.md。
+
+## 2026-11-07 13:45：分卷骨架 KeyError 已修复并部署 5174
+
+用户授权修复。NarrativeFormat/VolumeSpan/LongFormSuitability反序列化先统一严格验证嵌套结构，聚合缺字段与错类型为带路径的ValueError，进入DeliveryError有限修正；不编造故事默认值，保留分卷连续性/章数/系列身份/哈希检查。阶段提示改为嵌套narrative_format而非最终Markdown标记；定向补结构，维持两次修正与原超时预算。
+
+新增私有stage-responses/<revision>-<attempt>.json，在解析前保存最终回复及哈希、后记验证错误或安全异常帧；0700目录/0600文件，按revision/job围栏写入，4MiB上限；不暴露公共API、不作为已验证故事复用，不保存请求凭证或私有推理流。内部代码错误不再误报模型配置。
+
+140项相关回归通过；最终存储遥测调整后33项直接相关测试再通过。真实52482a7186d0副本离线48章不等分卷回放：一次定向修正后完成三个阶段、完整讨论保持；生产Python3.11镜像冒烟通过。13:45后端与前端均healthy，5个运行模块SHA一致、页面/API200、34份讨论/骨架输入SHA未变。无真实模型调用；任务仍error/revision20，用户刷新后可点“重试本轮”。旧错误无原始回复的历史限制不变。
+
+只发布本次5个后端模块。Docker Hub元数据查询阻塞，终止本次构建后以已验证旧镜像离线完整COPY api/core，未改永久Dockerfile或依赖；回滚标签novel-os-backend:before-narrative-fix-20261107。当前后端sha256:bbc12e82ace767bcbd6534a097a1f6e95e7b16675705106bb02f20274ce376a4。报告docs/reports/2026-11-07-workshop-multivolume-contract-fix.md。下条为修复前排查时点，已由本条覆盖。
+
+## 2026-11-07：52482a7186d0 分卷骨架 KeyError 已排查，未修复
+
+用户截图要求排查。任务48章/800英文词/multi_volume，revision20 intent=deliver，最后12:59:56失败；17–20四轮均收到2次模型回复后在response_parse终止，未保存全局设计检查点。不是没有发请求；“检查模型配置”是通用误导文案。真实快照离线桩回放：完整结构进入chapter_plan，缺VolumeSpan.structural_role直接KeyError；最小parse_stage缺target_words同样复现。NarrativeFormat.from_dict直接索引，parse_stage只捕获ValueError，worker丢弃具体键与堆栈；线上4模块SHA与本地一致，重建system SHA与第20轮收据一致，格式说明确实已提交。
+
+限制：线上失败阶段原始回复未保存、异常键未记录，不能断言本次具体缺哪个字段。建议统一结构校验与可定位错误、保存阶段原始回复/有限定向修订，覆盖分卷/系列内部缺字段测试；不靠默认剧情或重复全量生成。报告docs/reports/2026-11-07-workshop-multivolume-keyerror-diagnosis.md。仅增加诊断文档与记忆，无应用代码、运行数据、模型设置修改，无重启或真实调用；该缺陷仍待用户后续要求修复。
+
+## 2026-11-07 00:56：最新交互修复与知识限定移除已部署 5174
+
+用户明确“重启服务吧”，覆盖此前暂不重启的限制。发布前确认19部作品为18完成/1暂停，11个讨论无运行项，两本来源无活动分析，后端无模型子进程；无需暂停现有任务。52482a7186d0 已于00:39结束为error，本次不自动恢复、不新增模型调用。
+
+统一重读确认弹窗、讨论逻辑删除、有效方案单选恢复、发送内容回显已纳入镜像；前后端分别00:56:35/00:56:41重启并健康。6个后端文件SHA与工作区一致，删除路由已注册，前端实际提供WorkshopLibrary-SYqVkXAd.js及index-CZla5pD0.js；页面/API和19作品/11讨论/2来源查询通过。110个讨论、骨架输入及来源状态文件SHA未变。未做新的浏览器交互验收。
+
+41份当前Genre/Tag经版本化原子导入启用，改动仅删除指定限定语；全部旧版本与公开分类保留，既有冻结讨论不改。知识备份import-backups/1092f449bead5f30689ee7980c35ae0e1b825f7a887df31b55ae1c062eb739e5.json。标准部署同步了novel-brainstorm-workshop Skill并备份，另两套Skill未变。镜像回滚标签before-workshop-ui-20261107；知识与Skill回滚须分别使用备份。报告docs/reports/2026-11-07-workshop-ui-deployment.md。下方“待部署”描述为此前时点，已由本条发布覆盖。
+
+## 2026-11-07：头脑风暴方案按钮与补充回显修复（待部署）
+
+用户截图任务52482a7186d0：两条方案无选择按钮，发送补充后看不到内容。只读核验第4版回复已保存2条有效proposals，但guidance unavailable、pending空；3019字符补充完整存在messages[5]。根因是选择按钮依赖分组信息，默认tab又隐藏所有用户消息。
+
+workshop_story统一从有效分组或2–3条已校验方案构建单选问题，地图失败不再剥夺选择能力；不解析正文猜选项、不自动采用或增加模型调用。共享锁入口恢复尚未回答的旧记录投影，不写盘；已有文字回答/运行/删除/重启/决定不重开。默认页新增发送回执，成功后立即回显，随后以保存消息为准；失败保留草稿。等待回复明确标注处理状态，并折叠上一轮说明。
+
+59项后端、75项前端相关测试通过；TypeScript、定向ESLint、生产构建与diff通过；现场回复内存离线回放恢复2条选择，作者决定不变。报告docs/reports/2026-11-07-workshop-options-and-submissions.md。无真实数据修改、模型调用、部署或重启，用户的“只修改不要重启”仍有效。与前面的删除/统一弹窗/Markdown修改一并等待后续授权发布，线上暂未生效。
+
+## 2026-11-07：移除 Genre/Tag 统一基调中的指定限定（文件已修改，待同步）
+
+用户要求从所有 Markdown 删除指定的权力/试探/算计括号限定。已扫描项目含忽略目录的 Markdown，修改115份：74份 resources/knowledge-imports 的原句，以及41份 resources/novel-knowledge 中表达同一限定的改写句。仅删除该短语，保留各Tag自身的机制、其他基调与边界。此明确新要求覆盖过去“导入原文不修改”的限制；本地历史导入副本现不再与外部原件逐字相同，旧报告的SHA一致结论仅代表当时状态。
+
+外部原件、运行实例持久化知识版本、已冻结讨论及JSON历史均未改；这次只改本地Markdown，在线知识库仍待正式版本导入/启用。没有重启、部署或模型调用。已核验指定短语及对应统一改写在项目Markdown中无残留，文件按原字节仅作目标替换。
+
+## 2026-11-07：头脑风暴记录删除（待部署）
+
+用户要求头脑风暴记录支持删除；此前“有任务运行，只修改不要重启”继续有效。主头脑风暴列表新增删除入口，使用现有系统确认弹窗及成功提示；运行中的讨论不可删除，版本变化要求刷新。弹窗内的历史讨论切换器不提供删除，避免删除仍被当前窗口持有的讨论。
+
+DELETE /api/workshop/sessions/{id}?revision=N 原子保存 deleted_at，所有正常会话访问通过共享锁返回404、列表隐藏；这是逻辑删除，不物理清除内部来源和计费凭证，也没有恢复入口。已生成作品、参考资料、冻结输入与作品累计费用保持可用。JobRunner 在删除期间串行检查活动讨论/封面任务并阻止旧请求再次提交；失败落盘不会错误封锁任务。前端清理匹配的最近会话缓存，不影响其他讨论。
+
+89项后端相关回归、68项去重前端相关测试、TypeScript、定向前端ESLint、生产构建与diff检查通过。覆盖运行拦截、版本冲突、取消确认、重复删除、迟到后台写入、任务提交竞态和关联作品费用保留。本次没有删除真实用户记录、真实模型调用、部署或重启；需后续获准发布后线上才可使用。本条及上条统一弹窗都仍待部署。
+
+## 2026-11-07：参考资料重读确认统一弹窗（待部署）
+
+用户指出“重新读取”使用浏览器原生确认框，要求统一系统弹窗；随后明确有任务运行，只修改、不要重启。SourceStudyPanel 已改用现有 useConfirm / ConfirmProvider，共享系统圆角玻璃面板样式，显示保留历史分析与新增模型用量说明，按钮为取消／重新读取；参考资料页和新建小说内来源选择共用此组件。其余本轮新增知识操作已使用同一确认组件。
+
+6 项相关前端测试、TypeScript、定向 ESLint、diff 检查通过；测试验证取消不发请求，明确确认后仅发一次重读请求。本次没有部署、重启、真实模型调用或触碰运行任务。线上仍为上一版，需用户允许的后续发布才能看到新弹窗。
+
+## 2026-11-06：参考续写规划、来源复用与全库 Tag 升级已部署
+
+完成用户五项需求：新来源分析 source-study.v3 在最后阅读／汇总回复中附加具体续写提案，按视角／核心剧情／看点爽点／钩子／伏笔展示3–6个戏剧单元；旧完成分析可“生成续写规划”复用分析补一次调用，或显式“重新读取”。提案进入头脑风暴但不是已采用事实或完整骨架；已有v2中断任务请求绑定不变。v3原文分组预算100KB给网关封装预留空间，大资料可能增加组数，不能宣称任何输入调用数均不变。
+
+来源分析按SHA保存不可变版本，支持历史选择、重分析中复用旧结果；参考资料展示关联讨论／未完成与已完成作品，作品卡片展示来源链接。新source_versions/source_provenance模块统一版本完整性和轻量来源缓存。Genre/Tags默认阅读预览，历史版本可重新启用，既有讨论和作品冻结资料不变。
+
+40个Tag全部启用新版：35个其余Tag实质性重写去固定十章节拍；此前5个和用户Romance稿保留方法补统一基调。按最新用户确认：原创及新增人物18+，原故事保留既有人物年龄事实，亲密互动仅限成年人；女频情绪回报、主体性、高张力不露骨，各类型结局按自身契约。稳定ID/关联/公开分类保持不变，原文外部文件未改；41份旧稿归档 resources/knowledge-imports/romance-all-tags-before-20261106。Action旧v1从旧运行镜像真实提取保存，不能由新默认稿伪造历史。
+
+183项后端、14项前端通过，构建／定向静态检查／1440与390页面验证通过。37个旧冻结文件未改，11个发布文件SHA一致。部署前任务空闲，5174后端23:39、最终前端23:47启动健康，回滚镜像 before-reference-planning-20261106。知识备份 import-backups/820c528e0f136ea42219366b79da3c252bbd8b5892ce53c381bec82d80896e9b.json。报告 docs/reports/2026-11-06-reference-planning-and-tag-library.md；逐项启用证据 evidence/2026-11-06-reference-planning-tags.json。本轮无真实模型调用，两本旧资料未自动补规划，文学质量待用户下一轮测试；现有来源1个关联讨论、0个关联作品，不猜测历史作品来源。
+
+## 2026-11-06：来源回复代码块兼容与零调用恢复已部署
+
+用户先只读排查、后要求“高阶修复”。A Contract with the Billionaire来源99b028…在21:58收到Gemini完整JSON代码块，但source_study裸json.loads拒绝；恢复prepare也会归档可用回复后重复调用。已统一parse_analysis_response供首次/合并/恢复使用，完整单个代码块可接受，内部字段仍严格；拒绝附加文字、多对象、重复键等。检查点读取/哈希统一，损坏记录不进入格式重试。SYSTEM与合同不变，未更改模型档位或阅读范围。
+
+88项相关回归通过（23新增边界/恢复），真实副本与发布镜像断网回放通过；无任务运行后部署，后端22:22重启健康。已用保存回复恢复真实来源为complete 1/1，0次新模型调用，原始检查点字节不变，摘要及续写状态通过前端API验证。旧失败状态备份在来源study/history/response-recovery-20261106；报告docs/reports/2026-11-06-source-response-recovery.md。回滚镜像before-source-response-20261106。
+
+本次镜像亦纳入上一轮已热启用的Romance v2资源，因此当前运行镜像默认文档现已与仓库一致；下方“镜像内置仍旧稿”是上一轮当时状态。未启动新小说/真实模型，不宣称分析语义或文学质量已验证。
+
+## 2026-11-06：Romance 用户新稿已按确认评审启用 v2
+
+用户提供完整 Romance 说明并同意评审后执行。已更新 resources/novel-knowledge/genres/romance.md 为 novel-knowledge.v2：主动欲望、关系期待、伏笔与情绪回报；放松逐场代价/双层对白/独立必有事业/初遇非你不可等机械限制，保留强烈戏剧冲突与艺术化封面。组合例子是启发，Synopsis可明确主CP。公开身份/分类不变，当前工作区仅Genre更新，其余40条未变。
+
+已通过现有原子资料导入热启用到5174（v2），无重启、无真实模型调用、未改生产引擎代码；运行镜像内置默认仍旧稿，当前持久化v2覆盖它，后续正常镜像构建会带入仓库新版。旧v1归档 resources/knowledge-imports/romance-genre-before-20261106，工作区版本历史完整；已有讨论/正文保持冻结资料，新讨论选新版。
+
+106项相关测试、线上七阶段投影/原文SHA/旧历史与公开分类/混合旧Tag验证通过。正文只取执行分节，研究依据不注入。报告 docs/reports/2026-11-06-romance-generative-genre.md，备份 import-backups/a53b6dfda9eaee99df8eebc350d04112b190234157155e06f6ceb46504cb82cf.json。未进行文学试写，不宣称质量已获真实读者验证。
+
+## 2026-11-06：五个生成式 Tag 已启用并部署 5174
+
+用户批准方案并指定 Action、Dark Romance、Possessive、Badboy、Age Gap。Action 为表头中的项目，按五个 Tag 解释并告知。已新增 Action v1，更新 Dark Romance v3、Possessive/Badboy/Age Gap v2，均关联 Romance；当前库41条，36条其他记录未变。源35文件保持字节不变，四个原启用稿另存 resources/knowledge-imports/romance-five-tags-before-20261106，旧版本与公开分类 revision 保留。
+
+新版文件在 resources/novel-knowledge/tags，采用 novel-knowledge.v2 + 1–3 roles；六分节加封面表达。移除固定十章节拍/场地/统一构图，保留经典戏剧机制和实际情绪回报，区分五者作用；Age Gap 不再复制暗黑控制套路。core/knowledge_guidance.py 是 knowledge-compiler.v3 的冻结解释，未来修改需新编译版本。探索含发散，正文/规划/联合审稿只取执行分节；老 YAML/v1 原文编译输出与既有冻结选择保持不变。现代 Workshop 真正请求及 creative_execution 交接已验证；不新增模型调用，不迁移已有任务。
+
+后端105、前端6项通过，构建与 lint 通过；线上五份下载 SHA/七阶段预览、历史版本及36条未选记录核验通过。实际页面年龄差阅读预览显示作用，控制台无错误告警。部署前无活动任务，双服务健康；本轮无真实模型创作，所以文学质量待作者试写。备份 import-backups/a916918c8c95c8271326425e2d12b803e27d180d1418dd43e36ca4f8dc6d0554.json；回滚镜像 before-generative-tags-20261106。交付 docs/reports/2026-11-06-five-generative-tags.md，格式 docs/design/genre-tag-studio-v1/generative-tag-markdown.md。其余 Tag 仍旧格式，混选时旧强制节拍仍输入；不要宣称全库升级、跨书去重或自动保证质量。
+
+## 2026-11-06：Genre/Tag 去固定节拍详细方案（待确认，未实施）
+
+用户担心同类作品被「前10章强制节拍」固定，要求先给详细设计。已核对35文件的节拍功能列只有12种序列；这不是整文重复或成书质量证明。方案 `docs/design/2026-11-06-genre-tag-generative-design.md`：保留原始文档与冻结版本；拟用六分节 novel-knowledge.v2 + Tag贡献roles，区分类型核心/默认倾向/可选机制；阶段编译v3减少无关输入；现代讨论入口提出差异路线，本书因果与容量决定节奏，已采用骨架约束正文。正文/联合审稿不再读取发散模板，封面与Synopsis也去固定表现。沿用现有地图、章卡、导出协议，不增加M3或常规模型调用。跨书历史摘要比较是后续可选增量，首阶段不宣称全库去重。
+
+文档包含Betrayal代表示例及实质内容变更说明（包括背叛与复仇的解耦），仅供作者审核。拟先审核5份代表稿再全量编辑并工程/真实对照验收。此次只新增方案与记忆；没有修改原始Tag、启用库、代码、模型配置、现有小说或部署，也没有真实模型调用。用户先前的「不修改原文」仍通过原文归档和旧版本保留；不能把本方案当成已获启用授权或已实现状态。
+
+## 2026-11-06：35 个 Romance Tag 原文导入并部署 5174
+
+用户要求导入 `/Users/max/workspace/goodnovel/GoodNovel_Romance_35_Tag_Prompts/Romance/tag_prompts` 全部 Tag，重复覆盖、正文绝不修改；改进限制仅建议，未经同意不加入。已导入启用35份：覆盖9、新增26，保留 Romance 与 Second Chance，现1Genre+36Tags。源README仅索引。原文副本在 resources/knowledge-imports/romance-35-tags；不要运行格式化器改这些文件。原文件/仓库副本/生产下载 SHA 全同，Affair 是11100字节的增强版本。
+
+core/creative_types 支持无YAML的 tag-prompt.v1（双语H1+引用行关联Genre），英文名规范化为原有下划线稳定ID。新格式完整Markdown作为模型context，不丢人物/场景/节拍/自检/前言；只装载所选Tag。旧YAML和旧快照投影保持v1，新格式编译v2。文档预算不变，超限不截断。core/knowledge_import 提供原子批量导入、revision并发核对、备份及同内容无副作用。旧v1保留、新重复项v2启用；不自动迁移已有作品冻结资料。维护页面原文预览支持全部分节/表格。
+
+后端87相关测试、前端5测试、生产构建及线上35文件下载/七阶段预览通过。5174前后端健康，部署前无活跃任务，本轮无真实模型调用，未验证文学产出。报告 docs/reports/2026-11-06-romance-tag-import.md，逐文件证据同目录 evidence/2026-11-06-romance-tag-import.json。备份在 docker-data/creative_types/default/import-backups/b92f294a47df1eaf436bdf8c71e1c17f23d21b052ff4950603e65588a11ad342.json。建议仅在报告：主辅Tag分工、固定场景改功能、原创限制与原故事推演分开，均未写入提示词。
+
+## 2026-11-06：Gemini 网关 OpenAI 格式接入已部署 5174
+
+用户改为要求地址+Token的OpenAI协议，提供网关项目 `/Users/max/OpenSource/gemini-web2api-go`。只读审阅该项目；新增 gemini_openai 连接适配，原生 gemini 独立保留。GET /v1/models过滤媒体，流式chat/completions支持完整结束校验、取消进度和图片理解；思考由完整模型ID决定，禁用被网关忽略的 reasoning_effort / max_tokens。测试提供短响应与16/64/100/112KB合成材料五处精确读取，无真实小说自动上传或模型调用。响应model为回显，不能证明实际型号；网关usage为估算，reasoning单列后计入总量。
+
+重大边界：网关默认128000字节内联阈值，源码实验注释记录附件约160KB读取上限，实际代码未限制原始附件总量。Novel OS保守120000字节含1024封装预留，超限发送前拒绝，不截断或转附件。19本骨架11本单文件超120KB，中位132125、最大215672；不能把此网关视为全小说默认大上下文方案。Docker可达 `http://host.docker.internal:8083/v1`，无鉴权状态4.27.0/17ID；用户尚未提供Token，鉴权、长输入和文学能力未实测。不要读取网关私密配置/账号；未改网关源码。
+
+后端196回归+最后16网关复核（15重叠）、前端38通过，构建/静态检查/1440与390px浏览器通过。任务全空闲后部署，七文件SHA同宿主，9路由仍configured，设置SHA不变。旧镜像before-gemini-gateway-20261106。生产新入口已验证，旧浏览器缓存需强刷或settings?build=gemini-openai-20261106。报告docs/reports/2026-11-06-gemini-openai-gateway.md。无真实模型/小说修改/提交推送。
+
+## 2026-11-06：设置四页统一、原生 Gemini 已接入并部署 5174
+
+用户要求四个设置标签沿用作品库风格、移除右侧预览、接入 Gemini、核实无用模型角色。本轮已完成并部署到 localhost:5174，也一并发布此前本地验收完成的 story-first 工作流（下方原“未部署”记录为当时状态）。发布前两次检查正文／讨论／来源分析／封面任务均空闲，无模型 CLI 子进程；未启动真实模型、恢复小说或修改模型选择／推理档位。
+
+设置为单个浅色面板；文本路由主要展示默认写作与头脑风暴，其余真实调用收进高级覆盖。architect/writer/guardian/editor/style/cover_director 仍用于规划、写作、联合审稿、条件修订、出版文案和封面。judge 在历史流程可用于英文试读窗口，历史策略默认 advisory；新 story-first 章节不调用它，不能误报为全局默认关闭。已移除 SettingsInspector 和空白图片预览侧栏，真实测试图仅在生成后内联展示。发现并修复 Nginx SPA 入口缓存旧 HTML 问题：index.html 发送 no-cache,must-revalidate；哈希资源保留正常缓存。
+
+core/gemini_provider.py 统一 Google Gen AI SDK 原生 Developer API：API Key、模型分页、流式进度、模型适配思考参数、图片理解、完整结束检查和原生长输出续传。继承路由整体校验不受支持档位；2.5 思考预算不能挤满输出上限。续传为同一生成，累计用量不重复记账。不包含 Gemini 出图或 Vertex/ADC；账户模型权限尚无真实 Key 验证。requirements google-genai>=2.34.0,<3；实际镜像 2.34.0。费用沿用可配置单价与人民币估算。
+
+最终生产镜像派生断网测试容器后端218项通过，Settings/Pricing前端36项通过；构建、ESLint、语法、diff通过。四标签1440/390px离线浏览器通过；部署后实际四标签无JS错误／告警，健康检查通过，六个关键后端文件SHA与宿主一致，原有九个路由均configured。未做真实模型质量或性能实验。说明 docs/reports/2026-11-06-settings-gemini.md；日志 /private/tmp/novelos-settings-production-regression.log、novelos-settings-deployment.log。旧镜像保留 novel-os-backend:before-settings-20261106 / novel-os-frontend:before-settings-20261106。前置源码快照 /private/tmp/novelos-settings-before-20261106/。工作区其他未提交改动保持不变。
+
+## 2026-11-06：故事优先工作流已实现、离线验收通过（未部署）
+
+用户批准系统级优化并要求清理重复／补丁逻辑。本轮在 `codex/novel-quality-optimization` 实现新 `story-first.v1` 流程；未重启、部署、改现有小说或启动真实模型。详细记录 `docs/reports/2026-11-06-story-first-engine-implementation.md`，设计文档已更新实施状态。以下早先“未实施”段落是历史记录。
+
+新来源入口为原创构想／原故事推演／改编重写。`core/creation_mode.py` 统一意图；source-study.v2 增加已知终点、人物状态、知情边界、未决线索、世界规则和资料缺口。来源上下文以 creative-handoff.v3 贯穿骨架、正文、审稿和参考封面。旧 reference_creation 保持独立创作含义；旧完整分析可读但没有新续推状态，不自动重分析或改写已采纳路线。
+
+新讨论返回本故事段的可读章卡并用 base_revision 合并地图变化，未定节点保持提案；未决大选择仍阻止宣称收敛。`core/story_design.py` 把两次语义整理保存的全局设计和完整章卡确定性编译成六部分骨架，取消六次模型整合。作者确认的篇幅／每章预算继续强绑定。作品详情、章节源投影与完整骨架封面规划已适配。公共分类绑定移入 core/publication_taxonomy.py，删除 api/workshop_classification.py，core 不反向依赖 API。
+
+正文仍先做全局转换、章节批次和全局核查；批次保存执行合同后逐章由代码投影，不再逐章模型重规划。默认新流程写作→故事／连续性／文风／读者体验联合审稿→原样定稿，必要问题才有界修订并重新审稿。core/chapter_review.py 校验正文 SHA、四项审稿与真实原文引用；只有最终审稿对应的状态提案参与 canon。已冻结旧任务沿原流程，不能静默套用新规则。新 ChapterRevisionRequired 区分文学修订与暂停／超时，后者不会触发额外编辑。定稿凭据、结局和 H5 输出校验保留；不恢复 M3，不改模型／档位。
+
+断网容器最终383项后端测试通过，前端113项通过；构建、改动前端ESLint、25个Python文件语法、diff检查通过。覆盖两章完整定稿导出、条件修订、修订后暂停恢复不重写、完成恢复无额外调用、来源三种模式和封面衔接。日志 /private/tmp/story-first-final-regression.log、story-first-web-final.log、story-first-build-final.log。代码在宿主，5174未切换本轮版本；没有真实文学质量、token或速度对照结论。
+
+后续：部署前按当前任务状态决定重启；同构想、Genre/Tags和模型档位比较故事提案／开篇关键场面，再比较用时成本。尚未实现每轮讨论直接维护完整结构化章卡库及长篇分段交付章卡；当前交付先用两次语义整理确定全局与完整章卡，不能宣称无限长篇容量或全过程零规划调用。工作区有大量本轮之前的未提交改动，不可整体回滚。本轮前源码快照 /private/tmp/novelos-story-first-before-20261106/ 可用于区分修改范围。
+
+## 2026-11-06：故事优先的系统工作流重设计（方案，未实施）
+
+用户明确要求修改整个头脑风暴、正文工作流和产物标准，不是单书修复；暂不考虑用 Gemini 重写。完整复核桌面《小说情节重构与女频爽点规划.pdf》19 页，迁移其主动提案、具体场面、主支线互相改变、阶段回报和自然钩子，不固化其中人物、章数或复仇套路。章卡标准为叙事视角／核心剧情／看点与爽点／章末钩子，必要时附伏笔；作者决定大方向，模型负责专业细节。方案 docs/design/2026-11-06-story-first-engine-redesign.md。
+
+关键根因已核实：reference_creation 当前明确要求另创人物与因果，与用户要承接原故事相反。真实讨论 6f4102a093474f6cb98633268e1650e4 已导入 PDF，却按此模式另创诺拉与维克多；不能误报来源没传。用户后来已采用的新路线不能自动覆盖。来源模式计划改为原创／原故事推演／改编重写，并贯穿骨架、正文和封面；这是待实施语义，不是已部署行为。商业检查仍有试读中间章 anger/pity/regret 与每章主角制造转折等硬门槛，和当前通用创作方法相冲突。既有多阶段骨架与正文重规划尚未随普通讨论瘦身完成重构。
+
+新方案：唯一有版本故事设计，代码生成六部分轻量骨架和各执行视图；Genre/Tags 改变具体剧情，原故事推演保存继承状态。工程／发行格式保持强校验，文学判断基于本书而非固定情绪枚举。区分内部全书故事与对外 Synopsis；不恢复已移除的 M3。先同模型小样本比较，再正文关键场面和完整验收书，工程测试不等于文学或付费效果证明。
+
+用户追问提效与是否最优后再次复核方案：推荐正文写作→联合审稿→通过保存，必要问题才修订并复核最终版本；取代上一版无条件编辑后再核验。正常通过章目标2次应用调用，问题章要额外计入修订／复核，不保证更快或与多审稿等效；同模型对照验证后决定默认。章节沿用已批准设计，讨论返回本段内容与状态变更，纯骨架组装零模型调用，相关上下文按需装配；保存完整档案，不默认降低推理档位或并行写连续章节。流式进度与后台恢复改善可见性，不冒充推理加速。设计新增第11节提效与三种正文路径比较；仍只更新文档，不是已实施或已证实的最优方案。
+
+只读核对 5174 两服务 healthy，四个重点文件与运行容器 SHA 一致；只新建设计文档并更新记忆，未改应用、提示词、小说、设置，未启动真实模型或重启。用户所述“4 Argon Hight”对应官方 gemini-4-argon/HIGH，兼容性发现记在方案附录但接入延后。实际运行 google-genai 2.34.0，不应误报尚未满足 SDK 下限。本轮复核旧两书报告与第12章样本，未再通读两本正文；新方案文学收益待实施后验证。
+
+## 2026-11-06：头脑风暴提示词瘦身已部署5174
+
+用户要求去重/去无用规则并加强情绪和故事感。普通讨论现在由skills/novel-brainstorm-workshop/references/web-discussion.md＋api/workshop_request.py单一入口组合；不再叠加旧六文档、网页/创作/reader-investment多层规则。现代工作区省略四区guidance.coverage、genre_roles/mechanisms填表及重复assumptions，保留五区地图/点击采用/作者证据/重大决策边界。生成建议由本轮已验证地图协调，旧地图/伪造确认/未决大选择不能宣称收敛。全部作者对话、GenreTags、参考分析、决定和原骨架保留，未改模型档位/超时，未加调用。情绪方法强调具体关系投入→事件→选择代价→关系变化→阶段回报，按题材变化，不等同堆惨或强行打脸。
+
+同输入假模型测量固定指令75,173→9,418字节(-87.47%)，总量83,428→17,673(-78.82%)，作者上下文8,255字节SHA一致。不是token或用时测量，文学效果待实测。宿主497项通过；Python3.11断网496直接过，一项依赖宿主路由的来源测试改为显式假路由后宿主/容器分别复核通过；静态检查通过。当前交付/正文冻结规则和检查点不改；历史policy文本留作溯源，实际讨论以v2协议及请求SHA为准，不能把快照内旧rules当作正在发送的提示词。
+
+19作品/10讨论/1来源及封面均无运行任务后备份部署，只更新后端；常规构建卡远端元数据，停止本轮构建并复用当前本地基础镜像（依赖/配置未变）。275应用文件同宿主/QA/生产一致，31,852业务与设置文件SHA不变，5只读HTTP及两服务healthy。未启动/恢复真实模型、未提交推送。刷新5174下一轮讨论生效。报告docs/reports/2026-11-06-workshop-prompt-slimming.md，私有审计/private/tmp/novelos-discussion-slim-20261105，回退rollback-discussion-slim-20261105。
+
+## 2026-11-05：外部故事重构PDF质量分析（讨论，未改应用）
+
+用户提供桌面《小说情节重构与女频爽点规划.pdf》，认为更有情绪与故事。本轮完整读19页，核对对应30 Irresistible Romantic Encounters的Synopsis与第1章；未重读其余4章或把提案当既成正文。可借鉴情感焦点、关系投入与背叛、场景化提案、主支线互相改变及阶段回报；同时发现来源her father歧义被擅改为确定本意、救援代替责任修复、第18页错误医学桥段、回报跳步及61+章计划收为30章未协调。报告docs/reports/2026-11-05-reference-story-design-review.md。当前代码已传来源分析且已有主动创作方法，不能误报为没接入；建议着重检验并优化首轮可选择的具体故事提案和后续采纳传递，不添加高成本评议或平行骨架。建议尚未获开发授权；本轮仅文档，无应用改动/模型任务/部署。
+
+## 2026-11-05：故事构想导入TXT/MD/Word/PDF已部署5174
+
+用户要求故事构想支持导入文件，已实现StoryBriefInput和无状态POST /api/document-import。选择文件→本地解析→可编辑预览→确认追加/替换，默认追加；预览未确认不能下一步/保存，取消/卸载/过期回复不覆盖原文字，只读历史不能导入。确认后复用原premise链路，无新分析/模型调用。TXT/MD支持UTF8、BOM UTF16、GB18030；DOCX通过defusedxml读取正文/表格/脚注尾注，DOC用antiword，PDF用Poppler文字层。扫描页提示、不OCR；不提取图片/页眉页脚/批注且UI说明。
+
+单文件10MiB/20万字符/PDF500页，超限拒绝不截断；DOCX32MiB解压/2000项限制。解析独立进程、25秒墙钟/15秒CPU/512MiB Linux内存/输出文件2MiB，最多2并发；临时目录清理、环境不传模型凭据，无持久文件或自动任务。Docker增加poppler-utils/antiword，requirements增加defusedxml。
+
+宿主后端58passed2skip，最终镜像断网60全过；前端613/58files全过，build/lint/Ruff/diffcheck通过。真实5174桌面1600/手机390测试5格式+扫描失败、追加替换取消、下一步，全过无JS错误/横溢出，只有原创夹具提取请求。此前402自动审批故障在用户继续后恢复。无任务时备份部署；旧镜像ID索引不可用，前版QA镜像271代码SHA一致后恢复启动入口重建回退，前端复制运行静态文件。两服务healthy，274后端/79前端匹配，31,836数据SHA不变，复用SHA一致的完整tar并另做当前SQLite备份。未模型调用/提交推送。报告docs/reports/2026-11-05-story-brief-document-import.md，私有审计/private/tmp/novelos-document-import-20261105，回退rollback-document-import-20261105。刷新5174可测试。
+
+## 2026-11-05：参考创作后台进度与返回入口已部署5174
+
+用户报告来源分析慢、0/1不更新及关闭后找不到任务。本次定位为缺LLM诊断回调/短暂GET失败终止轮询/未完成来源选择未持久化。原来源30 Irresistible Romantic Encounters（source-830be3eb3e6c562374cbac6098918f00c836588c81e73db2dfe4b68df61e3481）19:27:03开始、19:34:46完成约7分43秒，Synopsis+5章合并1批；不是任务丢失，不需重读。配置仍Codex gpt-6-astra/max/900s。
+
+core/source_study_progress.py独立metadata进度/5秒本地心跳/attempt及request隔离；source API连接既有diagnostic_callback，暴露worker_active/cancel_requested/checked_at。共享前端轮询运行3秒/空闲15秒/错误5秒重查，超时取消/切换隔离/返回立即同步。新建页持久保存来源ID/模式/封面选项，已存讨论不受影响；共用进度面板显示阶段、时间、已保存步数、实际内容与长等待，不把心跳说成模型思考。固定导航参考资料 /source-books 可恢复查看、复用完成结果进入创作；关闭不取消、暂停收尾不能重复触发。
+
+未改模型、源文范围、批次、SYSTEM与结果协议，无真实模型调用；新观察不破坏已完成缓存。宿主后端67+新镜像Python3.11断网67通过，前端全量603通过后新增4项，相关7项复核通过，build/lint/Ruff/diffcheck通过。桌面/手机运行态夹具与真实5174完成态验收通过，无写请求/JS错误/横溢出。19作品9讨论及封面来源均空闲后备份部署，两服务healthy，271后端/79前端文件匹配，31,836既有数据文件SHA不变。临时5203预览已停止。未提交推送。报告docs/reports/2026-11-05-source-study-progress.md；私有备份/回退override在/private/tmp/novelos-source-progress-20261105，镜像rollback-source-progress-20261105。当前已可刷新5174测试，无需重读原参考书。
+
+## 2026-11-05：Genre/Tags 新版已部署 5174，作者将自行开始新小说
+
+用户明确授权“请直接部署，然后我要来测试新小说”。已核对19作品/9讨论/21项只读HTTP检查，无运行任务和模型子进程；保存31,814文件SHA、约3.01GB私有数据tar与一致性SQLite备份（integrity_check=ok）。部署审计 /private/tmp/novelos-genre-deploy-20261105。旧容器引用镜像ID从Docker索引消失，未停服务；从运行容器仅复制应用文件，基于可用旧镜像重建并验证回退 novel-os-{backend,frontend}:rollback-genre-tags-20261105，override在审计目录，不包含数据/凭据。
+
+清理Dockerfile已退役tiktoken预热命令；.dockerignore补排除source_books。前后端镜像构建成功，部署脚本27项和新镜像Python3.11断网188项回归通过。首轮只读QA因模板写入与缺省模型配置缺失未通过，补齐临时templates与假key后全过，未更改生产模型设置。标准三项宿主技能同步为unchanged。compose up --no-build --wait已切换5174，两服务healthy；270后端/76前端文件SHA与本地构建一致，来源/封面参考接口存在，M3 API已删除；31,814既有文件和settings SHA不变。
+
+真实5174 Chrome桌面1600px/手机390px验收：原创/来源门槛、构想必填、Genre单选、关联Tag至少一项、三步到开始按钮、知识库显示；零写请求、零页面JS错误、无横溢出。配置TOML可解析，auth存在，原头脑风暴route仍Codex gpt-6-astra/max/900s；未改配置、未实际探测远程模型、未启动或恢复任何真实任务。作者刷新5174自行新建（当前种子Romance+10Tag）。H5下游尚未升级，真实文学与出图效果仍需作者实测。未提交推送。报告 docs/reports/2026-11-05-genre-tags-deployment-5174.md。此节替代下节“未部署”状态。
+
+## 2026-11-05：Genre/Tags、来源创作和封面参考图已实现（未部署5174）
+
+用户批准上一轮总体方案，明确不开发H5预览、不要求历史创建流程兼容，要求单一干净实现。本轮在codex/novel-quality-optimization完成代码及工程验收；未真实调用模型/出图、未重启5174、未提交/推送，保留既有其他未提交工作与所有真实书籍文件。完整报告 docs/reports/2026-11-05-genre-tags-implementation.md。本节优先于下方早期“设计未实现”的状态。
+
+唯一资料合同core/creative_types.py改为novel-knowledge.v1 Markdown，六必要分节＋可选封面表达；旧JSON种子/复杂编辑器移除。resources/novel-knowledge内置Romance＋10Tag。一个Genre＋1–20关联Tags由代码校验，immutable selection-snapshot.v1冻结MD/SHA/公开taxonomy，knowledge-compiler.v1按阶段投影所有已选项，附录不送、超限不截断。资料库单面板MD编辑/预览/历史/保存启用删除；dirty-only保存/成功弹窗；更换Genre明确确认不兼容标签。无旧profile迁移。公开labels/definition与私有正文分开、单独revision，默认namespace novel-os.local，正式发行应配置NOVEL_OS_PUBLISHER_NAMESPACE。
+
+新建小说为构想/参考书→GenreTags→语言篇幅；Workshop继续原讨论/选择/地图/容量流程。core/knowledge_intake.py让网页/CLI采用同一骨架taxonomy与冻结选择校验；CLI新增--knowledge（使用python core/orchestrator.py run，不是-m入口），新书outputs/input/knowledge.json用于执行和封面，publication_copy同读简介指导。修复交付checkpoint指纹始终采用deliver投影。没有额外逐Tag placement表或收费核验链，兑现方式由现有骨架/章卡承接。
+
+core/source_library.py＋source_study.py和api/source_library.py：ZIP/目录导入、overview可选、私有SHA清单；完整Synopsis/提供章节按120k字节组读取，N组最多2N−1正常模型请求（非每章一次），响应检查点+模型/来源/请求hash绑定。显式暂停/恢复/重新读取，改配置不能混用缓存，旧分析归档；新书冻结分析用途，source原件不打包。reference_creation/original_rewrite由作者选，后者正常讨论确认保留范围。源封面可带入，rewrite默认adaptation。当前复用单进程JobRunner。来源读量保存在来源库，不重复摊入每本书成本。200/200真实Romance目录结构导入检查通过，1743列章文件；不是新增200书语义阅读。
+
+core/reference_assets.py＋api/poster_references.py复用现有poster执行器：独立可选PNG/JPEG参考图/替换/移除/模式；实际bytes进入一次视觉规划，拆解为observations/interpretations/retain/translate/exclude，随后四次edit，无静默文生图降级。精修优先候选原画。允许宣传式艺术构图，保留4候选/直接选用/失败重试/本地排版。图片观察非空，SHA与operation验证，来源私有不导出。
+
+M3独立ReaderReview页面/API/worker/runtime/提示词/测试及tiktoken依赖删除，路由404；正文阅读、reader_investment、正常Editor/Continuity/Style/结局门及历史费用识别保留。不是只隐藏按钮，不恢复历史评议。H5导出新增classification.v2＋novel-taxonomy.v1，同源sidecar/EPUB/publication与SHA，原ManifestV4/ready/尺寸规则保持；H5端尚未升级。交接docs/design/genre-tag-studio-v1/h5-taxonomy-handoff.md，真实合法/非法ZIP与3例计划docs/examples/h5-import/dynamic-taxonomy；生成器scripts/build_dynamic_taxonomy_samples.py零模型。
+
+最终后端997passed/1skipped（外部固定Go验证器未配置），前端602passed/55files，lint/build/新增模块静态检查/gitdiffcheck通过；真实CLI独立进程dry-run成功。隔离5202实际UI桌面/390px知识、新建、source门槛、参考图刷新/移除通过，无JS错误/横溢出；截图及日志docs/reports/evidence/2026-11-05-genre-tags。临时QA使用/private/tmp独立库，无生产数据；结束停止该服务。文学与真实出图质量验收仍待预算，不能把结构测试说成小说质量已保证。下一步按需要部署5174前核对任务，然后作者选择组合启动小样本；H5单独按交接升级。
+
+
+## 2026-11-05：封面参考图补充设计与交互原型完成（未开发/部署应用）
+
+用户明确：封面可独立导入一张参考图，非必填；先解析给建议再结合新书；二创有图直接用原图二创；保留现有能力，优化Genre/Tags/故事/图像联合提示词；允许艺术化处理，不要求对应具体情节。沿用前一轮“先原型审核再开发”的范围，本轮未改生产代码或5174、未进行真实模型/图片调用。
+
+已核对当前skeleton_poster本就支持单次完整骨架规划、poster_staging、4候选、直接选择、单图精修、本地排版及持久任务，不能声称要从头重做这些能力。扩展设计：可选ReferenceAsset，来源书图和独立上传共用；一次视觉规划同时拆解与输出4方向，无图仍一次文本规划。有图真实传字节，原作重写自动adaptation_reference；独立新作默认visual_inspiration也可改二创。两者当前provider均可复用image_client.edit，不允许静默转成无图。保留/转译/排除与图像事实/解释分开；保持核心身份关系，拒绝恢复逐动作事件证明和高成本语义重审。候选精修始终使用该候选原画，不回退最初参考图。
+
+新增 docs/design/genre-tag-studio-v1/cover-reference-design.md、cover-prompt-contract.md、cover-image-study.md、cover-image-inventory.json；实际查看4张源封面（31000101092、31000657155、31000423189、31000403877），记录观察/解读/迁移边界与原件SHA；不是200封面视觉研究。另看项目既有cover-1.png作原型人工预写分析。Romance＋10Tag的11份MD新增可选“封面表达”，只封面阶段编译，普通讨论/正文排除，不引入第二套组合模板。更新总方案、导入/Markdown/实施合同。
+
+现有原型新增 #covers：URL http://127.0.0.1:5201/prototypes/genre-tag-studio-v1/index.html#covers 。复用既有5201服务/PID73108，未另起服务器。独立cover-assets.js/cover-studio.js/cover-studio.css，app.js仅挂路由/上下文。真实本地PNG/JPEG可预览、校验、SHA和IndexedDB缓存；无上传API。已知示例显示4项视觉拆解、保留项和4个SVG方向；任意新图/非演示组合只准备输入，不伪造分析。方向后自动折叠素材与拆解；候选是明确标记的旧4张素材，演示直接选用、单张精修。替换/变更输入使旧方向失效，历史保留；重写无图交接与移除均尊重用户选择。原型缓存不是正式资产库。
+
+隔离Chrome8组封面交互通过，原有创建/知识库/H5原型回归通过；390/1600px无横溢出、无JS错误、无外部网络请求；JS语法、11MD分节、新设计本地链接检查通过。截图13–20保存于原型screenshots/，临时QA脚本/private/tmp/novelos-cover-reference-qa.py。IAB已有tab1浏览器桥接报browser.user unavailable，未能切到新封面页；可直接用上面URL打开。设计稿完成不代表真实出图质量已验收。未提交/推送，保留已有大量未提交业务改动；后续根据用户审核再按唯一现有执行器开发。
+
+## 2026-11-05：Genre/Tags 交互原型完成；H5 改为联合动态目录方案（未开发应用）
+
+用户补充：新类型与标签可升级 H5，保留旧 ZIP/EPUB 导入规则，不再以固定 H5 字典限制创作知识；引擎提供动态类型标签，完成后向 H5 交付手册。先交互设计稿，审阅后再开发。本决定更新下方上一阶段“publication_id 必须来自固定字典”的目标约束；旧包兼容仍按原字典，不直接修改旧验证器或历史文件。
+
+原型 `docs/design/prototypes/genre-tag-studio-v1/index.html`，本机预览 `http://127.0.0.1:5201/prototypes/genre-tag-studio-v1/index.html`；静态服务仅绑定127.0.0.1、根目录docs/design（exec session68059）。不可另起重复实例；服务结束后仍可直接打开HTML。已在IAB打开为交付页。白色圆角单面板/浅蓝背景/深蓝按钮沿用作品库风格。新建3步、单Genre/多关联Tags、作用说明/完整输入、固定3方案单选+补充、参考/原作重写与图片交接、MD维护/启用/删除/版本快照、H5手机页均可交互。Romance与10Tag来自已完成研究编辑稿；悬疑及共享关联只是交互夹具，不是新语料研究。来源书/封面和讨论为虚构示例，任意组合不假装产生真实模型结果；所有保存仅本地浏览器数据。
+
+更新总体设计/Markdown/实施边界；11个MD样例的旧映射字段改为可选legacy_h5。新增 `docs/design/genre-tag-studio-v1/h5-taxonomy-handoff.md`：分类对象建议v2+novel-taxonomy.v1，仍复用既有分类sidecar及manifest role；保留ManifestV4/novel-h5-import.v1/ready及全部身份/尺寸/章节/SHA规则，公开目录修订与写作修订分开，不把提示词或来源全文导出。H5需要来源命名空间、稳定ID、公开修订冲突检查、事务导入、动态显示与筛选；旧包严格读，目标能力明确协商。当前是交接草案，最终手册仍需实现提交和双方ZIP正反例验收，不能声称H5已支持新包。
+
+隔离Chrome核验8组核心交互，1600px与390px无横向溢出、无页面JS错误；新增作用弹窗与H5字段示例复核，保存12张截图。README列审阅步骤与演示限制。未修改应用代码/业务数据、未调用真实模型、未重启5174、未部署、未删除M3实际worker、未提交或推送。当前分支仍保留大量之前未提交改动。下一步等用户审阅原型再按总体方案实施。
+
+## 2026-11-05：Romance 全量研究与 Genre/Tags 整体设计已完成（未改应用）
+
+用户要求先研究与设计，尚未要求本轮上线。已完整读取 `/Users/max/workspace/goodnovel/Romance` 的200书所供免费文件及官方Synopsis：1,743章节目录文件（11,916,058 bytes）＋200简介（190,321 bytes），1,943阅读声明与当前来源SHA/目录范围匹配，complete=true、零缺口。三名research技能授权代理分四个不重叠批次：A56书470文件、B66书557文件、C原67书585文件及移交11书131文件。没有读取未提供付费后续，不能声称200部完整长篇已读。公告、番外、预览、跳章、重复和合集单元已逐书区分。扫描/哈希不等于语义阅读。
+
+完整交付：`docs/reports/2026-11-05-romance-study/README.md`、`findings.md`、`preliminary-kit-audit.md`、`romance-tags.md`（90原始标签）、`book-index.md`（200笔记）、四批综合、`source-inventory.json / reading-ledger.json / coverage.json`。初步Kit的chapters_read合计597，另有末免费文件分析，全部200份任务卡套相同前三章节拍；作者通知被误作章末钩子、标签歧义、原作编辑问题等已定位，不能原样当系统提示词。未复制原始小说全文到仓库。
+
+设计：`docs/design/genre-tag-studio-v1/README.md`，配套Markdown合同、source-import、implementation-contract和Romance＋10个Tag完整MD编辑样例。新书一个Genre、多关联Tags，分组帮助选择而非旧四组逐项必填。条目六节：核心承诺、故事机制、发散空间、组合原则、场景与表达、简介与兑现；知识MD不是可执行Skill。确定性编译/版本快照接入现有creative_execution、reader-investment.v3及章节编辑，不另起生成或全书语义评议链。选择改动创建子快照并绑定现有设计修订；旧在途回复不能提升，受影响派生产物待更新，已启动run仍冻结。轻量placement区分全局指导和阶段/章卡计划，计划不等于正文兑现。
+
+用户已明确两种导入模式都支持，创建时选择：参考创作独立新故事，或有改编权原作重写。overview/reading_guide/raw可选，源封面独立资产带入工作室；叙事单元/来源事实/本书canon分开。已仅查看2张源封面作资产流程设计，不是200封面视觉研究。Synopsis映射现有publication_copy.spoiler_free_blurb，区别内部故事地图/章摘要。源标签、知识ID、H5 ID分开，Novel OS与H5实际2026-10字典内容相同；无映射不得制造ID，ManifestV4与H5硬约束保留。
+
+M3退役是用户明确要求、当前已形成删除方案但尚未实施：移除新建/恢复/worker，历史报告费用只读，保留正文阅读、reader-investment、Editor/Continuity/Style和结局门。不能把旧暂停评议恢复，不能把类型落实检查重新做成昂贵M3。
+
+新增仓库Skill `skills/novel-corpus-study/`，含阅读协议、可复用无模型inventory/coverage工具与5组回归；未列章节单独登记要求阅读，目录新增与metadata/manifest漂移不能误报全覆盖。5组测试及Skill quick_validate通过；11份知识MD结构、关联、H5映射和文档本地链接核对。未安装全局Skill。临时分配/原台账在 `/private/tmp/novelos-romance-study-20261105/`，最终统一台账已持久保存在研究目录，不依赖临时目录证明覆盖。
+
+本轮只改研究/设计/Skill与项目记忆；应用已有大量其他未提交更改，不能混成此轮实现或覆盖。未改变运行配置、未重启部署、未启动真实小说模型调用、未改稿、未提交或推送。下一步应按审阅后的方案分阶段实施（M3可独立先退役），真实文学小样本验收需另定用量；结构合同通过不能保证每本书文学质量。
+
+## 2026-11-04：M3 真实引用失败与旧暂停页面修复，已部署并恢复
+
+用户截图是旧评议 c36f00c51cf84222a1864e1af4650664 的主动取消，但后继 37bd92f6de2d4ab6882be31c3d782eae 也真实失败，不能仅解释为旧页面。后者完成4/16后第5段因摘录外层引号、换行空白差异无法逐字命中，原始61引用有6处、更正63引用有4处；实际词句均在正文。历史6次调用和唯一更正消耗保留。
+
+通用修复：精确匹配失败后，仅允许同段内唯一的空白/外层引号等价匹配，证据仍保存实际原文Unicode位置；改词、否定变化、模糊匹配和错误显式位置仍拒绝。更正反馈所有非法引用路径。前后端统一恢复资格，未知旧实现、预算超时、重复恢复不改变的确定性失败不再展示或接受恢复。旧精确引用实现仅在所有system/schema哈希不变时可本地重验，写迁移审计但不改冻结binding或预算。主动取消显示中性暂停与折叠诊断，旧评议提供较新记录链接。
+
+首轮44后端、10前端回归及build/lint通过。真实1228文件副本、断网新镜像均通过正常claim/run复用4段并本地恢复第5段，0新增模型调用，124引用全部核对；保留来源/原文/既有回复/预算。空闲、SQLite快照、回退镜像后已部署5174，261后端/78前端匹配，恢复前31274既有文件SHA未变。22:21通过正常API恢复同一37bd评议，当前5/16，调用7/21，第6段真实调用中；原截止约23:13、¥34.066704预算不变。不要新建重复评议、重启或提高预算。旧c36仍暂停且不可恢复，1次历史消耗仍在。所有16章正文未改。
+
+报告docs/reports/2026-11-04-reader-review-reliability.md；审计/private/tmp/novelos-reader-reliability-20261104；回退novel-os-{backend,frontend}:rollback-reader-evidence-20261104。第6段真实返回后另遇输出预留错误：6822参考token大于6000预留，但JSON和57处原文引用均合法。第二轮修复把输出预留与接收上限分开，保存并核查完整回复；response_observations记录哈希/参考tokens，下次调用按原预留、观测参考费用、已知用量费用较大值计费预留。1MiB解析上限仍明确停止，无截断/模型重试。只有已知旧预留错误可恢复，真实总预算不变。还修复测试中复现的APFS并发O_CREAT偶发ENOENT，单次打开胜出inode，不重建锁。最终49后端/11前端/build/lint通过，真实1233文件副本和断网最终镜像复用5段、本地恢复第6段，7调用不变、新调用0。第二轮空闲部署261后端/78前端匹配、31279既有文件未变；22:37正常API再次恢复同一37bd；第7段真实新调用195秒返回并通过保存，现7/16、9/21调用，第8段继续，无错误。全部16章原文和其他项目未改，原7次调用、冻结binding和deadline保留。用户随后质疑评议耗时及写作收益：已说明M3仅诊断，不自动改稿；当前每段143–242秒/max/串行，大量证据使全书昂贵。建议暂停、保留结果，转向已有高价值问题修订；已通过异步问题让用户选暂停或继续，用户随后明确选择暂停保留结果。已正常API暂停并确认worker_active=false、draining=false；暂停生效前第8段已返回通过，因此最终8/16、10/21调用，第9段调用取消。页面为中性已暂停、原取消诊断折叠，无后续调度。原23:13截止不延长，日后过期需重新决策，不能静默恢复或清零预算。未启动改稿。工程回放和7段完成不是全书文学评议完成。未提交推送。
+
+## 2026-11-04：全文对照后的 M2/M3 通用修复、出版收尾已完成
+
+用户同意“修复并推进”。新方法 reader-investment.v3/creative-context.v3 区分不变事实与本场创作重点，强调题材的可感体验、人物说话策略及章内价值；scene-execution.v1 无损分层实际细纲进入 Scribe，保留旧冻结策略。M3 增加有原文依据的信息/声音/世界体验/章末观察，嵌套摘要证据 ID 校验，未加例行调用或自动改稿。四组标签/Markdown 新交互仍暂停，M4 未实施。
+
+出版错误根因：三次候选均复用了首章15词引文，旧修复仅有码且“不可改引文”指令混淆候选与来源。v3提示明确候选改写、来源不变并传完整匹配证据，原质量门与2次修复上限不变。269项后端、另124项交付及64项讨论回归通过（有重叠）；前端8项/build/lint通过。真实1149文件副本和断网镜像恢复回放0调用，16章复用。空闲/备份后已部署5174，258后端/78前端匹配，恢复前31195既有文件SHA不变。真实恢复job dc3fe6f1ef024e03ab2ed4faa917ba05 后，a3f117e1cb71 于21:08:29完成 publication.copy/compile/delivery.package，API completed，16章原文未改。
+
+真实M3预览完整16章，创建c36f00c51cf84222a1864e1af4650664后发现当前Docker /data flock不互斥，运行却误显示interrupted；已暂停，1次调用消耗保留。补充本地运行锁，29项M3回归通过，断网新镜像验证跨进程锁/状态与40次互斥写入通过，已部署5174，259后端/78前端匹配。最终ZIP14244708B，34文件hash匹配，代码导出合同passed，H5外部导入pending。
+
+21:29在剩余预算内启动后继M3 37bd92f6de2d4ab6882be31c3d782eae：最多21次调用、估算¥34.066704、单次600s、总6238s（延续原约23:13截止），当前Codex gpt-5.6-sol/max。真实浏览器正确显示逐段阅读0/16、调用1/21、可暂停且不可恢复；尚未生成报告。所有正文保持，勿重启或另起重复评议。报告docs/reports/2026-11-04-craft-v3-and-publication-repair.md；审计/private/tmp/novelos-craft-v3-20261104；首轮回退novel-os-{backend,frontend}:rollback-craft-v3-20261104，锁补丁的后端回退镜像novel-os-backend:rollback-reader-lease-20261104。未提交推送。
+
+## 2026-11-04：新旧完整样书质量对照完成，仅分析
+
+用户询问完稿质量是否较上一本提高。完整通读新作Saving Her Son’s Enemy（a3f117e1cb71，16章约16452词）与旧作A Night of Her Own（f249a13144d5，12章约12785词），另两名隔离审者各自全文盲读，未给骨架/既有评价/版本优劣。28个final均对应canonical head且SHA未变，promotion分别16/12 committed。报告docs/reports/2026-11-04-novel-quality-comparison.md及evidence同名目录（两份独立报告/快照）。模型评议不是实际读者数据。
+
+结论是部分提升：新作核心冲突、Daniel/Jonah个人动机、分别担责及可见权力后果更清楚；程序/证据边界反复解释、人物论证语气趋同仍明显，狼人身体与共同体体验反而弱于旧作。不能凭新作变长约29%或结束检查pass宣布系统质量验收。相同初始构想/类型快照/正文阶段模型，但作者后续路线与篇幅不同，不是严格A/B。新run真实冻结reader-investment.v2/creative-context.v2；M3没有执行报告，16个evaluation仍deterministic且semantic_dimensions空。骨架原文件178904B比旧175381B未变轻；请求投影与文学减重分开验收。建议先M2区分保持正确的事实与本场呈现重点、加强题材体验和跨章M3，再留出样本验证；本轮未开发/改稿/调用应用模型。
+
+当前5174 API确认新作正文16章及结局检查完成，但run为paused/publication.copy，17:00:34报publication copy remained invalid after two repair attempts: not_chapter_one_copy，can_resume=true、active_job_id=null。这不是之前themes或style解析错误；本轮只标记交付阻塞，未深入排查、重试或重启。旧书仍paused/ending.review。未改业务数据、代码、配置，未部署、提交或推送。
+
+## 2026-11-04：第6章风格分析状态解析修复已部署
+
+用户再次报告出错。a3f117e1cb71于13:59:45真实失败chapter.style:6（前5章complete），新错误EndingProtocolError：STYLE_ANALYSIS里的EP_F06 status=private-revelation stage被通用状态解析误当严格枚举。不是themes或页面旧状态；第6章修订稿、连续性报告、风格raw和候选正文都已保存。
+
+parse_style分离文学分析与正式状态：分析完整保留在style_analysis观察数据中，仅旧三项风格分数可投影；STYLE_STATE_UPDATE仍严格，不能从自由文本推定已回收。新角色提示明确边界，旧冻结提示不变。显式恢复本地解析失败且阶段输入/模型不变时，验证完整请求、来源、回执与回复hash后可复用已保存回复；不复用仍非法的正式状态，也不接受无绑定raw。
+
+304项后端回归通过。真实462文件副本走PipelineRunner.resume至style done，前5章复用、第6章候选字节不变、模型调用0，主动停在promotion之前；新镜像断网/真实源只读挂载重复成功。确认19作品9讨论空闲、备份项目与SQLite后部署5174；212个后端Python/角色提示文件匹配，30510既有数据文件SHA未变。原任务仍failed/can_resume=true/active_job_id=null，未代点恢复、未调用真实模型，需作者恢复。报告docs/reports/2026-11-04-a3f117e1-style-analysis-protocol.md；审计/private/tmp/novelos-style-protocol-20261104；回退novel-os-backend:rollback-style-protocol-20261104。未提交推送。
+
+## 2026-11-04：themes 旧报错页面滞留，任务状态同步已修复
+
+用户再次报告 themes must contain only strings。只读核对19作品当前run无此错误；a3f117e1cb71已由作者恢复，前4章已定稿，第5章创作中，error=null。最后一次真实themes失败是12:13:30，早于12:25修复部署。浏览器旧页面却仍显示失败；可见页面在终态停止轮询，仅focus/visibility能刷新，外部恢复而未触发这些事件时一直陈旧。
+
+TaskStatusPanel新增30秒可见页面低频同步（运行中仍2.5秒）、隐藏页跳过轮询、GET失败重试及手动“刷新状态”；沿用请求版本/卸载/任务切换隔离。先复现失败再修复，57项前端回归、build/lint通过。仅部署frontend（--no-deps），78静态文件匹配，backend容器ID/启动时间/重启次数不变，原job 00b663f4aa524781ad1f551fb7cab08c持续运行。真实浏览器隔离页仅模拟首次失败响应，29.7秒自动读真实运行状态，0任务写入/0页面错误。没有恢复、暂停、模型调用或修改作品数据。报告追加至docs/reports/2026-11-04-a3f117e1-themes-contract.md；审计/private/tmp/novelos-task-status-20261104，前端回退novel-os-frontend:rollback-task-status-20261104。未提交推送。
+
+## 2026-11-04：a3f117e1cb71 themes 合同适配修复已部署 5174
+
+用户再次报 `RuntimeError: ValueError: themes must contain only strings`。实际上次来源修订于11月3日21:31:37完成、真实全局核查21:32:52 passed；本次卡在规划发布后的PipelineRunner._persist_story_contract，11月4日12:13:30复试立即失败。模型给6个{name,argument}主题，全局规划只检查数组，执行合同只收字符串。不是上次补全仍失败；上次测试漏掉下游合同保存。
+
+新增core/foundation_themes.py统一确定性投影：保留原结构，文本消费者保留名称+主题表达；旧字符串合同ID不变，未知结构前置拒绝而非静默丢字段。接入合同保存、全局/最终基础验证、可读故事资料与旧封面回退。未改变规划identity/源/细纲/已通过核查，恢复无需重生成大纲。
+
+219项相关回归通过。真实98文件副本完整规划+合同保存回放，禁新模型客户端0调用、16章/6主题全部保留；真实数据未变。隔离新镜像无网络/只读数据验证通过。确认19作品9讨论空闲后部署，256后端/78前端匹配，30492既有文件SHA不变；前端代码未变，浏览器“恢复重试”可用、无错误。原run仍failed等待作者恢复，未自动启动正文或调用真实模型。报告docs/reports/2026-11-04-a3f117e1-themes-contract.md；审计/private/tmp/novelos-themes-contract-20261104；回退后端novel-os-backend:rollback-themes-contract-20261104。未提交推送。
+
+## 2026-11-03：a3f117e1cb71 全局来源遗漏补全修复已部署 5174
+
+用户报告任务失败。实际be388讨论已完成16章重排和骨架，正文run a3f117e1cb71 / saving-her-son-s-enemy-be38860f于20:12:47–20:37:35在outline失败，四批16章已存、正文0章。核查指出Story Lead安排、读者市场、C2部分劳动收入、C3被逐后不能安全变形的前史遗漏，以及高潮章号15应为14。原骨架均有依据；旧global-reference-repair.v1只准整数引用，因此返回requires_author，不等于作者故事矛盾。
+
+新增global-source-restoration-v2：原章号修订+已有角色background/reader_profile/story_lead_plan的来源绑定追加式补全；严格旧值/路径/长度/原句/问题覆盖，冻结身份/结局/分类/字数/章节。派生义务由代码重建，完整候选重新核查，失败仍停止。写手/审核与故事资料均能读取补回内容。旧已完成修订保留旧复核与尝试预算；旧范围不足失败提供一次新版显式恢复入口，校验来源/检查点且未尝试v2才展示，不改真实失败记录。新策略使用独立检查点，不覆盖旧记录。
+
+200后端回归、30前端测试、build/lint通过；真实检查点在副本用替身模型验证仅补全+完整复核，原16章及1000–1100词目标不变，再恢复0调用；不是实际语义质量通过。确认19作品9讨论空闲后发布；255后端文件/78前端资产匹配，30470既有文件SHA不变。浏览器核对“按新版补全并恢复”可用、无错误。原run仍failed，未代点恢复、未调用真实模型、未改骨架/讨论；等作者显式启动。报告docs/reports/2026-11-03-a3f117e1-outline-source-restoration.md；审计/private/tmp/novelos-outline-failure-20261103，回退镜像novel-os-{backend,frontend}:rollback-source-restoration-20261103。未提交推送。
+
+## 2026-11-03：可选择扩展章数、保留每章设置，已部署 5174
+
+用户要求扩展故事时能选新的章数，不希望单章越来越长。未确认的story-capacity.v1方案现在将input.words_per_chapter用作逐章目标的规划上限；章数可调整，正文保留既有合理浮动，不机械截断或宣称绝对字数上限。已确认旧合同不自动改变。
+
+篇幅卡显示总量/章数/平均/最长章及章数输入。16,800词配1,100词设置建议16章起（平均1050）；当前紧凑版最长1250也要重排，不能仅检查平均。点击“按N章重新安排”显式发一次局部模型请求，保留全上下文与原总量/事件顺序，模型选自然断点。后端验证精确章数、每章上限、原场景覆盖和范围；保存新方案后作者再采用生成骨架。切换数字不调用模型；失败保留原案/约束可重试，幂等防重复，无自动格式重试。基础设定变化清旧请求；调整分章不新增地图/故事决定。
+
+新增core/capacity_partition.py和api/workshop_repartition.py。原场景信息完整保留，可选partition_label说明分段；旧计划省略该空字段，历史候选规范化相等。采用时保留作者每章设置，不再改成平均值，完整分章合同继续传给骨架/正文规划。
+
+180后端/82前端测试、build/lint通过。确认无活动任务后发布，254后端文件/78前端产物匹配，30357旧文件SHA未变；浏览器核对正确显示16章建议，无控制台错误/横向溢出。be388仍revision10/draft，未代选、真实调用或启动正文。报告docs/reports/2026-11-03-chapter-count-and-length.md；审计/private/tmp/novelos-chapter-partition-20261103；回退镜像novel-os-{backend,frontend}:rollback-chapter-partition-20261103。未提交推送；旧书和暂停标签方案不变。
+
+## 2026-11-03：地图分项恢复与讨论负担优化已部署 5174
+
+用户要求修复地图降级并提速，随后指出设置页可控制推理等级；保持 workshop 路由 `gpt-6-astra / max` 不变，该路由同时用于讨论和骨架交付。新增 `workshop_story_result` 独立校验完整五区地图、开篇、引用、假设与解决记录；无效辅助项不再丢弃有效地图。无效已确认引用降为提议，不代替作者确认前提/现实事实；旧新地图不拼接。保存有界128KiB完整候选或明确省略及最多24项安全字段错误，绑定会话/任务/版本/上下文哈希，不回注模型；保存失败不丢讨论。
+
+普通讨论去掉骨架交付操作说明、完全相同方案引用去重、未收敛不反复编写完整容量预算；完整作者对话/骨架/冻结题材不裁剪。rev10离线请求126917→123005B，减少3.08%；没有真实A/B调用，不能宣称已证明耗时改善。此前880秒几乎全是CLI/上游等待；max可能增加延迟，未证实是唯一原因。
+
+197项不同后端/95项前端测试、build/lint及隔离镜像检查通过。等待作者新启动的讨论完成后确认空闲再部署；252后端文件/78前端产物匹配，30357既有文件SHA未变，模型设置不变。浏览器已核对新历史提示，无告警/控制台错误。报告 `docs/reports/2026-11-03-workshop-story-map-recovery-and-latency.md`；审计 `/private/tmp/novelos-story-map-fix-20261103/`，回退镜像 `novel-os-{backend,frontend}:rollback-story-map-20261103`。
+
+讨论be38860fc0524e4a88c233c55f751cf4现revision10/draft/无错误，作者最新job36514d9fac0d4110970101bc98a139b5用旧代码再次地图降级；仍source5/reviewed6。历史坏map原文未保存不能补回，下一次作者正常讨论使用新逻辑。本轮未主动调用模型、代选或启动正文；未恢复旧书，四标签方案仍暂停；未提交推送。
+
+## 2026-11-03：be388 新一轮地图降级，只读定位，尚未修复
+
+用户询问“本轮故事地图未完整返回”原因。原讨论revision7/job ae9010b83e20448da09f1b42f2ecc933于北京时间16:50:55–17:05:35完成（879.93秒），CLI exit0/final存在/一次请求；现revision8/draft/last_error=null。1907字符正文和两个方案r7:p1/p2已保存，当前问题为儿子沉默的主要压力；先前采用r5:p3仍有效。地图留在source5/reviewed6，不能当作最新概要。
+
+运行源码匹配本地。api/workshop_story.py record_story把地图/引用/假设/解决记录放在整体try；任一失败保留旧图并给统一notice，未持久化异常或原始无效story。无效原文随临时CLI目录清理，所以不能确定本次具体坏字段或声称模型没返回地图。合成副本回放：缺story、缺区域、引用不合法、未知解决ID四种都复现同提示；有效对照正常，真实session SHA未变。安全诊断只有外层响应成功，不能证明内部地图成功。
+
+报告docs/reports/2026-11-03-workshop-story-map-fallback.md；回放/private/tmp/novelos-story-map-diagnosis-20261103/。建议保存有界地图候选/字段错误，组件独立验证并标明新旧来源；不把无依据信息变作者确认，不自动重试。此次仅诊断，无应用代码、真实任务、模型配置变更，无部署或模型调用。当前可由作者继续本轮选择；未修复地图降级问题。
+
+## 2026-11-03：be388 超时修复已部署，原讨论真实恢复成功
+
+用户明确要求修复。第一轮补齐安全诊断（失败kind/success、stderr受控类别、连续无内容超时提示），109后端/74前端回归通过并部署5174；同模型gpt-6-astra/max短请求14.797秒成功。随后原讨论revision4/job8fa124c0fa354c2295dc937f5a6c5442受控核验：本地stdin97,917B已读到EOF，system SHA/题材快照不变；约836秒才出现公开文本delta，至900秒共有1,314增量，但硬截止终止CLI，final文件未生成。这是本次失败的直接机制，不能倒推前三次已开始输出。
+
+第二轮新增原生Codex讨论的有界收尾窗口：到原截止时最近20秒有可信正文增量才一次延长最多180秒；30秒无新文本即停止；不靠连接/摘要/失败帧延长，不重发，不改模型/effort。交付阶段和正文Pipeline仍严格原预算，缓存客户端也不能绕过。窗口与实际截止持久化供刷新恢复。141后端/75前端回归及构建/lint通过；最终250后端文件/78前端产物匹配、部署前30,345文件SHA不变，5174已运行最终修复。
+
+**最终真实核验已成功**：2026-11-03 15:34:12北京时间通过正常API继续同一讨论，提交revision5，job `8e4a7636ad6a443881e6ad038ce2a3e9`。同一gpt-6-astra/max请求在900.003秒触发一次收尾窗口，1002.62秒（16分43秒）完成，完整9509字符响应通过校验并保存；会话现为revision6 / draft / last_error=null。本轮只有一个模型请求，未自动追加重试。浏览器已显示完整回复和3个故事方向，无错误或运行中标记；由作者选择后继续，未代选、生成骨架或启动正文。链接 http://localhost:5174/workshop?session=be38860fc0524e4a88c233c55f751cf4 。最终SHA核验仅目标讨论5个文件变动，其他作品/设置不变，结果见审计目录completion-window/final-verification.json。此前另准备compare_effort.py但**没有执行**，模型设置未改。不能据此宣称上游延迟已解决或前三次无内容超时原因全部确定。
+
+审计/备份 `/private/tmp/novelos-workshop-transport-fix-20261103/`；报告 `docs/reports/2026-11-03-workshop-timeout-observability-fix.md`。Docker旧镜像缺部分索引/层，tag/前端commit失败；已用后端容器快照+原前端静态资产重建有效回退镜像 `novel-os-{backend,frontend}:rollback-workshop-transport-20261103`，非旧一版功能镜像。仅该讨论真实调用修改5个文件，其他作品/配置保持；旧书f249a13144d5未恢复、四标签方案仍暂停。无提交推送。
+
+## 2026-11-03：be38860fc052 三次头脑风暴无内容超时，只读诊断
+
+用户要求排查多次重试失败。目标新验收讨论 `be38860fc0524e4a88c233c55f751cf4`，当前error/rev3，最新job `714ec396afdb4a4b885a2e409a9a02d1`；北京时间11月2日23:02、23:19及11月3日11:44开始的三次讨论均900秒超时。每次只发起一个应用请求，gpt-6-astra/max、原生CLI0.153；模型正文0、final文件不存在、未进入格式/故事校验。检查时没有残留Codex进程，5174服务healthy。
+
+离线重建三次system/user的SHA与原始type_requests回执全部相等，作者输入/消息/冻结题材资料完整；请求约97KB。38项本地传输/遥测回归通过。故障范围在Codex请求/响应等待，不是已证实的提示词漏传、页面隐藏结果或文学门禁。存在WebSocket发送与连接metric、models 200，未观测到公开正文/摘要增量；最初输入11645/输出0的completed符合预热但缺generate关联，不能认定真实生成完成。旧同模型/max曾成功；不能仅以提示长或max断言唯一原因。
+
+已确定工程诊断缺口：MetricActivityProjector丢success=false并把created/failed/in_progress等统一为transport；离线证明不同状态输出相同。三次stderr143字节仅计数、未留下分类摘要；ephemeral原生日志库0条/临时文件已清理，不能恢复。上游排队/长推理/连接或CLI停滞仍未区分，不得称模型持续工作或请求肯定没发出。报告 `docs/reports/2026-11-03-be388-brainstorm-timeouts.md`；脚本和38项结果 `/private/tmp/novelos-be388-diagnosis-20261103/`。建议先补安全事件分类和错误证据，再有限次单变量真实验证；本轮未修改应用、数据或配置，未重启、重试、调用模型、部署或提交。旧小说仍未恢复，新标签方案仍暂停。
+
+## 2026-11-02：同提示词新版验收已启动，仅首轮头脑风暴
+
+用户同意“使用同一组提示词来测试”。已在5174创建独立讨论 `be38860fc0524e4a88c233c55f751cf4`，入口 `/workshop?session=be38860fc0524e4a88c233c55f751cf4`。原讨论 `b3f80487de8a43b896b0549aa2252afd` 的当前已确认 input 和最初 user message 原样复用；狼人v4 / 女性觉醒v2的完整题材快照逐项相等。篇幅明确沿用最后批准的12章、每章约1100英文词（约13200），不是旧首轮曾使用的7200词，所以不宣称与历史第一轮完全同条件。
+
+新增引擎输入仅 length_planning=story_first，冻结 reader-investment.v2、story-capacity.v1。没有复制旧模型回复、已生成骨架或代选后续路线。当前原生Codex workshop路由gpt-6-astra/max/900秒，通过一次幂等的 discuss 请求提交原首轮提示；job `1a8f6dd0e92f4050975185fd140c38bc`，2026-11-02 23:02:41北京时间开始。末次只读核对为 running/error为空，未输出骨架，未启动正文、封面或M3。不要因暂无完成回复自动追加调用或新建副本。
+
+用户随后说“我已经启动项目了，在推理了”；核对5174仅有这一个新增运行中的讨论，未发现另一份新任务，继续这一份即可。后续仍由用户选择宏观路线，先骨架验收再启动正文。审计 `/private/tmp/novelos-same-prompt-20261102/` 含原输入、首轮请求/受理、完整类型快照、旧session SHA及原作品859文件哈希。已确认旧session未变；原正文运行f249a13144d5仍暂停，未覆盖旧作。测试内容不是质量提升结论，等待实际方案与后续骨架。
+
+## 2026-11-02：M2 / M3 与骨架首轮修复已部署 5174
+
+用户要求“重启服务”，已确认无活动任务后构建并切换 Novel OS 前后端；正式入口 http://localhost:5174/。18作品、8讨论；248后端文件 / 78前端产物与工作树匹配，30,325个既有数据文件SHA未变。新镜像隔离容器66项回归通过，57次正式HTTP只读验收通过，实际加载 reader-investment.v2、skeleton-projection.v1、新结局校验和M3类型。发布Skills与已安装版一致。报告 `docs/reports/2026-11-02-m2m3-deployment-5174.md`；审计/约2.50GB备份 `/private/tmp/novelos-m2m3-deploy-20261102/`，回退镜像 `novel-os-{backend,frontend}:rollback-m2m3-craft-20261102`。
+
+未调用真实模型、创建/恢复任务、改写小说、重建交付或提交推送。`f249a13144d5`仍 paused / ending.review，原更新时间未变；之前准备的来源复核仅在副本生效，重启不自动应用。向用户建议以新建独立验收作品验证新版骨架与M2，旧作保留对照、单独复核收尾；先骨架验收再正文。此建议不是新模型调用授权。四组标签/Markdown方案继续暂停，5198是原型预览；更深骨架语义来源归一和M4仍待推进。
+
+## 2026-11-02：骨架减重 / M2 / M3 首轮代码修复完成，尚未部署
+
+用户授权开始高质量代码修复；本轮依据现有完整样书验收实施，四组标签 / Markdown 新交互继续暂停。报告 `docs/reports/2026-11-02-m2m3-skeleton-execution-fixes.md`，总体方案更新为 v1.12（本地代码，5174 仍为此前部署版本）。保留工作树此前大量未提交改动；未提交推送、重启部署、调用真实模型、修改真实小说或恢复任务。
+
+修复结局状态与语义结果混用：新增 `core/plot_thread_contract.py`，新经典 / 分阶段合同提前校验状态枚举；旧非法语义状态明确报合同错误。`EndingEvidenceStore` 支持追加式 `main_conflict` 来源复核，严格绑定原合同、已 resolved canon、结局原文位置 / final SHA / promotion receipt，不能强改 active、覆盖原合同或仅凭 resolved 前缀放行。样书 `f249a13144d5` 仅在副本应用对第11–12章的人工式代理复核，门禁从 fail 变 pass；真实项目859文件哈希未变，仍 paused / ending.review，未生成新交付。真实恢复前需部署并重新核对来源，不能宣称当前任务已修好或文学问题已解决。
+
+新任务冻结 `reader-investment.v2`：减少规则程序重复、强调决定者可见的个人动机、回顾因果正确、最低必要衔接及符合题材的阅读回报。另修复 outline_planner 全阶段共用 story_design 指导的问题，新锁分阶段冻结 story_design/chapter_plan/review，实际调用和回执一致；旧锁保持。新版骨架组装取消 premise 顶部重复，第14节聚焦本书文风、代码附加短协议；按事实主归属减少重复。`core/skeleton_projection.py` 对明确17节格式仅在章节批次选本章及相邻计划，全球各节原文保留，全局规划/修订/复核完整输入，未知布局完整回退，保留自包含MD和封面合同。旧规划指令哈希核对未变。
+
+三份保存的真实章节批次请求离线回放：仅来源投影降低964,510→912,926字节，318,982→297,028参考token（约6.88%）；不含新system方法增量，不是实际计费/全流程/耗时收益。跨模块语义重复归一、统一阅读/执行IR和封面事实派生尚未完成，不可把本轮说成全部骨架减重完成。
+
+M3新增 finding_type，区分矛盾/缺衔接/重复/动机/回报/表达；矛盾和重复需要两处不同已核实原文，旧报告可读。仍为显式手动只读，私有合同后置复核和M4自动定点改稿未实现；新版实现指纹不混用旧在途评议。前端只加同风格标签。
+
+验证：最终66项相关回归通过，前端8项及build/lint通过。完整后端4308项首次24项受本地监听/进程权限失败、1跳过；放开本机权限重跑23项通过，最后假CLI成功分支3秒超时在NO_PROXY=*后通过，整遥测模块16项也通过。非一次无条件全绿，无生产超时修改。证据 `/private/tmp/novelos-m2m3-20261102/`（result.json、review-payload.json、各JUnit XML）；真实模型质量、不同题材迁移和读者效果仍需验收。
+
+## 2026-11-02：下一轮明确包含骨架减重与阅读回报
+
+用户在M2/M3讨论后明确“骨架文件的优化也要落实，现在骨架有点过重”。已把具体实施约束补入总体方案§7.1–7.4、§8.5、§9.1，未开始本轮生产改造。四组标签Markdown新设计继续暂停；优先现有骨架→M2场景→M3评议，再接M4受控修订。M3当前只读手动启动，自动阶段节点、私有作者合同后置核查、报告驱动修订不能冒充已实现。
+
+新核对当前样书骨架74,543字符/175,381字节，17节，分章细纲11,885字符、封面交接13,758、正文创作规范5,821。当前版本第3/9节整段因果链重复已消除；不要把旧重复当仍未修。剩余负担主要是同事件跨关系/世界/秘密/回报/封面的语义复述和固定协议。计划复用一个权威故事来源及已有ID，代码派生阅读视图/执行合同/自包含MD，按阶段展开依赖；固定状态/交付规则由版本化代码提供。保全身份、选择、规则、因果、知情、回报、结局和容量，不能只折叠UI、搬文件、压空白或硬截字数冒充减重。
+
+现有assembly固定17节且校验、启动、封面、导入依赖特定标记，先完成消费方映射与兼容验证再改协议；旧运行和小说不热迁移。验收需要源/合同覆盖、真实请求token与字节、正文对照、不同长度题材与H5回归。阅读回报复用既有承诺/选择/后果设计，按题材增强局部成果与高潮兑现，保留余波及作者既定结局，不固定打脸或每章爽点。仅更新方案与记忆，未改真实骨架、正文、代码或服务，未调用应用模型、部署、提交推送。
+
+## 2026-11-02：暂停新标签设计，完成 A Night of Her Own 全文只读验收
+
+用户要求先暂停新方案，分析已写完任务是否符合优化路径。已完整连读 `b3f80487de8a` 关联项目 `a-night-of-her-own-b3f80487`、run `f249a13144d5` 的12章final，约12,791英文词（排除标题），目标12章/13,200词；12章均与canonical final heads SHA一致、promotion committed，结束复核未变。依据high-retention-web-novel诊断流程，另做无设计上下文的独立模型全文通读；非真人测试、非应用内M3任务。快照及独立报告 `/private/tmp/novelos-fullbook-review-20261102/`。
+
+结论：狼人v4/女性觉醒v2进入实际选择、身体代价与回报；第1章母女冲突、第3章真正休息、第10章病人愤怒、第12章完整晚餐和双向探访有效。主要问题是2–6章及高潮程序/边界/记录复述过多、人物声音趋同；Owen停止共鸣的个人理由停在Nora猜测；稳定观察与危险交班的区别在骨架清楚但正文解释不足；Owen不能长走却离镇，缺第一站/接应的最低可行交代。第11章69行 `the shoulder that decision had cost Ruth` 将肩伤指向后来停止共鸣，实际第8章交班时已受伤；初稿→修订→final都漏修。前两项规则/行程缺口不是已证实世界矛盾。十二份quality报告为deterministic continuity-engine.v1，semantic_dimensions为空，不能冒充全文文学验收；另有LLM连续性/风格报告及warning。
+
+重要状态更正：正文写完不等于任务交付成功。运行最后更新2026-11-02 16:40:20北京时间，`paused / ending.review`，唯一critical为主冲突实际`resolved`，合同期待`resolved_with_bounded_autonomy`。state_parser只接受active/resolved/abandoned/foreshadowed，ending_quality直接比较；属于合同语义结果与状态枚举混用。正文11–12章已兑现有限自主，不能据此说没写结局。deliverables根下只有covers，未确认本次最终编译交付。本轮只定位未修复、未恢复。
+
+详见 `docs/reports/2026-11-02-b3f80487-fullbook-quality-review.md`。建议先修工程协议，再优化M2事实约束/场景呈现区分、重大选择的个人经验、M3全文问题到局部修订闭环，保留原结局及有效安静场面。当前是单书过程样本，不证明旧新系统受控增益、市场吸引力或同题材多样性。新四组标签Markdown方案继续暂停；未改应用、骨架、正文、运行状态、服务，未调用应用模型、部署、提交或推送。仅新增报告和记忆。
+
+## 2026-11-02：用户否定五层/组合原型，改为四组必填与标签 Markdown
+
+最新明确要求：先输入故事构想，再顺序选择主类型、故事背景、故事类型、情绪与风格，每组至少一项，然后统一交给模型讨论总体设计。没有“组合方案”维护对象，只有创作元素定义；每标签一份类似Skills的标准MD，按需加载。前端减少说明文案。此前五层+组合方案原型已被取代，不应继续按它开发。
+
+新设计 `docs/design/2026-11-02-tag-guided-workshop.md`，独立交互稿 `docs/design/prototypes/tag-guided-workshop/`，模板与11份完整说明在 `docs/design/creative-element-markdown/`。预览 `http://127.0.0.1:5198/tag-guided-workshop/index.html#create`，沿用同一5198静态服务。包括五步向导、四组必填、分类主辅/上限、Markdown编辑预览、变更后保存/成功弹窗、导入模板/停用/删除、选中说明投影预览及一组明确预设的总体路线演示；无组合方案页。
+
+关键边界：四组身份直接来自H5轴；家庭背叛domestic_betrayal的说明涵盖婚姻背叛，不新增伪ID；第二次机会second_chance明确要求原主角关系可信重建，不能以换人或独自新生偷换。核心承诺与发散例子分开，未采用的孕期出轨等不是事实；字典互斥前置校验，艺术差异同轮融合，真正冲突由作者决定。生产拟冻结每项启用MD版本、阶段投影、作者选择并贯穿M2/M3；不是逐标签调用模型。
+
+本轮仅设计与原型。JS语法、11份示例/字典身份、必填/上限/单选补充/保存删除、1512和390px布局验证，无控制台错误。其余字典标签在原型标为待编写，不能声称全部有完整指导。原型状态只在内存，任意输入不生成真实语义回复；待审核后才做生产解析器/API/持久化/快照接线。未修改生产代码、资料库、当前小说、5174服务，未调用创作模型、未提交推送。当前书仍按原约定完稿后统一阅读复盘。
+
+## 2026-11-02：五层创作组合 HTML 交互稿交付，待用户审核
+
+用户同意先制作高质量HTML交互设计稿，尚未授权本轮生产接线。新增 `docs/design/prototypes/creative-composition/`（index/CSS/JS、静态H5字典、README、7张截图），沿用锁定作品库白色单面板、蓝紫背景和无衬线风格。包含资料维护/组合方案/新书五层设定/宏观选择头脑风暴/设定落实；变更后保存和成功弹窗、新建复制删除、未保存离开提示、组合应用、单选加补充提交、故事地图与骨架预览均可演示。
+
+数据仅在页面内存；刷新重置，不调用API/模型，不修改真实资料。四轮讨论为预设演示，不是生产固定轮次；补充文字保存但不语义推理，设定落实为独立固定例子。三套核心元素外的五项只用于展示原型，不改变生产默认。字典来自仓库 `novel-classification-catalog.json`，示例映射ID核对有效。
+
+JS语法、1512×1050和390×844五视图无横向溢出、保存/删除/组合/必选/四轮/不同路线衔接验证通过，无控制台错误。独立Python静态服务在127.0.0.1:5198，预览路径 `/creative-composition/index.html#library`，仅供审核；不代表5174生产功能。未部署/重启、未调用创作模型、未改当前正文任务，未提交推送，现有WIP保留。组合设计与总体方案同步记录原型状态。后续先收集用户审核，再实施生产链路；当前书仍按原约定完稿后统一质量复盘。
+
+## 2026-11-02：用户明确五层选择必须直接影响作品
+
+用户补充：故事主轴、题材与世界、人物与关系走向、故事背景、阅读感受与表达，都需直接影响作品输出。已把此项提升为明确需求，补入分层方案 §2.1 与总体方案：每个已选项贯穿具体设计、章节/场景安排或全局表达、正文及落实证据；背景须影响相关场景条件和生活细节，情绪/文风须体现在真实叙述。主导/辅助表示份量，不表示可以忽略；未选例子仍非事实。代码保证传递和引用，语义与读者效果需内容核验，不能仅以标签进入提示词判定通过；增加逐层变化的对照验收设计。
+
+本轮只更新需求文档、术语和记忆，未开始应用开发、部署或真实模型调用，未改当前创作任务。五层直接影响已明确，但具体实现方案仍未获开发指令。
+
+## 2026-11-02：创作元素分层与组合方案设计，待确认
+
+用户要求分析作品类型维护的选择负担、组合与小说质量/差异化/作者意图落实。本轮核对源码并按 domain-modeling 澄清：维护页 publication_mapping 是资料适用分类，compile_snapshot 不将其投影给模型；本书创建时 publication_classification 才是作者实际分类，进入设计并由代码绑定交付；dimension 是分组标签（会随资料进入上下文），筛选操作不是新增剧情条件。现有 genre_roles、机制与移除影响已提供融合基础，不能误称系统完全未做题材设计。
+
+新增待确认方案 `docs/design/2026-11-02-composable-creative-elements.md`：发行分类、可复用创作元素、组合引用、本书具体设计分开；按故事主轴、题材/世界、人物/关系走向、背景、阅读感受/表达组织，避免单一父子树和每组合一套提示词。维护页保持现有单面板；作者先选 H5 主分类，其他逐步推荐，首轮原调用提出 2–3 条因果不同路线并复用重大决定；设定落实按各层性质引用真实骨架/正文，不用关键词或结构字段冒充文学质量。建议后续故事摘要比较降低同质化，不宣称当前已有跨书去重。
+
+方案已链接总体 v1.11 的“待确认补充”，未实施、未部署、未改运行任务/骨架/类型库/分类协议，未调用创作模型，未 Git 提交或推送。此前约定仍有效：当前正文完成后再做全书统一质量复盘和后续表达优化。仅增加设计与已核实的术语，不将新分层方案当已批准功能。
+
+## 2026-11-02：前三章正文质量验收，保留运行、未改稿
+
+用户确认前三章已输出，已完整阅读 a-night-of-her-own-b3f80487 的chapter_001/002/003_final，核对Final heads及promotion committed。正文空白计数（排除标题）1223/1086/1015，共3324词，目标3300。冻结快照 `/private/tmp/novelos-opening-review-20261102/`；三章SHA分别fe161664…/6a354326…/aba51e24…，结束复核未变化。按high-retention-web-novel诊断协议，另由无上下文独立模型只读三章；不是应用内M3任务或真人反馈。
+
+结论：题材已经进入身体/交班/收入因果；第一章母女与姐妹冲突、主角自身施压缺点、实际清偿和失去权限较有效；第2章真实出发、第3章门口忍住接管及早餐兑现值得保留。主要不足：第2章停止流程+条件清单与第3章开场重复；伦理/边界的总结偏多；Leah是女儿直到第一章末Mom才明确；稳定观察间歇无需即时共鸣虽在骨架257行明确，却没清楚进入正文，盲读对送行与整夜接班风险困惑（非已证实世界矛盾）；第三章Two means no?回答两下有问句/示范歧义；后两章续读期待较概括；Owen主动澄清事故缺少当下触发。June声音较功能化，但不能声称所有角色同声。
+
+可见链路：第三章初稿已有流程化开场，章计划首beat强调Terms Before Trust；编辑/风格处理保留其结构。实际请求与冻结system包含类型资料、创作交接和读者投入方法，不能解释成完全没传。下一轮通用方向：事实约束与呈现优先级分开、读者已知与作者/角色已知分开、相邻章重复与具体后续期待复核；不删必要规则，不一律增加危机，不为单书新增特判。当前仅阅读建议，未实施这些后续优化。
+
+详见 `docs/reports/2026-11-02-b3f80487-opening-prose-review.md`。本书是作者确认12章/13200词，不能代替新自动容量建议链路的真实验收；无旧版同条件对照、留存数据或跨题材实证。待全文核查中段流程化、高潮行动和余波。只更新评审文档/记忆，不改应用/真实正文/任务、不暂停或重启、不发起额外模型创作；当前执行持续推进，请重新核对实时阶段。
+
+
+## 2026-11-02：新容量/骨架修订与全局标记修复已部署，f249a131已恢复
+
+用户要求“修复，并部署新方案”。已部署5174前后端；新单本创建默认story_first、场景容量建议/作者确认/分章合同、骨架局部修订对照一起上线。已有讨论与任务保持冻结策略。作品库→新建小说可看到“偏好章节数（可选）”和先故事后篇幅说明；旧书不会追溯生成新容量卡。
+
+新增 `core/planning_correction.py` 与planner全局定向更正：仅允许已有climax/resolution章节整数，校验来源原话、旧值/路径/范围/问题覆盖；代码重建派生义务，再完整复核。保留原检查点身份和全部已保存章细纲。一次语义修订用尽/需改故事时API不再允许普通恢复，页面说明下一步；请求超时仍可恢复未完成阶段，不重复已保存修订。无书名/任务特例。
+
+发布前18作品/8讨论无活动，数据/SQLite和回退镜像已备份；246后端文件/78前端产物匹配，发布前后29528既有文件SHA不变。581后端回归，前端90+末次TaskProgress13（重叠，相关总计91），build/lint/diff通过。浏览器真实新建入口验收，无测试作品/额外新书调用。审计与回退 `/private/tmp/novelos-global-repair-deploy-20261102/`。
+
+真实恢复曾被自动审批拒绝，随后用户明确答复“授权恢复并继续原任务”，才在14:40:54恢复 `a-night-of-her-own-b3f80487` / `f249a13144d5`（job e2065d89952742c8888cff79791ba5f6）。真实模型一项patch将高潮11→9，14:43:15完整review passed、七项coverage true、无问题；结构通过。14:43:38任务已进入chapter.plan第1章；14:45:34末次核验已到chapter.edit第1章，running/error为空，初稿进入编辑但非最终审核完成。大纲恢复共1次修订+1次核查，原骨架/global/三批细纲与响应/旧核查9文件SHA不变。**任务正在继续正文，不要重启服务。** 源骨架仍为作者已确认12章/约13200词；没有新建替代任务。文学质量和全文完成尚待验收。
+
+详见 `docs/reports/2026-11-02-global-reference-repair-deployment.md`。总方案v1.11、术语及历史报告附注同步。当前分支 `codex/novel-quality-optimization`；未Git提交推送，全部既有WIP和无关pelican文件保留。
+
+
+## 2026-11-02：当前正文任务 f249a131 大纲核查失败，已只读定位
+
+用户询问改动入口并反馈失败。已核对：5174前后端healthy，运行后端无 `api/workshop_capacity.py`，新容量/修订界面仍未部署。b3f…会话现revision26/launched，关联 `a-night-of-her-own-b3f80487`，正文任务 `f249a13144d5` 于13:00:44开始、13:22:51在outline语义核查失败，正文0章；全局设计和3批12章细纲已保存，最后模型调用正常返回815字符。
+
+根因：全局合同climax_chapter=11及代码派生climax obligation=11，但原骨架同夜高潮在8–9章，第11章是职业自主收束，细纲正确保留此安排。默认12章模板也给11，模型未按原故事调整；模板锚定是推断。当前planner遇global问题直接停止，只有chapter修订分支。真实检查点在临时副本离线重放两次同样阻断，模型调用0；直接恢复仍会卡同处。离线只改候选climax至9可通过结构校验且自动同步义务，不代表已完成真实语义复核。
+
+**此轮未修复/恢复真实任务、调用模型、改应用代码、部署或重启。** 下一步需通用且受来源/版本约束的全局定向更正及准确恢复提示，不能伪造passed、删缓存或循环重试。详见 `docs/reports/2026-11-02-f249a131-outline-failure.md`；离线重放脚本 `/private/tmp/novelos-f249a131-diagnosis-20261102/replay.py`。界面工程预览图在 `.playwright-mcp/capacity-desktop.png` / `revision-desktop.png`。
+
+## 2026-11-02：通用容量规划与骨架修订首版完成，未部署
+
+用户同意当前书按已确认第23版启动正文、并行开发系统优化。此轮仅本地开发与替身模型工程验证：未部署/重启5174、调用真实LLM、启动正文或读写真实任务数据。分支仍为 `codex/novel-quality-optimization`，既有未提交工作保留，无关 `pelican-bicycle-2d.html` 未动，未Git提交/推送。不要以本次历史状态推断当前作品是否已经开始运行。
+
+新增 `core/story_capacity.py` / `api/workshop_capacity.py`：新单本会话 `length_planning=story_first` 冻结 `story-capacity.v1`。初始章数/章长只是偏好；同轮模型回复给场景来源、读者价值、现场/概述、区间与1–3篇幅方案。代码校验原话、来源版本、场景完整分配、章号/总量/范围/语言，作者一次采用并请求骨架后冻结。组装器与执行规划绑定同一分章目标；用户修改故事使建议过期，先归档原始状态。已采用后交付失败可以显式重试，沿用确认合同，不要求重新选择。旧任务/旧请求指纹/冻结策略不自动升级；分卷系列仍走原路径。
+
+新增 `core/skeleton_review.py`、原文对照UI与 `POST /sessions/{id}/skeleton-revision`：复用原最后交付请求产生最多8项局部建议+6项非局部说明，检查开篇、因果、读者价值、人物、场景容量和结局。作者采用所选或保留原稿，无需理由；锁内SHA/版本/唯一原文/不重叠定位、全骨架结构验证、幂等保存新版本。禁止编辑组装器补充预算记录；全局故事改变作为说明，不伪装局部修改。第17节记录当前采用结果并保留历史检查，不把旧revise状态冒充新验证。应用补丁无模型调用，结构通过不代表语义或读者质量达标。
+
+后端大范围回归547通过；最终新增恢复/归档/保护定向29通过（覆盖重叠不累加）。前端第一组20通过、旧流程86通过；添加重试保护后最终2文件63通过（与前面重叠）。最终构建、ESLint、diff检查通过。真实分阶段代码配合替身模型保持2故事阶段+6原组装阶段共8次调用，没有新增自动复核轮次。1440/390px界面无横向溢出，按钮对齐；5197临时预览和隔离浏览器页已关闭，临时源文件删除。H5私有字段泄漏防护扩充，公共导出协议未改。
+
+第一阶段不包括已写正文的剩余篇幅重排、分卷容量、成本预估；真实建议质量与正文效果待新作验收。总体方案v1.10与术语已同步。详见 [工程交付报告](docs/reports/2026-11-02-story-capacity-and-skeleton-review.md)。后续部署须先核对活动任务，不能因本地测试完成直接重启当前写作环境。
+
+## 2026-11-02：b3f80487 骨架修订完成、通用场景改进已部署5174
+
+用户要求修正骨架及系统优化，并明确确认保留12章、正文约13200英文词；正文由用户自行启动。任务 `b3f80487de8a43b896b0549aa2252afd` 现revision23、ready、prepared/project_id为空；基础设定平均1100词，各章1200/1100/1000/900/1150/1000/1000/1100/1200/1250/1300/1000，总计13200。已修正第10章Ruth自愿护持责任歧义，补12章场景展开重点，保留全部既定角色/因果/结局；分类及封面交接JSON逐字不变。新版SHA `2687f64a59946288c826d7f5cedbfc7c9c6d6888f487ba1fc648c4a15095d718`；旧版22原样保留，session原始快照在同任务history/editorial-a5a6b82d336369ea3415dde8fbd275bde8660b05c6eb2eb6f5191b4fee636e33.json。不会冒称原模型复核重新通过。
+
+通用组装器不再将完整因果链同时放第3/9节；新reader-investment快照增加关键场景/余波容量指导，旧冻结策略不热改。新增默认预览的行政修订工具 `scripts/revise_workshop_skeleton.py`：版本/SHA/锁/完整验证/归档/幂等/原子提交；清理旧prepared及交付指针，保留原文件。再次交付不把编辑前失败候选当当前修复来源。生产无本书专用分支。
+
+完整篇幅方案 `docs/design/2026-11-02-story-capacity-and-length.md` 已并入总体v1.9；用户篇幅偏好、故事容量建议、确认执行合同分离。**自动容量推导、确认卡及剩余篇幅重排未实施**；本次13.2k为作者确认的编辑估计。下一步可按此设计开发，而非声称已有自动功能。
+
+回归173通过，后续恢复保护67通过（重叠不累加）；结构校验与diff通过。确认17作品/8讨论无活动后只发布后端；242源码/78前端产物核对、发布前后29437数据文件SHA不变（快照在授权骨架修订后）。真实5174 API确认revision23及新篇幅，无创作启动。备份与回退 `/private/tmp/novelos-capacity-deploy-20261102/`，后端回退镜像 `novel-os-backend:rollback-capacity-20261102`。详见 `docs/reports/2026-11-02-skeleton-revision-and-capacity.md`。未调用模型、生成正文、改用户旧作品或Git提交推送；无关pelican未动。后续真实M2关注开篇1–3章和7–11章高潮/余波，暂无吸引力已提升的实证。
+
+## 2026-11-02：b3f80487 最终骨架质量只读验收
+
+用户要求分析已交付骨架是否提高质量。完整任务 `b3f80487de8a43b896b0549aa2252afd`，revision22、ready、无错误，11:34:54北京时间完成；暂名A Night of Her Own，12章目标合计7200英文词，project_id/prepared为空，未启动正文。版本22、正式候选和prompt_md一致，SHA `454cc31e50656391f6ba2662cddf933f891e6b2e79b3a85ea8887a4cad21ee3a`。六轮讨论中前四轮已有M1资料，第五轮选项式共创，第六轮才新故事地图；交付继续冻结狼人v4＋女性觉醒v2。不能把全部收益归因于最后升级，也无旧系统同条件对照。
+
+审查结论：相较本任务早期讨论，题材进入因果、主配角独立选择、持续代价及回报具体化有进步；开篇强烈情绪、正文吸引力仍未证实。中段第4—6章偏岗位/记录/支援谈判，第2章500词的信息和场景偏多；高潮需要在动作中呈现持续风险，避免同意程序替代故事。发现确定遗留：第10章“Ruth拒绝替妹妹背上不属于她的伤害责任”歧义已被第17节design_review=revise指出，但最终文件未修正。ready是可确认/格式状态，不是文学全部通过；不能因模型检查节写parser not_run而误称应用没执行后续本地校验。
+
+骨架74645字符/177371字节，第9节2843字符完整重复第3节因果链；三段交付执行约107分钟、两次超时后恢复，未证明实际延迟根因。建议局部修正/场景取舍后M2观察前三章及高潮，不推倒全书、不增自动评审门。详见 `docs/reports/2026-11-02-b3f80487-skeleton-quality-review.md`；私有快照 `/private/tmp/novelos-b3f80487-quality-20261102/`。本轮只写评审文档与记忆，未修改应用、真实会话/骨架、启动LLM、创作、部署或Git提交。
+
+## 2026-11-01：通用读者投入与故事共创已实现、部署 5174
+
+用户批准高质量开发后，已实现 `reader-investment.v1`＋`story-workshop.v1`：全题材通用方法贯通头脑风暴、骨架、章节规划、正文、审校及独立阅读评议；`creative-handoff.v2` 与新 RunSpec 冻结方法，旧 handoff/manifest/执行锁不变，没有书名/任务/狼人专用开关。真实文学质量与耗时仍待用户创作验收，未调用真实模型。
+
+共创四标签（本轮决定/故事全貌/待定事项/讨论记录），大字单选卡、补充并原子提交；服务端阻止跳过当前重大问题及绕过交付。支持自定义、限定本题委托、仅提问、换方案、历史重新讨论。提问/异常响应保留未决问题与旧地图；重大前提与现实资料分离，采用不等于核实。全书五段地图、版本概要、本轮变化与开篇体验卡，模型同轮输出，不新增自动推理/评分门禁。旧讨论明确点击“启用新版故事共创”，只升级下一轮，旧请求幂等指纹兼容。
+
+后端全量首轮4186通过、1外部H5源码测试跳过、25失败；修复1项新CLI独立导入兼容问题后专项15通过；24项沙箱端口/进程受限复核23通过，1项3秒CLI模拟启动在并行负载下超时，原时限单独复核通过。末次相关回归114/84/58通过（重叠不相加）。前端54文件592测试、构建/ESLint/diff通过；真实浏览器桌面/390px单选、提问、标签、刷新、键盘通过，无溢出/页面错误，只有模拟POST。代码复核同时修复重拟遗留前提、旧会话隐式升级和旧幂等指纹改变的风险。
+
+5174发布前后17作品/8讨论无活动任务；前后端healthy，242后端文件/78前端产物匹配，29398既有文件SHA保持。原样本b3f80487de8a的新版升级入口已只读验证，未点击。备份/验证 `/private/tmp/novelos-story-deploy-20261101/`，回退镜像 `novel-os-{backend,frontend}:rollback-story-method-20261101`。5197临时预览已关闭。先前未提交代码保留、无关pelican未动；本轮未Git提交/推送。详见 [交付报告](docs/reports/2026-11-01-story-workspace-reader-investment.md)。
+
+## 2026-11-01：读者投入明确为全系统创作方法论（设计约束）
+
+用户纠正：不能做成某一小说/题材的特例，这是整个系统创造小说的方法论。总体方案更新至v1.8，§1.1–1.2明确覆盖全部题材、新作品和全链路：头脑风暴、骨架/大纲、正文、编辑/连续性、风格、阅读评议。系统方法＋用户题材资料＋本书具体化；无专属资料也应用通用方法，不以任务ID、书名、人物或内置模板启用特判。开篇文档仅是重点应用，示意案例不得写进其他作品事实。
+
+实施需复用既有快照和交接，核验实际阶段输入与正文证据；保留情绪/风格多样性，新增及混合类型无需代码分支。区分设计意图、角色情绪、真实读者感受；跨题材与留出样本验收，不凭单案例宣称通用质量通过。旧任务冻结与H5合同保持。此次更新总体/开篇/共创设计及术语记忆，未改运行应用、Skill或部署。
+
+## 2026-11-01：开篇冲突与读者投入重点设计（未实施）
+
+用户随后明确同意该设计，并再次强调“一定要把读者的情绪带入进来”。已将批准状态与重点写入设计：区分角色表现和读者感受，具体场景建立关切，贯穿开篇投入、中段累积、高潮选择与结局回应；正文证据和实际读者反馈检验效果。此次确认只更新设计/记忆，尚未实施或部署。
+
+用户认可故事地图与重大决定方案，追加开篇必须具备强烈戏剧冲突、故事感、代入与情绪的要求。新增 `docs/design/2026-11-01-opening-reader-investment.md`，链接总体方案与共创提案。核心为具体场景、人物欲望/关系、题材因果、主要情绪、首次回报与具体后续期待；覆盖愤怒、同情、好笑、紧张、心动等，不把所有题材写成受辱反击。模型在已有轮次内主动设计，必要时复用2–3单选卡，作者只选重要体验与走向，不增加独立审批/自动评审。
+
+地图前段改为“开篇与前段”，原型故事全貌加入开篇体验卡及可折叠场景预览，`?tab=story&focus=opening`可直接查看。狼人女医师示例沿用讨论素材，新的文字编排明确标为示意，不写回真实任务。设计方案已定不等于正文吸引力已验证；M2复用现有交接/开篇合同，M3仍显式旁路阅读评议。原商业字段固定枚举不扩张，新增体验自由描述不改H5。此次只动文档与独立原型，无应用/Skill改动、部署或真实调用。
+
+原型1600×1100、390×844检查无横向溢出，深链接与场景展开有效，控制台零错误；本地链接、唯一HTML ID、JS语法及diff检查通过。截图在 `.playwright-mcp/novelos-opening-design-{desktop,mobile}.png`。临时5198预览已关闭。
+
+## 2026-11-01：第二轮共创反馈——故事地图与重大决定（设计提案，未实施）
+
+用户要求先梳理方案：直接单选采用+补充并提交继续，不能不知情跳过重大决定；明确处理待定假设；由模型处理细节，作者只决定宏观走向；展示前/中/后段及结局进度，并总结全部已有决定形成的故事。本轮只读核查、设计文档与独立交互稿，没有改应用/Skill、部署或调用真实模型。
+
+样本b3f80487de8a现场revision15、draft、14条消息、5轮方案、无错误，已启用guided-choices.v1。最新guidance有效，premise/characters settled、plot conflict、ending proposed。截图是历史回复中的WorkshopDesignRoundView；新版主面板外仍重复旧按钮及“保存后再发送”说明，且有新版组时旧按钮被禁用。历史r9两条互斥方案在rev11/12被旧无分组路径分别采用，最新模型为此协调。不可擅自删除其中一次决定。内容焦点已到后段高潮与结局衔接，无依据宣称精确完成百分比。
+
+新增设计 `docs/design/2026-11-01-workshop-story-map-and-decisions.md`：单一当前决策入口、每轮一个宏观问题，选择/自定义/本轮范围委托后才能推进；提问/换方案不视为采用；生成入口不绕过已知核心未决。假设分重大前提、模型需解决的因果前提、可补全细节、现实事实待核实；采用不是核实。全书地图和版本化梗概同轮生成，摘要不替换原始对话，无新增自动评审调用。反复细化局部时主动回到全书；达到条件推荐生成。
+
+可点击原型 `docs/design/prototypes/workshop-story-map/index.html`，沿用当前浅蓝紫/白色统一面板。四标签、放大字体、单选+补充、范围委托、先问清楚、故事地图和梗概；下一轮结果明确标为本地模拟，不连接真实任务。1600×1100/390×844检查无横向溢出，单选/未选禁用/自定义必填/提问不采用/模拟推进通过，最终控制台零错误。临时5198预览已结束。既有未提交应用改动属于前一轮，保留；无关pelican未碰。
+
+## 2026-11-01：选项式共创与主动收束已实现、部署 5174
+
+用户批准上一轮设计并要求开始优化。已完成 `guided-choices.v1`：关键分岔可见2–3选项、推荐及取舍，通常1组至多2组，支持选项+开放补充一次提交、只保存、清除本次选择和换一组。四项设计覆盖及主动生成建议独立于骨架已生成状态；原话证据精确核对、后续修订使旧建议过期、异常辅助字段保留回复且零自动重试。建议只作辅导，不是正文质量证明，不增加独立成熟度调用。
+
+后端在会话锁下原子保存决定和消息，operation_id持久幂等；失联重试沿用原请求，进程重启不重放付费调用，明确版本拒绝后允许新修订重试。互斥改选替代同组决定并保留历史，继续已修改方案不会覆盖作者修改。H5分类和导出合同保持，新增私有字段泄漏检查。旧会话须点击「启用选项式共创」，只更新下一轮策略，已有消息/采用/类型快照保持；本轮未升级或调用真实样本。
+
+后端相关530通过/1外部H5源码依赖跳过，前端53文件585通过，构建/ESLint/diff通过。全量发现ReaderReview既有测试未等淡入动画，保留可见性断言、改为waitFor后全过。隔离假模型实际API验证选项+补充、只保存零调用、刷新选项、改选、一次提交、生成推荐；1600/390px无横向溢出，控制台零错误。临时8017/5197已关闭。
+
+部署前17作品/8讨论无活动任务，样本b3f80487de8a为revision12、draft、无错误。5174前后端healthy，240后端文件/78前端产物与源码构建匹配，29,394个作品/讨论/类型/配置文件SHA不变。真实浏览器仅查看样本的升级入口，未点击、未触发模型。仓库与宿主Skill两份参考文件同步，备份 `/Users/max/.codex/skill-backups/20261101T094945.767642Z-01d15476`。部署备份/验证位于 `/private/tmp/novelos-guidance-deploy-20261101/`，回退镜像 `novel-os-{backend,frontend}:rollback-guidance-20261101`。详细记录 `docs/reports/2026-11-01-workshop-guided-convergence.md`。
+
+没有真实创作质量/耗时改善结论；用户可进入b3f80487de8a，先启用增强，再正常发送下一轮验收。未提交/推送本轮改动，无关pelican文件未动。
+
+## 2026-11-01：头脑风暴选项式共创与主动收束设计
+
+用户已提交真实样本定向修改，并要求模型多给可选择方案、作者可以开放补充，以及模型适时提示可以导出骨架。检查时 b3f80487de8a 为 revision 9、running、discuss、无错误，第4轮尚未返回；未中断、改输入或追加调用。
+
+新增提案 `docs/design/2026-11-01-workshop-guided-choices-and-convergence.md` 并链接总体方案，尚未改应用或部署。关键分岔2–3项实质选项＋推荐、自由补充、一次提交启动讨论；局部编辑不强制凑选项。四项全书覆盖只作进度视图，非逐项审批；达到主线/转折/高潮结局/关键代价明确后推荐生成，未决核心给具体选择，不按固定轮数结束。建议生成状态与已有 ready_for_confirmation 分离，模型不能自动交付或启动正文；源码复用现有方案决定和显式 deliver。补充字段失败保留回复、无额外自动评估调用；旧会话与运行策略不热更新，H5合同不变。详细设计仍为提案，本轮仅文档与记忆更新。
+
+## 2026-11-01：M1 真实样本开始，头脑风暴 b3f80487de8a
+
+用户自行启动首个阶段验收样本，完整会话 `b3f80487de8a43b896b0549aa2252afd`。构想为狼人女医师救助被驱逐者后遭追责；H5 奇幻＋狼人、female，创作快照狼人 v4＋女性觉醒 v2，英文、美国45–60岁女性，12章×每章600词。此为短样本，尚无真实质量改善结论。
+
+16:10–16:11（北京时间）只读核验：revision 1、active_operation=brainstorm、后台job running，无 last_error；首轮请求回执 adapter_invocation_started，有传输事件但尚无可见模型回复。prompt_md 为空、prepared/project_id 未建立，没有自动交付骨架或启动正文。未暂停、重启或追加模型调用。下一步根据首轮回复验收主动走线、题材机制及引导问题；M1骨架验收后才讨论M2启动。不能把历史接口/传输活动表述为远端持续思考证明。
+
+随后用户要求分析多轮是否符合预期。本轮完整读取 revision 8 的 8 条消息、方案/采用记录、3 份请求回执及用量记录：实际为 3 轮模型回复，另有 2 次方案采用；当前 draft、无错误、无骨架/项目，尚未进入 M2。每轮均读取冻结狼人 v4＋女性觉醒 v2。首轮三条走线有因果差异；后续正确沿用选定路线及已确认假设，表现出人物缺点、对抗者调整策略、选择代价和小幅情感回报。M1阶段判断为部分符合预期，不能宣称质量提升已实证：后两轮 questions 为空，关键分岔缺少具体作者决策邀请；狼人共鸣/恢复负荷已进入因果，但关键场面仍偏轮值、供给、记录和审批，需要测试具体狼人行动场景；女儿代偿义务的规则依据仍待补足。没有用户重大改案测试、完整骨架、正文或旧版配对样本，M2文学表现未评。
+
+3 次调用均完成且回执 attempt=1，单轮约 12分08秒、8分39秒、9分19秒，累计约30分06秒；用量记录合计150,598 tokens（缓存包含于输入，不另加），请求81,734/93,873/98,139 bytes。这说明交互效率仍待改善，不足以证明延迟具体发生于远端思考、排队或传输。本轮只分析并更新项目记忆，未修改应用/讨论数据、重启或追加模型请求。建议下一次验收给一次定向修改：保持已采用关系和生理代价，推进一次具体救治/交班危机，提出两种不同代价及一个关键选择问题，暂不生成骨架；此为建议，未替用户提交。
+
 ## 2026-11-01：类型删除与保存反馈，已部署 5174
 
 用户要求支持删除类型、无修改时不显示「保存并启用」、保存成功弹窗提示。类型详情现在有删除确认；内置和自建均支持。存储保留 `deleted_at` 墓碑、disabled 状态和旧版本，默认及 include_retired 列表都排除，直接 get/新修改拒绝；历史版本接口及已有讨论冻结快照仍可用。retired 同时置 true，旧读取端默认列表也隐藏。删除沿用修订校验、锁/原子保存和 operation_id 幂等，防止旧窗口覆盖或默认内置复活；未操作用户现有类型。

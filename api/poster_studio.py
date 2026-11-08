@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import poster_tasks
+from .poster_references import store_for as reference_store, public_selection, Selection as ReferenceSelection
 from .cover_workbench import project_workflow
 from .jobs import runner
 from .routes import (get_service, get_cover_service, get_cover_mutation_service,
@@ -61,6 +62,7 @@ class Request(BaseModel):
 
 
 class PlanRequest(Request):
+    reference: ReferenceSelection | None = None
     preferences: dict[str, str] = Field(default_factory=dict, max_length=12)
 
 
@@ -188,6 +190,7 @@ def overview(project_id: str, svc: ProjectService = Depends(get_service)):
         active = flow.store.active()
         selected_set = next((item for item in saved_sets if item.cover_set_id == active.cover_set_id), None)
         return {"enabled": enabled(), "title": detail.title, "source": source,
+                "reference": public_selection(project_id, reference_store(flow).selection()),
                 "plans": [_public_plan(item, bundle, detail.title) for item in plans.list_plans(flow)],
                 "sets": [_public_set(flow, project_id, item) for item in reversed(saved_sets)],
                 "tasks": poster_tasks.list_tasks(flow, runner), "legacy_active": _old_active(flow, project_id),
@@ -213,15 +216,32 @@ def start_plan(project_id: str, body: PlanRequest, svc: ProjectService = Depends
                     "language": "", "market_scope": body.preferences.get("market", ""),
                     "target_audience": body.preferences.get("audience", "")}
         snapshot = capture_source(flow.context, CoverSourceSelector("project_input", project_id=project_id))
-        return {"snapshot": snapshot, "metadata": metadata}
+        reference = None
+        image = None
+        if body.reference and body.reference.asset_id:
+            store = reference_store(flow)
+            asset = store.get(body.reference.asset_id)
+            reference = {'asset_id': asset['asset_id'], 'mode': body.reference.mode, 'asset': asset}
+            image = store.read(asset['asset_id'])
+        knowledge_path = flow.store.project_path / 'outputs/input/knowledge.json'
+        knowledge = None
+        if knowledge_path.exists():
+            import json
+            from core.creative_types import compile_snapshot
+            from core.safe_project_io import read_project_bytes
+            knowledge = json.loads(read_project_bytes(flow.store.project_path, ('outputs', 'input', 'knowledge.json'), max_bytes=2*1024*1024))
+            compile_snapshot(knowledge, 'cover')
+        return {"snapshot": snapshot, "metadata": metadata, 'reference': reference, 'image': image, 'knowledge': knowledge}
 
     def operation(prepared, progress):
-        planner = get_poster_planner()
+        planner = get_vision_reviewer() if prepared["image"] else get_poster_planner()
         planner.diagnostic_callback = lambda event: progress({"model_event": event})
         def planning_progress(event):
             progress({**event, "stage": event.get("phase", "planning")})
         value = plan_poster(prepared["snapshot"], prepared["metadata"], body.preferences,
-                            planner.complete, model=planner.model, progress=planning_progress,
+                            (lambda system, user: planner.complete_with_images(system, user, [prepared['image']])) if prepared['image'] else planner.complete,
+                            reference=prepared['reference'], knowledge_snapshot=prepared['knowledge'],
+                            model=planner.model, progress=planning_progress,
                             context_window_tokens=int(os.environ["NOVEL_OS_POSTER_CONTEXT_WINDOW_TOKENS"])
                                 if os.environ.get("NOVEL_OS_POSTER_CONTEXT_WINDOW_TOKENS") else None,
                             output_token_limit_supported=planner.provider_name not in {"codex", "claude_cli"})
@@ -231,7 +251,7 @@ def start_plan(project_id: str, body: PlanRequest, svc: ProjectService = Depends
         return {"plan_id": saved["plan_id"]}
     try:
         return poster_tasks.start(flow, runner, kind="plan", request_id=body.request_id,
-            inputs={"preferences": body.preferences}, preflight=preflight, operation=operation, project_id=project_id)
+            inputs={"preferences": body.preferences, "reference": body.reference.model_dump() if body.reference else None}, preflight=preflight, operation=operation, project_id=project_id)
     except (ValueError, OSError) as exc:
         raise _cover_error(exc) from exc
 

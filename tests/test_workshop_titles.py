@@ -194,9 +194,11 @@ def test_running_title_request_rejects_other_mutations(client, monkeypatch, tmp_
         finish(client, data["id"])
 
 
-def test_model_uses_workshop_route_full_naming_context_and_bounded_format_retry(monkeypatch):
+@pytest.mark.parametrize("fault", ["duplicate", "overlong"])
+def test_model_uses_workshop_route_compact_naming_context_and_bounded_format_retry(monkeypatch, fault):
     from core import llm_client, provider_settings
     calls = []
+    expected = [{"title": f"Story Choice {n}", "angle": "关键选择", "reason": "选择的代价带来悬念", "source_ids": ["story"]} for n in range(5)]
     monkeypatch.setattr(provider_settings, "resolve_text_route", lambda name:
                         {"provider": name, "model": "independent-model", "base_url": "", "api_key": "",
                          "max_tokens": 4096, "reasoning_effort": "high"})
@@ -205,13 +207,20 @@ def test_model_uses_workshop_route_full_naming_context_and_bounded_format_retry(
             self.options = options
         def complete(self, system, user):
             calls.append((self.options, system, user))
-            return json.dumps({"candidates": [CANDIDATES[0]] * 3 if len(calls) == 1 else CANDIDATES})
+            invalid = [expected[0]] * 5 if fault == "duplicate" else [
+                {**item, "title": " ".join(["Word"] * 16)} for item in expected]
+            return json.dumps({"candidates": invalid if len(calls) == 1 else expected})
     monkeypatch.setattr(llm_client, "LLMClient", FakeClient)
     result, route = workshop_titles.complete_titles({"turn_timeout_seconds": 900, "prompt_md": "完整骨架",
         "input": {"language": "English"}, "naming": {"requests": [{"instructions": "原要求"}, {"instructions": "新要求"}]}}, "rules")
-    assert result == CANDIDATES
+    assert result == expected
     assert len(calls) == 2
     assert calls[0][0]["model"] == "independent-model"
     assert 0 < calls[1][0]["timeout_seconds"] <= calls[0][0]["timeout_seconds"] <= 900
     assert all(text in calls[1][2] for text in ("原要求", "新要求", "完整骨架"))
     assert route["timeout_seconds"] == 900
+    assert route["attempts"] == 2
+    assert "format_correction" in json.loads(calls[1][2])
+    assert "at most 15 words" in calls[0][1]
+    if fault == "overlong":
+        assert "长度上限" in json.loads(calls[1][2])["format_correction"]

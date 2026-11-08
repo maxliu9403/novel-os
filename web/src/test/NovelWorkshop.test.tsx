@@ -7,13 +7,14 @@ import { workshopApi, type WorkshopRuntimeProgress, type WorkshopSession } from 
 import NovelWorkshop, { type WorkshopSeed } from "../components/NovelWorkshop";
 import { workshopDesign } from "./workshopDesignFixture";
 
-import { creativeTypesApi } from '../api/creativeTypes';
+import { creativeTypesApi, creativeRef } from '../api/creativeTypes';
+import * as documentImportApi from '../api/documentImport';
 import { typeLibrary } from './creativeTypesFixture';
 
 const seed: WorkshopSeed = { title: "Nora 的记忆", author: "Terry", genres: ["Fantasy"], premise: "Nora 是流亡的档案员，要找回家人的记忆。", method_mode: "off" };
 const markdown = "# Nora 的记忆\n\n## 人物身份\n\n| 人物 | 代词 |\n| --- | --- |\n| Nora | she/her |\n\n## 第一章\n她保留证据，暂不对质。";
 function session(patch: Partial<WorkshopSession> = {}): WorkshopSession {
-  return { id: "session-1", revision: 2, input: { ...seed, language: "English", mode: "standalone_long", audience: "25–40 岁读者", market: "美国", constraints: "不改变Nora的姓名", chapters: 80, words_per_chapter: 1000 },
+  return { id: "session-1", revision: 2, input: { ...seed, creative_types: typeLibrary().items.slice(0,2).map(creativeRef), language: "English", mode: "standalone_long", audience: "25–40 岁读者", market: "美国", constraints: "不改变Nora的姓名", chapters: 80, words_per_chapter: 1000 },
     messages: [{ role: "assistant", content: "可以把记忆的代价作为人物的内心冲突。" }],
     prompt_md: markdown, questions: [], ready_for_confirmation: true, status: "ready", last_error: null, job_id: "turn-1", skill_version: "version-1", prepared: null, project_id: null, logs: [], ...patch };
 }
@@ -31,6 +32,22 @@ beforeEach(() => {
   vi.spyOn(api, "studioModels").mockRejectedValue(new Error("No configured route"));
 });
 afterEach(() => vi.restoreAllMocks());
+
+test("file import fills the existing premise without starting discussion and blocks advancement until confirmed", async () => {
+  vi.spyOn(documentImportApi, 'importDocument').mockResolvedValue({ filename: 'outline.md', text: '文件中的人物、故事和结局', characters: 13, pages: null, warnings: [] });
+  const create = vi.spyOn(workshopApi, 'create');
+  const turn = vi.spyOn(workshopApi, 'turn');
+  view({ ...seed, premise: '' });
+  await userEvent.upload(screen.getByLabelText('选择故事构想文件'), new File(['outline'], 'outline.md', { type: 'text/markdown' }));
+  expect(await screen.findByLabelText('导入文字预览')).toHaveValue('文件中的人物、故事和结局');
+  expect(screen.getByRole('button', { name: '下一步' })).toBeDisabled();
+  await userEvent.click(screen.getByRole('button', { name: '确认导入' }));
+  expect(screen.getByLabelText('故事构想或已有框架')).toHaveValue('文件中的人物、故事和结局');
+  await userEvent.click(screen.getByRole('button', { name: '下一步' }));
+  expect(await screen.findByRole('radio', { name: 'Romance' })).toBeVisible();
+  expect(create).not.toHaveBeenCalled();
+  expect(turn).not.toHaveBeenCalled();
+});
 
 test("saving a creative decision preserves unsent text and next discussion uses the saved revision", async () => {
   const current = session({ status: "draft", prompt_md: "", ready_for_confirmation: false, creative_design: workshopDesign() });
@@ -62,16 +79,18 @@ test("creates an asynchronous workshop with the explicit continuous mode and ori
   vi.spyOn(api, "getJob").mockResolvedValue({ job_id: "turn-1", kind: "workshop", status: "done", error: null });
   const user = userEvent.setup();
   view();
+  await user.click(screen.getByRole('button',{name:'下一步'}));
+  await user.click(await screen.findByRole('radio',{name:'Romance'}));
+  await user.click(screen.getByRole('button',{name:'背叛'}));
+  await user.click(screen.getByRole('button',{name:'下一步'}));
   await user.selectOptions(screen.getByLabelText("故事组织形式"), "standalone_long");
-  await user.type(screen.getByLabelText("计划章节数"), "80");
-  await user.type(screen.getByLabelText("每章大约多少字／词"), "1000");
+  await user.type(screen.getByLabelText("偏好章节数（可选）"), "80");
+  await user.type(screen.getByLabelText("每章规划上限（字／词）"), "1000");
   await user.type(screen.getByLabelText("正文语言"), "English");
-  await user.click((await screen.findAllByRole("button", { name: "奇幻", exact: true }))[0]);
   await user.click(screen.getByRole("button", { name: "开始头脑风暴" }));
   await screen.findByText("可以把记忆的代价作为人物的内心冲突。");
-  expect(create).toHaveBeenCalledWith(expect.objectContaining({ mode: "standalone_long", chapters: 80, words_per_chapter: 1000, method_mode: "off", premise: seed.premise }));
-  expect(create.mock.calls[0][0].creative_types).toEqual([]);
-  expect(create.mock.calls[0][0].publication_classification?.primary_genre_id).toBe("fantasy");
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ length_planning: "story_first", mode: "standalone_long", chapters: 80, words_per_chapter: 1000, method_mode: "off", premise: seed.premise }));
+  expect(create.mock.calls[0][0].creative_types?.map(r=>r.id)).toEqual(['genre.romance','tag.betrayal']);
   expect(turn).toHaveBeenCalledWith("session-1", expect.any(String), 0, "discuss");
   expect(screen.getByText(/不限讨论次数/)).toBeInTheDocument();
   expect(localStorage.getItem("novel-os.workshop.active-session")).toBe("session-1");
@@ -273,14 +292,19 @@ test("unresolved questions keep preview available but prevent premature launch p
   expect(screen.getByRole("button", { name: "确认骨架，推荐书名" })).toBeDisabled();
 });
 
-test("returning to basic creation applies changed seed without discarding optional unsent fields", () => {
+test("returning to basic creation applies changed seed without discarding optional unsent fields", async () => {
   const props = { open: true, onClose: vi.fn(), onBack: vi.fn() };
   const { rerender } = render(<MemoryRouter><NovelWorkshop {...props} seed={seed} /></MemoryRouter>);
-  fireEvent.change(screen.getByLabelText("计划章节数"), { target: { value: "80" } });
+  await userEvent.click(screen.getByRole('button',{name:'下一步'}));
+  await userEvent.click(await screen.findByRole('radio',{name:'Romance'}));
+  await userEvent.click(screen.getByRole('button',{name:'背叛'}));
+  await userEvent.click(screen.getByRole('button',{name:'下一步'}));
+  fireEvent.change(screen.getByLabelText("偏好章节数（可选）"), { target: { value: "80" } });
   rerender(<MemoryRouter><NovelWorkshop {...props} seed={{ ...seed, title: "改后的书名", premise: "新的故事构想" }} /></MemoryRouter>);
+  expect(screen.getByLabelText("偏好章节数（可选）")).toHaveValue(80);
+  await userEvent.click(screen.getByRole('button',{name:'1 故事与素材'}));
   expect(screen.getByLabelText("暂定书名")).toHaveValue("改后的书名");
   expect(screen.getByLabelText("故事构想或已有框架")).toHaveValue("新的故事构想");
-  expect(screen.getByLabelText("计划章节数")).toHaveValue(80);
 });
 
 test("saved basics can be edited and saved before a separately confirmed fresh start", async () => {

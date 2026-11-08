@@ -22,8 +22,10 @@ from uuid import uuid4
 
 try:
     from .codex_metric_activity import MetricActivityProjector
+    from .codex_diagnostic_codes import error_code
 except ImportError:
     from codex_metric_activity import MetricActivityProjector
+    from codex_diagnostic_codes import error_code
 
 
 _MAX_BODY_BYTES = 1024 * 1024
@@ -162,6 +164,14 @@ def project_record(record: dict) -> dict | None:
     success = _boolean(attrs.get("success"))
     if success is not None:
         result["success"] = success
+    if success is False or kind in {'response.failed', 'response.incomplete', 'error'}:
+        # Native versions use different attribute names; classify only, never
+        # retain the error message, URL, body or reasoning it may contain.
+        for key in ('error.code', 'error.type', 'error.message', 'error'):
+            code = error_code(attrs.get(key))
+            if code != 'unclassified_error':
+                break
+        result['diagnostic_code'] = code
     for key in ("endpoint", "url.full", "http.url"):
         category = _endpoint(attrs.get(key))
         if category is not None:
@@ -224,6 +234,7 @@ class CodexTelemetry:
         self.metrics_enabled = enable_metrics is True
         self._metrics = MetricActivityProjector() if self.metrics_enabled else None
         self.config_args: list[str] = []
+        self.last_public_text_at: float | None = None
 
     def _publish(self, record):
         try:
@@ -339,6 +350,13 @@ class CodexTelemetry:
                 event = self._events.get_nowait()
             except queue.Empty:
                 return
+            if event.get('event') == 'upstream.activity':
+                if event.get('activity_kind') == 'text':
+                    # Receipt time of a verified positive delta batch, not a
+                    # heartbeat, private reasoning or a replayed counter.
+                    self.last_public_text_at = self._started_at + event['observed_seconds']
+                elif event.get('activity_kind') == 'error':
+                    self.last_public_text_at = None
             self._publish(event)
 
     def close(self):

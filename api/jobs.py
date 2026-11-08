@@ -8,7 +8,7 @@ for the UI to poll. Single-process, single-user no external queue needed.
 from __future__ import annotations
 
 from contextvars import copy_context
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from core.usage_tracking import usage_scope
 
 import threading
@@ -36,6 +36,14 @@ class ProjectJobsRunning(RuntimeError):
         )
 
 
+class SessionJobBlocked(RuntimeError):
+    """A deleted discussion must not start already-prepared background work."""
+
+
+class SessionJobsRunning(RuntimeError):
+    """Discussion deletion must not orphan its running inference or covers."""
+
+
 class JobRunner:
     def __init__(self) -> None:
         self._jobs: dict[str, dict] = {}
@@ -44,6 +52,8 @@ class JobRunner:
         # roots isolated. Deleted paths stay fenced from already-prepared work;
         # project creation allocates a fresh path instead of reusing one.
         self._blocked_project_paths: set[str] = set()
+        # Workshop ids are server-generated UUIDs, also used by cover jobs.
+        self._blocked_session_ids: set[str] = set()
 
     def submit(
         self,
@@ -57,6 +67,8 @@ class JobRunner:
         defer_cancel_completion: bool = False,
     ) -> str:
         with self._lock:
+            if (meta or {}).get("session_id") in self._blocked_session_ids:
+                raise SessionJobBlocked("这条头脑风暴记录已删除，请刷新列表。")
             project_path = str((meta or {}).get("project_path") or "")
             if project_path and project_path in self._blocked_project_paths:
                 raise ProjectJobBlocked(
@@ -131,6 +143,16 @@ class JobRunner:
                 if job.get("status") == "running"
                 and self._matches_project(job, project_id, project_path)
             ]
+
+    @contextmanager
+    def session_deletion(self, session_id: str):
+        """Commit the durable tombstone before releasing the submission fence."""
+        with self._lock:
+            if any(job.get("status") == "running" and job.get("session_id") == session_id
+                   for job in self._jobs.values()):
+                raise SessionJobsRunning("讨论或关联封面任务仍在运行，请先暂停或等待完成后再删除。")
+            yield
+            self._blocked_session_ids.add(session_id)
 
     def latest_for_project(
         self, project_id: str, *, project_path: str = "", kind: str, run_id: str

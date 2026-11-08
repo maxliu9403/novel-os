@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synchronize the release's three Skills during the normal deployment flow.
+"""Synchronize the release's project Skills during the normal deployment flow.
 
 This internal helper uses only the standard library. It neither invokes Codex
 nor starts any service. Existing installations are backed up before replacement.
@@ -25,6 +25,7 @@ PUBLISHED_SKILLS = (
     "novel-brainstorm-workshop",
     "high-retention-web-novel",
     "novel-cover-studio",
+    "novel-corpus-study",
 )
 LOCK_NAME = ".novel-os-skill-sync.lock"
 

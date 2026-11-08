@@ -37,6 +37,9 @@ class PlanningModel:
         if user.startswith("STAGE: format_correction"):
             self.calls.append(("format", context))
             return context["completed_response"]
+        if user.startswith('STAGE: global_reference_repair'):
+            self.calls.append(('global_repair', context))
+            return json.dumps({'status': 'requires_author', 'reason': 'This fixture needs a story decision, not a chapter reference correction.', 'edits': []})
         if "STAGE: targeted_repair" in user:
             stage = "repair"
         elif user.startswith("STAGE: global_design"):
@@ -46,7 +49,7 @@ class PlanningModel:
         else:
             stage = "batch"
         self.calls.append((stage, context))
-        assert context["complete_adopted_source"]
+        assert context.get("complete_adopted_source") or context["adopted_source_projection"]["text"]
         if stage == "global":
             result = global_design(context)
             if self.mutate_global:
