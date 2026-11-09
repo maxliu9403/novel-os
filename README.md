@@ -38,8 +38,8 @@
 
 Traditional AI writing generates one response and forgets everything. Novel OS is different:
 
-- 🧠 **Persistent memory** agent outputs are parsed and merged into a central state file. Characters, locations, plot threads, foreshadowing, and quality scores accumulate chapter by chapter.
-- 🤝 **Agents collaborate** Architect → Scribe → Editor → Guardian → Curator, each handing off to the next with full context.
+- 🧠 **Persistent memory** preserves planning candidates and tracks established facts as chapters are approved. Later chapters can refer back to characters, locations, plot threads, and foreshadowing.
+- 🤝 **Agents collaborate** through saved plans, manuscripts, reviews, and state updates. The run's story-engine version determines which roles make a model call at each stage.
 - 🛡️ **Deterministic + LLM validation** a free local continuity engine catches dormant threads, unresolved foreshadowing, and timeline drift *before* the LLM Guardian runs.
 - 🔌 **Provider-agnostic** Anthropic, OpenAI, Azure, Gemini, NVIDIA NIM, Kimi, Groq, Together, OpenRouter, DeepSeek, Mistral, Fireworks, Ollama, LM Studio, or any OpenAI-compatible endpoint.
 
@@ -135,6 +135,10 @@ Every agent prompt now includes a strict **OUTPUT CONTRACT** that forces the LLM
 ---
 
 ## 🔄 The Chapter Workflow
+
+For Workshop runs with a `story-first.v1` handoff, Architect plans the book. Each chapter uses its saved plan. Scribe writes the draft and Guardian reviews the story, continuity, style, and reader experience together. When a revision is required and the run permits automatic repair, Editor revises the chapter and Guardian reviews it again. Once a chapter passes, the engine saves that version as the final text. The staged outline uses the Architect connection for its own consistency review.
+
+The diagram below shows the traditional chapter workflow. The [runtime role map](docs/design/2026-11-09-runtime-agent-roles.md) traces both paths and their output files. The [100-chapter planning proposal](docs/design/2026-11-09-long-form-planning.md) documents the design and its validation milestones.
 
 ```mermaid
 flowchart LR
