@@ -27,16 +27,21 @@ def windows(candidate, make_context, fits, *, prepare_context=None):
     numbers = [c['number'] for c in chapters]
     if numbers != list(range(1, len(chapters) + 1)):
         raise ValueError('Review candidate must contain all chapters in order')
+    by_number = {c['number']: c for c in chapters}
+    # Retain the original field order for saved requests. Copy only chapter
+    # bodies which will actually enter each candidate window.
+    global_view = {**candidate, 'chapters': []}
     result = []
 
     def plan(requested):
-        included = sorted({n for r in requested for n in (r - 1, r, r + 1) if n in numbers})
-        view = deepcopy(candidate)
-        view['chapters'] = [deepcopy(c) for c in chapters if c['number'] in included]
+        member_numbers = {n for r in requested for n in (r - 1, r, r + 1) if n in by_number}
+        included = sorted(member_numbers)
+        view = deepcopy(global_view)
+        view['chapters'] = [deepcopy(by_number[n]) for n in included]
         context = make_context(requested)
         context.update(candidate=view, review_window={
             'schema': VERSION, 'requested_chapters': requested, 'included_chapters': included,
-            'omitted_candidate_chapters': [n for n in numbers if n not in included],
+            'omitted_candidate_chapters': [n for n in numbers if n not in member_numbers],
             'global_candidate_fields': [k for k in candidate if k != 'chapters'],
         })
         if prepare_context is not None:

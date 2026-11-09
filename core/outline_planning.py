@@ -310,7 +310,7 @@ class StagedOutlinePlanner:
         })
 
     def _response(self, name: str, prompt: str, creative_stage: str = "story_design", *,
-                  strict_dependencies: bool = False) -> str:
+                  strict_dependencies: bool = False, recover_archived: bool = False) -> str:
         """Save a complete response even when its JSON/contract needs correction.
 
         On explicit recovery we reuse these bytes; receiving a complete but
@@ -328,6 +328,21 @@ class StagedOutlinePlanner:
             if not isinstance(saved.get("raw"), str):
                 raise OutlinePlanningError("Saved planning response is not text")
             return saved["raw"]
+        recover = getattr(self.creative_execution, "recover_response", None)
+        if recover_archived and recover:
+            # A crash may have separated archiving the final reply from promoting
+            # its checkpoint. A matching creative receipt also binds the system
+            # prompt, author inputs and response digest.
+            archived = set()
+            for path in (self.cache / "raw").glob(f"{name}.*.response.txt"):
+                request_path = path.with_name(path.name.removesuffix(".response.txt") + ".prompt.txt")
+                if request_path.is_file() and request_path.read_bytes() == prompt.encode("utf-8"):
+                    archived.add(path.read_bytes())
+            if len(archived) == 1:
+                recovered = recover("outline_planner", prompt, receipt, archived.pop().decode("utf-8"))
+                if recovered is not None:
+                    self._save(f"{name}-response", dependencies, {"raw": recovered})
+                    return recovered
         request_id = uuid.uuid4().hex
         atomic_write(self.cache / "raw" / f"{name}.{request_id}.prompt.txt", prompt, guard=self._guard)
         if self.creative_execution is not None:
@@ -350,16 +365,28 @@ class StagedOutlinePlanner:
 
     def _call(self, name: str, instruction: str, context: dict, validate: Callable[[dict], dict],
               *, input_limit_bytes: int | None = None, strict_dependencies: bool = False,
-              recover_completed: Callable[[dict], dict | None] | None = None) -> dict:
+              recover_completed: Callable[[dict], dict | None] | None = None,
+              repair_fields: Callable[[str, dict], dict | None] | None = None) -> dict:
         prompt = instruction + "\n\n" + _json(context)
         creative_stage = ("chapter_plan" if instruction.startswith("STAGE: chapter_batch") else
                           "review" if instruction.startswith(("STAGE: semantic_review", "STAGE: coordinated_repair")) else "story_design")
         if input_limit_bytes is not None and not self._prompt_fits(prompt, creative_stage, input_limit_bytes):
             raise OutlinePlanningError(f"{name} exceeds the negotiated input capacity; no content was truncated or sent")
-        raw = self._response(name, prompt, creative_stage, strict_dependencies=strict_dependencies)
+        raw = self._response(name, prompt, creative_stage, strict_dependencies=strict_dependencies,
+                             recover_archived=repair_fields is not None)
         try:
             return validate(_parse_object(raw))
         except (KeyError, TypeError, ValueError) as exc:
+            # Earlier versions may already have a later, corrected proposal.
+            # Complete it first and never regenerate an archived correction.
+            saved_correction = repair_fields is not None and (
+                (self.cache / f"{name}-format-correction-response.json").exists()
+                or any((self.cache / "raw").glob(f"{name}-format-correction.*.response.txt"))
+            )
+            if repair_fields and not saved_correction:
+                scoped = repair_fields(raw, context)
+                if scoped is not None:
+                    return scoped
             correction = (
                 "STAGE: format_correction\nCorrect only the reported JSON/schema defect in the completed response. "
                 "Preserve every already valid story choice, source detail, scene, emotion, character, and obligation. "
@@ -376,10 +403,15 @@ class StagedOutlinePlanner:
                     "the complete response and prior checkpoints are preserved; no content was truncated or sent"
                 ) from exc
             repaired = self._response(f"{name}-format-correction", correction, creative_stage,
-                                      strict_dependencies=strict_dependencies)
+                                      strict_dependencies=strict_dependencies or saved_correction,
+                                      recover_archived=repair_fields is not None)
             try:
                 return validate(_parse_object(repaired))
             except (KeyError, TypeError, ValueError) as correction_error:
+                if repair_fields:
+                    scoped = repair_fields(repaired, context)
+                    if scoped is not None:
+                        return scoped
                 # Only the latest complete, hash-bound response may receive a
                 # deterministic metadata child. Never replace it with an older
                 # proposal or dispatch another model request here.
@@ -393,6 +425,38 @@ class StagedOutlinePlanner:
                 raise OutlinePlanningError(
                     f"{name} remains invalid after one bounded format correction; both responses and prior stages are preserved: {correction_error}"
                 ) from correction_error
+
+    def _repair_global_fields(self, raw: str, context: dict) -> dict | None:
+        from core import planning_global_fields as fields
+        try:
+            candidate = _parse_object(raw)
+            requested = fields.targets(candidate, self.source)
+            if not any(requested.values()):
+                return None
+            # Run the ordinary validator on a disposable probe. A candidate with
+            # unrelated defects still belongs to the existing correction path.
+            example_quote = candidate["source_anchors"][0]["quote"]
+            probe = fields.apply_values(candidate, {key: key for key in requested["names"]},
+                                        [{"id": key, "quote": example_quote} for key in requested["anchors"]])
+            self._global(probe)
+            spans = fields.anchor_sources(requested, self.source, self.chapter_count)
+        except (IndexError, KeyError, TypeError, ValueError):
+            return None
+
+        # Identity can be established anywhere in the source. Citation lookup
+        # is scoped to the complete original chapter in which it must resolve.
+        evidence = context if requested["names"] else {"original_chapters": {
+            str(chapter): self.source[start:stop] for chapter, start, _, stop in spans.values()
+        }}
+        prompt = fields.INSTRUCTION + "\n\n" + _json({
+            "input": evidence, "candidate_sha256": content_hash(candidate), "requested": requested,
+        })
+        raw_fields = self._response("global-fields-v1-format-correction", prompt,
+                                    strict_dependencies=True, recover_archived=True)
+        try:
+            return self._global(fields.apply_response(candidate, requested, _parse_object(raw_fields), self.source, spans))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise OutlinePlanningError(f"Global metadata correction remains invalid; the complete candidate and reply are preserved: {exc}") from exc
 
     def _locked(self, value: dict) -> dict:
         for key in LOCKED_FIELDS:
@@ -746,7 +810,8 @@ class StagedOutlinePlanner:
         if global_design is None:
             with runtime_stage("planning.global_design"):
                 global_design = self._call("global", self.global_prompt,
-                    {**self._context(), "volume_contract_template": self.volume_template}, self._global)
+                    {**self._context(), "volume_contract_template": self.volume_template}, self._global,
+                    repair_fields=self._repair_global_fields)
                 self._save("global", {}, global_design)
         self._progress("global_design", "completed",
             f"全书设计已保存：{len(global_design['characters'])} 位角色、{len(global_design['plot_threads'])} 条故事线、{self.chapter_count} 章走向",
@@ -810,8 +875,16 @@ class StagedOutlinePlanner:
                          "requested_chapters": numbers, "review": review}, validate)
                     self._save("repair", dependencies, repaired)
             replacements = {item["number"]: item for item in repaired["chapters"]}
-            candidate["chapters"] = [replacements.get(item["number"], item) for item in chapters]
-            review = self._semantic_review(candidate, "review-repaired")
+            if all(content_hash(replacements[n]) == content_hash(chapters[n - 1]) for n in numbers):
+                raise OutlinePlanningError(
+                    "章节修订与原候选完全相同，初审问题仍待解决：" + "；".join(
+                        item["message"] for item in review["issues"]
+                    )
+                )
+            baseline = candidate
+            candidate = {**baseline, "chapters": [replacements.get(item["number"], item) for item in chapters]}
+            review = self._semantic_review(candidate, "review-repaired",
+                                           reuse_from="review-initial", baseline_candidate=baseline)
             if review["status"] != "passed":
                 raise OutlinePlanningError("The bounded chapter repair still needs attention; progress is preserved: " + "; ".join(issue["message"] for issue in review["issues"]))
         self._progress("semantic_review", "completed", "全书语义核查已保存，准备执行原有合同与结构检查", milestone="semantic_review_saved")

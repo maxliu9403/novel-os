@@ -141,3 +141,51 @@ def test_cancelled_capacity_query_cannot_dispatch_or_save_a_pass(tmp_path):
     assert client.queries == 1
     assert client.sent == []
     assert not (planner.cache / 'review.json').exists()
+
+
+def test_hundred_chapter_windows_copy_only_their_members_and_isolate_overlaps():
+    from copy import deepcopy
+    from core.planning_review import VERSION, windows
+
+    copied = []
+
+    class Chapter(dict):
+        def __deepcopy__(self, memo):
+            copied.append(self['number'])
+            return deepcopy(dict(self), memo)
+
+    numbers = list(range(1, 101))
+    candidate = {
+        'title': 'Winter',
+        'chapters': [Chapter(number=n, scenes=[{'consequence': f'Full scene {n}'}]) for n in numbers],
+        'chapter_map': [{'number': n, 'promises': [f'Obligation {n}']} for n in numbers],
+    }
+
+    def fits(context):
+        window = context['review_window']
+        first, last = window['requested_chapters'][0], window['requested_chapters'][-1]
+        included = list(range(max(1, first - 1), min(100, last + 1) + 1))
+        assert window == {
+            'schema': VERSION,
+            'requested_chapters': list(range(first, last + 1)),
+            'included_chapters': included,
+            'omitted_candidate_chapters': [n for n in numbers if n not in included],
+            'global_candidate_fields': ['title', 'chapter_map'],
+        }
+        expected = {**candidate, 'chapters': [candidate['chapters'][n - 1] for n in included]}
+        assert json.dumps(context['candidate']) == json.dumps(expected)
+        assert copied == included
+        copied.clear()
+        return last - first + 1 <= 4
+
+    results = windows(candidate, lambda requested: {}, fits)
+    assert [n for ctx in results for n in ctx['review_window']['requested_chapters']] == numbers
+    first, second = [ctx['candidate'] for ctx in results[:2]]
+    overlapping = first['chapters'][-1]
+    overlapping['scenes'][0]['consequence'] = 'edited'
+    first['chapter_map'][0]['promises'].clear()
+    number = overlapping['number']
+    original = candidate['chapters'][number - 1]
+    assert original['scenes'][0]['consequence'] == f'Full scene {number}'
+    assert next(c for c in second['chapters'] if c['number'] == number) == original
+    assert second['chapter_map'][0]['promises'] == candidate['chapter_map'][0]['promises'] == ['Obligation 1']

@@ -7,8 +7,8 @@ import pytest
 from core.planning_context import expand_review_context, review_context
 from core.planning_review import WINDOW_RULES
 from core.planning_review_reuse import passed_window, verification
-from outline_planning import _REVIEW_PROMPT, content_hash
-from test_outline_planning import PlanningModel, issue, make_planner, review
+from outline_planning import OutlinePlanningError, _REVIEW_PROMPT, content_hash
+from test_outline_planning import PlanningModel, chapter, issue, make_planner, review
 
 
 def candidate(planner):
@@ -223,3 +223,53 @@ def test_changed_global_design_requires_all_windows_to_be_reviewed_again(tmp_pat
     assert len(model.calls) == 8
     assert not result['review_scope'].get('reused_passed_windows')
     assert all(context['candidate']['chapter_map'] == changed['chapter_map'] for _, context in model.calls[4:])
+
+
+def test_chapter_repair_in_100_chapter_run_rechecks_overlapping_windows_and_resumes(tmp_path, monkeypatch):
+    model = PlanningModel(reviews=[review(issue('chapter', 7))])
+    planner = make_planner(tmp_path, model, count=100)
+    # Exercise the normal pipeline with a connection that fits up to eight
+    # requested chapters per review. Chapter 7 is visible in two windows.
+    def fits(instruction, context, **kwargs):
+        window = context.get('review_window')
+        return bool(window and len(window['requested_chapters']) <= 8)
+
+    monkeypatch.setattr(planner, '_review_fits', fits)
+    candidate = planner.run()
+    assert len(candidate['chapters']) == 100
+    assert candidate['chapters'][6]['incoming_consequence'].startswith('Repaired')
+    repair_index = [stage for stage, _ in model.calls].index('repair')
+    initial = [ctx['review_window'] for stage, ctx in model.calls[:repair_index] if stage == 'review']
+    fresh = [ctx['review_window'] for stage, ctx in model.calls[repair_index:] if stage == 'review']
+    assert len(initial) == 16
+    assert len(fresh) == 2
+    assert fresh == [window for window in initial if 7 in window['included_chapters']]
+    scope = json.loads((planner.cache / 'review-repaired.json').read_text())['payload']['review_scope']
+    assert scope['complete_chapter_coverage'] == list(range(1, 101))
+    assert len(scope['reused_passed_windows']) == 14
+    resumed_model = PlanningModel()
+    resumed = make_planner(tmp_path, resumed_model, count=100)
+    assert resumed.run() == candidate
+    assert resumed_model.calls == []
+
+
+def test_unchanged_repair_preserves_original_block_without_another_review(tmp_path):
+    class NoChange(PlanningModel):
+        def complete(self, system, user):
+            response = super().complete(system, user)
+            stage, context = self.calls[-1]
+            if stage == 'repair':
+                return json.dumps({'chapters': [chapter(n) for n in context['requested_chapters']]})
+            return response
+
+    model = NoChange(reviews=[review(issue()), review()])
+    planner = make_planner(tmp_path, model, count=8)
+    with pytest.raises(OutlinePlanningError, match='初审问题仍待解决'):
+        planner.run()
+    assert [stage for stage, _ in model.calls].count('review') == 1
+    assert not (planner.cache / 'validated.json').exists()
+    assert (planner.cache / 'repair.json').is_file()
+    resumed_model = NoChange()
+    with pytest.raises(OutlinePlanningError, match='初审问题仍待解决'):
+        make_planner(tmp_path, resumed_model, count=8).run()
+    assert resumed_model.calls == []
