@@ -5,6 +5,7 @@ import json
 import pytest
 
 from core import planning_coordinated as contract
+from core.planning_roadmap import MAX_RANGE
 from outline_planning import OutlinePlanningError, content_hash
 from test_outline_planning import PlanningModel, SOURCE, make_planner, review
 
@@ -93,6 +94,8 @@ def saved_chapters(planner):
 
 def original_checkpoints(planner):
     paths = [planner.cache / 'global.json', planner.cache / 'review-initial.json']
+    paths.extend(planner.cache.glob('global-seed-*.json'))
+    paths.extend(planner.cache.glob('roadmap-v1-*.json'))
     paths.extend(path for path in planner.cache.glob('batch-*.json')
                  if '-response' not in path.name and '-format-correction' not in path.name)
     return {path.name: path.read_bytes() for path in paths}
@@ -102,14 +105,20 @@ def assert_originals_retained(planner, baseline):
     assert {name: (planner.cache / name).read_bytes() for name in baseline} == baseline
 
 
-@pytest.mark.parametrize('count', [8, 60])
-def test_mixed_scope_repairs_saved_chapter_and_reviews_complete_candidate_without_regeneration(tmp_path, count):
+@pytest.mark.parametrize(('count', 'global_stage'), [(8, 'global'), (60, 'seed')])
+def test_mixed_scope_repairs_saved_chapter_and_reviews_complete_candidate_without_regeneration(tmp_path, count, global_stage):
     first = CoordinatedModel(map_edit=True)
     planner = make_planner(tmp_path, first, count=count)
     result = planner.run()
     stages = [stage for stage, _ in first.calls]
     assert stages[-4:] == ['review', 'coordinated_plan', 'coordinated_group', 'review']
-    assert stages.count('global') == 1 and stages.count('batch') == (count + 3) // 4
+    ranges = [ctx['requested_chapters'] for stage, ctx in first.calls if stage == 'roadmap']
+    if global_stage == 'seed':
+        assert [n for numbers in ranges for n in numbers] == list(range(1, count + 1))
+        assert all(1 <= len(numbers) <= MAX_RANGE for numbers in ranges)
+    else:
+        assert ranges == []
+    assert stages[:-4] == [global_stage] + ['roadmap'] * len(ranges) + ['batch'] * len(planner.ranges)
     source_chapters = saved_chapters(planner)
     assert len(source_chapters) == len(result['chapters']) == count
     for number, (saved, final) in enumerate(zip(source_chapters, result['chapters'], strict=True), 1):

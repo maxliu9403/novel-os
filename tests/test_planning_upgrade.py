@@ -209,11 +209,27 @@ def test_executor_rejects_preserved_revision_after_state_rollback(tmp_path, monk
     assert not (store.path.parent / "pre-staged-planning-run.json").exists()
 
 
-def test_plain_resume_keeps_legacy_mode(tmp_path, monkeypatch):
+def test_plain_resume_upgrades_a_failed_pre_foundation_run(tmp_path, monkeypatch):
     from pipeline_runner import PipelineRunner
-    saved_run(tmp_path)
+    original, store = saved_run(tmp_path)
+    draft = tmp_path / "outputs/outline.md"
+    draft.write_bytes("仍在校验的原始大纲\r\n".encode())
+    monkeypatch.setattr(PipelineRunner, "_execute", lambda self, manifest, project, store: manifest)
+    assert PipelineRunner(tmp_path).resume("old-run").spec.outline_planning_mode == "staged"
+    assert json.loads((store.path.parent / "pre-staged-planning-run.json").read_text()) == original.to_dict()
+    assert (store.path.parent / "pre-staged-outline.md").read_bytes() == draft.read_bytes()
+
+
+def test_plain_resume_preserves_legacy_work_when_planning_has_already_published(tmp_path, monkeypatch):
+    from pipeline_runner import PipelineRunner
+    _, store = saved_run(tmp_path)
+    foundation = tmp_path / "outputs/input/foundation.json"
+    foundation.parent.mkdir(exist_ok=True)
+    foundation.write_text('{"title":"Existing story"}')
     monkeypatch.setattr(PipelineRunner, "_execute", lambda self, manifest, project, store: manifest)
     assert PipelineRunner(tmp_path).resume("old-run").spec.outline_planning_mode == "legacy"
+    assert foundation.read_text() == '{"title":"Existing story"}'
+    assert not (store.path.parent / "pre-staged-planning-run.json").exists()
 
 
 def test_api_offers_upgrade_only_for_empty_legacy_outline(tmp_path, monkeypatch):
@@ -240,7 +256,7 @@ def test_api_offers_upgrade_only_for_empty_legacy_outline(tmp_path, monkeypatch)
     url = "/api/projects/book/tasks/old-run"
     assert client.get(url).json()["can_upgrade_planning"] is True
     try:
-        response = client.post(url + "/resume", json={"outline_planning_mode": "staged"})
+        response = client.post(url + "/resume")
         assert response.status_code == 202
         duplicate = client.post(url + "/resume", json={"outline_planning_mode": "staged"})
         assert duplicate.json()["job_id"] == response.json()["job_id"]

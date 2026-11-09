@@ -115,6 +115,7 @@ export interface WorkshopDeliveryProgress {
   resumable: boolean;
   invalid_reason?: string;
   stages?: Array<{ stage: WorkshopDeliveryStage; status: "pending" | "running" | "saved"; content_md?: string }>;
+  chapter_windows?: { saved_chapters: number; total_chapters: number; saved_batches: number };
   assembly?: WorkshopAssemblyProgress;
 }
 

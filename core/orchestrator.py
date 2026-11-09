@@ -491,6 +491,14 @@ class NovelOrchestrator:
     
     def plan_outline(self, num_chapters: int = 32, target_words: int = 80000, dry_run: bool = False):
         """Ask the Architect for the book blueprint and persist its scaffold."""
+        mode = getattr(self, "outline_planning_mode", "staged")
+        if mode == "staged" and not dry_run and not getattr(self, "pipeline_run_id", None):
+            from pipeline_runner import project_execution_lock
+            with project_execution_lock(self.project_path, "standalone-outline"):
+                return self._plan_outline(num_chapters, target_words, dry_run, mode)
+        return self._plan_outline(num_chapters, target_words, dry_run, mode)
+
+    def _plan_outline(self, num_chapters: int, target_words: int, dry_run: bool, mode: str):
         print("\n🏗️  ARCHITECT: Creating story outline...")
         print(f"   Target: {num_chapters} chapters, ~{target_words:,} words")
 
@@ -510,7 +518,7 @@ class NovelOrchestrator:
         
         # Save outline
         outline_path = self.outputs_dir / "outline.json"
-        if getattr(self, "outline_planning_mode", "legacy") != "staged" or dry_run:
+        if mode != "staged" or (dry_run and not outline_path.exists()):
             with open(outline_path, 'w', encoding='utf-8') as f:
                 json.dump(outline, f, indent=2)
 
@@ -587,7 +595,15 @@ class NovelOrchestrator:
                 != approved_commercial_story.contract_id
             ):
                 raise ValueError("brief commercial story contract id is invalid")
-        if getattr(self, "outline_planning_mode", "legacy") == "staged" and not dry_run:
+        if mode == "staged" and not dry_run:
+            input_hashes = {path: hashlib.sha256(data).hexdigest() if data is not None else None
+                            for path, data in ((raw_prompt_path, raw_prompt_bytes), (brief_path, brief_bytes))}
+            project_source = None
+            if raw_prompt_bytes is None and not getattr(self, "pipeline_run_id", None):
+                from core.standalone_planning import ProjectDesignSource
+                project_source = ProjectDesignSource(self.outputs_dir / "standalone" / "planning", self.state)
+                raw_prompt = project_source.text
+                input_hashes[self.state.state_file] = project_source.state_sha256
             return self._plan_outline_staged(
                 raw_prompt=raw_prompt,
                 brief_data=brief_data,
@@ -595,8 +611,7 @@ class NovelOrchestrator:
                 target_words=target_words,
                 narrative_format=narrative_format,
                 approved_commercial_story=approved_commercial_story,
-                input_hashes={path: hashlib.sha256(data).hexdigest() if data is not None else None
-                              for path, data in ((raw_prompt_path, raw_prompt_bytes), (brief_path, brief_bytes))},
+                input_hashes=input_hashes, project_source=project_source,
             )
         prompt_brief = dict(brief_data)
         prompt_brief.pop("commercial_story_contract", None)
@@ -813,6 +828,7 @@ genre-appropriate assumptions rather than asking questions.
         narrative_format: NarrativeFormat,
         approved_commercial_story: CommercialStoryContract | None,
         input_hashes: Dict[Path, str | None],
+        project_source=None,
     ) -> str:
         """Publish only a reviewed, validated staged candidate as the foundation."""
         from outline_planning import (
@@ -824,8 +840,10 @@ genre-appropriate assumptions rather than asking questions.
         from pipeline_runtime import check_cancelled
 
         run_id = str(getattr(self, "pipeline_run_id", "") or "")
-        if not re.fullmatch(r"[A-Za-z0-9_-]+", run_id):
+        if run_id and not re.fullmatch(r"[A-Za-z0-9_-]+", run_id):
             raise OutlinePlanningError("Staged planning requires a valid pipeline run identity")
+        directory = (self.outputs_dir / "runs" / run_id / "planning" if run_id
+                     else self.outputs_dir / "standalone" / "planning")
         def source_guard() -> None:
             check_cancelled()
             for path, expected in input_hashes.items():
@@ -856,7 +874,7 @@ genre-appropriate assumptions rather than asking questions.
             return foundation
 
         planner = StagedOutlinePlanner(
-            directory=self.outputs_dir / "runs" / run_id / "planning",
+            directory=directory,
             source=raw_prompt,
             brief=brief_data,
             chapter_count=num_chapters,
@@ -894,6 +912,11 @@ genre-appropriate assumptions rather than asking questions.
         if self.state_update_mode == "legacy_apply":
             source_guard()
             self._apply_story_foundation(foundation, target_words)
+            # For standalone state-sourced planning this is our own publication.
+            # The generated canon supersedes the state captured for planning.
+            if project_source is not None:
+                project_source.record_application()
+                input_hashes.pop(self.state.state_file)
         planner.published()
         return text
 
@@ -1323,6 +1346,15 @@ genre-appropriate assumptions rather than asking questions.
         finally:
             self.state = canonical_state
 
+    def _uses_staged_outline(self) -> bool:
+        mode = getattr(self, "outline_planning_mode", None)
+        if mode is not None:
+            return mode == "staged"
+        scaffold = self.outputs_dir / "outline.json"
+        if not scaffold.is_file():
+            return False
+        return json.loads(scaffold.read_text(encoding="utf-8")).get("metadata", {}).get("planning_mode") == "staged"
+
     def _generate_chapter_outline_prompt(self, chapter: ChapterState) -> str:
         """Prompt the Architect to produce a STRUCTURED BEAT-SHEET (not prose).
 
@@ -1337,7 +1369,7 @@ genre-appropriate assumptions rather than asking questions.
                 "fields and the complete current/adjacent chapter plans with source coverage. "
                 "Keep future plans separate from committed events and POV knowledge."
             )
-        elif getattr(self, "outline_planning_mode", "legacy") == "staged":
+        elif self._uses_staged_outline():
             foundation_path = self.outputs_dir / "input" / "foundation.json"
             foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
             plans = foundation.get("chapters")

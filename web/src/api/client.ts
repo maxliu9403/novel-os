@@ -291,6 +291,7 @@ export interface ProviderModelDetail {
 }
 
 export interface ProviderConnection {
+  planning_input_bytes?: number | null;
   id: string;
   name: string;
   provider: string;
@@ -370,6 +371,7 @@ export interface StudioModelConfiguration {
 }
 
 export interface ProviderConnectionInput {
+  planning_input_bytes?: number | null;
   name: string;
   provider: string;
   auth_type?: string;

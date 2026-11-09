@@ -1,4 +1,4 @@
-"""Conservative opt-in upgrade of an uncommitted legacy outline run."""
+"""Identify and preserve an uncommitted legacy outline before staged recovery."""
 
 from __future__ import annotations
 
@@ -59,6 +59,10 @@ def can_upgrade_planning(project: Path, manifest: dict) -> bool:
     state_dir = project / "outputs" / "state"
     state_path = state_dir / "story_state.json"
     try:
+        inputs = project / "outputs" / "input"
+        foundation = inputs / "foundation.json"
+        if inputs.is_symlink() or foundation.is_symlink() or foundation.exists():
+            return False
         if any(p.is_symlink() for p in (project / "outputs", state_dir, state_path)):
             return False
         if not state_path.is_file() or state_path.stat().st_size > 8_000_000:
@@ -90,3 +94,19 @@ def can_upgrade_planning(project: Path, manifest: dict) -> bool:
     except (ArtifactError, OSError, ValueError, TypeError):
         return False
     return True
+
+
+def preserve_outline_candidates(project: Path, run_directory: Path) -> None:
+    from core.outline_planning import atomic_write
+    from core.safe_project_io import read_project_bytes
+
+    for name in ("outline.md", "outline.json"):
+        original = read_project_bytes(project, ("outputs", name), missing_ok=True)
+        if original is None:
+            continue
+        backup = run_directory / f"pre-staged-{name}"
+        saved = read_project_bytes(project, backup.relative_to(project).parts, missing_ok=True)
+        if saved is not None and saved != original:
+            raise ValueError(f"Preserved {name} differs from the legacy candidate")
+        if saved is None:
+            atomic_write(backup, original.decode("utf-8"))

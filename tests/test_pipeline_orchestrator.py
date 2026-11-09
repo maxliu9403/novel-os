@@ -789,6 +789,7 @@ def test_plan_outline_calls_architect_and_chapter_prompt_reads_it(tmp_path: Path
     fake = FakeLLM()
     orch._llm = fake
 
+    orch.outline_planning_mode = "legacy"
     orch.plan_outline(2, 5000)
     chapter = orch.state.get_chapter(1)
     chapter_prompt = orch._generate_chapter_outline_prompt(chapter)
@@ -895,6 +896,7 @@ def test_proposal_only_plan_outline_preserves_canonical_state_and_file(tmp_path:
     before_hash = canonical_canon_sha(orch.state)
     before_bytes = state_path.read_bytes()
 
+    orch.outline_planning_mode = "legacy"
     orch.plan_outline(2, 5000)
 
     assert _state_snapshot(orch.state) == before_snapshot
@@ -913,6 +915,7 @@ def test_proposal_only_plan_chapter_rehydrates_runtime_without_changing_canon(
     ingest_prompt(project, prompt, {"title": "Author Title", "chapters": 2, "words": 5000})
     planner = NovelOrchestrator(str(project), state_update_mode="proposal_only")
     planner._llm = FakeLLM()
+    planner.outline_planning_mode = "legacy"
     planner.plan_outline(2, 5000)
 
     resumed = NovelOrchestrator(str(project), state_update_mode="proposal_only")

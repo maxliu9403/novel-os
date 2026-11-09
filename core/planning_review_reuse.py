@@ -21,7 +21,7 @@ def passed_window(planner, baseline: dict, name: str, context: dict, instruction
     # Read through the planner's identity, dependency, payload and contract checks.
     # A matching hash alone never turns an old blocked result into a pass.
     for path in sorted(Path(planner.cache).glob(f'{name}-window-*.json')):
-        if not re.fullmatch(re.escape(name) + r'-window-\d{3}\.json', path.name):
+        if not re.fullmatch(re.escape(name) + r'-window-\d{3}(?:-\d{3})?\.json', path.name):
             continue
         record = json.loads(path.read_text(encoding='utf-8'))
         if record.get('dependencies_hash') != content_hash(dependencies):

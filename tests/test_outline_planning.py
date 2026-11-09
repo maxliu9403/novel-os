@@ -1,6 +1,7 @@
 """Fake-model integration checks for bounded, quality-preserving planning."""
 
 import copy
+import hashlib
 import json
 import threading
 from types import SimpleNamespace
@@ -42,6 +43,10 @@ class PlanningModel:
             return json.dumps({'status': 'requires_author', 'reason': 'This fixture needs a story decision, not a chapter reference correction.', 'edits': []})
         if "STAGE: targeted_repair" in user:
             stage = "repair"
+        elif user.startswith("STAGE: global_design_seed"):
+            stage = "seed"
+        elif user.startswith("STAGE: chapter_roadmap"):
+            stage = "roadmap"
         elif user.startswith("STAGE: global_design"):
             stage = "global"
         elif user.startswith("STAGE: semantic_review"):
@@ -50,11 +55,16 @@ class PlanningModel:
             stage = "batch"
         self.calls.append((stage, context))
         assert context.get("complete_adopted_source") or context["adopted_source_projection"]["text"]
-        if stage == "global":
+        if stage in {"global", "seed"}:
             result = global_design(context)
+            if stage == "seed":
+                result.pop("chapter_map")
             if self.mutate_global:
                 self.mutate_global(result)
             return json.dumps(result)
+        if stage == "roadmap":
+            return json.dumps({"chapter_map": [roadmap_entry(n) for n in context["requested_chapters"]],
+                               "source_anchors": []})
         if stage == "review":
             return json.dumps(self.reviews.pop(0) if self.reviews else review())
         numbers = context["requested_chapters"]
@@ -75,6 +85,12 @@ def chapter(number, *, repaired=False):
     if repaired:
         result["incoming_consequence"] = "Repaired exact carryover from the previous chapter."
     return result
+
+
+def roadmap_entry(number):
+    return {"number": number, "purpose": f"Specific movement {number}", "incoming_consequence": "Prior cost",
+            "outgoing_commitment": "Next choice", "source_anchor_ids": ["source_1"],
+            "reserved_reveals": [], "ending_obligations": []}
 
 
 def global_design(context):
@@ -101,8 +117,7 @@ def global_design(context):
             "emotional_contract": {"reader_emotion": "hope", "afterglow_state": "earned independence"},
         },
         "volume_contracts": volumes,
-        "chapter_map": [{"number": n, "purpose": f"Specific movement {n}", "incoming_consequence": "Prior cost",
-                         "outgoing_commitment": "Next choice", "source_anchor_ids": ["source_1"]} for n in range(1, count + 1)],
+        "chapter_map": [roadmap_entry(n) for n in range(1, count + 1)],
         "source_anchors": [{"id": "source_1", "quote": context["complete_adopted_source"]}],
         "assumptions": [], "structural_risks": [],
     }
@@ -170,18 +185,53 @@ def test_resume_keeps_saved_global_and_batches_and_does_not_recall_model(tmp_pat
     assert again.calls == []
 
 
-@pytest.mark.parametrize("change", ["source", "model", "contract"])
+@pytest.mark.parametrize("change", ["source", "contract"])
 def test_checkpoint_identity_invalidates_changed_source_configuration_or_contract(tmp_path, change):
     original = make_planner(tmp_path, PlanningModel(), count=4)
     original.run()
     model = PlanningModel()
     source = SOURCE + " The ending retains grief." if change == "source" else SOURCE
-    if change == "model":
-        model.model = "other-model"
     changed = make_planner(tmp_path, model, count=5 if change == "contract" else 4, source=source)
     changed.run()
     assert model.calls[0][0] == "global"
     assert original.cache.exists() and changed.cache.exists() and original.cache != changed.cache
+
+
+def test_switching_models_continues_verified_design_and_reviews_with_active_model(tmp_path):
+    original = make_planner(tmp_path, PlanningModel(fail_batch=5), count=8)
+    with pytest.raises(TimeoutError):
+        original.run()
+    saved = {name: (original.cache / name).read_bytes() for name in ["global.json", "batch-001.json"]}
+    new_client = PlanningModel()
+    new_client.model = "replacement-model"
+    resumed = make_planner(tmp_path, new_client, count=8)
+    assert len(resumed.run()["chapters"]) == 8
+    assert [stage for stage, _ in new_client.calls] == ["batch", "review"]
+    assert new_client.calls[0][1]["requested_chapters"] == [5, 6, 7, 8]
+    assert resumed.cache != original.cache
+    for name, raw in saved.items():
+        assert (original.cache / name).read_bytes() == raw
+        record = json.loads((resumed.cache / name).read_bytes())
+        assert record["inherited_from"]["identity_hash"] == original.identity_hash
+        assert record["inherited_from"]["record_sha256"] == hashlib.sha256(raw).hexdigest()
+    calls = len(new_client.calls)
+    assert make_planner(tmp_path, new_client, count=8).run()["chapters"]
+    assert len(new_client.calls) == calls
+
+
+def test_model_switch_refuses_corrupt_predecessor_before_dispatch(tmp_path):
+    original = make_planner(tmp_path, PlanningModel(), count=4)
+    original.run()
+    path = original.cache / "global.json"
+    record = json.loads(path.read_bytes())
+    record["payload"]["title"] = "unverified replacement"
+    path.write_text(json.dumps(record))
+    for _ in range(2):
+        client = PlanningModel()
+        client.model = "second-model"
+        with pytest.raises(OutlinePlanningError, match="checksum mismatch"):
+            make_planner(tmp_path, client, count=4).run()
+        assert not client.calls
 
 
 def test_incomplete_suitability_echo_cannot_corrupt_confirmed_metadata(tmp_path):
@@ -216,7 +266,12 @@ def test_bad_json_preserves_raw_and_does_not_save_or_approve_global_candidate(tm
     model.complete = lambda *_, **__: '{"title":"partial'
     with pytest.raises(OutlinePlanningError, match="complete JSON"):
         make_planner(tmp_path, model, count=4).run()
-    assert len(list((tmp_path / "planning").rglob("*.response.txt"))) == 2
+    # One bounded correction for the old single-object request, followed by
+    # one for the smaller, independently recoverable seed. Neither is valid.
+    replies = list((tmp_path / "planning").rglob("*.response.txt"))
+    assert sorted(path.name.split(".")[0] for path in replies) == [
+        "global", "global-format-correction", "global-seed-v1", "global-seed-v1-format-correction"]
+    assert all(path.read_text() == '{"title":"partial' for path in replies)
     assert not list((tmp_path / "planning").rglob("global.json"))
     assert not list((tmp_path / "planning").rglob("validated.json"))
     resumed = PlanningModel()

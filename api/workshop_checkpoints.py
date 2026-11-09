@@ -33,6 +33,18 @@ class CheckpointError(ValueError):
     """Authored errors only: never include story text, paths or provider data."""
 
 
+def prior_candidate_text(session_dir: Path, reference: dict) -> str:
+    from core.safe_project_io import read_project_bytes
+
+    try:
+        raw = read_project_bytes(session_dir, ("candidates", f'{reference["revision"]}.md'))
+        if hashlib.sha256(raw).hexdigest() != reference["sha256"]:
+            raise CheckpointError("骨架修订所绑定的原候选已改变，无法继续；检查点已保留。")
+        return raw.decode("utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise CheckpointError("骨架修订所绑定的原候选不可读取，无法继续；检查点已保留。") from exc
+
+
 def _canonical(value: object) -> bytes:
     try:
         return json.dumps(value, ensure_ascii=False, sort_keys=True,
@@ -126,11 +138,54 @@ def _validated_parts(record: dict, previous: str, *, fill_hashes: bool) -> str:
     return previous
 
 
+def _validated_windows(record: dict, previous: str, *, fill_hashes: bool) -> str:
+    from .workshop_chapter_windows import VERSION, digest
+    group = record["chapter_windows"]
+    if (not isinstance(group, dict) or set(group) != {"version", "batches"}
+            or group["version"] != VERSION or not isinstance(group["batches"], list)
+            or not group["batches"] or "story_design" not in record["completed"]):
+        raise CheckpointError("Delivery chapter window protocol is invalid.")
+    count = record["completed"]["story_design"]["content"].get("total_chapters")
+    all_cards = []
+    source_hash = None
+    for batch in group["batches"]:
+        if (not isinstance(batch, dict) or not {"chapters"} <= set(batch) <= {"chapters", "sha256", "source_coverage"}
+                or not isinstance(batch["chapters"], list) or not batch["chapters"]):
+            raise CheckpointError("Delivery chapter window is invalid.")
+        cards = batch["chapters"]
+        for card in cards:
+            if (not isinstance(card, dict) or type(card.get("number")) is not int
+                    or card["number"] != len(all_cards) + 1):
+                raise CheckpointError("Delivery chapter windows must form one contiguous prefix.")
+            all_cards.append(card)
+        coverage = batch.get("source_coverage")
+        if "source_coverage" in batch:
+            if not isinstance(coverage, dict) or set(coverage) != {"source_sha256", "included_chapters"}:
+                raise CheckpointError("Delivery window source coverage is invalid.")
+            bound = coverage["source_sha256"]
+            numbers = coverage["included_chapters"]
+            if (not isinstance(bound, str) or not _SHA.fullmatch(bound) or source_hash not in (None, bound)
+                    or type(count) is not int or not isinstance(numbers, list)
+                    or any(type(n) is not int or not 1 <= n <= count for n in numbers)
+                    or numbers != sorted(set(numbers)) or any(c["number"] not in numbers for c in cards)):
+                raise CheckpointError("Delivery window omits its original chapters or changes its source.")
+            source_hash = bound
+        previous = digest(previous, cards, coverage)
+        if (not fill_hashes or "sha256" in batch) and batch.get("sha256") != previous:
+            raise CheckpointError("Delivery chapter window integrity check failed.")
+        batch["sha256"] = previous
+    sealed = record["completed"].get("chapter_plan")
+    if (type(count) is not int or len(all_cards) > count or bool(sealed) != (len(all_cards) == count)
+            or sealed and sealed["content"].get("chapters") != all_cards):
+        raise CheckpointError("Delivery chapter windows do not match the complete chapter plan.")
+    return previous
+
+
 def _validated(record: dict, run_id: str, *, fill_hashes: bool = False) -> dict:
     _check_id(run_id)
     # Round-trip creates an independent copy and rejects non-JSON values.
     record = _decode(_canonical(record))
-    if not isinstance(record, dict) or set(record) not in (_FIELDS, _FIELDS | {"assembly_parts"}):
+    if not isinstance(record, dict) or not _FIELDS <= set(record) <= _FIELDS | {"assembly_parts", "chapter_windows", "prior_candidate"}:
         raise CheckpointError("Delivery checkpoint fields are invalid.")
     if record["schema_version"] != SCHEMA_VERSION:
         raise CheckpointError("Delivery checkpoint version is unsupported.")
@@ -153,11 +208,23 @@ def _validated(record: dict, run_id: str, *, fill_hashes: bool = False) -> dict:
         raise CheckpointError("Delivery checkpoint active stage is invalid.")
     if "assembly_parts" in record and len(completed) < 2:
         raise CheckpointError("Delivery assembly parts require the complete saved story and chapter plan.")
-    previous = hashlib.sha256(_canonical({key: record[key] for key in _IDENTITY})).hexdigest()
+    identity = {key: record[key] for key in _IDENTITY}
+    if "prior_candidate" in record:
+        reference = record["prior_candidate"]
+        if (not isinstance(reference, dict) or set(reference) != {"revision", "sha256"}
+                or type(reference["revision"]) is not int or reference["revision"] < 0
+                or not isinstance(reference["sha256"], str) or not _SHA.fullmatch(reference["sha256"])):
+            raise CheckpointError("Delivery checkpoint prior skeleton reference is invalid.")
+        identity["prior_candidate"] = reference
+    previous = hashlib.sha256(_canonical(identity)).hexdigest()
     for stage in STAGES[:len(completed)]:
+        if stage == "chapter_plan" and "chapter_windows" in record:
+            previous = _validated_windows(record, previous, fill_hashes=fill_hashes)
         if stage == "assembly" and "assembly_parts" in record:
             previous = _validated_parts(record, previous, fill_hashes=fill_hashes)
         previous = _artifact_digest(completed[stage], previous, {"stage": stage}, fill_hashes=fill_hashes)
+    if "chapter_windows" in record and "chapter_plan" not in completed:
+        _validated_windows(record, previous, fill_hashes=fill_hashes)
     if "assembly_parts" in record and "assembly" not in completed:
         _validated_parts(record, previous, fill_hashes=fill_hashes)
     return record
@@ -269,11 +336,18 @@ def save_checkpoint(directory: Path, run_id: str, record: dict) -> None:
     try:
         previous = _read(fd, run_id)
         if previous is not None:
-            if any(previous[key] != current[key] for key in _IDENTITY):
+            if (any(previous[key] != current[key] for key in _IDENTITY)
+                    or previous.get("prior_candidate") != current.get("prior_candidate")):
                 raise CheckpointError("Delivery checkpoint input identity cannot be changed.")
             for stage, artifact in previous["completed"].items():
                 if current["completed"].get(stage) != artifact:
                     raise CheckpointError("Saved delivery checkpoint stages cannot be replaced or removed.")
+            prior_windows = previous.get("chapter_windows")
+            if prior_windows is not None:
+                current_windows = current.get("chapter_windows", {}).get("batches", [])
+                prior = prior_windows["batches"]
+                if current_windows[:len(prior)] != prior:
+                    raise CheckpointError("Saved chapter windows cannot be replaced or removed.")
             prior_parts = previous.get("assembly_parts")
             if prior_parts is not None:
                 current_parts = current.get("assembly_parts")
@@ -324,6 +398,10 @@ def project_checkpoint(record: dict, session_status: str, source_revision: int |
                     "content_md": current["completed"][stage]["content_md"] if stage in completed else ""}
                    for stage in STAGES],
     }
+    if "chapter_windows" in current:
+        batches = current["chapter_windows"]["batches"]
+        result["chapter_windows"] = {"saved_chapters": sum(len(b["chapters"]) for b in batches),
+            "saved_batches": len(batches), "total_chapters": current["completed"]["story_design"]["content"]["total_chapters"]}
     if "assembly_parts" in current:
         parts = current["assembly_parts"]
         artifacts = {**parts["completed"]}

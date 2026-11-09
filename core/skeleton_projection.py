@@ -147,6 +147,28 @@ def chapter_locations(source: str, chapter_count: int) -> dict[int, dict]:
     return locations
 
 
+def global_source_index(source: str, chapter_count: int) -> dict | None:
+    """Preserve all non-chapter text and every title. Only chapter bodies are deferred."""
+    if source.startswith("<!-- story-first.v1 -->") and story_parts(source) is None:
+        return None
+    try:
+        start, end, body, headings, chapter_end = _chapter_layout(source, chapter_count)
+    except ValueError:
+        return None
+    pieces = [source[:start], body[:headings[0][0]]]
+    for i, (offset, heading_end, _) in enumerate(headings):
+        stop = headings[i + 1][0] if i + 1 < len(headings) else chapter_end
+        if not body[heading_end:stop].strip():
+            return None
+        pieces.append(body[offset:heading_end])
+    pieces.extend([body[chapter_end:], source[end:]])
+    text = "".join(pieces)
+    return {"schema": VERSION, "mode": "global_sections_and_chapter_titles", "text": text,
+            "source_sha256": hashlib.sha256(source.encode()).hexdigest(), "source_bytes": len(source.encode()),
+            "projected_bytes": len(text.encode()), "chapter_count": chapter_count,
+            "chapter_bodies_deferred": list(range(1, chapter_count + 1))}
+
+
 def chapter_source(source: str, requested: list[int], chapter_count: int) -> dict:
     """Keep every global section and requested/adjacent original chapter plans.
 

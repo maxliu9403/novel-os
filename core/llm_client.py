@@ -201,7 +201,11 @@ class LLMClient:
         cancellation_event: threading.Event | None = None,
         diagnostic_callback: Callable[[dict], None] | None = None,
         completion_grace_seconds: float = 0,
+        planning_input_bytes: int | None = None,
     ):
+        if planning_input_bytes is not None and (type(planning_input_bytes) is not int or planning_input_bytes <= 0):
+            raise ValueError("Planning input bytes must be a positive integer")
+        self.planning_input_bytes = planning_input_bytes
         self._configured_timeout_seconds = timeout_seconds
         runtime = current_runtime()
         if runtime is not None:

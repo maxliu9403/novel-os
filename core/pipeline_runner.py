@@ -188,7 +188,7 @@ class ChapterRevisionRequired(PipelineError):
 
 
 @contextmanager
-def _project_execution_lock(project: Path, run_id: str):
+def project_execution_lock(project: Path, run_id: str):
     """Hold a non-blocking lock while one pipeline owns project outputs."""
     outputs = project / "outputs"
     outputs.mkdir(parents=True, exist_ok=True)
@@ -254,7 +254,7 @@ class PipelineRunner:
             spec.prompt_path = str(Path(spec.prompt_path).resolve())
         manifest = RunManifest.new(spec, self._new_run_id)
         store = self._store(project, manifest.run_id)
-        with _project_execution_lock(project, manifest.run_id):
+        with project_execution_lock(project, manifest.run_id):
             method_policy_error = ""
             if spec.method_policy is None:
                 from narrative_methods import MethodPolicy
@@ -283,7 +283,7 @@ class PipelineRunner:
         outline_planning_mode: Optional[str] = None,
     ) -> RunManifest:
         project = Path(project_path or self.project_path or ".").resolve()
-        with _project_execution_lock(project, run_id):
+        with project_execution_lock(project, run_id):
             return self._resume_locked(
                 run_id,
                 project,
@@ -304,10 +304,12 @@ class PipelineRunner:
         store = self._store(project, run_id)
         manifest = store.load()
         manifest.spec.project_path = str(project)
-        if outline_planning_mode is not None:
-            from planning_upgrade import can_upgrade_planning
-            if outline_planning_mode != "staged" or not can_upgrade_planning(project, manifest.to_dict()):
-                raise PipelineError("Cannot upgrade planning after story foundation or chapter work has started")
+        from planning_upgrade import can_upgrade_planning, preserve_outline_candidates
+        upgrade = manifest.spec.outline_planning_mode == "legacy" and can_upgrade_planning(project, manifest.to_dict())
+        if outline_planning_mode is not None and (outline_planning_mode != "staged" or not upgrade):
+            raise PipelineError("Cannot upgrade planning after story foundation or chapter work has started")
+        if upgrade:
+            preserve_outline_candidates(project, store.path.parent)
             # Keep the exact prior manifest and all model replies for diagnosis.
             # Mode changes never rewrite story state or discard failed artifacts.
             backup = store.path.parent / "pre-staged-planning-run.json"
@@ -675,7 +677,7 @@ class PipelineRunner:
     ) -> RunManifest:
         """Retry the named failed/blocked checkpoint, then continue the run."""
         project = Path(project_path or self.project_path or ".").resolve()
-        with _project_execution_lock(project, run_id):
+        with project_execution_lock(project, run_id):
             manifest = self._store(project, run_id).load()
             target = manifest.get(phase, chapter)
             if target is None:

@@ -97,6 +97,10 @@ export function WorkshopDeliveryCheckpoints({ progress, running, renderContent }
         </li>;
       })}
     </ol>
+    {progress.chapter_windows && <p className="mt-2 text-[12px] tabular-nums text-violet">
+      已保存 {progress.chapter_windows.saved_chapters}/{progress.chapter_windows.total_chapters} 章规划
+      {progress.active_stage === "chapter_plan" && !running && "，继续时从下一章接上。"}
+    </p>}
     {progress.assembly && <AssemblyCheckpoints progress={progress.assembly} running={running}
       complete={progress.completed_stages.includes("assembly")} resumable={progress.resumable} renderContent={renderContent} />}
     <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">阶段成果保存后才标记完成；最终整合与校验通过后才更新正式骨架。</p>

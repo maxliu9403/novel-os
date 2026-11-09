@@ -74,7 +74,8 @@ class ModelResponseError(ValueError):
 class DeliveryTimeoutError(TimeoutError):
     """A bounded delivery stopped; previously completed pieces remain resumable."""
 
-    def __init__(self, request_seconds: float, *, task_expired: bool = False):
+    def __init__(self, request_seconds: float, *, task_expired: bool = False, task_seconds: float | None = None):
+        self.task_seconds = task_seconds if task_seconds is not None else request_seconds * 3
         self.request_seconds = request_seconds
         self.task_expired = task_expired
         super().__init__("Workshop delivery task timeout" if task_expired else "Workshop delivery request timeout")
@@ -360,7 +361,10 @@ def _complete(session: dict, skill: str) -> tuple[dict, dict]:
 def _complete_impl(session: dict, skill: str) -> tuple[dict, dict]:
     from core import provider_settings
     from core.llm_client import LLMClient, LLMCancelledError
-    from .workshop_delivery import DeliveryError, DeliveryPlan, NarrativeFormatResponseError, author_context, parse_stage
+    from .workshop_chapter_windows import (ORIGINAL_RULES, OriginalChapters, window_width,
+                                          scope as chapter_scope, source_request)
+    from .workshop_delivery import (DeliveryError, DeliveryPlan, IncompleteStageResponse,
+                                   NarrativeFormatResponseError, author_context, parse_stage)
     from .workshop_format_repair import NarrativeFormatRepair
     from .workshop_assembly import AssemblyError, AssemblyPlan, parse_part, repair_part
 
@@ -371,6 +375,7 @@ def _complete_impl(session: dict, skill: str) -> tuple[dict, dict]:
     client_options = dict(provider=route["provider"], model=route["model"] or None,
                           base_url=route["base_url"] or None, api_key=route["api_key"] or None,
                           max_tokens=route["max_tokens"], reasoning_effort=route.get("reasoning_effort") or None,
+                          **({"planning_input_bytes": route["planning_input_bytes"]} if route.get("planning_input_bytes") else {}),
                           **({"cancellation_event": session["_cancellation_event"]} if session.get("_cancellation_event") is not None else {}))
     transport = """
 
@@ -499,8 +504,8 @@ JSON and current draft are not an additional mandatory user confirmation round.
              session["id"], route["provider"], route["model"], timeout, session["revision"])
     discussion_deadline = session.get("_turn_deadline") or time.monotonic() + timeout
     # Delivery is several bounded requests, not one request spending whatever
-    # the first two stages left. The whole job is still capped at three request
-    # allowances, measured from the original start (including gate and IO).
+    # the first two stages left. A chapter-window job sizes its fixed deadline
+    # from the unsaved windows once the book count is known (including gate/IO).
     deadline = discussion_deadline
     task_budget = timeout
     attempt = 0
@@ -512,13 +517,25 @@ JSON and current draft are not an additional mandatory user confirmation round.
     assembly_part = None
     assembly_repair_part = None
     format_repair = None
+    chapter_window = None
+    adaptive_width = None
+    requested_cards = set()
+    requested_originals = set()
+    original_chapters = None
+    original_checked = False
+    source_coverage = None
+    negotiated_source_limit = None
+    window_budget_fixed = False
+    declared_chapters = session["input"].get("chapters")
+    existing_long_delivery = (type(declared_chapters) is int and
+                              window_width(declared_chapters, route["max_tokens"]) < declared_chapters)
     if delivering and session.get("_delivery_record"):
         narrative_mode = session["_delivery_record"]["narrative_mode"]
         profile = "delivery"
         plan = DeliveryPlan(session, narrative_mode)
         deadline = discussion_deadline + timeout * 2
         task_budget = timeout * 3
-    elif delivering and (story_first or not (session.get("prompt_md") or session.get("_previous_candidate"))):
+    elif delivering and (story_first or existing_long_delivery or not (session.get("prompt_md") or session.get("_previous_candidate"))):
         # The first real design call selects the narrative mode from the full
         # author context. No separate intent/handoff model call is needed.
         plan = DeliveryPlan(session, None)
@@ -526,9 +543,17 @@ JSON and current draft are not an additional mandatory user confirmation round.
         deadline = discussion_deadline + timeout * 2
         task_budget = timeout * 3
 
+    if plan is not None and "previous_unvalidated_skeleton" in context:
+        context["candidate_instruction"] = (
+            "This previous candidate failed validation. Preserve compatible story events and the latest "
+            "author choices as you complete only the current delivery stage or chapter window.")
+
     def stage_request():
-        nonlocal assembly, assembly_part
+        nonlocal assembly, assembly_part, chapter_window, window_budget_fixed, deadline, task_budget
+        nonlocal original_chapters, original_checked, source_coverage, adaptive_width, negotiated_source_limit
+        source_coverage = None
         assert plan is not None
+        chapter_window = plan.chapter_window(route["max_tokens"], adaptive_width)
         if format_repair is not None:
             return format_repair.request(_narrative_contract_reference(format_repair.mode, stage_response=True))
         stage_context = context
@@ -563,11 +588,56 @@ JSON and current draft are not an additional mandatory user confirmation round.
         format_rules = (_narrative_contract_reference(format_mode, stage_response=True)
                         if story_first and plan.stage == 'story_design'
                         and format_mode in {"multi_volume", "series_installment"} else "")
-        request_context = plan.context(stage_context)
+        base = plan.context(stage_context)
+        request_context = base
         if story_first:
             from .workshop_request import delivery_context
             request_context = delivery_context(request_context)
-        return rules + ("" if story_first else design_rules(session)) + plan.rules() + format_rules, json.dumps(request_context, ensure_ascii=False, separators=(",", ":"))
+        if chapter_window:
+            request_context["chapter_window"] = chapter_scope(plan.record, chapter_window, requested_cards)
+        system = rules + ("" if story_first else design_rules(session)) + plan.rules(window=bool(chapter_window)) + format_rules
+        user = json.dumps(request_context, ensure_ascii=False, separators=(",", ":"))
+        if chapter_window and base.get("current_complete_skeleton"):
+            from core.gemini_gateway import ENVELOPE_RESERVE_BYTES, INPUT_LIMIT_BYTES, input_bytes
+            threshold = route.get("planning_input_bytes")
+            if base.get("creative_design", {}).get("genre_context") is not None:
+                engine_limit = 2 * 1024 * 1024 + ENVELOPE_RESERVE_BYTES
+                threshold = min(engine_limit, threshold) if threshold else engine_limit
+            if route["provider"] == "gemini_openai":
+                gateway_limit = negotiated_source_limit or INPUT_LIMIT_BYTES
+                if (negotiated_source_limit is None and (threshold is None or threshold > gateway_limit)
+                        and input_bytes(system, user) > gateway_limit):
+                    from core.planning_capacity import input_limit
+                    probe = LLMClient(**client_options, timeout_seconds=min(timeout, max(1, deadline - time.monotonic())))
+                    negotiated_source_limit = input_limit(probe, negotiate=True) or gateway_limit
+                    gateway_limit = negotiated_source_limit
+                threshold = min(gateway_limit, threshold) if threshold else gateway_limit
+            if threshold and input_bytes(system, user) > threshold:
+                if not original_checked:
+                    original_chapters = OriginalChapters.recognize(base["current_complete_skeleton"], plan.chapter_count)
+                    original_checked = True
+                if original_chapters is not None:
+                    view, source_coverage = original_chapters.project(base, chapter_window, requested_originals)
+                    view["chapter_window"] = request_context["chapter_window"]
+                    system += ORIGINAL_RULES
+                    user = json.dumps(view, ensure_ascii=False, separators=(",", ":"))
+                    # With an explicit ceiling, shrink the requested range if
+                    # necessary. Keep every retrieved dependency and author word.
+                    if (not requested_originals and not requested_cards and input_bytes(system, user) > threshold
+                            and chapter_window[0] < chapter_window[1]):
+                        adaptive_width = (chapter_window[1] - chapter_window[0] + 1) // 2
+                        return stage_request()
+        if chapter_window and not window_budget_fixed:
+            # Size once after the input/output preflight chooses the initial
+            # unit. Neither retries nor retrievals extend this deadline.
+            first, last = chapter_window
+            size = last - first + 1
+            remaining_windows = (plan.chapter_count - first + size) // size
+            extra = timeout * (remaining_windows - 1)
+            deadline += extra
+            task_budget += extra
+            window_budget_fixed = True
+        return system, user
 
     if plan is not None:
         system, user = stage_request()
@@ -579,7 +649,7 @@ JSON and current draft are not an additional mandatory user confirmation round.
         remaining = min(timeout, deadline - time.monotonic())
         if remaining <= 0:
             if plan is not None:
-                raise DeliveryTimeoutError(timeout, task_expired=True)
+                raise DeliveryTimeoutError(timeout, task_expired=True, task_seconds=task_budget)
             raise TimeoutError("Workshop format repair exhausted the turn timeout")
         # SDKs freeze timeout when constructed; a fresh client also gives HTTP
         # repairs the remaining budget instead of another full turn timeout.
@@ -590,7 +660,8 @@ JSON and current draft are not an additional mandatory user confirmation round.
             if diagnostic is not None and attempt == 1:
                 for saved_stage in plan.record["completed"]:
                     diagnostic(plan.event("reused", saved_stage))
-            plan.begin()
+            if not chapter_window or plan.record["active_stage"] != stage:
+                plan.begin()
             if diagnostic is not None:
                 diagnostic(plan.event("started"))
             if stage == "assembly" and assembly_part is not None:
@@ -622,7 +693,7 @@ JSON and current draft are not an additional mandatory user confirmation round.
                 remaining = min(timeout, deadline - time.monotonic())
                 if remaining <= 0:
                     if plan is not None:
-                        raise DeliveryTimeoutError(timeout, task_expired=True)
+                        raise DeliveryTimeoutError(timeout, task_expired=True, task_seconds=task_budget)
                     raise TimeoutError("Workshop delivery exhausted the turn timeout")
                 type_context = json.loads(user).get('creative_design', {}).get('genre_context')
                 receipt = None
@@ -636,14 +707,26 @@ JSON and current draft are not an additional mandatory user confirmation round.
                                'user_sha256': hashlib.sha256(user.encode('utf-8')).hexdigest(),
                                'system_sha256': hashlib.sha256(system.encode('utf-8')).hexdigest(),
                                'request_bytes': request_bytes, 'submitted_at': _now(), 'status': 'adapter_invocation_started'}
-                    if session.get('_save_type_request'):
-                        session['_save_type_request'](receipt)
                 client = LLMClient(**client_options, timeout_seconds=remaining,
                                    # A discussion can finish a reply already
                                    # arriving at its deadline. Delivery stages
                                    # retain their existing strict total budget.
                                    completion_grace_seconds=180 if route['provider'] == 'codex' and not delivering else 0,
                                    **({"diagnostic_callback": diagnostic} if diagnostic is not None else {}))
+                if plan is not None:
+                    from core.gemini_gateway import input_bytes, INPUT_LIMIT_BYTES
+                    request_size = input_bytes(system, user)
+                    declared_limit = route.get("planning_input_bytes")
+                    limits = [declared_limit] if type(declared_limit) is int and declared_limit > 0 else []
+                    if route["provider"] == "gemini_openai" and request_size > INPUT_LIMIT_BYTES:
+                        transport_limit = client.text_input_limit_bytes()
+                        if transport_limit is not None:
+                            limits.append(transport_limit)
+                    if limits and request_size > min(limits):
+                        from core.llm_client import LLMInputLimitError
+                        raise LLMInputLimitError(request_size, min(limits))
+                if receipt is not None and session.get('_save_type_request'):
+                    session['_save_type_request'](receipt)
                 text = client.complete(system, user)
                 received_model_response = True
                 if receipt is not None and session.get('_save_type_request'):
@@ -654,7 +737,7 @@ JSON and current draft are not an additional mandatory user confirmation round.
                 diagnostic({"event": f"attempt.{category}" if category in {"timeout", "cancelled"} else "attempt.failed",
                             "error_category": category})
             if plan is not None and category == "timeout" and not isinstance(exc, DeliveryTimeoutError):
-                raise DeliveryTimeoutError(timeout, task_expired=time.monotonic() >= deadline) from exc
+                raise DeliveryTimeoutError(timeout, task_expired=time.monotonic() >= deadline, task_seconds=task_budget) from exc
             raise
         if cancellation is not None and cancellation.is_set():
             if diagnostic is not None:
@@ -663,7 +746,8 @@ JSON and current draft are not an additional mandatory user confirmation round.
         from .workshop_responses import StageResponse, ResponseStorageError
         try:
             response_record = (StageResponse(session, attempt=attempt, stage=stage,
-                                            part='narrative_format' if format_repair is not None else assembly_part,
+                                            part=('narrative_format' if format_repair is not None else
+                                                  f'chapters-{chapter_window[0]}-{chapter_window[1]}' if chapter_window else assembly_part),
                                             text=text, system=system, user=user)
                                if plan is not None and received_model_response else None)
         except ResponseStorageError:
@@ -701,21 +785,52 @@ JSON and current draft are not an additional mandatory user confirmation round.
                 system, user = stage_request()
                 continue
             if plan is not None and stage != "assembly":
+                if chapter_window:
+                    lookup = source_request(text)
+                    if lookup is not None:
+                        kind, lookup = lookup
+                        first = chapter_window[0]
+                        if kind == "read_original_chapters":
+                            if (not source_coverage or not isinstance(lookup, list) or not lookup
+                                    or any(type(n) is not int or not 1 <= n <= plan.chapter_count for n in lookup)
+                                    or not set(lookup) - set(source_coverage["included_chapters"])):
+                                raise DeliveryError("须指定尚未提供的原骨架章号。")
+                            requested_originals.update(lookup)
+                        else:
+                            if (not isinstance(lookup, list) or not lookup or
+                                    any(type(n) is not int or not 1 <= n < first for n in lookup) or
+                                    not set(lookup) - (requested_cards | {first - 1})):
+                                raise DeliveryError("只可读取尚未提供的已保存章卡。")
+                            requested_cards.update(lookup)
+                        if response_record is not None:
+                            response_record.validated()
+                        if diagnostic is not None:
+                            diagnostic({"event": "attempt.completed"})
+                        system, user = stage_request()
+                        continue
                 stage_text = format_repair.merge(text) if format_repair is not None else text
                 data = parse_stage(stage_text, stage, narrative_mode,
-                                   plan.chapter_count if stage == "chapter_plan" else None, story_first=story_first)
+                                   plan.chapter_count if stage == "chapter_plan" else None, story_first=story_first, chapter_range=chapter_window)
                 try:
-                    data = workshop_capacity.bind_stage(session, stage, data)
+                    data = workshop_capacity.bind_stage(session, stage, data, chapter_range=chapter_window)
                 except ValueError as exc:
                     raise DeliveryError(str(exc)) from None
                 if response_record is not None:
                     response_record.validated()
-                plan.finish(stage, data)
+                stage_complete = True
+                if chapter_window:
+                    stage_complete = plan.finish_window(data, chapter_window, source_coverage=source_coverage)
+                    requested_cards.clear()
+                    requested_originals.clear()
+                    repair_count = 0  # Each validated range has made durable progress.
+                else:
+                    plan.finish(stage, data)
                 format_repair = None
                 narrative_mode = plan.mode
                 if diagnostic is not None:
                     diagnostic({"event": "attempt.completed"})
-                    diagnostic(plan.event("completed", stage))
+                    if stage_complete:
+                        diagnostic(plan.event("completed", stage))
                 # A repair artifact belongs to its own stage, not the next one.
                 for key in ("previous_model_response", "validation_error", "repair_instruction", "repair_requires_skeleton"):
                     context.pop(key, None)
@@ -826,6 +941,15 @@ JSON and current draft are not an additional mandatory user confirmation round.
                     format_repair = NarrativeFormatRepair(exc.candidate, str(exc), target_words=target_words)
                 if format_repair is not None:
                     format_repair.error = str(exc)
+                    system, user = stage_request()
+                    continue
+                if chapter_window:
+                    if isinstance(exc, IncompleteStageResponse) and chapter_window[0] < chapter_window[1]:
+                        # The estimate failed for these cards. Reduce the unit
+                        # of work instead of asking for the same large JSON.
+                        adaptive_width = (chapter_window[1] - chapter_window[0] + 1) // 2
+                    context.update(previous_model_response=text, validation_error=str(exc),
+                        repair_instruction="Repair only the current chapter_window. Return its complete cards, preserving every valid scene and all previously saved chapters.")
                     system, user = stage_request()
                     continue
                 context.update(previous_model_response=text, validation_error=str(exc),
@@ -942,7 +1066,7 @@ def _failure(exc: Exception, *, timeout_seconds: float, has_prompt: bool) -> str
     if isinstance(exc, LLMInputLimitError):
         return str(exc) + retained
     if isinstance(exc, DeliveryTimeoutError):
-        scope = (f"整轮交付上限 {exc.request_seconds * 3:g} 秒" if exc.task_expired
+        scope = (f"整轮交付上限 {exc.task_seconds:g} 秒" if exc.task_expired
                  else f"单次请求上限 {exc.request_seconds:g} 秒")
         return f"骨架交付超时（{scope}）。已完成的阶段和补全部分已保存，可继续未完成部分；不会自动重试模型调用。{retained}"
     if isinstance(exc, (TimeoutError,)) or any(word in str(exc).lower() for word in ("timeout", "timed out")):
@@ -1121,10 +1245,15 @@ class WorkshopService:
             raise CheckpointError("Delivery checkpoint uses a different skill version.")
         if not published and record.get("input_sha256") != checkpoint_fingerprint(data, expected_skill):
             raise CheckpointError("Delivery checkpoint author context has changed.")
+        if not published:
+            sources = {batch["source_coverage"]["source_sha256"]
+                       for batch in record.get("chapter_windows", {}).get("batches", []) if "source_coverage" in batch}
+            if sources and sources != {hashlib.sha256(data["prompt_md"].encode()).hexdigest()}:
+                raise CheckpointError("Delivery checkpoint original chapter source has changed.")
 
     def _load_delivery_checkpoint(self, data: dict, *, skill_version: str | None = None,
                                   allow_published: bool = False) -> dict | None:
-        from .workshop_checkpoints import CheckpointError, load_checkpoint
+        from .workshop_checkpoints import CheckpointError, load_checkpoint, prior_candidate_text
 
         run_id = data.get("delivery_run_id")
         if run_id is None and data.get("delivery_source_revision") is None:
@@ -1137,6 +1266,9 @@ class WorkshopService:
         record = load_checkpoint(self._path(data["id"]) / "delivery", run_id)
         if record is not None:
             self._delivery_identity(data, record, skill_version=skill_version, allow_published=allow_published)
+            if (data["status"] in {"paused", "error"} and "prior_candidate" in record
+                    and "assembly" not in record["completed"]):
+                prior_candidate_text(self._path(data["id"]), record["prior_candidate"])
         return record
 
     def delivery_progress(self, data: dict) -> dict | None:
@@ -1695,7 +1827,16 @@ class WorkshopService:
         snapshot['_save_delivery_response'] = lambda receipt: self._save_delivery_response(snapshot, receipt)
         try:
             snapshot["_delivery_record"] = self._load_delivery_checkpoint(snapshot)
-            try:
+            record = snapshot["_delivery_record"]
+            candidate_dir = snapshot["_candidate_path"].parent
+            if record and "prior_candidate" in record and "assembly" not in record["completed"]:
+                # A revision opened with this unvalidated source. The confirmed
+                # global story is additional evidence, not a substitute for it.
+                from .workshop_checkpoints import prior_candidate_text
+                reference = record["prior_candidate"]
+                snapshot["_previous_candidate"] = prior_candidate_text(self._path(session_id), reference)
+                snapshot["_prior_candidate"] = reference
+            elif not record and snapshot.get("turn_intent") == "deliver":
                 # An editorial import supersedes older failed transport
                 # candidates, but preserves their files for audit. Never feed
                 # an obsolete pre-edit skeleton back as the next repair source.
@@ -1704,18 +1845,22 @@ class WorkshopService:
                     max((item["new_revision"] for item in snapshot.get("editorial_revisions", [])), default=0),
                 )
                 earlier = sorted(
-                    (path for path in snapshot["_candidate_path"].parent.glob("*.md")
+                    (path for path in candidate_dir.glob("*.md")
                      if path.stem.isdigit() and candidate_floor <= int(path.stem) < revision),
                     key=lambda path: int(path.stem), reverse=True,
                 )
-                if snapshot.get("turn_intent") == "deliver" and earlier and not snapshot["_delivery_record"]:
-                    previous_candidate = earlier[0].read_text(encoding="utf-8")
-                    if previous_candidate != snapshot["prompt_md"]:
-                        snapshot["_previous_candidate"] = previous_candidate
-            except (OSError, UnicodeError):
-                # Diagnostic candidates are optional. A corrupt one must not
-                # strand the session or prevent use of the saved conversation.
-                LOG.warning("workshop.candidate.unreadable session=%s", session_id)
+                if earlier:
+                    from core.safe_project_io import read_project_bytes
+                    try:
+                        raw = read_project_bytes(self._path(session_id), ("candidates", earlier[0].name))
+                        previous_candidate = raw.decode("utf-8")
+                    except (OSError, UnicodeError):
+                        LOG.warning("workshop.candidate.unreadable session=%s", session_id)
+                    else:
+                        if previous_candidate != snapshot["prompt_md"]:
+                            snapshot["_previous_candidate"] = previous_candidate
+                            snapshot["_prior_candidate"] = {"revision": int(earlier[0].stem),
+                                                            "sha256": hashlib.sha256(raw).hexdigest()}
             result, route = _complete(snapshot, skill)
             if cancel_event.is_set():
                 return

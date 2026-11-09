@@ -34,6 +34,10 @@ class DeliveryError(ValueError):
     """Safe stage validation error without raw model output."""
 
 
+class IncompleteStageResponse(DeliveryError):
+    """Incomplete transport output, not a rejection of the story design."""
+
+
 class NarrativeFormatResponseError(DeliveryError):
     def __init__(self, detail: str, candidate: dict):
         super().__init__(detail)
@@ -120,13 +124,14 @@ def _text(value) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def parse_stage(text: str, stage: str, mode: str | None, chapter_count: int | None = None, *, story_first: bool = False) -> dict:
+def parse_stage(text: str, stage: str, mode: str | None, chapter_count: int | None = None, *, story_first: bool = False,
+                chapter_range: tuple[int, int] | None = None) -> dict:
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE)
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
-        raise DeliveryError("阶段结果不是完整 JSON，请保留故事内容并修复格式。") from None
+        raise IncompleteStageResponse("阶段结果不是完整 JSON，请保留故事内容并修复格式。") from None
     if (not isinstance(data, dict) or not isinstance(data.get("narrative_mode"), str)
             or data["narrative_mode"] not in MODES
             or (mode is not None and data["narrative_mode"] != mode)
@@ -140,18 +145,21 @@ def parse_stage(text: str, stage: str, mode: str | None, chapter_count: int | No
                 ("premise", "characters", "causal_chain", "ending", "decisions")):
             raise DeliveryError("全局故事设计必须完整包含故事承诺、人物、因果主线、结局与作者决定。")
     elif stage == "chapter_plan":
+        if chapter_range and set(data) != {"narrative_mode", "total_chapters", "chapters"}:
+            raise DeliveryError("章卡批次的额外故事资料须完整写入对应章卡，批次顶层只接受组织形式、总章数和章卡列表。")
         chapters = data.get("chapters")
-        if (not isinstance(chapters, list) or len(chapters) != data["total_chapters"]
+        first, last = chapter_range or (1, data["total_chapters"])
+        if (not 1 <= first <= last <= data["total_chapters"] or not isinstance(chapters, list) or len(chapters) != last - first + 1
                 or any(not isinstance(chapter, dict) or type(chapter.get("number")) is not int
                        or chapter["number"] != index or not _text(chapter.get("title"))
-                       or not (chapter.get("core_plot") if story_first else _text(chapter.get("plan"))) for index, chapter in enumerate(chapters, 1))):
+                       or not (chapter.get("core_plot") if story_first else _text(chapter.get("plan"))) for index, chapter in enumerate(chapters, first))):
             raise DeliveryError("章节规划必须逐章完整覆盖全书，不能缺章、重复、乱序或保留空内容。")
     else:
         raise DeliveryError("未知的骨架交付阶段。")
     if story_first:
         from core.story_design import validate_stage, NarrativeFormatValidationError, normalize_format_envelope
         try:
-            data = validate_stage(data, stage)
+            data = validate_stage(data, stage, chapter_range=chapter_range)
         except NarrativeFormatValidationError as exc:
             raise NarrativeFormatResponseError(str(exc), normalize_format_envelope(data)) from None
         except ValueError as exc:
@@ -190,6 +198,7 @@ class DeliveryPlan:
             "session_id": session["id"],
             "source_revision": session.get("delivery_source_revision", session["revision"]),
             "input_sha256": checkpoint_fingerprint(session, session["skill_version"]),
+            **({"prior_candidate": session["_prior_candidate"]} if "_prior_candidate" in session else {}),
             "skill_version": session["skill_version"], "narrative_mode": mode,
             "active_stage": None, "completed": {},
         }
@@ -198,6 +207,12 @@ class DeliveryPlan:
             if stage in self.record["completed"]:
                 parse_stage(json.dumps(self.record["completed"][stage]["content"], ensure_ascii=False),
                             stage, mode, self.chapter_count if stage == "chapter_plan" else None, story_first=self.story_first)
+        if "chapter_windows" in self.record and "chapter_plan" not in self.record["completed"]:
+            from .workshop_chapter_windows import prefix
+            cards = prefix(self.record)
+            data = {"narrative_mode": self.mode, "total_chapters": self.chapter_count, "chapters": cards}
+            parse_stage(json.dumps(data, ensure_ascii=False), "chapter_plan", self.mode, self.chapter_count,
+                        chapter_range=(1, len(cards)), story_first=self.story_first)
         for part, data in self.saved_parts.items():
             parse_part(json.dumps(data, ensure_ascii=False), part, mode, self.chapter_count)
 
@@ -205,6 +220,38 @@ class DeliveryPlan:
     def chapter_count(self) -> int | None:
         story = self.record["completed"].get("story_design")
         return story["content"]["total_chapters"] if story else None
+
+    def chapter_window(self, max_tokens: int | None, max_width: int | None = None) -> tuple[int, int] | None:
+        from .workshop_chapter_windows import prefix, window_width
+        if self.stage != "chapter_plan":
+            return None
+        size = window_width(self.chapter_count, max_tokens)
+        if max_width is not None:
+            size = min(size, max_width)
+        if size >= self.chapter_count and "chapter_windows" not in self.record:
+            return None
+        first = len(prefix(self.record)) + 1
+        return first, min(self.chapter_count, first + size - 1)
+
+    def finish_window(self, data: dict, bounds: tuple[int, int], *, source_coverage: dict | None = None) -> bool:
+        """Persist the prefix or seal the complete plan in the same atomic save."""
+        from .workshop_chapter_windows import VERSION, prefix
+        cards = prefix(self.record)
+        if bounds[0] != len(cards) + 1:
+            raise DeliveryError("章卡批次不与已保存进度相邻。")
+        complete = bounds[1] == self.chapter_count
+        if complete:
+            joined = {**data, "chapters": cards + data["chapters"]}
+            parse_stage(json.dumps(joined, ensure_ascii=False), "chapter_plan", self.mode,
+                        self.chapter_count, story_first=self.story_first)
+        group = self.record.setdefault("chapter_windows", {"version": VERSION, "batches": []})
+        group["batches"].append({"chapters": deepcopy(data["chapters"]),
+                                 **({"source_coverage": source_coverage} if source_coverage is not None else {})})
+        if complete:
+            self.finish("chapter_plan", joined)
+        else:
+            self._save()
+        return complete
 
     @property
     def stage(self) -> str:
@@ -334,8 +381,18 @@ class DeliveryPlan:
             result["saved_assembly_parts"] = self.saved_parts
         return result
 
-    def rules(self) -> str:
-        from core.story_design import enabled, DESIGN_RULES, CHAPTER_RULES
+    def rules(self, *, window: bool = False) -> str:
+        from core.story_design import enabled, DESIGN_RULES, CHAPTER_RULES, CHAPTER_CARD_RULES
+        if window:
+            from .workshop_chapter_windows import WINDOW_RULES
+            if self.story_first:
+                return CHAPTER_CARD_RULES + WINDOW_RULES
+            return WINDOW_RULES + """
+Return ONLY JSON with narrative_mode, total_chapters and chapters: a list of
+{number:int,title:string,plan:string}. Each plan contains POV, concrete events,
+motivated choices, causal advance, emotional change, setup/payoff references and
+ending hook; link to the global causal chain and preserve the earned ending.
+"""
         if enabled(self.session):
             return DESIGN_RULES if self.stage == "story_design" else CHAPTER_RULES
         common = """

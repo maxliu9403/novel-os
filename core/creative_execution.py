@@ -64,6 +64,10 @@ class CreativeExecutionError(ValueError):
     pass
 
 
+class CreativeRequestTooLarge(CreativeExecutionError):
+    pass
+
+
 def encoded(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True,
                       separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -359,11 +363,20 @@ class CreativeExecution:
         system = self._system_for(agent, context['stage'])
         actual = len(system.encode()) + len(user.encode())
         if actual > MAX_REQUEST_BYTES:
-            raise CreativeExecutionError(f"Creative request exceeds engineering byte budget: {actual} > {MAX_REQUEST_BYTES}; nothing was truncated")
+            raise CreativeRequestTooLarge(f"Creative request exceeds engineering byte budget: {actual} > {MAX_REQUEST_BYTES}; nothing was truncated")
         return user, {"schema": VERSION, "lock_sha256": self.lock_sha256,
             "agent": agent, "chapter": chapter, "context": context,
             "prior_context_sha256": prior_context_hash(self.project, chapter) if chapter is not None else None,
             "system_sha256": text_hash(system), "user_sha256": text_hash(user), "request_bytes": actual}
+
+    def planning_request_fits(self, prompt: str, stage: str, limit: int | None, *, format_correction: bool) -> bool:
+        from core.gemini_gateway import ENVELOPE_RESERVE_BYTES
+        try:
+            _, receipt = self.prepare("outline_planner", prompt, None, None,
+                                      stage=stage, format_correction=format_correction)
+        except CreativeRequestTooLarge:
+            return False
+        return limit is None or receipt["request_bytes"] + ENVELOPE_RESERVE_BYTES <= limit
 
     def complete(self, client: Any, agent: str, user: str, receipt: dict) -> str:
         self._validate_request(agent, user, receipt)

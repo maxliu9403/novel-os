@@ -192,6 +192,7 @@ class ProviderTemplateOut(BaseModel):
 
 
 class ProviderConnectionInput(BaseModel):
+    planning_input_bytes: int | None = Field(default=None, gt=0, strict=True)
     name: str
     provider: str
     auth_type: str | None = None
@@ -203,6 +204,7 @@ class ProviderConnectionInput(BaseModel):
 
 
 class ProviderConnectionOut(BaseModel):
+    planning_input_bytes: int | None = None
     id: str
     name: str
     provider: str

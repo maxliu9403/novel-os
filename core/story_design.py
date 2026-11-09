@@ -69,8 +69,7 @@ For multi_volume or series_installment also return narrative_format using the su
 engine format schema, with meaningful volume boundaries and supplied series metadata.
 """
 
-CHAPTER_RULES = """
-Return narrative_mode, total_chapters and chapters, exactly once for each 1..N.
+CHAPTER_CARD_RULES = """
 Each chapter: {number:int,title:string,pov:string,core_plot:[string],
 reader_value:string,ending_hook:string,setups_payoffs:[string]}.
 core_plot describes actual scenes: who acts, what happens, why it matters, and what
@@ -83,6 +82,9 @@ Hooks arise from events; resolution may end in meaningful emotional closure.
 Keep early rewards and later payoffs distinct; connect subplots through consequences.
 No plan field: the application renders these same cards for reader and execution.
 """
+
+
+CHAPTER_RULES = "\nReturn narrative_mode, total_chapters and chapters, exactly once for each 1..N.\n" + CHAPTER_CARD_RULES
 
 
 def enabled(session: dict) -> bool:
@@ -110,7 +112,7 @@ def normalize_format_envelope(data: dict) -> dict:
     return data
 
 
-def validate_stage(data: dict, stage: str) -> dict:
+def validate_stage(data: dict, stage: str, *, chapter_range: tuple[int, int] | None = None) -> dict:
     """Validate semantics-bearing shapes before checkpoint save, without pruning text."""
     if stage == "story_design":
         StoryDesign.model_validate(data["story_design"])
@@ -127,7 +129,8 @@ def validate_stage(data: dict, stage: str) -> dict:
                 raise NarrativeFormatValidationError(str(exc)) from None
     else:
         cards = [ChapterCard.model_validate({k: v for k, v in item.items() if k not in {"target_words", "capacity_scene_ids"}}) for item in data["chapters"]]
-        if [c.number for c in cards] != list(range(1, data["total_chapters"] + 1)):
+        first, last = chapter_range or (1, data["total_chapters"])
+        if [c.number for c in cards] != list(range(first, last + 1)):
             raise ValueError("章节设计缺章、重复或顺序错误。")
     return data
 

@@ -108,16 +108,13 @@ function TaskStatusContent({
     };
   }, [projectId, runId, refreshKey, onTaskChanged]);
 
-  async function resume(useStagedPlanning = false) {
+  async function resume() {
     if (!task?.can_resume || resumeLock.current || pauseLock.current) return;
-    if (useStagedPlanning && !task.can_upgrade_planning) return;
     resumeLock.current = true;
     setSubmitting(true);
     setResumeError(null);
     try {
-      const result = useStagedPlanning
-        ? await api.resumeProjectTask(projectId, runId, { outline_planning_mode: "staged" })
-        : await api.resumeProjectTask(projectId, runId);
+      const result = await api.resumeProjectTask(projectId, runId);
       if (!mounted.current) return;
       requestVersion.current += 1;
       const running = { ...task, status: "running", can_resume: false, can_pause: false, cancel_requested: false, progress: null, active_job_id: result.job_id, resume_job_id: result.job_id };
@@ -250,9 +247,6 @@ function TaskStatusContent({
               <button type="button" className="btn-primary disabled:cursor-wait disabled:opacity-50" disabled={submitting} onClick={() => void resume()}>
                 {submitting ? "恢复中…" : task.planning?.recovery?.action === 'restore_source_omissions' ? "按新版补全并恢复" : "恢复重试"}
               </button>
-              {task.can_upgrade_planning && <button type="button" className="btn-ghost disabled:cursor-wait disabled:opacity-50" disabled={submitting} onClick={() => void resume(true)}>
-                使用分阶段规划恢复
-              </button>}
               <p className="max-w-xl text-[12px] leading-relaxed text-ink-muted">沿用原任务，校验并复用已完成且有效的阶段；无效产物将按任务规则修复或阻止继续。</p>
             </div>
           )}

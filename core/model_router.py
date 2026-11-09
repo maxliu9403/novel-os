@@ -81,6 +81,7 @@ class ModelRouter:
                     api_key=route["api_key"] or None,
                     max_tokens=route["max_tokens"],
                     reasoning_effort=route["reasoning_effort"] or None,
+                    **({"planning_input_bytes": route["planning_input_bytes"]} if route.get("planning_input_bytes") else {}),
                     **options,
                 )
                 client.configuration_id = route.get("connection_id", "")

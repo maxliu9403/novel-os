@@ -199,7 +199,7 @@ def bind(session: dict, prompt: str) -> str:
     return bind_contract(prompt, allocation)
 
 
-def bind_stage(session: dict, stage: str, data: dict) -> dict:
+def bind_stage(session: dict, stage: str, data: dict, *, chapter_range: tuple[int, int] | None = None) -> dict:
     if not enabled(session):
         return data
     allocation = session.get('capacity', {}).get('confirmed')
@@ -211,7 +211,8 @@ def bind_stage(session: dict, stage: str, data: dict) -> dict:
     if data.get('narrative_mode') not in {'short_novel', 'standalone_long'}:
         raise ValueError('已确认的篇幅方案仅用于单本连续章节。')
     if stage == 'chapter_plan':
-        for chapter, budget in zip(data['chapters'], option['chapters'], strict=True):
+        first, last = chapter_range or (1, len(option['chapters']))
+        for chapter, budget in zip(data['chapters'], option['chapters'][first - 1:last], strict=True):
             chapter['target_words'] = budget['target_words']
             chapter['capacity_scene_ids'] = list(budget['scene_ids'])
     return data

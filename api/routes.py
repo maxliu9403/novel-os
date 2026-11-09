@@ -372,7 +372,7 @@ def update_studio_provider(connection_id: str, body: ProviderConnectionInput):
     from core import provider_settings
 
     try:
-        return provider_settings.save_connection(body.model_dump(), connection_id)
+        return provider_settings.save_connection(body.model_dump(exclude_unset=True), connection_id)
     except provider_settings.ProviderSettingsError as exc:
         raise _provider_settings_error(exc) from exc
 

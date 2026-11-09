@@ -370,11 +370,11 @@ test("switching runs also discards late resume mutations", async () => {
   expect(changed).not.toHaveBeenCalled();
 });
 
-test("eligible legacy runs can explicitly resume with staged planning", async () => {
+test("eligible legacy runs use the ordinary resume action", async () => {
   vi.spyOn(api, "projectTask").mockResolvedValue({ ...task, can_upgrade_planning: true });
   const resume = vi.spyOn(api, "resumeProjectTask").mockRejectedValue(new Error("离线测试"));
   render(<TaskStatusPanel projectId="p" runId={task.run_id} />);
-  fireEvent.click(await screen.findByRole("button", { name: "使用分阶段规划恢复" }));
-  await waitFor(() => expect(resume).toHaveBeenCalledWith("p", task.run_id, { outline_planning_mode: "staged" }));
+  fireEvent.click(await screen.findByRole("button", { name: "恢复重试" }));
+  await waitFor(() => expect(resume).toHaveBeenCalledWith("p", task.run_id));
   expect(await screen.findByRole("button", { name: "恢复重试" })).toBeEnabled();
 });

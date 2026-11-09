@@ -21,14 +21,13 @@ import threading
 from typing import Callable
 import weakref
 
-from .workshop_progress import persist_progress, runtime_progress  # noqa: F401
+from .workshop_progress import MAX_WORKSHOP_ATTEMPTS, persist_progress, runtime_progress  # noqa: F401
 from core.codex_diagnostic_codes import ERROR_CODES, COMPONENTS, LEVELS
 
 
 MAX_FILE_BYTES = 5 * 1024 * 1024
 TERMINAL_RESERVE_BYTES = 64 * 1024
 MAX_RECORD_BYTES = 4096
-MAX_WORKSHOP_ATTEMPTS = 32
 _LOCKS = weakref.WeakValueDictionary()
 _LOCKS_GUARD = threading.Lock()
 

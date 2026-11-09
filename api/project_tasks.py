@@ -169,23 +169,24 @@ def register_project_task_routes(router, get_service):
         runtime = task_runtime(project, manifest, is_latest=bool(latest and latest["run_id"] == run_id))
         if not runtime["can_resume"]:
             raise HTTPException(409, runtime['resume_blocked_reason'])
-        if requested_mode:
-            from planning_upgrade import can_upgrade_planning
-            if not can_upgrade_planning(project, manifest):
-                raise HTTPException(409, "仅可将尚未提交故事基础或章节的旧大纲任务切换为分阶段规划。")
+        from planning_upgrade import can_upgrade_planning
+        eligible = can_upgrade_planning(project, manifest)
+        if requested_mode and not eligible:
+            raise HTTPException(409, "仅可将尚未提交故事基础或章节的旧大纲任务切换为分阶段规划。")
+        mode = "staged" if eligible else None
 
         cancellation = threading.Event()
         def native_resume():
             from pipeline_runner import PipelineRunner
-            # A mode change is explicit and revalidated under the execution lock.
-            options = {"outline_planning_mode": requested_mode} if requested_mode else {}
+            # The worker verifies eligibility again under the execution lock.
+            options = {"outline_planning_mode": mode} if mode else {}
             return PipelineRunner(project, cancellation_event=cancellation).resume(run_id, project, **options)
 
         try:
             job_id = runner.submit(
                 "novel.resume", native_resume,
                 meta={"project_id": project_id, "project_path": str(project), "run_id": run_id,
-                      "outline_planning_mode": requested_mode or manifest["spec"].get("outline_planning_mode", "legacy")},
+                      "outline_planning_mode": mode or manifest["spec"].get("outline_planning_mode", "legacy")},
                 unique_key=f"novel.resume:{project}:{run_id}", result_mapper=_result_meta,
                 cancel_event=cancellation, defer_cancel_completion=True,
             )

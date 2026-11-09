@@ -15,6 +15,7 @@ import uuid
 
 
 MAX_PROGRESS_BYTES = 8192
+MAX_WORKSHOP_ATTEMPTS = 2**31 - 1  # diagnostic counter, not a limit on model calls
 _PHASES = {"preparing", "starting", "waiting", "receiving", "parsing", "validating",
            "repairing", "delivery", "completed", "failed", "cancelled"}
 _IDENTITY = ("session_id", "revision", "job_id", "operation")
@@ -285,7 +286,7 @@ def runtime_progress(session: dict, directory: Path) -> dict | None:
     request_budget = _number(p.get("request_timeout_seconds"))
     # Only the running worker announces a larger staged budget. Merely having
     # an old checkpoint must not change the deadline of a fresh discussion.
-    if task_budget is not None and timeout is not None and task_budget in (timeout, timeout * 3):
+    if task_budget is not None and timeout is not None and timeout <= task_budget <= 7 * 86400 and request_budget == timeout:
         timeout = task_budget
     if start and timeout is not None and timeout <= 7 * 86400:
         deadline = (datetime.fromisoformat(start.replace("Z", "+00:00")) + timedelta(seconds=timeout)).isoformat()
@@ -306,12 +307,12 @@ def runtime_progress(session: dict, directory: Path) -> dict | None:
               "completion_grace_seconds": grace,
               "completion_grace_limit": grace_limit if grace_limit <= 180 else 0,
               "request_timeout_seconds": request_budget if request_budget == _number(session.get("turn_timeout_seconds")) else _number(session.get("turn_timeout_seconds")),
-              "attempt": p.get("attempt") if type(p.get("attempt")) is int and 1 <= p["attempt"] <= 32 else None,
+              "attempt": p.get("attempt") if type(p.get("attempt")) is int and 1 <= p["attempt"] <= MAX_WORKSHOP_ATTEMPTS else None,
               "request_id": None, "content_chars": _number(p.get("content_chars")) or 0,
               "cumulative_content_chars": (_number(p.get("cumulative_content_chars")) or 0)
                   if "cumulative_content_chars" in p else _number(p.get("content_chars")) or 0,
               "last_completed_attempt": p.get("last_completed_attempt")
-                  if type(p.get("last_completed_attempt")) is int and 1 <= p["last_completed_attempt"] <= 32 else None,
+                  if type(p.get("last_completed_attempt")) is int and 1 <= p["last_completed_attempt"] <= MAX_WORKSHOP_ATTEMPTS else None,
               "repairing_response": p.get("repairing_response") is True,
               "upstream_event": None, "configured_max_tokens": _number(p.get("configured_max_tokens")),
               "effective_max_tokens": _number(p.get("effective_max_tokens")),

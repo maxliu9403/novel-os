@@ -1412,3 +1412,21 @@ def test_gemini_rejects_incompatible_inherited_effort_atomically():
         provider_settings.save_text_routes([{'id': 'default', 'connection_id': gemini['id'],
             'model': 'gemini-4-argon', 'inherits_default': False}])
     assert studio_settings.settings_path().read_bytes() == before
+
+
+def test_planning_budget_belongs_to_connection_and_can_be_removed(isolated_settings, monkeypatch):
+    from core.model_router import ModelRouter
+    from core import model_router
+    from types import SimpleNamespace
+    connection = _connection(planning_input_bytes=47_000)
+    provider_settings.save_text_routes([{"id": "default", "connection_id": connection["id"],
+                                         "model": "small-model", "inherits_default": False}])
+    monkeypatch.setattr(model_router, "LLMClient", lambda **kw: SimpleNamespace(**kw))
+    assert ModelRouter().client_for("architect").planning_input_bytes == 47_000
+    assert provider_settings.resolve_text_route("workshop")["planning_input_bytes"] == 47_000
+    payload = {k: connection[k] for k in ("name", "provider", "base_url", "capabilities")}
+    assert provider_settings.save_connection(payload, connection["id"])["planning_input_bytes"] == 47_000
+    with pytest.raises(provider_settings.ProviderSettingsError, match="positive integer"):
+        provider_settings.save_connection({**payload, "planning_input_bytes": -1}, connection["id"])
+    provider_settings.save_connection({**payload, "planning_input_bytes": None}, connection["id"])
+    assert "planning_input_bytes" not in provider_settings.resolve_text_route("architect")

@@ -130,7 +130,7 @@ graph TB
 | 4 | 🛡️ **Guardian** | Forensic fact-checker character, timeline, world, plot continuity | `chapter_NNN_continuity_report.md` with `Status: PASS/WARNING/FAIL` |
 | 5 | 🎨 **Curator** | Voice stylist locks tone, prose rhythm, genre conventions | `[STYLE_STATE_UPDATE]` with consistency / genre / voice scores |
 
-Every agent prompt now includes a strict **OUTPUT CONTRACT** that forces the LLM to emit machine-parseable update blocks verified working with frontier models (Claude, GPT) and open-weight models (Llama 3.3 70B).
+Each role has an output contract. The runtime validates planning JSON before saving a design as complete and checks chapter state updates before applying them. Incomplete model replies can be retained for recovery.
 
 ---
 
@@ -138,7 +138,9 @@ Every agent prompt now includes a strict **OUTPUT CONTRACT** that forces the LLM
 
 For Workshop runs with a `story-first.v1` handoff, Architect plans the book. Each chapter uses its saved plan. Scribe writes the draft and Guardian reviews the story, continuity, style, and reader experience together. When a revision is required and the run permits automatic repair, Editor revises the chapter and Guardian reviews it again. Once a chapter passes, the engine saves that version as the final text. The staged outline uses the Architect connection for its own consistency review.
 
-The diagram below shows the traditional chapter workflow. The [runtime role map](docs/design/2026-11-09-runtime-agent-roles.md) traces both paths and their output files. The [100-chapter planning proposal](docs/design/2026-11-09-long-form-planning.md) documents the design and its validation milestones.
+Long-book planning saves the book design, chapter roadmap ranges, and detailed chapter batches separately. A standalone outline and the full pipeline use the same planner. When a consistency fix depends on a distant chapter, the planner can retrieve and verify that evidence before publishing the outline. The design records which checks have run with simulated models and which still need live editorial evaluation. [100-chapter planning design](docs/design/2026-11-09-long-form-planning.md)
+
+The diagram below shows the traditional chapter workflow. The runtime role map traces both paths and their output files. [Runtime role map](docs/design/2026-11-09-runtime-agent-roles.md)
 
 ```mermaid
 flowchart LR

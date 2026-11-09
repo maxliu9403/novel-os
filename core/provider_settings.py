@@ -528,6 +528,7 @@ def _public_connection(connection: Mapping[str, Any]) -> dict[str, Any]:
         "last_test_error": connection.get("last_test_error", ""),
         "discovered_models": list(connection.get("discovered_models") or []),
         "model_details": dict(connection.get("model_details") or {}),
+        "planning_input_bytes": connection.get("planning_input_bytes"),
     }
 
 
@@ -600,6 +601,9 @@ def save_connection(payload: Mapping[str, Any], connection_id: str | None = None
                 f"'{template['auth_type']}'"
             )
 
+        planning_input_bytes = payload.get("planning_input_bytes", (existing or {}).get("planning_input_bytes"))
+        if planning_input_bytes is not None and (type(planning_input_bytes) is not int or planning_input_bytes <= 0):
+            raise ProviderSettingsError("Planning input bytes must be a positive integer")
         now = _utc_now()
         connection = {
             "id": target_id,
@@ -617,6 +621,7 @@ def save_connection(payload: Mapping[str, Any], connection_id: str | None = None
             "last_test_error": (existing or {}).get("last_test_error", ""),
             "discovered_models": [],
             "model_details": {},
+            "planning_input_bytes": planning_input_bytes,
         }
 
         secret_action = str(payload.get("secret_action") or "keep")
@@ -1060,6 +1065,7 @@ def resolve_text_route(route_id: str) -> dict[str, Any]:
         "connection_id": connection_id,
         "provider": connection.get("provider", ""),
         "model": route.get("model", ""),
+        **({"planning_input_bytes": connection["planning_input_bytes"]} if connection.get("planning_input_bytes") else {}),
         "base_url": connection.get("base_url", ""),
         "api_key": _connection_secret(connection),
         "max_tokens": int(route.get("max_tokens") or 8192),

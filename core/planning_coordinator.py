@@ -42,12 +42,9 @@ def _groups(plan: dict, review: dict, chapter_count: int) -> list[dict]:
             for g in groups]
 
 
-def _limit(planner) -> int:
-    from core.gemini_gateway import INPUT_LIMIT_BYTES, ATTACHMENT_LIMIT_BYTES
-    provider = getattr(planner.client, 'provider_name', None) or getattr(planner.client, 'provider', None)
-    capacity = getattr(planner.client, 'text_input_limit_bytes', None)
-    value = capacity() if provider == 'gemini_openai' and callable(capacity) else None
-    return value if type(value) is int and INPUT_LIMIT_BYTES <= value <= ATTACHMENT_LIMIT_BYTES else INPUT_LIMIT_BYTES
+def _limit(planner) -> int | None:
+    from core.planning_capacity import input_limit
+    return input_limit(planner.client, negotiate=True)
 
 
 def _request_protocol(planner, name: str, context: dict, plan: dict) -> tuple[dict, str, bool, dict]:

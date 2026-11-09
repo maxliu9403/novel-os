@@ -189,3 +189,35 @@ def test_hundred_chapter_windows_copy_only_their_members_and_isolate_overlaps():
     assert original['scenes'][0]['consequence'] == f'Full scene {number}'
     assert next(c for c in second['chapters'] if c['number'] == number) == original
     assert second['chapter_map'][0]['promises'] == candidate['chapter_map'][0]['promises'] == ['Obligation 1']
+
+
+def test_declared_non_gateway_budget_splits_only_as_needed_and_preserves_unicode(tmp_path):
+    class NativeModel(CapacityClient):
+        provider = 'openai_compatible'
+        planning_input_bytes = 47_000
+
+        def text_input_limit_bytes(self):
+            pytest.fail("Generic connections must not probe a gateway capability URL")
+
+    client = NativeModel(limit=47_000)
+    planner = make_planner(tmp_path, client, count=9)
+    chapters = [{"number": n, "consequence": "遗落的信件改变了下一章的决定。" * 190} for n in range(1, 10)]
+    assert planner._semantic_review({"chapters": chapters}, "review")["status"] == "passed"
+    windows = [json.loads(user.rsplit("\n\n", 1)[1]) for _, user in client.sent]
+    assert len(windows) > 1
+    assert [n for ctx in windows for n in ctx["review_window"]["requested_chapters"]] == list(range(1, 10))
+    for ctx in windows:
+        for chapter in ctx["candidate"]["chapters"]:
+            assert chapter == chapters[chapter["number"] - 1]
+
+
+def test_previously_received_valid_reply_can_be_read_after_capacity_drops(tmp_path):
+    from test_outline_planning import PlanningModel
+    model = PlanningModel()
+    planner = make_planner(tmp_path, model, count=2)
+    original = planner.run()
+    (planner.cache / "global.json").unlink()
+    model.planning_input_bytes = 1
+    calls = len(model.calls)
+    assert planner.run() == original
+    assert len(model.calls) == calls
