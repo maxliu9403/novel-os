@@ -60,17 +60,18 @@ def test_review_timeout_reuses_saved_correction_without_regenerating(tmp_path):
     assert [s for s, _ in resumed.calls] == ['review']
 
 
-def test_rejected_final_review_never_repeats_paid_correction_on_resume(tmp_path):
+def test_rejected_global_review_escalates_once_without_repeating_paid_correction(tmp_path):
     first = ReferenceModel(reviews=[review(ISSUE), review(ISSUE)])
-    with pytest.raises(OutlinePlanningError, match='still needs attention'):
+    with pytest.raises(OutlinePlanningError, match='bounded format correction'):
         make_planner(tmp_path, first, count=12, source=SOURCE).run()
     resumed = ReferenceModel()
-    with pytest.raises(OutlinePlanningError, match='still needs attention'):
+    with pytest.raises(OutlinePlanningError, match='bounded format correction'):
         make_planner(tmp_path, resumed, count=12, source=SOURCE).run()
     assert resumed.calls == []
     progress = json.loads((tmp_path / 'planning/progress.json').read_text())
     assert progress['recovery']['retryable'] is False
-    assert '不会' in progress['next_action']
+    assert progress['recovery']['action'] == 'inspect_saved_design'
+    assert 'coordinated_plan' in [s for s, _ in first.calls]
 
 
 @pytest.mark.parametrize('change', [
@@ -88,13 +89,21 @@ def test_unsupported_or_unbound_patch_is_never_published(tmp_path, change):
     assert not (planner.cache / f'{planning_correction.REVIEW_NAME}.json').exists()
 
 
-def test_story_rewrite_is_explicitly_left_for_author(tmp_path):
-    model = ReferenceModel(correction={'status': 'requires_author', 'reason': 'Changing the ending needs an author choice.', 'edits': []})
+def test_global_editor_refusal_triggers_evidence_check_without_author_escalation(tmp_path, monkeypatch):
+    from core import planning_coordinator
+    from unittest.mock import Mock
+    model = ReferenceModel(correction={'status':'requires_author','reason':'Editor cannot edit the ending.','edits':[]})
     planner = make_planner(tmp_path, model, count=12, source=SOURCE)
-    with pytest.raises(OutlinePlanningError, match='Global design conflicts'):
+    # A specialized editor cannot authorize an author question on its own.
+    probe = Mock(side_effect=TimeoutError('Independent evidence check started'))
+    monkeypatch.setattr(planning_coordinator, 'repair', probe)
+    with pytest.raises(TimeoutError, match='Independent evidence'):
         planner.run()
-    assert planner.progress['recovery']['retryable'] is False
-    assert [s for s, _ in model.calls][-1] == 'global_repair'
+    p, candidate, finding = probe.call_args.args
+    assert p is planner and len(candidate['chapters']) == 12 and finding['issues'] == [ISSUE]
+    assert probe.call_args.kwargs == {'prior_specialized': True}
+    assert not planner.progress.get('author_decisions')
+    assert (planner.cache / f'{planning_correction.VERSION}.json').is_file()
 
 
 def test_source_omissions_and_reference_correct_together_without_replanning(tmp_path):
@@ -165,7 +174,7 @@ def test_v1_corrected_checkpoints_retain_their_review_and_attempt_budget(tmp_pat
     resumed = ReferenceModel()
     rerun = make_planner(tmp_path, resumed, count=12, source=SOURCE)
     if final_blocked:
-        with pytest.raises(OutlinePlanningError, match='still needs attention'):
+        with pytest.raises(OutlinePlanningError, match='bounded format correction'):
             rerun.run()
     else:
         assert rerun.run()['volume_contracts'][0]['climax_chapter'] == 9

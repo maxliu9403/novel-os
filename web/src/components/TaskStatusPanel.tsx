@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type ProjectTaskDetail } from "../api/client";
+import { api, type ProjectTaskDetail, type AuthorDecisionResponse, type AuthorDecisionRequest } from "../api/client";
 import {
   formatProjectTaskTime,
   isProjectTaskRunning,
@@ -108,13 +108,17 @@ function TaskStatusContent({
     };
   }, [projectId, runId, refreshKey, onTaskChanged]);
 
-  async function resume() {
-    if (!task?.can_resume || resumeLock.current || pauseLock.current) return;
+  async function resume(decision?: AuthorDecisionResponse) {
+    if (!task || resumeLock.current || pauseLock.current || isProjectTaskRunning(task.status)) return;
+    const pending = latest.current?.planning?.author_decisions;
+    if (decision ? decision.request_id !== pending?.request_id : !task.can_resume || pending) return;
     resumeLock.current = true;
     setSubmitting(true);
     setResumeError(null);
     try {
-      const result = await api.resumeProjectTask(projectId, runId);
+      const result = decision
+        ? await api.resumeProjectTask(projectId, runId, { author_decisions: decision })
+        : await api.resumeProjectTask(projectId, runId);
       if (!mounted.current) return;
       requestVersion.current += 1;
       const running = { ...task, status: "running", can_resume: false, can_pause: false, cancel_requested: false, progress: null, active_job_id: result.job_id, resume_job_id: result.job_id };
@@ -125,6 +129,7 @@ function TaskStatusContent({
     } catch (e) {
       if (!mounted.current) return;
       setResumeError(e instanceof Error ? e.message : String(e));
+      if (decision) setRefreshKey((value) => value + 1);
     } finally {
       resumeLock.current = false;
       if (mounted.current) setSubmitting(false);
@@ -177,6 +182,7 @@ function TaskStatusContent({
   const currentError = task?.resume_job_error || task?.error;
   const running = task ? isProjectTaskRunning(task.status) : false;
   const paused = task?.status === "paused";
+  const authorRequest = !running && task?.planning?.author_decisions;
   const pausing = running && (pausePending || task?.cancel_requested === true);
 
   return (
@@ -188,7 +194,7 @@ function TaskStatusContent({
         </div>
         <div className="flex items-center gap-3">
           <button type="button" className="btn-ghost" onClick={() => setRefreshKey((value) => value + 1)}>刷新状态</button>
-          {task && <StatusPill status={task.status} label={projectTaskStatusLabel(task.status)} />}
+          {task && <StatusPill status={authorRequest ? "paused" : task.status} label={authorRequest ? "待选定设定" : projectTaskStatusLabel(task.status)} />}
         </div>
       </div>
 
@@ -218,16 +224,21 @@ function TaskStatusContent({
           )}
           {running && !task.can_pause && !pausing && <p className="mt-3 text-[11px] text-ink-muted">当前执行不支持页面暂停；请通过其原启动方式管理。</p>}
           {pauseError && <p role="alert" className="mt-3 break-words text-[13px] text-[#b84363]">暂停请求未确认：{pauseError} 已重新同步任务状态。</p>}
-          {currentError && <TaskError error={currentError} title={paused ? "暂停原因" : running ? "上次失败原因" : task.resume_job_error ? "本次恢复失败原因" : "失败原因"} onCopy={copy} neutral={paused} />}
+          {authorRequest && typeof task.planning?.completed_issue_count === "number" && <p className="mt-3 text-xs text-ink-muted">
+            已保存独立修订：{task.planning.completed_issue_count} 项。
+          </p>}
+          {authorRequest && <AuthorDecision key={authorRequest.request_id} request={authorRequest}
+              busy={submitting} submit={(choice) => void resume(choice)} />}
+          {currentError && !authorRequest && <TaskError error={currentError} title={paused ? "暂停原因" : running ? "上次失败原因" : task.resume_job_error ? "本次恢复失败原因" : "失败原因"} onCopy={copy} neutral={paused} />}
           {task.resume_job_error && task.error && task.resume_job_error !== task.error && (
             <details className="mt-3 text-[12px] text-ink-muted">
               <summary className="cursor-pointer">{paused ? "查看任务此前的停止原因" : "查看任务此前的失败原因"}</summary>
               <TaskError error={task.error} title={paused ? "此前的任务记录" : "此前的任务错误"} onCopy={copy} neutral={paused} />
             </details>
           )}
-          {!currentError && task.status === "failed" && <p className="mt-4 text-[13px] text-[#b84363]">任务失败，但任务记录未提供错误详情。</p>}
+          {!currentError && !authorRequest && task.status === "failed" && <p className="mt-4 text-[13px] text-[#b84363]">任务失败，但任务记录未提供错误详情。</p>}
 
-          {task.failed_stages.length > 0 && (
+          {!authorRequest && task.failed_stages.length > 0 && (
             <details open={!running} className="mt-4 rounded-2xl border border-[rgba(74,91,133,0.12)] bg-white/55 px-4 py-3">
               <summary className="cursor-pointer text-[13px] font-medium text-ink-text">{paused ? "阶段停止记录" : "失败阶段记录"}（{task.failed_stages.length}）</summary>
               <ul className="mt-3 space-y-3">
@@ -242,7 +253,7 @@ function TaskStatusContent({
             </details>
           )}
 
-          {(task.can_resume || submitting) && (
+          {!authorRequest && (task.can_resume || submitting) && (
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <button type="button" className="btn-primary disabled:cursor-wait disabled:opacity-50" disabled={submitting} onClick={() => void resume()}>
                 {submitting ? "恢复中…" : task.planning?.recovery?.action === 'restore_source_omissions' ? "按新版补全并恢复" : "恢复重试"}
@@ -251,7 +262,7 @@ function TaskStatusContent({
             </div>
           )}
           {resumeError && <p role="alert" className="mt-3 break-words text-[13px] text-[#b84363]">恢复提交失败：{resumeError}</p>}
-          {task.can_resume && (
+          {!authorRequest && task.can_resume && (
             <details className="mt-4 text-[12px] text-ink-muted">
               <summary className="cursor-pointer">在终端恢复此任务</summary>
               <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -280,4 +291,26 @@ function TaskError({ error, title, onCopy, neutral = false }: {
       <button type="button" className="mt-2 text-[11px] text-ink-muted hover:text-[var(--color-violet)]" onClick={() => void onCopy(error, "原始错误")}>复制原始错误</button>
     </details>
   );
+}
+
+function AuthorDecision({ request, busy, submit }: { request: AuthorDecisionRequest; busy: boolean;
+  submit: (result: AuthorDecisionResponse) => void }) {
+  const [choices, setChoices] = useState<Record<number, 0 | 1>>({});
+  const complete = request.issues.length > 0 && request.issues.every(({issue_index}) => choices[issue_index] !== undefined);
+  return <div className="mt-4 rounded-2xl border bg-white/70 p-4">
+    <h3 className="text-sm font-medium">两处原文不一致，请选择本书采用的设定</h3>
+    {request.issues.map((issue) => <fieldset key={issue.issue_index} disabled={busy} className="mt-4 space-y-2">
+      <legend className="text-sm">{issue.reason}</legend>
+      <p className="text-xs text-ink-muted">涉及章节：{issue.affected_chapters.join("、") || "全书"}</p>
+      {issue.author_quotes.map((quote,index) => <label key={index} className="flex items-start gap-2 text-sm">
+        <input type="radio" name={request.request_id + "-" + issue.issue_index} checked={choices[issue.issue_index] === index}
+          onChange={() => setChoices({...choices,[issue.issue_index]:index === 0 ? 0 : 1})} />
+        <span className="whitespace-pre-wrap">{quote}</span>
+      </label>)}
+    </fieldset>)}
+    <button className="btn-primary mt-4 disabled:opacity-50" type="button" disabled={busy || !complete} onClick={() => submit({
+      request_id:request.request_id, choices:request.issues.map(({issue_index}) => ({issue_index,selected_quote:choices[issue_index]}))})}>
+      {busy ? "正在保存选择…" : "按所选原文继续"}
+    </button>
+  </div>;
 }

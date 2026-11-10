@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from core import planning_coordinated as contract
+from core import planning_evidence_plan as evidence
 from core.planning_roadmap import MAX_RANGE
 from outline_planning import OutlinePlanningError, content_hash
 from test_outline_planning import PlanningModel, SOURCE, make_planner, review
@@ -30,6 +30,10 @@ class CoordinatedModel(PlanningModel):
 
     def complete(self, system, user):
         context = json.loads(user.rsplit('\n\n', 1)[1])
+        if user.startswith('STAGE: coordinated_source_adjudication'):
+            self.calls.append(('source_adjudication', context))
+            return json.dumps({'verdict': 'compatible', 'reason': 'A single source statement does not establish a conflict.',
+                               'source_quotes': [QUOTE], 'writable_chapters': [], 'conflict_basis': None})
         if user.startswith('STAGE: coordinated_repair_plan'):
             self.calls.append(('coordinated_plan', context))
             if self.fail_stage == 'plan':
@@ -48,7 +52,7 @@ class CoordinatedModel(PlanningModel):
             numbers = context['requested_chapters']
             dispositions = [{'issue_index': index, 'status': 'corrected',
                 'reason': 'Preserve the source-backed refusal and its consequence.',
-                'source_quotes': [QUOTE], 'chapter_numbers': numbers}
+                'source_quotes': [QUOTE], 'chapter_numbers': context['coordinated_issue_plan']['issues'][index]['requested_chapters']}
                 for index in range(len(context['review']['issues']))]
             replacements = []
             for number in numbers:
@@ -59,7 +63,7 @@ class CoordinatedModel(PlanningModel):
                     del after['bespoke_detail']
                 replacements.append({'number': number,
                     'before_sha256': context['candidate_chapter_hashes'][str(number)], 'after': after,
-                    'issue_indices': list(range(len(dispositions))), 'source_quote': QUOTE})
+                    'issue_indices': [i for i, d in enumerate(dispositions) if number in d['chapter_numbers']], 'source_quote': QUOTE})
             edits = []
             if self.map_edit:
                 path, before = next((path, before) for path, before in context['allowed_global_fields'].items()
@@ -158,7 +162,7 @@ def test_failed_complete_repair_response_is_preserved_and_never_regenerated_on_r
         planner.run()
     assert [stage for stage, _ in first.calls][-3:] == ['coordinated_plan', 'coordinated_group', 'format']
     assert not (planner.cache / 'validated.json').exists()
-    assert not (planner.cache / f'{contract.REVIEW_NAME}.json').exists()
+    assert not (planner.cache / f'review-{evidence.VERSION}.json').exists()
     baseline = original_checkpoints(planner)
     resumed = CoordinatedModel()
     with pytest.raises(OutlinePlanningError, match='bounded format correction'):
@@ -211,13 +215,13 @@ def test_later_group_timeout_reuses_completed_group_and_all_original_batches(tmp
     with pytest.raises(TimeoutError):
         planner.run()
     baseline = original_checkpoints(planner)
-    first_group = (planner.cache / f'{contract.VERSION}-group-001.json').read_bytes()
+    first_group = (planner.cache / f'{evidence.VERSION}-group-001.json').read_bytes()
     resumed = CoordinatedModel(reviews=[review()])
     result = make_planner(tmp_path, resumed, count=8).run()
     assert [stage for stage, _ in resumed.calls] == ['coordinated_group', 'review']
     assert resumed.calls[0][1]['requested_chapters'] == [6]
     assert all(result['chapters'][number - 1]['incoming_consequence'].startswith('Mara has refused') for number in (3, 6))
-    assert (planner.cache / f'{contract.VERSION}-group-001.json').read_bytes() == first_group
+    assert (planner.cache / f'{evidence.VERSION}-group-001.json').read_bytes() == first_group
     assert_originals_retained(planner, baseline)
 
 
@@ -243,17 +247,15 @@ def test_disputed_findings_require_fresh_review_and_cannot_pass_through_classifi
     assert resumed.calls == []
 
 
-def test_source_conflict_stops_before_any_patch_or_publication(tmp_path):
+def test_single_source_statement_does_not_block_for_an_author_decision(tmp_path):
     plan = {'issues': [{'issue_index': index, 'classification': 'source_conflict',
-        'reason': 'An actual author choice is required.', 'requested_chapters': [],
+        'reason': 'A writer thinks a choice is required.', 'requested_chapters': [],
         'dependency_chapters': [], 'source_quotes': [QUOTE]} for index in range(2)]}
     first = CoordinatedModel(plan=plan)
     planner = make_planner(tmp_path, first, count=8)
-    with pytest.raises(OutlinePlanningError, match='author decision'):
-        planner.run()
-    assert [stage for stage, _ in first.calls][-1] == 'coordinated_plan'
-    assert not (planner.cache / 'validated.json').exists()
-    assert len(saved_chapters(planner)) == 8
+    assert len(planner.run()['chapters']) == 8
+    assert [stage for stage, _ in first.calls][-3:] == ['source_adjudication', 'source_adjudication', 'review']
+    assert not list(planner.cache.glob('author-question-*.json'))
 
 
 def test_original_unsorted_chapter_map_paths_remain_bound_to_the_correct_chapter(tmp_path):

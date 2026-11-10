@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 import pytest
 
@@ -16,7 +17,9 @@ def seed_v1(project):
     (inputs / 'prompt.md').write_text(SOURCE)
     model = ReferenceModel(correction={'status': 'requires_author', 'reason': 'Outside reference scope.', 'edits': []})
     planner = make_planner(run, model, count=12, source=SOURCE)
-    with pytest.raises(OutlinePlanningError):
+    # Seed the historical stop. New tasks escalate this old model result to evidence review.
+    with patch.object(planner, '_coordinate', side_effect=OutlinePlanningError('Historical scope stop')), \
+            pytest.raises(OutlinePlanningError):
         planner.run()
     record = json.loads((planner.cache / f'{planning_correction.VERSION}.json').read_text())
     context = next(c for stage, c in model.calls if stage == 'global_repair')
@@ -25,6 +28,8 @@ def seed_v1(project):
     (planner.cache / 'global-reference-repair-v1.json').write_text(json.dumps(record))
     for path in planner.cache.glob(f'{planning_correction.VERSION}*.json'):
         path.unlink()
+    planner.progress.update(recovery={'retryable': False, 'action': 'inspect_saved_design',
+                                      'reason': 'Historical unsupported scope'})
     return planner
 
 

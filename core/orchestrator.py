@@ -489,16 +489,19 @@ class NovelOrchestrator:
     
     # ===== Planning Phase =====
     
-    def plan_outline(self, num_chapters: int = 32, target_words: int = 80000, dry_run: bool = False):
+    def plan_outline(self, num_chapters: int = 32, target_words: int = 80000, dry_run: bool = False,
+                     *, author_decisions: dict | None = None):
         """Ask the Architect for the book blueprint and persist its scaffold."""
         mode = getattr(self, "outline_planning_mode", "staged")
+        if author_decisions is not None and (mode != "staged" or dry_run or getattr(self, "pipeline_run_id", None)):
+            raise ValueError("Author choices require the matching standalone staged planning task")
         if mode == "staged" and not dry_run and not getattr(self, "pipeline_run_id", None):
             from pipeline_runner import project_execution_lock
             with project_execution_lock(self.project_path, "standalone-outline"):
-                return self._plan_outline(num_chapters, target_words, dry_run, mode)
+                return self._plan_outline(num_chapters, target_words, dry_run, mode, author_decisions)
         return self._plan_outline(num_chapters, target_words, dry_run, mode)
 
-    def _plan_outline(self, num_chapters: int, target_words: int, dry_run: bool, mode: str):
+    def _plan_outline(self, num_chapters: int, target_words: int, dry_run: bool, mode: str, author_decisions=None):
         print("\n🏗️  ARCHITECT: Creating story outline...")
         print(f"   Target: {num_chapters} chapters, ~{target_words:,} words")
 
@@ -611,7 +614,7 @@ class NovelOrchestrator:
                 target_words=target_words,
                 narrative_format=narrative_format,
                 approved_commercial_story=approved_commercial_story,
-                input_hashes=input_hashes, project_source=project_source,
+                input_hashes=input_hashes, project_source=project_source, author_decisions=author_decisions,
             )
         prompt_brief = dict(brief_data)
         prompt_brief.pop("commercial_story_contract", None)
@@ -828,7 +831,7 @@ genre-appropriate assumptions rather than asking questions.
         narrative_format: NarrativeFormat,
         approved_commercial_story: CommercialStoryContract | None,
         input_hashes: Dict[Path, str | None],
-        project_source=None,
+        project_source=None, author_decisions=None,
     ) -> str:
         """Publish only a reviewed, validated staged candidate as the foundation."""
         from outline_planning import (
@@ -889,6 +892,9 @@ genre-appropriate assumptions rather than asking questions.
             creative_execution=getattr(self, "creative_execution", None),
             reader_investment=getattr(self, "reader_investment", None),
         )
+        if author_decisions is not None:
+            from core.planning_author_decisions import save_standalone_choices
+            save_standalone_choices(planner, author_decisions['request_id'], author_decisions['choices'])
         foundation = planner.run()
         text = render_foundation(foundation)
         source_guard()
@@ -3707,6 +3713,10 @@ Examples:
     resume_parser.add_argument('--approval', choices=['review_required', 'auto'], default=None)
     resume_parser.add_argument('--outline-planning-mode', choices=['staged'], default=None,
                                help='Explicitly upgrade an eligible uncommitted legacy outline; otherwise preserve its saved mode')
+    for choice_parser in (plan_outline, resume_parser):
+        choice_parser.add_argument('--author-request', help='Source choice request_id displayed by the waiting task')
+        choice_parser.add_argument('--author-choice', nargs=2, action='append', type=int, metavar=('ISSUE_INDEX', 'PASSAGE'),
+                                   help='Select source passage 1 or 2 for an issue; repeat for each issue')
     resume_parser.add_argument('--approve-chapter', type=int, default=None,
                                help='Record human approval for one waiting candidate and continue')
 
@@ -3794,11 +3804,16 @@ Examples:
                 )
                 manifest = runner.run(spec)
             elif args.command == 'resume':
+                from core.planning_author_decisions import cli_choices
+                choices = cli_choices(args.author_request, args.author_choice)
+                if choices and args.outline_planning_mode:
+                    raise ValueError('Cannot switch the planning mode while resolving an author choice.')
                 manifest = runner.resume(
                     args.run_id,
                     args.project,
                     approval_policy=args.approval,
                     approve_chapter=args.approve_chapter,
+                    **choices,
                     **({'outline_planning_mode': args.outline_planning_mode} if args.outline_planning_mode else {}),
                 )
             elif args.command == 'retry':
@@ -3815,8 +3830,18 @@ Examples:
             print(f"❌ {exc}")
             return 1
 
+        waiting = {}
+        if manifest.status in {'failed', 'paused'} and manifest.current_phase == 'outline':
+            from core.planning_author_decisions import active_decision_status
+            try:
+                active = active_decision_status(Path(args.project).resolve(), manifest.run_id)
+                if active and not active[1]:
+                    waiting = {'author_decisions': active[0]}
+            except (OSError, KeyError, ValueError, TypeError):
+                print('无法核对已保存的原文选择，请检查任务记录。')
+                return 1
         print(json.dumps({
-            'run_id': manifest.run_id,
+            **waiting, 'run_id': manifest.run_id,
             'status': manifest.status,
             'phase': manifest.current_phase,
             'chapter': manifest.current_chapter,
@@ -3851,7 +3876,13 @@ Examples:
     
     elif args.command == 'plan':
         if args.plan_command == 'outline':
-            orchestrator.plan_outline(args.chapters, args.words, dry_run=args.dry_run)
+            from core.planning_author_decisions import AuthorChoiceRequired, cli_choices
+            try:
+                choices = cli_choices(args.author_request, args.author_choice)
+                orchestrator.plan_outline(args.chapters, args.words, dry_run=args.dry_run, **choices)
+            except AuthorChoiceRequired as exc:
+                print(json.dumps({'author_decisions': exc.questions}, indent=2, ensure_ascii=False))
+                return 2
         elif args.plan_command == 'chapter':
             orchestrator.plan_chapter(args.number, args.summary, args.pov, dry_run=args.dry_run)
         else:

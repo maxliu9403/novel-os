@@ -235,7 +235,9 @@ class StagedOutlinePlanner:
             "brief_hash": content_hash(self.brief), "locked_contracts_hash": content_hash(self.locked),
             "chapter_count": chapter_count, "target_words": target_words, "batch_size": batch_size,
             "model": public_model_identity(client), "craft_hash": content_hash(BLUEPRINT_CRAFT),
-            "instructions_hash": content_hash([self.global_prompt, self.batch_prompt, _REVIEW_PROMPT]),
+            # Keep design/outline namespaces stable across independently versioned
+            # semantic policies; each new review pins its policy on first dispatch.
+            "instructions_hash": content_hash([self.global_prompt, self.batch_prompt, _LEGACY_REVIEW_PROMPT]),
         }
         if scoped:
             from core.skeleton_projection import VERSION as projection_version
@@ -382,7 +384,7 @@ class StagedOutlinePlanner:
               repair_fields: Callable[[str, dict], dict | None] | None = None) -> dict:
         prompt = instruction + "\n\n" + _json(context)
         creative_stage = ("chapter_plan" if instruction.startswith("STAGE: chapter_batch") else
-                          "review" if instruction.startswith(("STAGE: semantic_review", "STAGE: coordinated_repair")) else "story_design")
+                          "review" if instruction.startswith(("STAGE: semantic_review", "STAGE: coordinated_", "STAGE: planning_registry_")) else "story_design")
         raw = self._response(name, prompt, creative_stage, strict_dependencies=strict_dependencies,
                              recover_archived=recover_archived or repair_fields is not None, input_limit_bytes=input_limit_bytes)
         try:
@@ -642,26 +644,57 @@ class StagedOutlinePlanner:
                 result['adopted_source_projection'] = projection
         return result
 
+    def _review_instruction(self, name: str) -> str:
+        # Freeze the policy at first dispatch. Raw legacy replies and in-flight
+        # window partitions must keep exactly their original request bytes.
+        marker = name + "-source-policy"
+        deps = {"review": name, "version": 1}
+        def validated(value):
+            if value != {"policy": "distinguish-source-v1"}:
+                raise ValueError("Unknown review provenance policy")
+            return value
+        if self._load(marker, deps, validated, strict_dependencies=True) is None:
+            if (any(self.cache.glob(name + "-*.json")) or
+                    any((self.cache / "raw").glob(name + ".*")) or
+                    any((self.cache / "raw").glob(name + "-*"))):
+                return _LEGACY_REVIEW_PROMPT
+            self._save(marker, deps, {"policy": "distinguish-source-v1"})
+        return _REVIEW_PROMPT
+
     def _semantic_review(self, candidate: dict, name: str, *, repair_record: dict | None = None,
                          reuse_from: str | None = None, baseline_candidate: dict | None = None) -> dict:
         from core.planning_context import REVIEW_CONTEXT_VERSION, review_context
         from core.planning_review_reuse import RULES, verification
+        from core.planning_author_decisions import authorized_choices
+        from core import planning_author_review as authority
+        choices = authorized_choices(self)
+        if name == 'review-initial':
+            choices = authority.freeze_initial(self, choices)
+        bound = {'binding_author_choices': choices} if choices else {}
+        if choices:
+            name += '-choices-' + content_hash(choices)[:16]
         dependencies = {"candidate": content_hash(candidate), 'representation': REVIEW_CONTEXT_VERSION}
         if repair_record is not None:
             dependencies['coordinated_verification'] = content_hash(repair_record)
             dependencies['verification_policy'] = content_hash(RULES)
-        validate = self._review
-        saved = self._load(name, dependencies, validate, strict_dependencies=repair_record is not None)
+        if choices:
+            dependencies['authority'] = content_hash([choices, authority.RULES])
+        def validate(value):
+            return authority.inspect_result(self._review(value), choices)
+        strict = repair_record is not None or bool(choices)
+        saved = self._load(name, dependencies, validate, strict_dependencies=strict)
         if saved is not None:
+            if choices and saved['status'] == 'passed':
+                self._verified_author_review = (content_hash(candidate), content_hash(choices))
             return saved
         from core.planning_review import scoped_prefix
         resume_windows = (self.cache / f"{scoped_prefix(name, candidate)}-ranges.json").is_file()
         with runtime_stage("planning.semantic_review"):
-            context = review_context(verification({**self._context(), 'required_checks': REVIEW_CHECKS},
+            context = review_context(verification({**self._context(), 'required_checks': REVIEW_CHECKS, **bound},
                                      repair_record), candidate, complete_source=self.source)
-            instruction = _REVIEW_PROMPT + (RULES if 'coordinated_verification' in context else '')
+            instruction = self._review_instruction(name) + (authority.RULES if choices else '') + (RULES if 'coordinated_verification' in context else '')
             if not resume_windows and self._review_fits(instruction, context):
-                result = self._call(name, instruction, context, validate, strict_dependencies=repair_record is not None)
+                result = self._call(name, instruction, context, validate, strict_dependencies=strict)
             else:
                 # Resolve once for this preflight, not for every bisection. The
                 # adapter rechecks at dispatch; a stale larger capability never
@@ -669,12 +702,14 @@ class StagedOutlinePlanner:
                 from core.planning_capacity import input_limit
                 limit = input_limit(self.client, negotiate=True)
                 if not resume_windows and limit is not None and self._review_fits(instruction, context, limit_bytes=limit):
-                    result = self._call(name, instruction, context, validate, strict_dependencies=repair_record is not None,
+                    result = self._call(name, instruction, context, validate, strict_dependencies=strict,
                                         input_limit_bytes=limit)
                 else:
                     result = self._windowed_review(candidate, name, limit_bytes=limit,
-                        repair_record=repair_record, reuse_from=reuse_from, baseline_candidate=baseline_candidate)
+                        repair_record=repair_record, reuse_from=reuse_from, baseline_candidate=baseline_candidate, choices=choices)
             self._save(name, dependencies, result)
+        if choices and result["status"] == "passed":
+            self._verified_author_review = (content_hash(candidate), content_hash(choices))
         return result
 
     def _review_fits(self, instruction: str, context: dict, *, limit_bytes: int | None = None) -> bool:
@@ -708,18 +743,21 @@ class StagedOutlinePlanner:
 
     def _windowed_review(self, candidate: dict, name: str, *, limit_bytes: int | None = None,
                          repair_record: dict | None = None, reuse_from: str | None = None,
-                         baseline_candidate: dict | None = None) -> dict:
+                         baseline_candidate: dict | None = None, choices=None) -> dict:
+        from core import planning_author_review as authority
+        choices = choices or []
+        bound = {"binding_author_choices": choices} if choices else {}
         from core.planning_review import VERSION, WINDOW_RULES, scoped_prefix, source_aware_windows
         from core.planning_context import review_context
         from core.planning_review_reuse import RULES, passed_window, verification
-        base_instruction = _REVIEW_PROMPT.replace(
+        base_instruction = self._review_instruction(name).replace(
             'Review this exact whole-book candidate against the complete adopted source.',
-            'Review the supplied candidate window against its declared source coverage.') + WINDOW_RULES
+            'Review the supplied candidate window against its declared source coverage.') + WINDOW_RULES + (authority.RULES if choices else '')
         def instruction_for(context):
             return base_instruction + (RULES if 'coordinated_verification' in context else '')
         try:
             contexts, prefix = source_aware_windows(self, candidate, name,
-                lambda numbers, project: {**self._context(numbers, project_source=project), 'required_checks': REVIEW_CHECKS},
+                lambda numbers, project: {**self._context(numbers, project_source=project), 'required_checks': REVIEW_CHECKS, **bound},
                 lambda context: (self._review_fits(instruction_for(context), context, limit_bytes=limit_bytes)
                                  if limit_bytes is not None else self._review_fits(instruction_for(context), context)),
                 prepare_context=lambda context: review_context(verification(context, repair_record), context['candidate'],
@@ -727,8 +765,8 @@ class StagedOutlinePlanner:
                 policy=content_hash([base_instruction, RULES, repair_record]))
         except ValueError as exc:
             raise OutlinePlanningError(str(exc)) from exc
-        issues, coverage, reused = [], [], []
-        strict = repair_record is not None or prefix != name
+        issues, coverage, reused, choice_rows = [], [], [], []
+        strict = bool(choices) or repair_record is not None or prefix != name
         prior_prefix = reuse_from
         if reuse_from and baseline_candidate is not None and prefix != name:
             prior_prefix = scoped_prefix(reuse_from, baseline_candidate)
@@ -741,7 +779,7 @@ class StagedOutlinePlanner:
             dependencies = {'candidate': content_hash(candidate), 'context': content_hash(context),
                             'policy': content_hash(instruction)}
             def validate(value):
-                result = self._review(value)
+                result = authority.inspect_result(self._review(value), choices, bounded=True)
                 if any(i['scope'] == 'chapter' and i['chapter'] not in window['included_chapters']
                        for i in result['issues']):
                     raise OutlinePlanningError('Review issue references a chapter outside the supplied window')
@@ -766,8 +804,10 @@ class StagedOutlinePlanner:
                 if issue not in issues:
                     issues.append(issue)
             coverage.append(window)
+            if choices:
+                choice_rows.append(result["author_choice_checks"])
         return self._review({'status': 'blocked' if issues else 'passed',
-            'coverage': dict.fromkeys(REVIEW_CHECKS, True), 'issues': issues,
+            'coverage': dict.fromkeys(REVIEW_CHECKS, True), 'issues': issues, **authority.reduce_windows(choice_rows, choices),
             'review_scope': {'schema': VERSION, 'windows': coverage,
                              'complete_chapter_coverage': list(range(1, self.chapter_count + 1)),
                              **({'source_scope': 'requested_and_adjacent_with_all_global_sections',
@@ -809,8 +849,8 @@ class StagedOutlinePlanner:
                 self._needs_attention('全局定向修订未形成有效结果；原成果保留，普通恢复不会重新生成相同回复。')
                 raise
         if patch['status'] != 'corrected':
-            self._needs_attention('需要检查原骨架或调整设计：' + patch['reason'] + ' 普通恢复不会自动重试。')
-            raise OutlinePlanningError('Global design conflicts need author/source correction: ' + patch['reason'])
+            # A narrow reference editor cannot decide who caused a conflict.
+            return self._coordinate(candidate, review, prior_specialized=True)
         corrected = planning_correction.apply(candidate, review, self.source, patch, self.chapter_count)
         chapters = corrected.pop('chapters')
         corrected = self._global(corrected)
@@ -818,9 +858,18 @@ class StagedOutlinePlanner:
         self._progress('semantic_review', 'running', '来源补全已保存，正在重新核查完整大纲与全部章节')
         checked = self._semantic_review(corrected, review_name)
         if checked['status'] != 'passed':
-            self._needs_attention('一次全局定向修订后仍有问题；需要检查保存的结果，普通恢复不会追加修订调用。')
-            raise OutlinePlanningError('The bounded global reference repair still needs attention; progress is preserved: ' + '; '.join(i['message'] for i in checked['issues']))
+            return self._coordinate(corrected, checked, prior_specialized=True)
         return corrected, checked
+
+    def _coordinate(self, candidate, review, *, prior_specialized=False, authority_context=None):
+        from core.planning_coordinator import repair
+        try:
+            return repair(self, candidate, review, prior_specialized=prior_specialized,
+                          **({"authority_context": authority_context} if authority_context else {}))
+        except ValueError as exc:
+            if isinstance(exc, OutlinePlanningError):
+                raise
+            raise OutlinePlanningError(str(exc)) from exc
 
     def _needs_attention(self, message: str) -> None:
         self.progress['recovery'] = {'retryable': False, 'action': 'inspect_saved_design', 'reason': message}
@@ -899,42 +948,59 @@ class StagedOutlinePlanner:
         review = self._semantic_review(candidate, "review-initial")
         if review["status"] == "blocked":
             scopes = {issue['scope'] for issue in review['issues']}
-            if scopes == {'global', 'chapter'}:
-                from core.planning_coordinator import repair
-                try:
-                    candidate, review = repair(self, candidate, review)
-                except ValueError as exc:
-                    # The CLI also imports this module as outline_planning.
-                    # Keep the public planner exception type at that boundary.
-                    if isinstance(exc, OutlinePlanningError):
-                        raise
-                    raise OutlinePlanningError(str(exc)) from exc
+            # An older review may not label provenance. An exact, source-bound
+            # local correction can still take the inexpensive targeted path.
+            # All ambiguous attribution is adjudicated before granting edits.
+            disputed = any(i.get('finding_basis') in {'candidate_assumption', 'possible_author_conflict'}
+                           or not isinstance(i.get('source_evidence'), str)
+                           or i['source_evidence'] not in self.source for i in review['issues'])
+            prior = any(self.cache.glob('repair*.json')) or any(self.cache.glob('global-*-repair*.json')) or any(
+                self.cache.glob('global-source-restoration*.json'))
+            from core.planning_author_decisions import authorized_choices
+            if review.get('author_choice_checks') and (active_choices := authorized_choices(self)):
+                candidate, review = self._coordinate(candidate, review, prior_specialized=prior, authority_context=active_choices)
+            elif scopes == {'global', 'chapter'} or (disputed and not prior):
+                candidate, review = self._coordinate(candidate, review)
             elif 'global' in scopes:
                 candidate, review = self._global_reference_repair(candidate, review)
         if review["status"] == "blocked":
-            from core.planning_chapter_repair import repair_chapters
+            from core.planning_chapter_repair import repair_chapters, UnresolvedEvidence
             numbers = sorted({issue["chapter"] for issue in review["issues"]})
             self._progress("semantic_review", "running", "按核查意见修订相关章节；已保存的其他章节保持不变")
             try:
                 with runtime_stage("planning.targeted_repair", chapter=numbers[0]):
                     repaired = repair_chapters(self, candidate, global_design, review, numbers)
+            except UnresolvedEvidence:
+                candidate, review = self._coordinate(candidate, review, prior_specialized=True)
             except ValueError as exc:
                 if isinstance(exc, OutlinePlanningError):
                     raise
                 raise OutlinePlanningError(str(exc)) from exc
-            replacements = {item["number"]: item for item in repaired["chapters"]}
-            if all(content_hash(replacements[n]) == content_hash(chapters[n - 1]) for n in numbers):
-                raise OutlinePlanningError(
-                    "章节修订与原候选完全相同，初审问题仍待解决：" + "；".join(
-                        item["message"] for item in review["issues"]
+            else:
+                replacements = {item["number"]: item for item in repaired["chapters"]}
+                if all(content_hash(replacements[n]) == content_hash(chapters[n - 1]) for n in numbers):
+                    raise OutlinePlanningError(
+                        "章节修订与原候选完全相同，初审问题仍待解决：" + "；".join(
+                            item["message"] for item in review["issues"]
+                        )
                     )
-                )
-            baseline = candidate
-            candidate = {**baseline, "chapters": [replacements.get(item["number"], item) for item in chapters]}
-            review = self._semantic_review(candidate, "review-repaired",
-                                           reuse_from="review-initial", baseline_candidate=baseline)
-            if review["status"] != "passed":
-                raise OutlinePlanningError("The bounded chapter repair still needs attention; progress is preserved: " + "; ".join(issue["message"] for issue in review["issues"]))
+                baseline = candidate
+                candidate = {**baseline, "chapters": [replacements.get(item["number"], item) for item in chapters]}
+                review = self._semantic_review(candidate, "review-repaired",
+                                               reuse_from="review-initial", baseline_candidate=baseline)
+                if review["status"] != "passed":
+                    candidate, review = self._coordinate(candidate, review, prior_specialized=True)
+        from core.planning_author_decisions import authorized_choices
+        choices = authorized_choices(self)
+        if choices and getattr(self, '_verified_author_review', None) != (content_hash(candidate), content_hash(choices)):
+            # Never publish a former passed result after a decision or model switch.
+            # Preserve the old receipt and verify this candidate in a distinct namespace.
+            review = self._semantic_review(candidate, 'review-publication-authority-' + content_hash(candidate)[:16])
+            if review['status'] != 'passed':
+                candidate, review = self._coordinate(candidate, review, prior_specialized=True, authority_context=choices)
+            if (review['status'] != 'passed' or getattr(self, '_verified_author_review', None)
+                    != (content_hash(candidate), content_hash(choices))):
+                raise OutlinePlanningError("The complete candidate was not verified against the saved author choices")
         self._progress("semantic_review", "completed", "全书语义核查已保存，准备执行原有合同与结构检查", milestone="semantic_review_saved")
         self._progress("publish", "running", "验证完整元数据、结局和长篇结构合同")
         candidate = self._locked(candidate)
@@ -952,7 +1018,8 @@ class StagedOutlinePlanner:
             "ending": "enforced_and_complete", "foundation_parser": "passed", "long_form_plan": "validated_by_existing_gate",
             "semantic_review": "passed", "workshop_checkpoint_reused": False,
         }
-        self._save("validated", {"review": content_hash(review)}, validated)
+        self._save("validated" if not choices else "validated-choices-" + content_hash(choices)[:16],
+                   {"review": content_hash(review), **({"author_choices":content_hash(choices)} if choices else {})}, validated)
         self._write_json(self.directory / "coverage.json", coverage)
         return validated
 
@@ -1036,7 +1103,7 @@ verbatim. Preserve the frozen global roadmap's future commitments; do not preten
 have reread omitted chapters. Whole-book review uses the complete original source.
 """
 
-_REVIEW_PROMPT = """STAGE: semantic_review
+_LEGACY_REVIEW_PROMPT = """STAGE: semantic_review
 Review this exact whole-book candidate against the complete adopted source.
 Do not redesign author decisions or demand literal prose not needed by a blueprint.
 Check full source design preservation, character identity/relationships, causal and
@@ -1048,4 +1115,14 @@ Return {status:passed|blocked,coverage:{each required check:true},issues:[{scope
 chapter:integer when applicable,message:specific correction,source_evidence:source
 quotation or exact contract reference}]}. coverage means the check was performed,
 not that it passed. A passed review has no issues.
+"""
+
+_REVIEW_PROMPT = _LEGACY_REVIEW_PROMPT + """Separate facts explicitly stated in adopted author text from the generated
+candidate, including its assumptions. A candidate's inference is never author evidence.
+An allegation or official account need not establish what happened. For each issue add
+finding_basis: source_departure|candidate_assumption|possible_author_conflict|contract.
+For source_departure use a verbatim author passage as source_evidence; explain the
+candidate error separately in message. An author conflict requires two distinct,
+explicit incompatible author statements about the same circumstances. Cite both; do
+not ask the author based on an assumption, silence, or your preferred interpretation.
 """

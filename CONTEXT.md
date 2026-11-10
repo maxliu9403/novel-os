@@ -1,5 +1,9 @@
 # Novel OS domain language
 
+## Planning evidence and author decisions (2026-11-10)
+
+Author evidence is exact text from the adopted source. Candidate evidence identifies a generated field and its exact text; it is evidence about the draft, not a new source fact. Affected chapters describe consequences, writable chapters grant scoped changes, and dependencies remain read-only. Independent adjudication distinguishes candidate drift, compatible interpretations and two irreconcilable author passages. A verified author choice binds the run, source and unordered pair of passages across model changes. Every applicable choice must reach publication review. See [planning authority](docs/design/2026-11-10-source-authority-in-planning.md).
+
 ## Readership and author revisions (2026-11-08)
 
 New creation uses `genre_tags.v2`: an explicit `female` / `male` readership channel, exactly one Genre and one or two Tags. Genre–Tag membership is no longer a selection constraint. Channel expresses the reading experience, not protagonist gender, sexuality or POV. Historical sessions keep their frozen selection protocol; changing to the new system requires an explicit author decision.

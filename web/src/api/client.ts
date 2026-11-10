@@ -152,7 +152,18 @@ export interface PipelineProgress {
   milestones: Array<{ at: string; phase: string; chapter: number | null; status: string; message: string }>;
 }
 
+export interface AuthorDecisionRequest {
+  request_id: string;
+  issues: Array<{ issue_index: number; affected_chapters: number[]; reason: string; author_quotes: [string, string] }>;
+}
+export interface AuthorDecisionResponse {
+  request_id: string;
+  choices: Array<{ issue_index: number; selected_quote: 0 | 1 }>;
+}
 export interface ProjectTaskPlanning {
+  author_decisions?: AuthorDecisionRequest | null;
+  completed_issue_count?: number;
+  deferred_issue_count?: number;
   status: string;
   active_step: string | null;
   updated_at: string | null;
@@ -1180,7 +1191,7 @@ export const api = {
   project: (id: string) => get<ProjectDetail>(`/api/projects/${id}`),
   projectTask: (id: string, runId: string) =>
     get<ProjectTaskDetail>(`/api/projects/${encodeURIComponent(id)}/tasks/${encodeURIComponent(runId)}`),
-  resumeProjectTask: (id: string, runId: string, options?: { outline_planning_mode: "staged" }) =>
+  resumeProjectTask: (id: string, runId: string, options?: { outline_planning_mode?: "staged"; author_decisions?: AuthorDecisionResponse }) =>
     send<ProjectTaskResumeResult>(`/api/projects/${encodeURIComponent(id)}/tasks/${encodeURIComponent(runId)}/resume`, "POST", options),
   pauseProjectTask: (id: string, runId: string, jobId: string) =>
     send<ProjectTaskDetail>(`/api/projects/${encodeURIComponent(id)}/tasks/${encodeURIComponent(runId)}/pause`, "POST", { job_id: jobId }),

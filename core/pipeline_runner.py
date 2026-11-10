@@ -281,6 +281,7 @@ class PipelineRunner:
         approval_policy: Optional[str] = None,
         approve_chapter: Optional[int] = None,
         outline_planning_mode: Optional[str] = None,
+        author_decisions: dict | None = None,
     ) -> RunManifest:
         project = Path(project_path or self.project_path or ".").resolve()
         with project_execution_lock(project, run_id):
@@ -290,6 +291,7 @@ class PipelineRunner:
                 approval_policy=approval_policy,
                 approve_chapter=approve_chapter,
                 outline_planning_mode=outline_planning_mode,
+                **({"author_decisions": author_decisions} if author_decisions is not None else {}),
             )
 
     def _resume_locked(
@@ -300,10 +302,18 @@ class PipelineRunner:
         approval_policy: Optional[str] = None,
         approve_chapter: Optional[int] = None,
         outline_planning_mode: Optional[str] = None,
+        author_decisions: dict | None = None,
     ) -> RunManifest:
         store = self._store(project, run_id)
         manifest = store.load()
         manifest.spec.project_path = str(project)
+        if author_decisions is not None:
+            from core.planning_author_decisions import save_choices
+            if (not isinstance(author_decisions, dict) or set(author_decisions) != {"request_id", "choices"}
+                    or manifest.current_phase != "outline" or manifest.status not in {"paused", "failed"}
+                    or manifest.spec.dry_run or outline_planning_mode):
+                raise PipelineError("This run is not awaiting a planning decision")
+            save_choices(project, run_id, author_decisions["request_id"], author_decisions["choices"])
         from planning_upgrade import can_upgrade_planning, preserve_outline_candidates
         upgrade = manifest.spec.outline_planning_mode == "legacy" and can_upgrade_planning(project, manifest.to_dict())
         if outline_planning_mode is not None and (outline_planning_mode != "staged" or not upgrade):

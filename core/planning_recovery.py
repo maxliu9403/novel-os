@@ -5,6 +5,7 @@ import hashlib
 import copy
 import json
 import re
+from types import SimpleNamespace
 from pathlib import Path
 
 from core.planning_correction import VERSION
@@ -48,7 +49,8 @@ def source_restoration_available(project: Path, run_id: str, progress: dict) -> 
         return value
 
     try:
-        if root.resolve() != root.absolute() or any(root.glob(f'{VERSION}*.json')):
+        if (root.resolve() != root.absolute() or any(root.glob(f'{VERSION}*.json'))
+                or any(root.rglob('coordinated-evidence-v2*'))):
             return False
         if (root / 'review-global-reference-v1.json').exists():
             return False
@@ -78,12 +80,16 @@ def coordinated_repair_available(project: Path, run_id: str, progress: dict) -> 
     return bool(_verified_planning(project, run_id, progress))
 
 
-def _verified_planning(project: Path, run_id: str, progress: dict, *, allow_coordinated: bool = False):
+def _verified_planning(project: Path, run_id: str, progress: dict, *, allow_coordinated: bool = False,
+                       evidence_upgrade: bool = False, specialized_review: bool = False):
     """Read the same complete baseline for both narrowly scoped recovery policies."""
     from core.outline_planning import LOCKED_FIELDS, REVIEW_CHECKS, SCHEMA_VERSION
     from core.planning_context import REVIEW_CONTEXT_VERSION
 
     recovery = progress.get('recovery')
+    # An old chapter-only failed recheck sometimes had no recovery instruction.
+    if specialized_review and recovery is None:
+        recovery = {'retryable': False, 'action': 'inspect_saved_design'}
     if (progress.get('status') != 'failed' or not isinstance(recovery, dict)
             or recovery.get('retryable') is not False
             or recovery.get('action') != 'inspect_saved_design'
@@ -95,7 +101,7 @@ def _verified_planning(project: Path, run_id: str, progress: dict, *, allow_coor
     run = project / 'outputs' / 'runs' / run_id
     root = run / 'planning' / 'checkpoints' / identity_hash
 
-    def read(path: Path, limit: int = 512_000) -> dict:
+    def read(path: Path, limit: int = 8 * 1024 * 1024) -> dict:
         if path.resolve() != path.absolute() or path.stat().st_size > limit:
             raise ValueError('Not a bounded real checkpoint')
         value = json.loads(path.read_text(encoding='utf-8'))
@@ -119,7 +125,14 @@ def _verified_planning(project: Path, run_id: str, progress: dict, *, allow_coor
         # Raw request/response artifacts also count as attempts. A failed
         # transmission must not become a new policy allowance on refresh.
         spent = ('global-reference-repair-v1', VERSION, 'review-global-',
-                 'repair', 'review-repaired', 'validated')
+                 'repair', 'review-repaired', 'validated', 'coordinated-evidence-v2',
+                 'review-coordinated-evidence-v2')
+        if evidence_upgrade:
+            spent = ('repair', 'review-repaired', 'review-global-', 'validated', 'coordinated-evidence-v2',
+                     'review-coordinated-evidence-v2')
+        if specialized_review:
+            spent = ('coordinated-repair-v1', 'review-coordinated-repair-v1', 'validated',
+                     'coordinated-evidence-v2', 'review-coordinated-evidence-v2')
         if not allow_coordinated:
             spent += ('coordinated-repair-v1', 'review-coordinated-repair-v1')
         if any(path.is_symlink() or (path.is_file() and path.name.startswith(spent)) for path in root.rglob('*')):
@@ -179,10 +192,10 @@ def _verified_planning(project: Path, run_id: str, progress: dict, *, allow_coor
             if issue['scope'] == 'chapter' and (type(issue.get('chapter')) is not int
                                                 or not 1 <= issue['chapter'] <= count):
                 return False
-        if {issue['scope'] for issue in issues} != {'global', 'chapter'}:
+        if not (evidence_upgrade or specialized_review) and {issue['scope'] for issue in issues} != {'global', 'chapter'}:
             return False
         return {'root': root, 'run': run, 'identity': identity, 'identity_hash': identity_hash,
-                'source': source.read_text(encoding='utf-8'), 'brief': brief, 'lock': lock,
+                'source': source.read_bytes().decode('utf-8'), 'brief': brief, 'lock': lock,
                 'locked': locked, 'global': global_design, 'candidate': candidate,
                 'review': review, 'read': read, 'payload': payload}
     except (OSError, ValueError, TypeError, KeyError):
@@ -324,5 +337,328 @@ def metadata_recovery_available(project: Path, run_id: str, progress: dict) -> b
             validate_patch(canonical, group_context)
             return canonical.get('status') == 'corrected'
         return False
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, IndexError):
+        return False
+
+
+def _artifact(path: Path, *, limit: int = 8 * 1024 * 1024) -> str:
+    if path.resolve() != path.absolute() or path.stat().st_size > limit:
+        raise ValueError('Invalid planning artifact path or size')
+    return path.read_bytes().decode('utf-8')
+
+
+def legacy_evidence_plan(planner, candidate: dict, review: dict) -> dict | None:
+    """Verify old plan receipts against the *current frozen* input and return evidence only.
+
+    The old permission fields are proposals. A new evidence policy must independently
+    classify them. Neither reading nor migrating changes a prior artifact.
+    """
+    from core import planning_coordinated as contract
+    from core.outline_planning import SCHEMA_VERSION, _json, _parse_object
+    from core.planning_repair_context import build_plan_context
+
+    root = planner.cache
+    name = contract.VERSION + '-plan'
+    if not any(root.rglob(name + '*')):
+        return None
+    if root.resolve() != root.absolute():
+        raise ValueError('Invalid legacy planning checkpoint location')
+    extra = {'target_words': planner.target_words}
+    if planner.capacity:
+        extra['confirmed_story_capacity'] = planner.capacity
+    context = build_plan_context(candidate, review, planner.source, planner.brief, planner.locked, extra)
+    dependencies = {'candidate': _hash(candidate), 'review': _hash(review), 'context': _hash(context),
+                    'policy': _hash(contract.PLAN_INSTRUCTION)}
+
+    def record(label: str, deps: dict) -> dict:
+        envelope = json.loads(_artifact(root / (label + '.json')))
+        if (not isinstance(envelope, dict) or envelope.get('schema_version') != SCHEMA_VERSION
+                or envelope.get('identity_hash') != planner.identity_hash
+                or envelope.get('dependencies_hash') != _hash(deps)
+                or not isinstance(envelope.get('payload'), dict)
+                or envelope.get('payload_hash') != _hash(envelope['payload'])):
+            raise ValueError('Legacy planning checkpoint does not match frozen inputs')
+        return envelope['payload']
+
+    def wire(base: str, correction: bool = False) -> str:
+        if planner.creative_execution is None:
+            return base
+        return planner.creative_execution.prepare('outline_planner', base, None, None, stage='review',
+                    **({'format_correction': True} if correction else {}))[0]
+
+    retained = []
+
+    def retain(text):
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        if digest not in retained:
+            retained.append(digest)
+
+    def read_response(label, check_prompt) -> str | None:
+        prompts = sorted((root / 'raw').glob(label + '.*.prompt.txt'))
+        if not prompts:
+            raise ValueError('No corresponding legacy planning request')
+        response_record = root / (label + '-response.json')
+        raw = None
+        matched = False
+        for path in prompts:
+            text = _artifact(path)
+            if not check_prompt(text):
+                raise ValueError('Legacy request disagrees with the frozen input')
+            reply_path = path.with_name(path.name.removesuffix('.prompt.txt') + '.response.txt')
+            if not response_record.exists():
+                # Interrupted before promotion. Unbound output is retained as diagnostic
+                # evidence, not treated as a completed plan or a permission to edit.
+                retain(text)
+                if reply_path.exists():
+                    retain(_artifact(reply_path))
+                continue
+            raw = record(label + '-response', {'prompt_hash': _hash(text)}).get('raw')
+            if not isinstance(raw, str):
+                raise ValueError('Invalid completed legacy planning response')
+            if reply_path.exists() and _artifact(reply_path) == raw:
+                matched = True
+        if response_record.exists() and not matched:
+            raise ValueError('Saved legacy planning response differs from its receipt')
+        return raw
+
+    def parse_proposal(text):
+        if text is None:
+            return None
+        try:
+            return _parse_object(text)
+        except ValueError:
+            retain(text)
+            return None
+
+    committed = None
+    if (root / (name + '.json')).exists():
+        committed = contract.validate_plan(candidate, review, planner.source, record(name, dependencies))
+    if committed is not None and not (root / (name + '-response.json')).exists():
+        # Old snapshots may retain just the validated checkpoint.
+        if any((root / 'raw').glob(name + '.*')) or any(root.rglob(name + '-format-correction*')):
+            raise ValueError('Missing completed legacy planning receipt')
+        return {'latest': committed, 'prior': None}
+
+    expected = wire(contract.PLAN_INSTRUCTION + '\n\n' + _json(context))
+    first = read_response(name, lambda text: text == expected)
+    correction = name + '-format-correction'
+    if any(root.rglob(correction + '*')):
+        if first is None:
+            raise ValueError('Legacy correction lacks its completed first response')
+        try:
+            contract.validate_plan(candidate, review, planner.source, _parse_object(first))
+        except (ValueError, TypeError, KeyError) as exc:
+            original_error = str(exc)
+        else:
+            raise ValueError('Unexpected correction of an already valid legacy plan')
+
+        def correction_matches(text):
+            base = (text.rsplit('\n\n[CREATIVE_EXECUTION_CONTEXT]\n', 1)[0]
+                    if planner.creative_execution else text)
+            return (base.startswith('STAGE: format_correction\n') and text == wire(base, True)
+                    and _parse_object(base.split('\n\n', 1)[1]) == {
+                        'original_context': context, 'original_instruction': contract.PLAN_INSTRUCTION,
+                        'completed_response': first, 'local_error': original_error})
+
+        final = parse_proposal(read_response(correction, correction_matches))
+        prior = parse_proposal(first)
+    else:
+        final = parse_proposal(first)
+        prior = None
+    if committed is not None and committed != final:
+        raise ValueError('Legacy plan and bound final response disagree')
+    return {'latest': final, 'prior': prior, **({'retained_artifact_sha256': retained} if retained else {})}
+
+
+def evidence_recovery_available(project: Path, run_id: str, progress: dict) -> bool:
+    """Offer native migration only for a verified legacy source decision or finished plan."""
+    from core import planning_coordinated as contract, planning_correction
+    from core.story_capacity import read_contract
+
+    saved = _verified_planning(project, run_id, progress, allow_coordinated=True, evidence_upgrade=True)
+    if not saved:
+        return False
+    root, review, candidate = saved['root'], saved['review'], saved['candidate']
+    try:
+        scopes = {item['scope'] for item in review['issues']}
+        if scopes == {'global'} and (root / (VERSION + '.json')).exists():
+            old = saved['payload'](VERSION, {'candidate': _hash(candidate), 'review': _hash(review),
+                          'policy': _hash(planning_correction.INSTRUCTION)})
+            planning_correction.apply(candidate, review, saved['source'], old, saved['identity']['chapter_count'])
+            return old['status'] == 'requires_author'
+        if any(path.name.startswith((VERSION, 'global-reference-repair-v1')) for path in root.rglob('*')):
+            return False
+        if not any(root.rglob(contract.VERSION + '-plan*')):
+            return False
+        creative = None
+        if saved['lock']:
+            from core.creative_execution import CreativeExecution
+            creative = CreativeExecution(project, saved['run'] / 'creative-design', saved['lock'])
+        reader = SimpleNamespace(cache=root, identity_hash=saved['identity_hash'], creative_execution=creative,
+            source=saved['source'], brief=saved['brief'], locked=saved['locked'],
+            target_words=saved['identity']['target_words'], capacity=read_contract(saved['source']))
+        legacy = legacy_evidence_plan(reader, candidate, review)
+        if legacy is None:
+            return False
+        if (any(root.rglob(contract.VERSION + '-group*'))
+                or any(root.rglob(contract.VERSION + '-candidate*')) or any(root.rglob(contract.REVIEW_NAME + '*'))):
+            return _legacy_group_needs_evidence(saved, legacy['latest'], reader.capacity)
+        return True
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, IndexError):
+        return False
+
+
+def _legacy_group_needs_evidence(saved: dict, plan: dict, capacity) -> bool:
+    """Resume a writer's unsupported author escalation after validating completed groups."""
+    from core import planning_coordinated as contract, planning_repair_protocol as wire
+    from core.planning_coordinator import _groups
+    from core.planning_repair_context import build_repair_context
+
+    candidate, review, root = saved['candidate'], saved['review'], saved['root']
+    contract.validate_plan(candidate, review, saved['source'], plan)
+    if any(item['classification'] == 'source_conflict' for item in plan['issues']):
+        return False
+    groups = _groups(plan, review, saved['identity']['chapter_count'])
+    extra = {'target_words': saved['identity']['target_words'], 'coordinated_issue_plan': plan}
+    if capacity:
+        extra['confirmed_story_capacity'] = capacity
+    assembled = copy.deepcopy(candidate)
+    map_positions = {item['number']: i for i, item in enumerate(candidate['chapter_map'])}
+    resolutions, reference_audits = {}, {}
+    for idx, group in enumerate(groups, 1):
+        name = f'{contract.VERSION}-group-{idx:03d}'
+        if not (root / f'{name}.json').exists():
+            return False
+        context = build_repair_context(candidate, saved['global'], review, group['requested_chapters'],
+            source=saved['source'], brief=saved['brief'], locked=saved['locked'],
+            dependency_chapters=group['dependency_chapters'], issues=group['issues'],
+            original_issue_indices=group['original_issue_indices'], extra_context=extra)
+        instruction, request = contract.INSTRUCTION, context
+        if (root / (name + '-protocol.json')).exists():
+            marker = saved['payload'](name + '-protocol', {'plan': _hash(plan),
+                'context': _hash(context), 'protocol': wire.VERSION})
+            if marker != {'protocol': wire.VERSION}:
+                return False
+            request, instruction = wire.build(context, saved['source']), wire.INSTRUCTION
+        deps = {'plan': _hash(plan), 'context': _hash(request), 'policy': _hash(instruction)}
+        audit = None
+        if (root / (name + '-metadata-v1.json')).exists():
+            from core import planning_reference_recovery as refs
+            audit = saved['payload'](name + '-metadata-v1', {
+                'candidate': _hash(candidate), 'source': saved['identity']['source_sha256'],
+                'context': _hash(context), 'policy': refs.VERSION})
+            deps['reference_metadata'] = _hash(audit)
+        patch = saved['payload'](name, deps)
+        fixed = contract.apply(candidate, context['review'], saved['source'], patch,
+                               requested_chapters=context['requested_chapters'])
+        indices = group['original_issue_indices']
+        if audit is not None:
+            if audit.get('output_patch_sha256') != _hash(patch):
+                return False
+            reference_audits.update({i: audit for i in indices})
+        if patch['status'] == 'requires_author':
+            return not any(root.rglob(contract.VERSION + '-candidate*'))
+        for number in context['requested_chapters']:
+            assembled['chapters'][number - 1] = fixed['chapters'][number - 1]
+            pos = map_positions[number]
+            assembled['chapter_map'][pos] = fixed['chapter_map'][pos]
+        for item in patch['issues']:
+            resolutions[indices[item['issue_index']]] = item
+
+    # Historical coordinated review can be reopened under the new evidence policy
+    # only when both its exact candidate and every resolution can be reconstructed.
+    audit = {'schema': contract.VERSION, 'baseline_candidate_sha256': _hash(candidate), 'issues': []}
+    for item in plan['issues']:
+        index = item['issue_index']
+        audit['issues'].append({**item, 'original_issue': review['issues'][index],
+            **({'reference_binding': reference_audits[index]} if index in reference_audits else {}),
+            'resolution': resolutions.get(index, {'status': 'recheck', 'reason': item['reason'],
+                                                   'source_quotes': item['source_quotes']})})
+    child = saved['payload'](contract.VERSION + '-candidate', {'plan': _hash(plan), 'audit': _hash(audit)})
+    if child != {'candidate': assembled, 'verification': audit}:
+        return False
+    from core.outline_planning import StagedOutlinePlanner
+    from core.planning_context import REVIEW_CONTEXT_VERSION
+    from core.planning_review_reuse import RULES
+    result = saved['payload'](contract.REVIEW_NAME, {'candidate': _hash(assembled),
+        'representation': REVIEW_CONTEXT_VERSION, 'coordinated_verification': _hash(audit),
+        'verification_policy': _hash(RULES)})
+    validator = SimpleNamespace(chapter_count=saved['identity']['chapter_count'])
+    return StagedOutlinePlanner._review(validator, result)['status'] == 'blocked'
+
+
+def specialized_review_availability(project: Path, run_id: str, progress: dict) -> bool | None:
+    """Reassemble a finished narrow correction and verify its blocked final review.
+
+    None means this is a different lifecycle. False means artifacts claiming to
+    represent a completed specialized review could not prove that provenance.
+    """
+    from core import planning_correction
+    from core.outline_planning import StagedOutlinePlanner
+    from core.planning_context import REVIEW_CONTEXT_VERSION
+    from core.story_capacity import read_contract
+
+    identity = progress.get('identity_hash')
+    if (progress.get('status') != 'failed' or not isinstance(identity, str)
+            or not re.fullmatch(r'[0-9a-f]{64}', identity)
+            or not re.fullmatch(r'[a-zA-Z0-9_-]{1,128}', run_id)):
+        return None
+    root = project / 'outputs/runs' / run_id / 'planning/checkpoints' / identity
+    final_names = [n for n in (planning_correction.REVIEW_NAME, 'review-global-reference-v1', 'review-repaired')
+                   if (root / (n + '.json')).is_file()]
+    if not final_names or any(root.rglob('coordinated-evidence-v2*')):
+        return None
+    if len(final_names) != 1:
+        return False
+    saved = _verified_planning(project, run_id, progress, allow_coordinated=True, specialized_review=True)
+    if not saved:
+        return False
+    try:
+        validator = StagedOutlinePlanner.__new__(StagedOutlinePlanner)
+        validator.source, validator.locked = saved['source'], saved['locked']
+        validator.brief = saved['brief']
+        validator.chapter_count = saved['identity']['chapter_count']
+        validator.target_words = saved['identity']['target_words']
+        validator.capacity = read_contract(validator.source)
+        validator.story_first = bool(saved['lock'] and
+            saved['lock'].get('handoff', {}).get('story_engine') == 'story-first.v1')
+        candidate, review = saved['candidate'], saved['review']
+        scopes = {i['scope'] for i in review['issues']}
+        deps = {'candidate': _hash(candidate), 'review': _hash(review)}
+        final_name = final_names[0]
+        if final_name == 'review-repaired':
+            from core.planning_chapter_repair import VERSION as CHAPTER_POLICY, repair_chapters
+            if scopes != {'chapter'}:
+                return False
+            def load(label, dependencies, validate, **options):
+                if (label == 'repair' and not (root / 'repair.json').exists()
+                        and (root / (CHAPTER_POLICY + '-plan.json')).is_file()):
+                    return None
+                return validate(saved['payload'](label, dependencies))
+            # Native reconstruction, with no write, prompt, or client available on this reader.
+            validator._load = load
+            validator._progress = lambda *a, **kw: None
+            numbers = sorted({i['chapter'] for i in review['issues']})
+            patch = repair_chapters(validator, candidate, saved['global'], review, numbers)
+            replacements = {ch['number']: ch for ch in patch['chapters']}
+            revised = {**candidate, 'chapters': [replacements.get(ch['number'], ch) for ch in candidate['chapters']]}
+        else:
+            if scopes != {'global'}:
+                return False
+            legacy = final_name == 'review-global-reference-v1'
+            label = 'global-reference-repair-v1' if legacy else planning_correction.VERSION
+            policy = planning_correction.LEGACY_POLICY_HASH if legacy else _hash(planning_correction.INSTRUCTION)
+            patch = saved['payload'](label, {**deps, 'policy': policy})
+            if patch.get('status') != 'corrected':
+                return False
+            revised = planning_correction.apply(candidate, review, validator.source, patch, validator.chapter_count)
+            chapters = revised.pop('chapters')
+            revised = {**validator._global(revised), 'chapters': chapters}
+        if revised == candidate:
+            return False
+        final = saved['payload'](final_name, {'candidate': _hash(revised), 'representation': REVIEW_CONTEXT_VERSION})
+        # A passed archived review may be followed by an unrelated storage or
+        # publication failure. Leave that to normal checkpoint resume.
+        return True if validator._review(final)['status'] == 'blocked' else None
     except (OSError, ValueError, TypeError, KeyError, AttributeError, IndexError):
         return False

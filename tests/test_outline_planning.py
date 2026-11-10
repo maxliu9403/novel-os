@@ -38,6 +38,10 @@ class PlanningModel:
         if user.startswith("STAGE: format_correction"):
             self.calls.append(("format", context))
             return context["completed_response"]
+        if user.startswith('STAGE: coordinated_repair_plan'):
+            # Unconfigured evidence proposal: never fabricate an author decision.
+            self.calls.append(('coordinated_plan', context))
+            return json.dumps({'issues': []})
         if user.startswith('STAGE: global_reference_repair'):
             self.calls.append(('global_repair', context))
             return json.dumps({'status': 'requires_author', 'reason': 'This fixture needs a story decision, not a chapter reference correction.', 'edits': []})
@@ -66,7 +70,12 @@ class PlanningModel:
             return json.dumps({"chapter_map": [roadmap_entry(n) for n in context["requested_chapters"]],
                                "source_anchors": []})
         if stage == "review":
-            return json.dumps(self.reviews.pop(0) if self.reviews else review())
+            result = self.reviews.pop(0) if self.reviews else review()
+            if context.get('binding_author_choices'):
+                result = {**result, 'author_choice_checks': [
+                    {'choice_id':c['choice_id'],'status':'honored','reason':'The fixture preserves the selected source.'}
+                    for c in context['binding_author_choices']]}
+            return json.dumps(result)
         numbers = context["requested_chapters"]
         if stage == "batch" and self.fail_batch == numbers[0]:
             raise TimeoutError("fixture timeout")
@@ -290,20 +299,25 @@ def test_one_targeted_repair_preserves_other_chapters_and_requires_exact_candida
     assert model.calls[-1][1]["candidate"]["chapters"][2]["incoming_consequence"].startswith("Repaired")
 
 
-def test_failed_final_review_cannot_become_approved_on_resume_or_start_another_repair(tmp_path):
+def test_failed_chapter_review_cannot_be_approved_by_resuming_a_failed_evidence_plan(tmp_path):
     model = PlanningModel(reviews=[review(issue()), review(issue())])
-    with pytest.raises(OutlinePlanningError, match="still needs attention"):
+    with pytest.raises(OutlinePlanningError, match="bounded format correction"):
         make_planner(tmp_path, model, count=4).run()
     resumed = PlanningModel()
-    with pytest.raises(OutlinePlanningError, match="still needs attention"):
+    with pytest.raises(OutlinePlanningError, match="bounded format correction"):
         make_planner(tmp_path, resumed, count=4).run()
     assert resumed.calls == []
     assert not list((tmp_path / "planning").rglob("validated.json"))
 
 
-def test_global_source_conflict_is_blocked_not_disguised_as_chapter_only_repair(tmp_path):
+def test_global_source_conflict_is_blocked_not_disguised_as_chapter_only_repair(tmp_path, monkeypatch):
     model = PlanningModel(reviews=[review(issue("global"))])
-    with pytest.raises(OutlinePlanningError, match="Global design conflicts"):
+    from core import planning_coordinator
+    def verify(planner, candidate, finding, **options):
+        assert finding['issues'] == [issue("global")] and options['prior_specialized']
+        raise OutlinePlanningError("Source dispute is being independently verified")
+    monkeypatch.setattr(planning_coordinator, 'repair', verify)
+    with pytest.raises(OutlinePlanningError, match="independently verified"):
         make_planner(tmp_path, model, count=4).run()
     assert "repair" not in [stage for stage, _ in model.calls]
 
@@ -474,3 +488,40 @@ def test_source_change_during_reply_prevents_checkpoint_or_publication(tmp_path)
     assert not (inputs / "foundation.json").exists()
     assert not list((orch.outputs_dir / "runs/source-change").rglob("global.json"))
     assert list((orch.outputs_dir / "runs/source-change").rglob("*.response.txt"))
+
+
+def test_review_policy_does_not_rekey_saved_design_or_overwrite_inflight_review(tmp_path):
+    from outline_planning import _LEGACY_REVIEW_PROMPT, _REVIEW_PROMPT, content_hash
+    planner = make_planner(tmp_path, PlanningModel(), count=8)
+    assert planner.identity['instructions_hash'] == content_hash([
+        planner.global_prompt, planner.batch_prompt, _LEGACY_REVIEW_PROMPT])
+    raw = planner.cache/'raw'/'review-initial.old.prompt.txt'
+    raw.parent.mkdir(parents=True)
+    raw.write_text('historical archived request')
+    assert planner._review_instruction('review-initial') == _LEGACY_REVIEW_PROMPT
+    assert raw.read_text() == 'historical archived request'
+    assert planner._review_instruction('review-next') == _REVIEW_PROMPT != _LEGACY_REVIEW_PROMPT
+    assert 'finding_basis' in _REVIEW_PROMPT
+    # Even after dispatch an already-started v2 review keeps its source rules.
+    (raw.parent/'review-next.new.prompt.txt').write_text(_REVIEW_PROMPT)
+    assert planner._review_instruction('review-next') == _REVIEW_PROMPT
+
+
+@pytest.mark.parametrize('scoped_issue', [
+    {**issue(), 'finding_basis':'possible_author_conflict'},
+    {**issue("global"), 'finding_basis':'candidate_assumption'},
+    {**issue(), 'source_evidence':'A generated premise is not an author quotation.'},
+])
+def test_disputed_single_scope_also_verifies_provenance_before_granting_edits(tmp_path, monkeypatch, scoped_issue):
+    from core import planning_coordinator
+    model = PlanningModel(reviews=[review(scoped_issue)])
+    planner = make_planner(tmp_path, model, count=4)
+    def probe(p, candidate, findings, *, prior_specialized=False):
+        assert p is planner and not prior_specialized and findings['issues'] == [scoped_issue]
+        assert len(candidate['chapters']) == 4 and p.progress['completed_batches'] == 1
+        raise TimeoutError('Waiting for separate source review')
+    monkeypatch.setattr(planning_coordinator, 'repair', probe)
+    with pytest.raises(TimeoutError, match='separate source review'):
+        planner.run()
+    assert not any(stage in ('repair','global_repair') for stage, _ in model.calls)
+    assert not (planner.cache/'validated.json').exists()

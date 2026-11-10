@@ -152,7 +152,41 @@ def task_sidecar(project: Path, run_id: str, relative: str) -> dict | None:
             safe['recovery'] = {'retryable': recovery['retryable'],
                 'action': str(recovery.get('action', ''))[:80], 'reason': str(recovery.get('reason', ''))[:2000]} \
                 if isinstance(recovery, dict) and type(recovery.get('retryable')) is bool else None
-            from core.planning_recovery import coordinated_repair_available, metadata_recovery_available, source_restoration_available
+            from core.planning_recovery import (
+                coordinated_repair_available, evidence_recovery_available,
+                metadata_recovery_available, source_restoration_available, specialized_review_availability,
+            )
+            from core.planning_author_decisions import ACTION, decision_status
+            if isinstance(recovery, dict) and recovery.get('action') == ACTION:
+                try:
+                    questions, answered = decision_status(project, run_id, data)
+                except (ValueError, OSError, KeyError, TypeError):
+                    message = '无法核对已保存的原文及作者选择，请检查任务记录。'
+                    safe['recovery'] = {'retryable': False, 'action': 'inspect_saved_design', 'reason': message}
+                    safe['next_action'] = message
+                    return safe
+                for name in ('completed', 'deferred'):
+                    indices = data.get(name + '_issue_indices')
+                    if isinstance(indices, list) and all(type(i) is int and i >= 0 for i in indices):
+                        safe[name + '_issue_count'] = len(set(indices))
+                if answered:
+                    message = '已保存作者的原文选择，恢复后将据此继续修订。'
+                    safe['recovery'] = {'retryable': True, 'action': 'continue_author_choice', 'reason': message}
+                    safe['next_action'] = message
+                else:
+                    safe['author_decisions'] = questions
+                return safe
+            old_review = specialized_review_availability(project, run_id, data)
+            if old_review is False:
+                message = '已保存修订与复核依据不匹配，请检查任务记录。'
+                safe['recovery'] = {'retryable': False, 'action': 'inspect_saved_design', 'reason': message}
+                safe['next_action'] = message
+                return safe
+            if old_review or evidence_recovery_available(project, run_id, data):
+                message = '已保存全书细纲。恢复后将核对原文与候选假设，继续修订受影响的章节。'
+                safe['recovery'] = {'retryable': True, 'action': 'recheck_saved_evidence', 'reason': message}
+                safe['next_action'] = message
+                return safe
             if metadata_recovery_available(project, run_id, data):
                 message = ('已保存的修订内容可在本地校正来源引用，不重新生成章节或追加修订调用。'
                            '恢复后仍须核查完整大纲；核查和后续创作会产生模型用量。')

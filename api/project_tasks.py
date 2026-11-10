@@ -5,7 +5,7 @@ import threading
 from typing import Literal
 
 from fastapi import Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StrictInt
 
 from .jobs import ProjectJobBlocked, runner
 from .project_task_summary import latest_task_manifest, parse_task_time, read_task_manifest, task_runtime, task_sidecar
@@ -55,7 +55,18 @@ class ProjectTaskResume(BaseModel):
     run_id: str
 
 
+class AuthorChoice(BaseModel):
+    issue_index: StrictInt = Field(ge=0)
+    selected_quote: StrictInt = Field(ge=0, le=1)
+
+
+class AuthorDecisions(BaseModel):
+    request_id: str = Field(pattern=r'^[0-9a-f]{64}$')
+    choices: list[AuthorChoice] = Field(min_length=1)
+
+
 class ProjectTaskResumeOptions(BaseModel):
+    author_decisions: AuthorDecisions | None = None
     outline_planning_mode: Literal["staged"] | None = None
 
 
@@ -158,15 +169,44 @@ def register_project_task_routes(router, get_service):
         project, manifest = _task(svc, project_id, run_id)
         active = runner.running_for_project(project_id, project_path=str(project))
         requested_mode = body.outline_planning_mode if body else None
+        author_decisions = body.author_decisions if body else None
+        answer_digest = None
+        if author_decisions:
+            from core.outline_planning import content_hash
+            answer_digest = content_hash({'request_id': author_decisions.request_id,
+                'choices': sorted([item.model_dump() for item in author_decisions.choices],
+                                  key=lambda item: item['issue_index'])})
+            if requested_mode:
+                raise HTTPException(409, '已有分阶段规划的作者选择不能与切换规划方式一起提交。')
         for job in active:
             if job["kind"] == "novel.resume" and job.get("run_id") == run_id:
+                if author_decisions and job.get("author_choices_sha256") != answer_digest:
+                    raise HTTPException(409, "任务已在运行，不能在运行中更改采用的原文。")
                 if requested_mode and job.get("outline_planning_mode") != requested_mode:
                     raise HTTPException(409, "此任务已按原方式恢复，不能在运行中切换规划方式。")
                 return ProjectTaskResume(job_id=job["job_id"], run_id=run_id)
         if active:
             raise HTTPException(409, "该作品已有任务运行中，请等待当前任务结束后重试。")
         latest = latest_task_manifest(project)
-        runtime = task_runtime(project, manifest, is_latest=bool(latest and latest["run_id"] == run_id))
+        is_latest = bool(latest and latest["run_id"] == run_id)
+        if author_decisions:
+            from core.planning_author_decisions import save_choices
+            if (not is_latest or manifest["status"] not in {"failed", "paused"}
+                    or manifest["spec"].get("dry_run") or manifest.get("current_phase") != "outline"):
+                raise HTTPException(409, '只能为当前作品待恢复的大纲任务确认原文。')
+            from pipeline_runner import PipelineError, project_execution_lock
+            try:
+                with project_execution_lock(project, run_id):
+                    latest_now = latest_task_manifest(project)
+                    if (not latest_now or latest_now['run_id'] != run_id
+                            or latest_now['status'] not in {'failed', 'paused'}
+                            or latest_now.get('current_phase') != 'outline'):
+                        raise ValueError('任务状态已变化。')
+                    save_choices(project, run_id, author_decisions.request_id,
+                                 [item.model_dump() for item in author_decisions.choices])
+            except (OSError, KeyError, ValueError, TypeError, PipelineError) as exc:
+                raise HTTPException(409, "无法保存此次作者选择。请刷新任务后核对原文选项。") from exc
+        runtime = task_runtime(project, manifest, is_latest=is_latest)
         if not runtime["can_resume"]:
             raise HTTPException(409, runtime['resume_blocked_reason'])
         from planning_upgrade import can_upgrade_planning
@@ -186,7 +226,8 @@ def register_project_task_routes(router, get_service):
             job_id = runner.submit(
                 "novel.resume", native_resume,
                 meta={"project_id": project_id, "project_path": str(project), "run_id": run_id,
-                      "outline_planning_mode": mode or manifest["spec"].get("outline_planning_mode", "legacy")},
+                      "outline_planning_mode": mode or manifest["spec"].get("outline_planning_mode", "legacy"),
+                      **({"author_choices_sha256": answer_digest} if answer_digest else {})},
                 unique_key=f"novel.resume:{project}:{run_id}", result_mapper=_result_meta,
                 cancel_event=cancellation, defer_cancel_completion=True,
             )

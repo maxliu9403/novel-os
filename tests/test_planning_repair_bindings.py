@@ -3,6 +3,7 @@ import json
 
 import pytest
 
+from core import planning_evidence_plan as evidence
 from core import planning_coordinated as contract, planning_review_reuse, planning_repair_protocol
 from outline_planning import OutlinePlanningError
 from test_outline_coordinated_repair import CoordinatedModel, MIXED, make_planner, review
@@ -25,7 +26,7 @@ def test_exhausted_plan_response_with_changed_binding_never_spends_again(tmp_pat
         planner.run()
     assert [stage for stage, _ in first.calls][-2:] == ['coordinated_plan', 'format']
     assert planner.progress['recovery']['retryable'] is False
-    path = planner.cache / f'{contract.VERSION}-{receipt}.json'
+    path = planner.cache / f'{evidence.VERSION}-{receipt}.json'
     value = json.loads(path.read_text())
     value[binding] = '0' * 64
     path.write_text(json.dumps(value))
@@ -51,7 +52,7 @@ def test_changed_coordinated_policy_cannot_reset_completed_stage_allowance(tmp_p
         planner.run()
     before = snapshot(planner)
     if stage == 'plan':
-        monkeypatch.setattr(contract, 'PLAN_INSTRUCTION', contract.PLAN_INSTRUCTION + '\nChanged dependency policy.')
+        monkeypatch.setattr(evidence, 'PLAN_INSTRUCTION', evidence.PLAN_INSTRUCTION + '\nChanged dependency policy.')
     elif stage == 'group':
         monkeypatch.setattr(planning_repair_protocol, 'INSTRUCTION',
                             planning_repair_protocol.INSTRUCTION + '\nChanged correction policy.')
@@ -66,7 +67,7 @@ def test_changed_coordinated_policy_cannot_reset_completed_stage_allowance(tmp_p
     # The deterministic assembled candidate is re-saved before verification;
     # its payload is unchanged, while every completed paid stage stays intact.
     if stage == 'verification':
-        candidate_path = planner.cache / f'{contract.VERSION}-candidate.json'
+        candidate_path = planner.cache / f'{evidence.VERSION}-candidate.json'
         original = json.loads(before.pop(candidate_path))
         current = json.loads(candidate_path.read_text())
         assert current['payload'] == original['payload']
@@ -80,7 +81,7 @@ def test_corrupt_completed_group_binding_is_terminal_instead_of_repaired_from_ra
     planner = make_planner(tmp_path, first, count=8)
     with pytest.raises(TimeoutError):
         planner.run()
-    path = planner.cache / f'{contract.VERSION}-group-001.json'
+    path = planner.cache / f'{evidence.VERSION}-group-001.json'
     value = json.loads(path.read_text())
     value['dependencies_hash'] = '0' * 64
     path.write_text(json.dumps(value))

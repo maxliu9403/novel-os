@@ -378,3 +378,19 @@ test("eligible legacy runs use the ordinary resume action", async () => {
   await waitFor(() => expect(resume).toHaveBeenCalledWith("p", task.run_id));
   expect(await screen.findByRole("button", { name: "恢复重试" })).toBeEnabled();
 });
+
+test("asks for a story choice only from verified original passages and sends no default", async () => {
+  const plan = {status:"failed",active_step:"semantic_review",updated_at:null,completed_batches:3,
+    total_batches:3,chapter_count:12,steps:[],milestones:[],author_decisions:{request_id:"canon-1",
+      issues:[{issue_index:4,affected_chapters:[2,8],reason:"同一事件有两个结局",author_quotes:["她留下了。","她离开了。"] as [string,string]}]}};
+  vi.spyOn(api, "projectTask").mockResolvedValue({...task, can_resume:false, planning:plan});
+  const post = vi.spyOn(api, "resumeProjectTask").mockResolvedValue({job_id:"j",run_id:task.run_id,status:"running"});
+  render(<TaskStatusPanel projectId="p" runId={task.run_id} />);
+  const button = await screen.findByRole("button",{name:"按所选原文继续"});
+  expect(button).toBeDisabled();
+  expect(screen.queryByRole("button",{name:"恢复重试"})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("radio",{name:"她离开了。"}));
+  fireEvent.click(button);
+  await waitFor(() => expect(post).toHaveBeenCalledWith("p",task.run_id,{author_decisions:{
+    request_id:"canon-1",choices:[{issue_index:4,selected_quote:1}]}}));
+});

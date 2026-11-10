@@ -10,6 +10,10 @@ from core.outline_planning import REVIEW_CHECKS, _json, content_hash
 from core.planning_capacity import input_limit
 from core.planning_context import review_context
 
+class UnresolvedEvidence(ValueError):
+    """The local evidence editor cannot resolve a dispute; it cannot request author input."""
+
+
 VERSION = 'repair-evidence-v1'
 LEGACY_RULES = (
     "\nSTAGE: targeted_repair\nReturn only the listed chapters, "
@@ -271,7 +275,7 @@ def repair_chapters(planner, candidate, global_design, review, numbers):
 
         record = _checkpoint(planner, f'{VERSION}-edit-{index:03d}', EDIT, ctx, deps, validate_edits, limit)
         if record['unresolved'].strip():
-            raise ValueError('Chapter repair requires further evidence or author input: ' + record['unresolved'])
+            raise UnresolvedEvidence('Chapter repair needs source adjudication: ' + record['unresolved'])
         batch = planner._batch(_changes(record, candidate, targets), targets, global_design)
         replacements.update((chapter['number'], chapter) for chapter in batch['chapters'])
         # This joint review sees the exact changed chapters and their remote
