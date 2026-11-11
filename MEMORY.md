@@ -1,5 +1,11 @@
 # Novel OS 项目记忆
 
+## 2026-11-11 18:41：分卷义务修复已部署，真实写作推进至第6章
+
+5174 已部署 `3804f2f`。第5章 long_form.audit 真实passed，原生恢复job `47ff40b0f1b144c5aa9d7608e03dd5de`，GPT任务 `ac3f15f6efff` 正在 `chapter.write / 6`。60章细纲与前5章保持；1,148份受保护历史文件、原晋级回执/Artifact heads/revisions历史和其他作品31,289文件核验一致。旧失败审计原字节归档。不是全书完成。
+
+全量5446通过3跳过，前端构建成功；隔离原生恢复零网络调用且首次新模型步骤为第6章。设计与验收见[报告](docs/reports/2026-11-11-volume-obligation-recovery.md)，部署证据 `output/volume-obligations-20261111/accepted.json`，回滚 residual-language。后续先读实际任务状态，不因旧missing volume ID重写已完成章节。
+
 ## 2026-11-11 18:40：第5章分卷计划编号误阻断修复待发布
 
 真实 GPT 已完成并晋级第1–5章，当前 paused / long_form.audit / Ch5；60章细纲仍通过。错误是 story-first 直接投影未回填程序生成的 `volume_01_promise`，旧审计把计划编号缺项当成质量失败，未读正文。已核对五章实际审稿收到完整冻结分卷设计。新增[共同计划义务投影](docs/design/2026-11-11-volume-obligation-binding.md)，旧 Artifact/正文/canon 保留，审计记录派生来源而不宣称兑现。60/100章回归已复现并修复；全量回归和隔离原生恢复演练进行中。
