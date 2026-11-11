@@ -76,3 +76,45 @@ def test_interrupted_residual_round_reuses_completed_edits_and_reviews(tmp_path)
     assert resumed.calls[0][0] == 'residual_narrative'
     assert all(f.read_bytes() == payload for f,payload in before.items())
     assert not any(stage in ('global','seed','roadmap','batch','coordinated_group') for stage,_ in resumed.calls)
+
+
+def test_native_resume_recovers_latest_bad_span_without_replaying_valid_work(tmp_path, monkeypatch):
+    from core import planning_residual_field_recovery as recovery
+    from core.outline_planning import OutlinePlanningError
+
+    class SpanModel(ResidualModel):
+        bad_reply = None
+
+        def complete(self, system, user):
+            context = json.loads(user.rsplit('\n\n', 1)[1])
+            if user.startswith('STAGE: coordinated_residual_field_recovery'):
+                self.calls.append(('field_recovery', context))
+                return json.dumps({'fields': [{'index': item['index'], 'value':
+                    item['current_value'].replace('incorrectly requires a sale', 'preserves the refusal')}
+                    for item in context['fields']]})
+            if user.startswith('STAGE: format_correction') and self.bad_reply is not None:
+                self.calls.append(('format', context))
+                return self.bad_reply
+            raw = super().complete(system, user)
+            if user.startswith('STAGE: coordinated_residual_narrative') and self.bad_reply is None:
+                value = json.loads(raw)
+                value['edits'][0]['old_span'] = 'Incorrectly transcribed original span'
+                self.bad_reply = json.dumps(value)
+                return self.bad_reply
+            return raw
+
+    initial = SpanModel()
+    planner = make_planner(tmp_path, initial, count=8)
+    with monkeypatch.context() as legacy:
+        legacy.setattr(recovery, 'repair', lambda *args: None)
+        with pytest.raises(OutlinePlanningError, match='bounded format correction'):
+            planner.run()
+    before = {f: f.read_bytes() for f in planner.cache.rglob('*.json')}
+    resumed = SpanModel()
+    # Subsequent fresh rounds use their ordinary successful full response.
+    resumed.bad_reply = 'already recovered'
+    result = make_planner(tmp_path, resumed, count=8).run()
+    assert resumed.calls[0][0] == 'field_recovery'
+    assert len(result['chapters']) == 8
+    assert all('preserves' in text for text in result['structural_risks'])
+    assert all(f.read_bytes() == payload for f, payload in before.items())

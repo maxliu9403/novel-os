@@ -234,12 +234,18 @@ def checkpoint(planner, stage, root_hash, instruction, context, validate, limit)
     name, deps = _key(stage, root_hash, instruction, context)
     result = planner._load(name, deps, validate, strict_dependencies=True)
     if result is None:
+        options = {}
         if stage == 'narrative':
+            from core.planning_residual_field_recovery import repair
+
+            # Keep valid edits and recover only malformed field operations from
+            # the latest complete reply through the shared planning protocol.
+            options['repair_fields'] = lambda raw, original: repair(planner, raw, original, limit)
             marker, marker_deps = _edit_marker(root_hash, instruction, context)
             if planner._load(marker, marker_deps, lambda value: value, strict_dependencies=True) is None:
                 planner._save(marker, marker_deps, {'issued': True})
         result = planner._call(name, instruction, context, validate, input_limit_bytes=limit, strict_dependencies=True,
-                               recover_archived=True)
+                               recover_archived=True, **options)
         planner._save(name, deps, result)
     return result, name
 
