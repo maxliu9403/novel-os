@@ -1,5 +1,11 @@
 # Novel OS 项目记忆
 
+## 2026-11-11 17:43：真实全书核查通过，已进入第1章正文
+
+当前5174部署 `codex/long-form-planning@3d24e95`，恢复job `7964257a62bb4e21b5ff53a2e5d924ae`。GPT任务 `ac3f15f6efff` 的60章终审已真实passed，七项覆盖全部true、issues=[]；validated、foundation.json、完整大纲和首次canon回执已发布。运行状态为 `running / chapter.write / chapter=1`，不是整本正文完成。正式状态含10角色和unknown身份约束，canon哈希与发布回执一致。
+
+最终全量5421通过3跳过，另新书首审入口专项1通过，前端构建成功。切换核对1343作品文件，发布后890原输入/历史任务/检查点字节保全；原Gemini任务与docker-data库未动。证据 `output/residual-language-20261111/accepted.json`，设计及完整验收见[报告](docs/reports/2026-11-11-outline-recovery-acceptance.md)。后续只读查询实际写作状态，不因过去失败再次重建大纲或重启任务。
+
 ## 2026-11-11 17:31：统一原文性别指称证据，保存后发布收尾
 
 `f2eebfa` 真实模型完成两处代词与unknown pair登记，60章与路线未变；终审仍要求补gender。确认是新identity提示禁止从任何代词判断gender，和审查对原文明确性别指称的解释冲突。已改为按原文语言及上下文判别：明确无歧义指称可支持角色呈现，保留相反/不确定设定；不由代码推断。已完成/已发旧identity请求保持原政策，新请求采用统一标准。70项收尾回归通过。
