@@ -376,10 +376,7 @@ def _old_group_work(planner):
         planner.cache / (contract.VERSION + '-candidate.json')).exists()
 
 
-def _reconcile_derived(planner, candidate, review, plan, execution, blocked, decisions):
-    from core.planning_assumptions import reconcile_assumptions
-    from core.planning_foundation_links import repair as reconcile_links
-
+def _authorized_items(plan, execution, decisions):
     permissions = {i['issue_index']: i for i in execution['issues']}
     items = []
     for proposal in plan['issues']:
@@ -388,14 +385,47 @@ def _reconcile_derived(planner, candidate, review, plan, execution, blocked, dec
         items.append({**proposal, 'classification': item['classification'], 'reason': item['reason'],
                       'writable_chapters': item['requested_chapters'], 'source_quotes': item['source_quotes'],
                       **({'binding_author_decision': decisions[i]} if i in decisions else {})})
-    resolved = {'issues': items}
+    return {'issues': items}
+
+
+def _reconcile_derived(planner, candidate, review, plan, execution, blocked, decisions):
+    from core.planning_assumptions import reconcile_assumptions
+    from core.planning_foundation_links import repair as reconcile_links
+
+    resolved = _authorized_items(plan, execution, decisions)
     derived, revisions = reconcile_assumptions(planner, candidate, review, resolved, blocked_indices=blocked)
     derived, links = reconcile_links(planner, derived, review, resolved, blocked_indices=blocked)
     return derived, [*revisions, *links]
 
 
+def _residual_group(planner, candidate, review, plan, execution, group, decisions, deferred, choices):
+    from core import planning_foundation_links as registry
+    from core import planning_residual_edits as narrative
+    from core import planning_residual_promises as promises
+
+    members = set(group['original_issue_indices'])
+    authorized = _authorized_items(plan, execution, decisions)
+    permissions = {i['issue_index']: i for i in execution['issues']}
+    read_scope = set(group['requested_chapters']) | set(group['dependency_chapters'])
+    scoped = {'issues': [{**i, 'dependency_chapters': sorted(
+                              (set(permissions[i['issue_index']]['dependency_chapters']) | read_scope)
+                              - set(i['writable_chapters'])),
+                          **({'prior_author_choices': choices} if choices else {})}
+                         for i in authorized['issues'] if i['issue_index'] in members | deferred]}
+    cast = {'issues': [{**i, 'foundation_repairs': ['character_registration']} for i in scoped['issues']
+                       if i['issue_index'] in members and 'character_registration' in i.get('foundation_repairs', ())]}
+    derived, registered = registry.repair(planner, candidate, review, cast, blocked_indices=deferred)
+    derived, linked = promises.repair(planner, derived, review, scoped, blocked_indices=deferred)
+    derived, edits = narrative.repair(planner, derived, review, scoped, blocked_indices=deferred)
+    foundation = planner._global({k: copy.deepcopy(v) for k, v in derived.items() if k != 'chapters'})
+    changed = [ch for ch, old in zip(derived['chapters'], candidate['chapters'], strict=True) if ch != old]
+    if changed:
+        planner._batch({'chapters': copy.deepcopy(changed)}, [ch['number'] for ch in changed], foundation)
+    return derived, [*registered, *linked, *edits]
+
+
 def _phase(planner, candidate, review, execution, evidence, groups, prefix, extra, limit, authority,
-           decisions, *, legacy=False):
+           decisions, *, legacy=False, residual=False, deferred=frozenset()):
     from core.planning_group_assembly import merge
 
     if legacy:
@@ -407,6 +437,19 @@ def _phase(planner, candidate, review, execution, evidence, groups, prefix, extr
         indices = group['original_issue_indices']
         scoped = {'issues': [i for i in evidence['issues'] if i['issue_index'] in indices]}
         try:
+            if residual:
+                # Disjoint chapter groups can still correct different clauses of
+                # one global constraint. Read the latest verified derivative so
+                # subsequent edits preserve the previous group's exact changes.
+                group_baseline = copy.deepcopy(assembled)
+                proposal, local_revisions = _residual_group(planner, group_baseline, review, evidence, execution,
+                                                           group, decisions, deferred,
+                                                           extra.get('binding_author_choices', []))
+                merge(group_baseline, assembled, proposal, group['requested_chapters'], residual=True)
+                revisions.extend(local_revisions)
+                for i in indices:
+                    resolutions[i] = {'status': 'recheck', 'reason': 'Independently verify the resulting fields and references.'}
+                continue
             derived, local_revisions = _reconcile_derived(planner, candidate, review, scoped, execution,
                                                           set(), decisions)
         except PlanningInputTooLarge as exc:
@@ -446,7 +489,30 @@ def _authority_inputs(planner, candidate, review, prefix):
     return saved['choices']
 
 
-def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=True, late_plan=None):
+def _new_interpretation_evidence(planner, candidate, audit, previous_review):
+    """Allow a source-based re-reading once when its actual evidence has changed."""
+    if not previous_review:
+        return False
+    from core.planning_terminal import _record
+
+    prefix = previous_review.removeprefix('review-').split('-choices-')[0]
+    path = planner.cache / (prefix + '-candidate.json')
+    if not path.is_file():
+        return False
+    previous = _record(planner, prefix + '-candidate')['payload']
+    if previous.get('candidate') != candidate:
+        raise ValueError('Interpretation evidence must descend from the reviewed candidate')
+
+    def evidence_key(item):
+        verdict = item.get('source_adjudication', {}).get('verdict')
+        return (item['classification'], tuple(sorted(item['source_quotes'])), verdict)
+
+    old = {evidence_key(item) for item in previous['verification']['issues']}
+    return any(item['classification'] == 'interpretation' and evidence_key(item) not in old
+               for item in audit['issues'])
+
+
+def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=True, late_plan=None, residual=False, previous_review=None):
     from core import planning_evidence_plan as evidence
     from core.planning_author_decisions import defer_for_author, pending_decisions
     from core.planning_recovery import legacy_evidence_plan
@@ -457,8 +523,16 @@ def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=T
         extra = {**extra, 'binding_author_choices': choices}
     ctx = build_plan_context(candidate, review, planner.source, planner.brief, planner.locked, extra)
     legacy = legacy_evidence_plan(planner, candidate, review) if initial else None
+    instruction = None
+    if residual:
+        instruction = evidence.PLAN_INSTRUCTION.replace(
+            '["payoff_binding"] for broken payoff references to existing setups',
+            '["payoff_binding"] for a missing or mislocated source-required setup, reactivation, fulfillment, '
+            'or dangling setup_id/promise_id (include each chapter whose registration or reference must change)'
+        ).replace('Never use either tool to alter existing identities or setups.',
+                  'Preserve stable identities. Correct the origin of a generated setup only with adopted evidence.')
     plan = (evidence.validate_plan(candidate, review, planner.source, late_plan) if late_plan is not None
-            else _provenance_plan(planner, candidate, review, ctx, prefix, limit, legacy=legacy))
+            else _provenance_plan(planner, candidate, review, ctx, prefix, limit, legacy=legacy, instruction=instruction))
     execution, verdicts, capacity_holds = _verified_execution(planner, plan, prefix, limit, choices)
     proposals = {item['issue_index']: item for item in plan['issues']}
     conflicts = [{'issue_index': i, 'affected_chapters': proposals[i]['affected_chapters'],
@@ -486,7 +560,7 @@ def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=T
     group_prefix = contract.VERSION if historical_groups else prefix
     assembled, resolutions, bindings, late, group_holds, revisions = _phase(
         planner, candidate, review, execution, plan, independent, group_prefix, extra, limit, authority,
-        {}, legacy=historical_groups)
+        {}, legacy=historical_groups, residual=residual, deferred=deferred)
     capacity_holds.extend(group_holds)
     decisions = {}
     if conflicts:
@@ -510,7 +584,8 @@ def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=T
                          review, planner.chapter_count, plan)
         assembled, new_resolutions, new_bindings, new_late, new_holds, followup_revisions = _phase(
             planner, assembled, review, execution, plan, groups, prefix + '-decided',
-            {**extra, 'binding_author_choices': [*choices, *decisions.values()]}, limit, authority, decisions)
+            {**extra, 'binding_author_choices': [*choices, *decisions.values()]}, limit, authority, decisions,
+            residual=residual, deferred=still_held)
         revisions.extend(followup_revisions)
         resolutions.update(new_resolutions)
         bindings.update(new_bindings)
@@ -590,9 +665,14 @@ def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=T
         # The parent verifies the complete candidate with these resolutions and all
         # findings, including groups that had already been repaired.
         return assembled, None, audit
+    if (residual and assembled == baseline and not (choices or decisions)
+            and not _new_interpretation_evidence(planner, baseline, audit, previous_review)):
+        # The same strict review already rejected these exact bytes. Rerolling it
+        # without new evidence could silently pass an unchanged contradiction.
+        return assembled, review, audit
     planner._progress('semantic_review', 'running', '修订结果已保存，逐项复核修订内容和作者原文')
     checked = planner._semantic_review(assembled, 'review-' + group_prefix,
-            repair_record=audit, reuse_from='review-initial' if initial else None, baseline_candidate=baseline)
+            repair_record=audit, reuse_from='review-initial' if initial else previous_review, baseline_candidate=baseline)
     return assembled, checked, audit
 
 
@@ -620,21 +700,42 @@ def repair(planner, candidate: dict, review: dict, *, prior_specialized=False, a
     limit = _limit(planner)
     planner._progress('semantic_review', 'running', '核对作者原文，定位需要修订的章节及只读依赖')
     try:
-        assembled, checked, _audit = _repair_round(planner, candidate, review, prefix=prefix,
-                                           limit=limit, extra=extra, initial=not (authority_context or fresh_scoped))
-        # A new post-repair finding may require a different scope or previously unseen
-        # evidence. Give it a separate, content-bound pass without replaying a stale reply.
-        legacy_terminal = not authority_context and _old_group_work(planner)
-        if checked['status'] != 'passed' and (legacy_terminal or (
-                assembled != candidate and checked['issues'] != review['issues'])):
-            assembled, checked, _audit = _repair_round(planner, assembled, checked,
-                        prefix=prefix + '-followup', limit=limit, extra=extra, initial=False)
-        if checked['status'] != 'passed':
-            raise OutlinePlanningError('The bounded coordinated repair still needs attention; progress is preserved: ' +
-                                       '; '.join(i['message'] for i in checked['issues']))
-        return assembled, checked
+        from core.planning_recovery import verified_terminal
+        from core.planning_residual_loop import converge
+
+        saved = verified_terminal(planner, candidate, review, prefix, include_label=True)
+        review_name = None
+        if saved is not None:
+            assembled, checked, review_name = saved
+        else:
+            assembled, checked, audit = _repair_round(planner, candidate, review, prefix=prefix,
+                                  limit=limit, extra=extra, initial=not (authority_context or fresh_scoped))
+            review_name = 'review-' + audit['schema']
+            # Resume any previously started v2 follow-up under the original wire contract.
+            followup = prefix + '-followup'
+            if checked['status'] != 'passed' and any(planner.cache.rglob(followup + '-*')):
+                assembled, checked, audit = _repair_round(planner, assembled, checked, prefix=followup,
+                                                          limit=limit, extra=extra, initial=False)
+                review_name = 'review-' + audit['schema']
+
+        def advance(current, outstanding, stage, reuse_from):
+            fixed, result, _ = _repair_round(planner, current, outstanding, prefix=stage, limit=limit,
+                                             extra=extra, initial=False, residual=True, previous_review=reuse_from)
+            return fixed, result
+
+        if checked['status'] == 'passed':
+            return assembled, checked
+        entry = 'residual-entry-' + content_hash([prefix, assembled, checked])[:24]
+        bound_choices = _authority_inputs(planner, assembled, checked, entry)
+        return converge(planner, assembled, checked, advance, authority=bound_choices,
+                        previous_review=review_name)
+    except PlanningInputTooLarge as exc:
+        reason = '完整修订依据超出当前连接容量，已保留全部原文、候选和检查点。' + str(exc)
+        planner.progress['recovery'] = {'retryable': True, 'action': 'change_planning_capacity', 'reason': reason}
+        planner.progress['next_action'] = reason
+        raise
     except (ValueError, OutlinePlanningError) as exc:
-        if (planner.progress.get('recovery') or {}).get('action') not in {'choose_author_source', 'change_planning_capacity'}:
+        if (planner.progress.get('recovery') or {}).get('action') not in {'choose_author_source', 'change_planning_capacity', 'inspect_residual_closure'}:
             planner._needs_attention('已保留原大纲和本轮修订记录。' + str(exc))
         if isinstance(exc, OutlinePlanningError):
             raise

@@ -253,7 +253,7 @@ def test_chapter_repair_in_100_chapter_run_rechecks_overlapping_windows_and_resu
     assert resumed_model.calls == []
 
 
-def test_unchanged_repair_preserves_original_block_without_another_review(tmp_path):
+def test_unchanged_repair_sends_original_block_to_coordinator_without_another_review(tmp_path, monkeypatch):
     class NoChange(PlanningModel):
         def complete(self, system, user):
             response = super().complete(system, user)
@@ -262,14 +262,21 @@ def test_unchanged_repair_preserves_original_block_without_another_review(tmp_pa
                 return json.dumps({'chapters': [chapter(n) for n in context['requested_chapters']]})
             return response
 
+    def receive(planner, candidate, findings, *, prior_specialized):
+        assert prior_specialized
+        assert findings == review(issue())
+        assert candidate['chapters'] == [chapter(n) for n in range(1, 9)]
+        raise OutlinePlanningError('Original issue reaches coordinated correction')
+
+    monkeypatch.setattr('core.planning_coordinator.repair', receive)
     model = NoChange(reviews=[review(issue()), review()])
     planner = make_planner(tmp_path, model, count=8)
-    with pytest.raises(OutlinePlanningError, match='初审问题仍待解决'):
+    with pytest.raises(OutlinePlanningError, match='reaches coordinated correction'):
         planner.run()
     assert [stage for stage, _ in model.calls].count('review') == 1
     assert not (planner.cache / 'validated.json').exists()
     assert (planner.cache / 'repair.json').is_file()
     resumed_model = NoChange()
-    with pytest.raises(OutlinePlanningError, match='初审问题仍待解决'):
+    with pytest.raises(OutlinePlanningError, match='reaches coordinated correction'):
         make_planner(tmp_path, resumed_model, count=8).run()
     assert resumed_model.calls == []

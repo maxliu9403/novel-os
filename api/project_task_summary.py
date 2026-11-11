@@ -154,7 +154,8 @@ def task_sidecar(project: Path, run_id: str, relative: str) -> dict | None:
                 if isinstance(recovery, dict) and type(recovery.get('retryable')) is bool else None
             from core.planning_recovery import (
                 coordinated_repair_available, evidence_recovery_available,
-                metadata_recovery_available, source_restoration_available, specialized_review_availability,
+                metadata_recovery_available, residual_recovery_availability, source_restoration_available,
+                specialized_review_availability,
             )
             from core.planning_author_decisions import ACTION, decision_status
             if isinstance(recovery, dict) and recovery.get('action') == ACTION:
@@ -175,6 +176,15 @@ def task_sidecar(project: Path, run_id: str, relative: str) -> dict | None:
                     safe['next_action'] = message
                 else:
                     safe['author_decisions'] = questions
+                return safe
+            residual = residual_recovery_availability(project, run_id, data)
+            if residual is not None:
+                message = ('已保留最近一次修订的完整细纲，恢复后将从终审列出的问题继续修订。' if residual else
+                           '无法核对最近一次修订细纲与终审的检查点，请检查任务记录。')
+                safe['recovery'] = {'retryable': residual,
+                                    'action': 'repair_saved_residuals' if residual else 'inspect_saved_design',
+                                    'reason': message}
+                safe['next_action'] = message
                 return safe
             old_review = specialized_review_availability(project, run_id, data)
             if old_review is False:

@@ -385,6 +385,9 @@ class StagedOutlinePlanner:
         prompt = instruction + "\n\n" + _json(context)
         creative_stage = ("chapter_plan" if instruction.startswith("STAGE: chapter_batch") else
                           "review" if instruction.startswith(("STAGE: semantic_review", "STAGE: coordinated_", "STAGE: planning_registry_")) else "story_design")
+        # A completed review can be recovered only from the exact archived prompt,
+        # raw reply and creative receipt, including its original model and source.
+        recover_archived = recover_archived or creative_stage == "review"
         raw = self._response(name, prompt, creative_stage, strict_dependencies=strict_dependencies,
                              recover_archived=recover_archived or repair_fields is not None, input_limit_bytes=input_limit_bytes)
         try:
@@ -978,16 +981,11 @@ class StagedOutlinePlanner:
                 raise OutlinePlanningError(str(exc)) from exc
             else:
                 replacements = {item["number"]: item for item in repaired["chapters"]}
-                if all(content_hash(replacements[n]) == content_hash(chapters[n - 1]) for n in numbers):
-                    raise OutlinePlanningError(
-                        "章节修订与原候选完全相同，初审问题仍待解决：" + "；".join(
-                            item["message"] for item in review["issues"]
-                        )
-                    )
                 baseline = candidate
                 candidate = {**baseline, "chapters": [replacements.get(item["number"], item) for item in chapters]}
-                review = self._semantic_review(candidate, "review-repaired",
-                                               reuse_from="review-initial", baseline_candidate=baseline)
+                if candidate != baseline:
+                    review = self._semantic_review(candidate, "review-repaired",
+                                                   reuse_from="review-initial", baseline_candidate=baseline)
                 if review["status"] != "passed":
                     candidate, review = self._coordinate(candidate, review, prior_specialized=True)
         from core.planning_author_decisions import authorized_choices

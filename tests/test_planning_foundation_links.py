@@ -84,19 +84,20 @@ def test_registry_requests_never_rewrite_a_held_chapter_or_ask_author_on_ambigui
         assert len(audit)==(0 if blocked else 1)
 
 
-def test_legacy_findings_discover_registry_semantically_once_and_replay_saved_child():
+def test_legacy_findings_discover_registry_semantically_once_and_replay_saved_child(tmp_path):
     class Planner:
         source = SOURCE
         client = object()
         def __init__(self):
-            self.cache = {}
+            self.cache = tmp_path
+            self.saved = {}
             self.stages = []
         def _prompt_fits(self, *args):
             return True
         def _load(self, name, deps, validate, **kwargs):
-            return validate(self.cache[name]) if name in self.cache else None
+            return validate(self.saved[name]) if name in self.saved else None
         def _save(self, name, deps, data):
-            self.cache[name] = deepcopy(data)
+            self.saved[name] = deepcopy(data)
         def _call(self, name, policy, ctx, validate, **kwargs):
             self.stages.append(policy.splitlines()[0])
             if policy == links.DISCOVERY:
@@ -129,3 +130,72 @@ def test_new_global_character_cannot_activate_an_unrelated_dangling_reference():
            'payoff_links':[]}
     with pytest.raises(ValueError,match='out-of-scope'):
         links.apply(candidate,ctx,patch)
+
+
+@pytest.mark.parametrize('initial_fits', [True, False])
+def test_source_representation_keeps_completed_reply_after_transport_capacity_changes(tmp_path, initial_fits):
+    class Planner:
+        cache = tmp_path
+        def __init__(self):
+            self.saved = {}
+            self.fits = initial_fits
+            self.calls = []
+        def _load(self, name, deps, validate, **kw):
+            if name in self.saved:
+                assert self.saved[name][0] == deps
+                return validate(deepcopy(self.saved[name][1]))
+        def _save(self, name, deps, value):
+            self.saved[name] = (deps, deepcopy(value))
+        def _prompt_fits(self, *args):
+            return self.fits
+        def _call(self, name, instruction, context, validate, **kw):
+            assert kw['recover_archived']
+            self.calls.append((name, deepcopy(context)))
+            return validate({'characters':[], 'payoff_links':[]})
+    complete = {'complete_adopted_source':SOURCE, 'writable_chapters':[2]}
+    projected = {'adopted_source_projection':{'text':SOURCE, 'mode':'chapter_selection'},
+                 'writable_chapters':[2]}
+    planner = Planner()
+    context = links.source_context(planner, 'registry', complete, lambda: projected, links.INSTRUCTION, 4000)
+    result = links._responses(planner, 'registry', context, links.INSTRUCTION, lambda v:v, 4000)
+    planner.fits = not initial_fits
+    again = links.source_context(planner, 'registry', complete, lambda: projected, links.INSTRUCTION, 2000)
+    assert again == context
+    assert links._responses(planner, 'registry', again, links.INSTRUCTION, lambda v:v, 2000) == result
+    assert len(planner.calls) == 1
+
+
+def test_source_context_recovers_legacy_archived_projection_before_preflight(tmp_path):
+    class Planner:
+        cache = tmp_path
+        def _load(self, *args, **kwargs):
+            return None
+        def _save(self, *args):
+            raise AssertionError('A legacy issued view already determines the representation')
+        def _prompt_fits(self, *args):
+            raise AssertionError('Issued request must be reused before new capacity decisions')
+    complete = {'complete_adopted_source':SOURCE}
+    projected = {'adopted_source_projection':{'text':SOURCE}}
+    name, _ = links._request_binding('registry', projected, links.INSTRUCTION)
+    raw = tmp_path / 'raw'
+    raw.mkdir()
+    (raw / (name + '.request.prompt.txt')).write_text('exact saved request')
+    assert links.source_context(Planner(), 'registry', complete, lambda:projected, links.INSTRUCTION, 128) == projected
+
+
+def test_unissued_registry_view_can_adapt_to_smaller_capacity_without_overwriting_history(tmp_path):
+    class Planner:
+        cache = tmp_path
+        fits = True
+        def _load(self, *args, **kwargs):
+            return None
+        def _save(self, *args):
+            raise AssertionError('Source view selection must not alter a saved checkpoint')
+        def _prompt_fits(self, *args):
+            return self.fits
+    planner = Planner()
+    full = {'complete_adopted_source':SOURCE}
+    scoped = {'adopted_source_projection':{'text':SOURCE}}
+    assert links.source_context(planner, 'registry', full, lambda:scoped, links.INSTRUCTION, 2048) == full
+    planner.fits = False
+    assert links.source_context(planner, 'registry', full, lambda:scoped, links.INSTRUCTION, 1024) == scoped

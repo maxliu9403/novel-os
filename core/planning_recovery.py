@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from pathlib import Path
 
 from core.planning_correction import VERSION
+from core.planning_terminal import final_names, read_verdict, verified_terminal
 
 
 def _hash(value: object) -> str:
@@ -81,7 +82,7 @@ def coordinated_repair_available(project: Path, run_id: str, progress: dict) -> 
 
 
 def _verified_planning(project: Path, run_id: str, progress: dict, *, allow_coordinated: bool = False,
-                       evidence_upgrade: bool = False, specialized_review: bool = False):
+                       evidence_upgrade: bool = False, specialized_review: bool = False, residual: bool = False):
     """Read the same complete baseline for both narrowly scoped recovery policies."""
     from core.outline_planning import LOCKED_FIELDS, REVIEW_CHECKS, SCHEMA_VERSION
     from core.planning_context import REVIEW_CONTEXT_VERSION
@@ -133,6 +134,8 @@ def _verified_planning(project: Path, run_id: str, progress: dict, *, allow_coor
         if specialized_review:
             spent = ('coordinated-repair-v1', 'review-coordinated-repair-v1', 'validated',
                      'coordinated-evidence-v2', 'review-coordinated-evidence-v2')
+        if residual:
+            spent = ('validated',)
         if not allow_coordinated:
             spent += ('coordinated-repair-v1', 'review-coordinated-repair-v1')
         if any(path.is_symlink() or (path.is_file() and path.name.startswith(spent)) for path in root.rglob('*')):
@@ -178,21 +181,42 @@ def _verified_planning(project: Path, run_id: str, progress: dict, *, allow_coor
                 return False
             chapters.extend(values)
         candidate = {**global_design, 'chapters': chapters}
-        review = payload('review-initial', {'candidate': _hash(candidate), 'representation': REVIEW_CONTEXT_VERSION})
-        coverage, issues = review.get('coverage'), review.get('issues')
-        if (review.get('status') != 'blocked' or not isinstance(coverage, dict)
-                or any(coverage.get(key) is not True for key in REVIEW_CHECKS)
-                or not isinstance(issues, list) or not issues):
-            return False
-        for issue in issues:
-            if (not isinstance(issue, dict) or issue.get('scope') not in {'global', 'chapter'}
-                    or any(not isinstance(issue.get(key), str) or not issue[key].strip()
-                           for key in ('message', 'source_evidence'))):
+        initial_deps = {'candidate': _hash(candidate), 'representation': REVIEW_CONTEXT_VERSION}
+        initial_name = 'review-initial'
+        if residual and (root / 'review-initial-authority-snapshot.json').exists():
+            from core import planning_author_review as authority
+            from core.planning_author_decisions import authorized_choices
+            snapshot = payload('review-initial-authority-snapshot', {'stage': 'review-initial', 'version': 1})
+            choices = snapshot['choices']
+            known = authorized_choices(SimpleNamespace(directory=root.parent.parent,
+                                       source=source.read_bytes().decode('utf-8')))
+            if not isinstance(choices, list) or any(choice not in known for choice in choices):
                 return False
-            if issue['scope'] == 'chapter' and (type(issue.get('chapter')) is not int
-                                                or not 1 <= issue['chapter'] <= count):
+            if choices:
+                initial_name += '-choices-' + _hash(choices)[:16]
+                initial_deps['authority'] = _hash([choices, authority.RULES])
+        review = payload(initial_name, initial_deps)
+        if initial_name != 'review-initial':
+            authority.inspect_result(review, choices)
+        if residual:
+            from core.outline_planning import StagedOutlinePlanner
+            StagedOutlinePlanner._review(SimpleNamespace(chapter_count=count), review)
+            issues = review['issues']
+        else:
+            coverage, issues = review.get('coverage'), review.get('issues')
+            if (review.get('status') != 'blocked' or not isinstance(coverage, dict)
+                    or any(coverage.get(key) is not True for key in REVIEW_CHECKS)
+                    or not isinstance(issues, list) or not issues):
                 return False
-        if not (evidence_upgrade or specialized_review) and {issue['scope'] for issue in issues} != {'global', 'chapter'}:
+            for issue in issues:
+                if (not isinstance(issue, dict) or issue.get('scope') not in {'global', 'chapter'}
+                        or any(not isinstance(issue.get(key), str) or not issue[key].strip()
+                               for key in ('message', 'source_evidence'))):
+                    return False
+                if issue['scope'] == 'chapter' and (type(issue.get('chapter')) is not int
+                                                    or not 1 <= issue['chapter'] <= count):
+                    return False
+        if not (evidence_upgrade or specialized_review or residual) and {issue['scope'] for issue in issues} != {'global', 'chapter'}:
             return False
         return {'root': root, 'run': run, 'identity': identity, 'identity_hash': identity_hash,
                 'source': source.read_bytes().decode('utf-8'), 'brief': brief, 'lock': lock,
@@ -594,9 +618,6 @@ def specialized_review_availability(project: Path, run_id: str, progress: dict) 
     represent a completed specialized review could not prove that provenance.
     """
     from core import planning_correction
-    from core.outline_planning import StagedOutlinePlanner
-    from core.planning_context import REVIEW_CONTEXT_VERSION
-    from core.story_capacity import read_contract
 
     identity = progress.get('identity_hash')
     if (progress.get('status') != 'failed' or not isinstance(identity, str)
@@ -614,51 +635,132 @@ def specialized_review_availability(project: Path, run_id: str, progress: dict) 
     if not saved:
         return False
     try:
-        validator = StagedOutlinePlanner.__new__(StagedOutlinePlanner)
-        validator.source, validator.locked = saved['source'], saved['locked']
-        validator.brief = saved['brief']
-        validator.chapter_count = saved['identity']['chapter_count']
-        validator.target_words = saved['identity']['target_words']
-        validator.capacity = read_contract(validator.source)
-        validator.story_first = bool(saved['lock'] and
-            saved['lock'].get('handoff', {}).get('story_engine') == 'story-first.v1')
-        candidate, review = saved['candidate'], saved['review']
-        scopes = {i['scope'] for i in review['issues']}
-        deps = {'candidate': _hash(candidate), 'review': _hash(review)}
-        final_name = final_names[0]
-        if final_name == 'review-repaired':
-            from core.planning_chapter_repair import VERSION as CHAPTER_POLICY, repair_chapters
-            if scopes != {'chapter'}:
-                return False
-            def load(label, dependencies, validate, **options):
-                if (label == 'repair' and not (root / 'repair.json').exists()
-                        and (root / (CHAPTER_POLICY + '-plan.json')).is_file()):
-                    return None
-                return validate(saved['payload'](label, dependencies))
-            # Native reconstruction, with no write, prompt, or client available on this reader.
-            validator._load = load
-            validator._progress = lambda *a, **kw: None
-            numbers = sorted({i['chapter'] for i in review['issues']})
-            patch = repair_chapters(validator, candidate, saved['global'], review, numbers)
-            replacements = {ch['number']: ch for ch in patch['chapters']}
-            revised = {**candidate, 'chapters': [replacements.get(ch['number'], ch) for ch in candidate['chapters']]}
-        else:
-            if scopes != {'global'}:
-                return False
-            legacy = final_name == 'review-global-reference-v1'
-            label = 'global-reference-repair-v1' if legacy else planning_correction.VERSION
-            policy = planning_correction.LEGACY_POLICY_HASH if legacy else _hash(planning_correction.INSTRUCTION)
-            patch = saved['payload'](label, {**deps, 'policy': policy})
-            if patch.get('status') != 'corrected':
-                return False
-            revised = planning_correction.apply(candidate, review, validator.source, patch, validator.chapter_count)
-            chapters = revised.pop('chapters')
-            revised = {**validator._global(revised), 'chapters': chapters}
-        if revised == candidate:
-            return False
-        final = saved['payload'](final_name, {'candidate': _hash(revised), 'representation': REVIEW_CONTEXT_VERSION})
-        # A passed archived review may be followed by an unrelated storage or
-        # publication failure. Leave that to normal checkpoint resume.
-        return True if validator._review(final)['status'] == 'blocked' else None
+        validator = _saved_validator(saved)
+        _, final = _specialized_pair(saved, validator, final_names[0])
+        return True if final['status'] == 'blocked' else None
     except (OSError, ValueError, TypeError, KeyError, AttributeError, IndexError):
         return False
+
+
+def _saved_validator(saved):
+    from core.outline_planning import StagedOutlinePlanner
+    from core.story_capacity import read_contract
+
+    validator = StagedOutlinePlanner.__new__(StagedOutlinePlanner)
+    validator.source, validator.locked = saved['source'], saved['locked']
+    validator.brief = saved['brief']
+    validator.chapter_count = saved['identity']['chapter_count']
+    validator.target_words = saved['identity']['target_words']
+    validator.capacity = read_contract(validator.source)
+    validator.story_first = bool(saved['lock'] and
+        saved['lock'].get('handoff', {}).get('story_engine') == 'story-first.v1')
+    validator.cache, validator.directory = saved['root'], saved['run'] / 'planning'
+    validator.identity_hash = saved['identity_hash']
+    return validator
+
+
+def _specialized_pair(saved, validator, final_name):
+    from core import planning_correction
+    from core.planning_context import REVIEW_CONTEXT_VERSION
+
+    root, candidate, review = saved['root'], saved['candidate'], saved['review']
+    scopes = {i['scope'] for i in review['issues']}
+    deps = {'candidate': _hash(candidate), 'review': _hash(review)}
+    if final_name == 'review-repaired':
+        from core.planning_chapter_repair import VERSION as CHAPTER_POLICY, repair_chapters
+        if scopes != {'chapter'}:
+            raise ValueError('Specialized review does not match the baseline')
+        def load(label, dependencies, validate, **options):
+            if (label == 'repair' and not (root / 'repair.json').exists()
+                    and (root / (CHAPTER_POLICY + '-plan.json')).is_file()):
+                return None
+            return validate(saved['payload'](label, dependencies))
+        # Native reconstruction, with no write, prompt, or client available on this reader.
+        validator._load = load
+        validator._progress = lambda *a, **kw: None
+        numbers = sorted({i['chapter'] for i in review['issues']})
+        patch = repair_chapters(validator, candidate, saved['global'], review, numbers)
+        replacements = {ch['number']: ch for ch in patch['chapters']}
+        revised = {**candidate, 'chapters': [replacements.get(ch['number'], ch) for ch in candidate['chapters']]}
+    else:
+        if scopes != {'global'}:
+            raise ValueError('Specialized review does not match the baseline')
+        legacy = final_name == 'review-global-reference-v1'
+        label = 'global-reference-repair-v1' if legacy else planning_correction.VERSION
+        policy = planning_correction.LEGACY_POLICY_HASH if legacy else _hash(planning_correction.INSTRUCTION)
+        patch = saved['payload'](label, {**deps, 'policy': policy})
+        if patch.get('status') != 'corrected':
+            raise ValueError('Specialized review does not match the baseline')
+        revised = planning_correction.apply(candidate, review, validator.source, patch, validator.chapter_count)
+        chapters = revised.pop('chapters')
+        revised = {**validator._global(revised), 'chapters': chapters}
+    if revised == candidate:
+        raise ValueError('Specialized review does not match the baseline')
+    deps = {'candidate': _hash(revised), 'representation': REVIEW_CONTEXT_VERSION}
+    return revised, read_verdict(validator, final_name, deps, final_names(root, final_name))
+
+
+def residual_recovery_availability(project: Path, run_id: str, progress: dict) -> bool | None:
+    """Project a completed, blocked historical verdict onto the current repair capability."""
+    from core import planning_correction, planning_evidence_plan
+    from core.planning_author_decisions import authorized_choices
+
+    identity = progress.get('identity_hash')
+    recovery = progress.get('recovery') or {}
+    if (progress.get('status') != 'failed' or not isinstance(recovery, dict) or recovery.get('retryable') is not False
+            or recovery.get('action') != 'inspect_saved_design' or not isinstance(identity, str)
+            or not re.fullmatch(r'[0-9a-f]{64}', identity) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,128}', run_id)):
+        return None
+    root = project / 'outputs/runs' / run_id / 'planning/checkpoints' / identity
+    prefix = planning_evidence_plan.VERSION
+    if not any(re.fullmatch(re.escape('review-' + prefix) +
+            r'(?:-scoped-[0-9a-f]{16})?(?:-author-[0-9a-f]{16})?(?:-followup)?(?:-choices-[0-9a-f]{16})?\.json',
+            path.name) for path in root.glob('review-' + prefix + '*.json')):
+        return None
+    saved = _verified_planning(project, run_id, progress, allow_coordinated=True, residual=True)
+    if not saved:
+        return False
+    try:
+        validator = _saved_validator(saved)
+        candidate, review = saved['candidate'], saved['review']
+        specialized = [name for name in (planning_correction.REVIEW_NAME, 'review-global-reference-v1', 'review-repaired')
+                       if final_names(root, name)]
+        if len(specialized) > 1:
+            return False
+        if specialized:
+            candidate, review = _specialized_pair(saved, validator, specialized[0])
+        choices = authorized_choices(validator)
+        if review['status'] == 'blocked':
+            pair = _coordinated_terminal(validator, candidate, review, prefix, choices)
+            if pair is None:
+                return False
+            candidate, review = pair
+            if review['status'] == 'blocked':
+                return True
+        # A passed design can subsequently be blocked at the publication gate
+        # for a newly settled author choice. Preserve that intervening verdict.
+        label = 'review-publication-authority-' + _hash(candidate)[:16]
+        names = final_names(root, label)
+        if names and choices:
+            from core.planning_context import REVIEW_CONTEXT_VERSION
+            review = read_verdict(validator, label,
+                        {'candidate': _hash(candidate), 'representation': REVIEW_CONTEXT_VERSION}, names)
+            if review['status'] == 'blocked':
+                pair = _coordinated_terminal(validator, candidate, review, prefix, choices)
+                return bool(pair and pair[1]['status'] == 'blocked')
+        return None
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, IndexError):
+        return False
+
+
+def _coordinated_terminal(validator, candidate, review, prefix, choices):
+    scoped = prefix + '-scoped-' + _hash([candidate, review])[:16]
+    targets = [prefix, scoped]
+    if choices:
+        suffix = '-author-' + _hash([choices, candidate, review])[:16]
+        targets = [label + suffix for label in targets] + targets
+    for label in targets:
+        pair = verified_terminal(validator, candidate, review, label)
+        if pair is not None:
+            return pair
+    return None

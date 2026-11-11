@@ -30,6 +30,9 @@ class CoordinatedModel(PlanningModel):
 
     def complete(self, system, user):
         context = json.loads(user.rsplit('\n\n', 1)[1])
+        if user.startswith('STAGE: coordinated_residual_narrative'):
+            self.calls.append(('residual_narrative', context))
+            return json.dumps({'edits': [], 'reason': 'No additional supported edit in this window.'})
         if user.startswith('STAGE: coordinated_source_adjudication'):
             self.calls.append(('source_adjudication', context))
             return json.dumps({'verdict': 'compatible', 'reason': 'A single source statement does not establish a conflict.',
@@ -174,11 +177,11 @@ def test_failed_complete_repair_response_is_preserved_and_never_regenerated_on_r
 def test_blocked_postrepair_review_never_repeats_plan_or_repair_on_resume(tmp_path):
     first = CoordinatedModel(reviews=[copy.deepcopy(MIXED), copy.deepcopy(MIXED)])
     planner = make_planner(tmp_path, first, count=8)
-    with pytest.raises(OutlinePlanningError, match='still needs attention'):
+    with pytest.raises(OutlinePlanningError, match='未产生可验证的新进展'):
         planner.run()
     baseline = original_checkpoints(planner)
     resumed = CoordinatedModel()
-    with pytest.raises(OutlinePlanningError, match='still needs attention'):
+    with pytest.raises(OutlinePlanningError, match='未产生可验证的新进展'):
         make_planner(tmp_path, resumed, count=8).run()
     assert resumed.calls == []
     assert_originals_retained(planner, baseline)
@@ -232,17 +235,17 @@ def test_disputed_findings_require_fresh_review_and_cannot_pass_through_classifi
         'source_quotes': [QUOTE]} for index in range(2)]}
     first = CoordinatedModel(plan=plan, reviews=[copy.deepcopy(MIXED), copy.deepcopy(MIXED)])
     planner = make_planner(tmp_path, first, count=8)
-    with pytest.raises(OutlinePlanningError, match='still needs attention'):
+    with pytest.raises(OutlinePlanningError, match='未产生可验证的新进展'):
         planner.run()
     stages = [stage for stage, _ in first.calls]
-    assert stages[-3:] == ['review', 'coordinated_plan', 'review']
+    assert stages[-4:] == ['review', 'coordinated_plan', 'review', 'coordinated_plan']
     assert 'coordinated_group' not in stages
-    assert first.calls[-1][1]['candidate']['chapters'] == saved_chapters(planner)
+    assert first.calls[-2][1]['candidate']['chapters'] == saved_chapters(planner)
     assert all(item['resolution']['status'] == 'recheck'
-               for item in first.calls[-1][1]['coordinated_verification']['issues'])
+               for item in first.calls[-2][1]['coordinated_verification']['issues'])
     assert not (planner.cache / 'validated.json').exists()
     resumed = CoordinatedModel()
-    with pytest.raises(OutlinePlanningError, match='still needs attention'):
+    with pytest.raises(OutlinePlanningError, match='未产生可验证的新进展'):
         make_planner(tmp_path, resumed, count=8).run()
     assert resumed.calls == []
 

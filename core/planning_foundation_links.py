@@ -110,6 +110,7 @@ def build_context(candidate, issue, item, source, registries):
     locations = chapter_locations(source, len(candidate['chapters']))
     return {'foundation_repairs':list(registries), 'original_finding':issue,
             'issue_source_quotes':item['source_quotes'], 'complete_adopted_source':source,
+            **{k:item[k] for k in ('prior_author_choices','binding_author_decision') if k in item},
             'writable_chapters':sorted(writable), 'character_chapters':chapters, 'existing_cast':cast,
             'dangling_payoffs':slots, 'eligible_setups':setups,
             'source_chapter_spans':{str(n):loc['source_chars'] for n,loc in locations.items() if n in writable}}
@@ -211,12 +212,43 @@ def apply(candidate, context, proposal):
     return result
 
 
-def _responses(planner, name, context, instruction, validate, limit):
+def _request_binding(name, context, instruction):
     deps = {'context':content_hash(context),'policy':content_hash(instruction)}
-    stage = name + '-' + content_hash(deps)[:16]
+    return name + '-' + content_hash(deps)[:16], deps
+
+
+def _started(planner, stage, dependencies):
+    if planner._load(stage, dependencies, lambda value: value, strict_dependencies=True) is not None:
+        return True
+    cache = getattr(planner, 'cache', None)
+    if cache is None:
+        return False
+    raw = cache / 'raw'
+    return ((cache / f'{stage}-response.json').is_file()
+            or any(raw.glob(f'{stage}.*.prompt.txt')) or any(raw.glob(f'{stage}.*.response.txt')))
+
+
+def source_context(planner, name, complete, project, instruction, limit):
+    """An issued request fixes its source view. Unsent work can adapt to a smaller route."""
+    full_stage, full_deps = _request_binding(name, complete, instruction)
+    if _started(planner, full_stage, full_deps):
+        return complete
+    scoped = project()
+    if scoped is None:
+        return complete
+    stage, deps = _request_binding(name, scoped, instruction)
+    if _started(planner, stage, deps):
+        return scoped
+    fits = planner._prompt_fits(instruction+'\n\n'+_json(complete), 'review', limit)
+    return complete if fits else scoped
+
+
+def _responses(planner, name, context, instruction, validate, limit):
+    stage, deps = _request_binding(name, context, instruction)
     cached = planner._load(stage,deps,validate,strict_dependencies=True)
     if cached is None:
-        cached = planner._call(stage,instruction,context,validate,strict_dependencies=True,input_limit_bytes=limit)
+        cached = planner._call(stage,instruction,context,validate,strict_dependencies=True,
+                               recover_archived=True,input_limit_bytes=limit)
         planner._save(stage,deps,cached)
     return cached
 
@@ -260,25 +292,26 @@ def repair(planner, candidate, review, evidence_plan, *, blocked_indices):
         context = build_context(derived,review['issues'][idx],item,planner.source,scopes[idx])
         if not context['character_chapters'] and not context['dangling_payoffs']:
             continue
-        if not planner._prompt_fits(INSTRUCTION+'\n\n'+_json(context),'review',limit):
+        def project():
             numbers = sorted(set(item['writable_chapters']+item['dependency_chapters']+item['affected_chapters']))
             view = chapter_source(planner.source,numbers,len(candidate['chapters']))
-            if view['mode'] == 'chapter_selection' and all(q in view['text'] for q in item['source_quotes']):
-                del context['complete_adopted_source']
-                context['adopted_source_projection'] = view
-                # Original offsets are not offsets in the projection. Translate each complete
-                # chapter by its verified text so appearance evidence keeps its chapter binding.
-                projected = view['text']
-                for n, (a,b) in context['source_chapter_spans'].items():
-                    original = planner.source[a:b]
-                    start = projected.find(original)
-                    if start < 0 or projected.find(original,start+1) >= 0:
-                        raise ValueError('Cannot verify complete original chapter in registry projection')
-                    context['source_chapter_spans'][n] = [start,start+len(original)]
+            if view['mode'] != 'chapter_selection' or not all(q in view['text'] for q in item['source_quotes']):
+                return None
+            scoped = {**context, 'adopted_source_projection':view, 'source_chapter_spans':{}}
+            del scoped['complete_adopted_source']
+            for n, (a,b) in context['source_chapter_spans'].items():
+                original = planner.source[a:b]
+                start = view['text'].find(original)
+                if start < 0 or view['text'].find(original,start+1) >= 0:
+                    return None
+                scoped['source_chapter_spans'][n] = [start,start+len(original)]
+            return scoped
+        name = f'evidence-registry-repair-v1-{idx}'
+        context = source_context(planner, name, context, project, INSTRUCTION, limit)
         def validate(value):
             apply(derived,context,value)
             return value
-        patch = _responses(planner, f'evidence-registry-repair-v1-{idx}',context,INSTRUCTION,validate,limit)
+        patch = _responses(planner, name,context,INSTRUCTION,validate,limit)
         derived = apply(derived,context,patch)
         audit.append({'issue_index':idx,'foundation_repairs':scopes[idx],'proposal':deepcopy(patch)})
     return derived, audit

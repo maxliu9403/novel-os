@@ -2,7 +2,7 @@
 from copy import deepcopy
 
 
-def merge(baseline, assembled, group, writable):
+def merge(baseline, assembled, group, writable, *, residual=False):
     positions = {item['number']: i for i, item in enumerate(baseline['chapter_map'])}
     if group['chapters'] != baseline['chapters'] or group['chapter_map'] != baseline['chapter_map']:
         for key, pos in [('chapters', {n: n-1 for n in positions}), ('chapter_map', positions)]:
@@ -14,13 +14,16 @@ def merge(baseline, assembled, group, writable):
                     raise ValueError('Independent repairs cannot change overlapping or unpermitted chapters')
                 assembled[key][idx] = deepcopy(value)
 
-    # Derived global changes have only two permitted forms: replacing cited assumption
-    # slots and appending verified character records. All other global data stays frozen.
-    for idx, (old, new) in enumerate(zip(baseline['assumptions'], group['assumptions'], strict=True)):
-        if old != new:
-            if assembled['assumptions'][idx] not in (old, new):
-                raise ValueError('Independent repairs disagree on a shared generated assumption')
-            assembled['assumptions'][idx] = deepcopy(new)
+    fields = ['assumptions', 'structural_risks'] if residual else ['assumptions']
+    for field in fields:
+        for idx, (old, new) in enumerate(zip(baseline.get(field, []), group.get(field, []), strict=True)):
+            if old != new:
+                if assembled[field][idx] not in (old, new):
+                    raise ValueError('Independent repairs disagree on a shared generated ' + field)
+                assembled[field][idx] = deepcopy(new)
+
+    if residual and group.get('promise_ledger') != baseline.get('promise_ledger'):
+        _merge_ledger(baseline, assembled, group)
     actors = baseline['characters']
     if group['characters'][:len(actors)] != actors:
         raise ValueError('An independent repair cannot replace an established character')
@@ -33,5 +36,34 @@ def merge(baseline, assembled, group, writable):
             assembled['characters'].append(deepcopy(entry))
             registered[key] = entry
     mutable = {'chapters','chapter_map','assumptions','characters'}
-    if set(group) != set(baseline) or any(group[k] != baseline[k] for k in baseline.keys() - mutable):
+    if residual:
+        mutable.update(('structural_risks', 'promise_ledger'))
+    allowed_new = {'promise_ledger'} if residual else set()
+    if set(baseline) - set(group) or set(group) - set(baseline) - allowed_new or any(group[k] != baseline[k] for k in baseline.keys() - mutable):
         raise ValueError('A repair altered an unauthorized global field')
+
+
+def _merge_ledger(baseline, assembled, group):
+    original = baseline.get('promise_ledger', [])
+    proposed = group['promise_ledger']
+    current = assembled.setdefault('promise_ledger', [])
+
+    def identity(entry):
+        return (entry.get('setup_id') or entry.get('id')) if isinstance(entry, dict) else None
+
+    if len(proposed) < len(original):
+        raise ValueError('A promise repair cannot remove ledger entries')
+    for i, before in enumerate(original):
+        after = proposed[i]
+        if before == after:
+            continue
+        if not identity(before) or identity(before) != identity(after) or current[i] not in (before, after):
+            raise ValueError('Independent repairs disagree on a registered promise')
+        current[i] = deepcopy(after)
+    for entry in proposed[len(original):]:
+        key = identity(entry)
+        matches = [row for row in current if identity(row) == key]
+        if not key or (matches and matches != [entry]):
+            raise ValueError('Independent repairs disagree on a new promise identity')
+        if not matches:
+            current.append(deepcopy(entry))
