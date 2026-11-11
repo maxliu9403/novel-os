@@ -22,13 +22,14 @@ const displayValue = (value: unknown): string => {
   return '';
 };
 
-export default function SourceRoutes({ sourceId, mode, authorContext = {}, draftKey = 'library', onChoice, onContinue, choiceOverride, continueLabel = '带入头脑风暴', disabled = false }: {
+export default function SourceRoutes({ sourceId, mode, authorContext = {}, draftKey = 'library', onChoice, onContinue, onStatusChange, choiceOverride, continueLabel = '带入头脑风暴', disabled = false }: {
   sourceId: string;
   mode: SourceSelection['mode'];
   authorContext?: SourceAuthorContext;
   draftKey?: string;
   onChoice?: (choice: SourceRouteChoice | null) => void;
   onContinue?: (choice: SourceRouteChoice) => Promise<void> | void;
+  onStatusChange?: () => void;
   choiceOverride?: SourceRouteChoice | null;
   continueLabel?: string;
   disabled?: boolean;
@@ -155,13 +156,14 @@ export default function SourceRoutes({ sourceId, mode, authorContext = {}, draft
       setDraft(value => ({ ...value, feedback: value.feedback === feedback ? '' : value.feedback }));
       if (started.route_set_sha256) setVersion(started.route_set_sha256);
       refresh();
+      onStatusChange?.();
     } catch (e) { if (mounted.current) setError(failureText(e)); }
     finally { busyRef.current = false; if (mounted.current) setBusy(false); }
   }
   async function control(action: 'pause' | 'resume') {
     if (!run || busyRef.current) return;
     busyRef.current = true; setBusy(true); setError('');
-    try { const value = await sourceRoutesApi[action](sourceId, run.run_id); if (mounted.current) { setRun(value); refresh(); } }
+    try { const value = await sourceRoutesApi[action](sourceId, run.run_id); if (mounted.current) { setRun(value); refresh(); onStatusChange?.(); } }
     catch (e) { if (mounted.current) setError(failureText(e)); }
     finally { busyRef.current = false; if (mounted.current) setBusy(false); }
   }
@@ -175,7 +177,7 @@ export default function SourceRoutes({ sourceId, mode, authorContext = {}, draft
   const feedbacks = currentSet?.feedback_history.map(item => item.exact_text ?? item.feedback ?? item.text ?? '').filter(Boolean) ?? [];
   return <section className="source-routes" aria-label="整书路线工作台">
     <header className="source-routes-heading"><div><span className="source-routes-eyebrow">从全部资料到一部完整故事</span><h3>选择值得继续写的方向</h3><p>先比较人物选择、情绪回报和故事结局，再一起打磨骨架。</p></div>
-      <button type="button" className="btn-ghost" onClick={refresh}>刷新路线</button></header>
+      <button type="button" className="btn-ghost" onClick={() => { refresh(); onStatusChange?.(); }}>刷新路线</button></header>
     {syncError && <p className="source-route-notice" role="status">路线状态暂未同步，已有内容仍保留。<button type="button" onClick={refresh}>重试同步</button></p>}
     {error && <p role="alert" className="source-route-error">{error}</p>}
     {run && <div className="source-route-run" aria-live="polite"><strong>{run.interrupted ? statusText.interrupted : statusText[run.status] ?? '正在保存设计进度'}</strong>

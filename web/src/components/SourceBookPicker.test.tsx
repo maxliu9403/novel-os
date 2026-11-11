@@ -178,3 +178,26 @@ it("can reuse a saved analysis while a new analysis is running", async () => {
   );
   expect(sourceBooksApi.analyze).not.toHaveBeenCalled();
 });
+
+it("shows route design activity in the source picker even when legacy reading is complete", async () => {
+  const user = userEvent.setup();
+  const designing: SourceDetail = {
+    ...book,
+    study: { status: "complete", completed: 1, total: 1 },
+    design: {
+      status: "running", active_count: 1, total_runs: 1,
+      latest_run_id: "route-run", mode: "original_rewrite", completed: 1, total: 3,
+    },
+  };
+  vi.mocked(sourceBooksApi.list).mockResolvedValue({ items: [designing] });
+  vi.mocked(sourceBooksApi.get).mockResolvedValue(designing);
+  render(<SourceBookPicker onChange={vi.fn()} onReady={vi.fn()} />);
+  await user.click(screen.getByRole("radio", { name: "改编重写" }));
+  const select = await screen.findByLabelText("选择参考小说");
+  expect(within(select).getByRole("option", { name: /Reference Book.*设计中/ })).toBeVisible();
+  expect(within(select).queryByRole("option", { name: /Reference Book.*已完成/ })).not.toBeInTheDocument();
+  await user.selectOptions(select, book.id);
+  await screen.findByText("Official promise");
+  expect(sourceBooksApi.analyze).not.toHaveBeenCalled();
+  expect(sourceBooksApi.cancel).not.toHaveBeenCalled();
+});

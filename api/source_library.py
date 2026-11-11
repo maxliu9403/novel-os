@@ -26,6 +26,7 @@ from .creative_types import store_for as knowledge_store
 from .jobs import runner
 from .routes import get_service
 from .services import ProjectService
+from .source_route_status import design_summary
 
 router = APIRouter(prefix="/api/source-books", tags=["source-books"])
 
@@ -83,6 +84,7 @@ def public(library, manifest):
         )
     } | {
         "study": state(library, manifest["id"]),
+        "design": design_summary(library, manifest["id"], runner),
         "cover_url": f"/api/source-books/{manifest['id']}/cover"
         if manifest.get("cover_asset")
         else None,

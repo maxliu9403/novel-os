@@ -6,6 +6,7 @@ import { readSourceDraft, saveSourceDraft } from "../lib/sourceDraft";
 import SourceBookDetails from "./SourceBookDetails";
 import SourceRoutes from './SourceRoutes';
 import type { SourceAuthorContext, SourceRouteChoice } from '../api/sourceRoutes';
+import { sourcePickerStatus } from '../lib/sourceDesignStatus';
 
 export default function SourceBookPicker({
   value,
@@ -39,6 +40,10 @@ export default function SourceBookPicker({
   );
   const book = detail.data;
   const books = listing.data?.items ?? [];
+  function refreshStatus() {
+    listing.refresh();
+    detail.refresh();
+  }
   useEffect(() => {
     if (persistDraft)
       saveSourceDraft({
@@ -160,11 +165,7 @@ export default function SourceBookPicker({
               {books.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.title} ·{" "}
-                  {b.study.status === "complete"
-                    ? "已完成"
-                    : ["running", "queued"].includes(b.study.status)
-                      ? "分析中"
-                      : "待处理"}
+                  {sourcePickerStatus(b)}
                 </option>
               ))}
             </select>
@@ -239,7 +240,7 @@ export default function SourceBookPicker({
                   listing.refresh();
                 }}
               />
-              {routeDesign && <SourceRoutes key={`${book.id}:${mode}`} sourceId={book.id} mode={mode} authorContext={routeDesign.authorContext} draftKey={routeDesign.draftKey} choiceOverride={routeDesign.choice} onContinue={routeDesign.onContinue ? choice => routeDesign.onContinue!({ ...choice, use_cover: useCover }) : undefined} onChoice={choice => { routeChoiceRef.current = choice; setRouteReady(!!choice); routeDesign.onChoice(choice ? { ...choice, use_cover: useCover } : null); }} />}
+              {routeDesign && <SourceRoutes key={`${book.id}:${mode}`} sourceId={book.id} mode={mode} authorContext={routeDesign.authorContext} draftKey={routeDesign.draftKey} choiceOverride={routeDesign.choice} onStatusChange={refreshStatus} onContinue={routeDesign.onContinue ? choice => routeDesign.onContinue!({ ...choice, use_cover: useCover }) : undefined} onChoice={choice => { routeChoiceRef.current = choice; setRouteReady(!!choice); routeDesign.onChoice(choice ? { ...choice, use_cover: useCover } : null); }} />}
               {book.cover_url && (
                 <label>
                   <input

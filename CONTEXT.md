@@ -1,5 +1,9 @@
 # Novel OS domain language
 
+## Source design status (2026-11-12; implemented, not deployed)
+
+The source library's optional `design` projection is distinct from legacy `study` reading status. It reports actual route-worker activity, saved steps and the currently relevant mode without loading story artifacts or modifying runs. Lists and route details share active-worker-first, then latest-update ordering; an orphaned persisted running state is interrupted, not live. UI filters and refresh preserve the current route mode and unsent feedback. See [implementation acceptance](docs/reports/2026-11-12-source-design-status.md).
+
 ## Whole-story source routes (implemented 2026-11-11; deployed 2026-11-12)
 
 `source-story-design.v1` is an explicit new design operation beside legacy SourceStudy. It reads all supplied material and produces comparable whole-story proposals with concrete causality, emotional scenes, choices, costs, highlights, long promises and endings. A route is not a source chapter or an adopted skeleton. Author corrections, model assumptions, observed source events, character statements and synopsis promises retain separate authority. Reading coverage proves supplied input, not literary understanding.

@@ -8,10 +8,7 @@ dispatch; SourceStoryDesign owns durable operation identities and recovery.
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import UTC, datetime
-import json
 from pathlib import Path
-import re
 import threading
 from typing import Annotated, Literal
 
@@ -27,6 +24,9 @@ from .jobs import runner
 from .routes import get_service
 from .services import ProjectService
 from .source_library import store_for as source_store
+from .source_route_status import (
+    job_path, ordered_route_states, public_route_state, route_is_active, route_job,
+)
 
 router = APIRouter(prefix="/api/source-books", tags=["source-story-routes"])
 
@@ -133,44 +133,16 @@ def _validate_author_selection(context: dict, catalog: list[dict]) -> None:
 
 
 def _job_path(projects: ProjectService, identifier: str, run_id: str) -> Path:
-    if not re.fullmatch(r"[0-9a-f]{32}", run_id):
-        raise ValueError("路线运行标识无效。")
-    path = source_store(projects).path(identifier) / "story-design" / "api-jobs" / f"{run_id}.json"
-    if any(p.is_symlink() for p in (path, *path.parents)):
-        raise ValueError("路线任务路径异常。")
-    return path
+    return job_path(source_store(projects), identifier, run_id)
 
 
 def _job(projects: ProjectService, identifier: str, run_id: str) -> dict | None:
-    path = _job_path(projects, identifier, run_id)
-    if not path.exists():
-        return None
-    try:
-        record = json.loads(path.read_text("utf-8"))
-        if record["run_id"] != run_id or not isinstance(record["job_id"], str):
-            raise ValueError()
-        return runner.get(record["job_id"])
-    except (KeyError, TypeError, json.JSONDecodeError):
-        raise ValueError("路线任务关联记录损坏；原设计结果保持不变。") from None
+    return route_job(source_store(projects), identifier, run_id, runner)
 
 
 def public_state(projects: ProjectService, identifier: str, value: dict) -> dict:
     """GET is read-only: worker loss is a projection, not a state migration."""
-    result = deepcopy(value)
-    job = _job(projects, identifier, value["run_id"])
-    active = bool(job and job.get("status") == "running")
-    result.update(
-        job_id=job.get("job_id") if job else None,
-        worker_active=active,
-        cancel_requested=bool(job and job.get("cancel_requested")),
-        interrupted=not active and value.get("status") in {"queued", "running"},
-        checked_at=datetime.now(UTC).isoformat(),
-    )
-    if job and job.get("status") == "error" and value.get("status") in {"queued", "running"}:
-        # The client can fail before core.run starts. Do not leak arbitrary
-        # provider exception text (URLs/credentials) or claim it is still live.
-        result["error"] = result.get("error") or "路线工作线程已停止；已保存资料和进度，可检查连接后继续。"
-    return result
+    return public_route_state(source_store(projects), identifier, value, runner)
 
 
 def _model_binding(route: dict) -> dict:
@@ -257,7 +229,9 @@ def create_run(identifier: str, body: RouteRunRequest, projects: ProjectService 
 def list_runs(identifier: str, projects: ProjectService = Depends(get_service)):
     design = _design_or_404(projects, identifier)
     try:
-        return {"items": [public_state(projects, identifier, row) for row in design.list_runs()]}
+        return {"items": ordered_route_states(
+            public_state(projects, identifier, row) for row in design.list_runs()
+        )}
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
 
@@ -309,12 +283,13 @@ def resume_run(
 def list_route_sets(identifier: str, projects: ProjectService = Depends(get_service)):
     design = _design_or_404(projects, identifier)
     try:
-        runs = [public_state(projects, identifier, row) for row in design.list_runs()]
-        runs.sort(key=lambda row: (row.get("created_at", ""), row["run_id"]), reverse=True)
+        runs = ordered_route_states(
+            public_state(projects, identifier, row) for row in design.list_runs()
+        )
         items = sorted(design.list_route_sets(), key=lambda row: row.get("created_at", ""), reverse=True)
         return {
             "items": items, "runs": runs,
-            "active_run": runs[0] if runs and runs[0].get("status") not in _COMPLETE else None,
+            "active_run": next((row for row in runs if route_is_active(row)), None),
         }
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc

@@ -6,6 +6,7 @@ import {
 } from "../api/sourceBooks";
 
 export const sourceActive = (book: SourceBook) =>
+  book.design?.status === "running" ||
   ["running", "queued"].includes(book.study.status) ||
   !!book.study.worker_active;
 

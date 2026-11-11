@@ -56,6 +56,18 @@ export interface SourceBook {
   cover_url: string | null;
   warnings: string[];
   study: SourceStudyState;
+  design?: SourceDesignState;
+}
+export interface SourceDesignState {
+  status: "not_started" | "running" | "paused" | "needs_attention" | "ready" | "unknown";
+  active_count: number;
+  total_runs: number;
+  latest_run_id?: string;
+  mode?: SourceSelection["mode"];
+  operation?: "initial_routes" | "revise_routes" | "expand_routes" | "revisit_source";
+  completed: number;
+  total: number;
+  updated_at?: string;
 }
 export interface ContinuationPlan {
   premise: string;

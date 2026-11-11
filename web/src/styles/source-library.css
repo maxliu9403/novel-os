@@ -158,6 +158,95 @@
   font-size: 13px;
   flex: 1;
 }
+.source-library-status b {
+  font-weight: 550;
+  color: #554baf;
+}
+.source-design-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 16px;
+}
+.source-design-filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 1px solid #e5e8f1;
+  border-radius: 9px;
+  font-size: 12px;
+  color: #66718b;
+  background: #fff;
+}
+.source-design-filters button[aria-pressed="true"] {
+  color: #5146a6;
+  background: #f0edff;
+  border-color: #bcb2f2;
+}
+.source-design-filters button:focus-visible,
+.source-library-item:focus-visible {
+  outline: 2px solid #7764d5;
+  outline-offset: 3px;
+}
+.source-design-filters button span {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+.source-filter-empty {
+  padding: 16px 8px;
+  color: #7380a1;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.source-design-state {
+  display: block;
+  margin-top: 8px;
+}
+.source-design-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: #59657d;
+  background: #edf0f6;
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 550;
+}
+.source-design-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+}
+.source-design-badge.is-running {
+  color: #5342ae;
+  background: #ebe5ff;
+}
+.source-design-badge.is-ready {
+  color: #276653;
+  background: #e7f3ed;
+}
+.source-design-badge.is-paused {
+  color: #785a29;
+  background: #f7efdd;
+}
+.source-design-badge.is-needs_attention,
+.source-design-badge.is-unknown {
+  color: #9b4e3c;
+  background: #faeae4;
+}
+.source-design-progress {
+  display: block;
+  margin-top: 5px;
+  font-size: 12px;
+  color: #68748f;
+  font-variant-numeric: tabular-nums;
+}
 .source-library-columns {
   display: grid;
   grid-template-columns: minmax(240px, 330px) minmax(0, 1fr);
@@ -352,6 +441,20 @@
   .source-library-status,
   .source-library-columns > nav {
     padding: 16px 0;
+  }
+  .source-library-status {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+  }
+  .source-library-status > span {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    line-height: 1.7;
+  }
+  .source-library-status > button {
+    grid-column: 2;
+    grid-row: 1;
   }
   .source-library-detail {
     padding: 6px 0 20px;

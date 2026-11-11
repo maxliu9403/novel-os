@@ -1,5 +1,5 @@
 import { useSearchParams, Link, useNavigate } from "react-router-dom";
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Scene from "../components/Scene";
 import SourceBookDetails from "../components/SourceBookDetails";
 import {
@@ -15,6 +15,8 @@ import SourceRoutes from '../components/SourceRoutes';
 import { sourceRoutesApi, type SourceRouteChoice } from '../api/sourceRoutes';
 import type { SourceSelection } from '../api/sourceBooks';
 import { clearLocal, newOperationId, operationFor, readLocal, writeLocal } from '../lib/sourceRouteDraft';
+import SourceDesignStatus from '../components/SourceDesignStatus';
+import { designFilters, matchesDesignFilter, sourceMode, type DesignFilter } from '../lib/sourceDesignStatus';
 import "../styles/creative-types.css";
 import "../styles/source-library.css";
 
@@ -28,7 +30,28 @@ export default function SourceBooks() {
   const version = params.get("version") ?? undefined;
   const detail = useSourceBook(id, version);
   const usage = useSourceUsage(id);
-  const [routeMode, setRouteMode] = useState<SourceSelection['mode']>('source_development');
+  const selectedBook = books.find(book => book.id === id) ?? detail.data;
+  const routeMode: SourceSelection['mode'] = sourceMode(params.get('mode')) ?? sourceMode(selectedBook?.design?.mode) ?? 'source_development';
+  const [filter, setFilter] = useState<DesignFilter>('all');
+  const visibleBooks = books.filter(book => matchesDesignFilter(book, filter));
+  const designCount = books.reduce((count, book) => count + (book.design?.active_count ?? 0), 0);
+  const readingCount = books.filter(book => ['running', 'queued'].includes(book.study.status) || book.study.worker_active).length;
+  // Pin the initial mode to the URL. Background progress must not switch an
+  // author's current route editor when another mode becomes the latest run.
+  useEffect(() => {
+    if (!selectedBook || sourceMode(params.get('mode'))) return;
+    setParams(previous => {
+      if (sourceMode(previous.get('mode')) || (previous.get('source') && previous.get('source') !== id)) return previous;
+      const next = new URLSearchParams(previous);
+      next.set('source', id);
+      next.set('mode', routeMode);
+      return next;
+    }, { replace: true });
+  }, [selectedBook, id, routeMode, params, setParams]);
+  function refreshStatus() {
+    listing.refresh();
+    detail.refresh();
+  }
   async function continueRoute(choice: SourceRouteChoice) {
     const key = `novelos-library-route-handoff:${id}:${routeMode}`;
     const draftId = readLocal<string>(`${key}:draft`) ?? newOperationId();
@@ -62,7 +85,7 @@ export default function SourceBooks() {
             <div>
               <span className="knowledge-eyebrow">创作资料库</span>
               <h1>参考资料</h1>
-              <p>阅读进度、分析结果，都保留在这里。</p>
+              <p>整书设计进度、分析结果和历史讨论，都保留在这里。</p>
             </div>
             <Link className="btn-primary" to="/workshop?new=1">
               导入资料 / 新建小说
@@ -70,18 +93,17 @@ export default function SourceBooks() {
           </header>
           <div className="source-library-status">
             <strong>
-              {active.length
-                ? `${active.length} 个任务在后台分析`
-                : `${books.length} 本参考小说`}
+              {books.length} 本参考小说
             </strong>
-            <span>关闭页面不会暂停任务</span>
+            <span aria-live="polite">
+              {designCount > 0 && <b>{designCount} 项路线设计进行中 · </b>}
+              {readingCount > 0 && <b>{readingCount} 项阅读分析进行中 · </b>}
+              关闭页面不会暂停任务
+            </span>
             <button
               type="button"
               className="btn-secondary"
-              onClick={() => {
-                listing.refresh();
-                detail.refresh();
-              }}
+              onClick={refreshStatus}
             >
               刷新列表
             </button>
@@ -100,19 +122,28 @@ export default function SourceBooks() {
           {!!books.length && (
             <div className="source-library-columns">
               <nav aria-label="参考小说列表">
-                {books.map((book) => (
+                <div className="source-design-filters" role="group" aria-label="设计状态筛选">
+                  {designFilters.map(item => (
+                    <button key={item.value} type="button" aria-pressed={filter === item.value} onClick={() => setFilter(item.value)}>
+                      {item.label} <span>{books.filter(book => matchesDesignFilter(book, item.value)).length}</span>
+                    </button>
+                  ))}
+                </div>
+                {!visibleBooks.length && <p className="source-filter-empty" role="status">没有符合此状态的资料。已打开的设计保持不变。</p>}
+                {visibleBooks.map((book) => (
                   <button
                     key={book.id}
                     type="button"
                     className={`source-library-item ${id === book.id ? "is-selected" : ""}`}
                     aria-pressed={id === book.id}
-                    onClick={() => setParams({ source: book.id })}
+                    onClick={() => { if (book.id !== id) setParams({ source: book.id, mode: sourceMode(book.design?.mode) ?? 'source_development' }); }}
                   >
                     {book.cover_url && (
                       <img src={sourceBooksApi.coverUrl(book)} alt="" />
                     )}
                     <span>
                       <strong>{book.title}</strong>
+                      <SourceDesignStatus design={book.design} />
                       <small>
                         {sourceStatusLabels[book.study.status]}
                         {book.study.total
@@ -120,7 +151,7 @@ export default function SourceBooks() {
                           : ""}
                       </small>
                     </span>
-                    {sourceActive(book) && (
+                    {sourceActive(book) && !book.design && (
                       <span className="source-study-dot is-active" />
                     )}
                   </button>
@@ -135,14 +166,7 @@ export default function SourceBooks() {
                         <select
                           aria-label="查看分析版本"
                           value={version ?? ""}
-                          onChange={(e) =>
-                            setParams({
-                              source: id,
-                              ...(e.target.value
-                                ? { version: e.target.value }
-                                : {}),
-                            })
-                          }
+                          onChange={(e) => setParams({ source: id, mode: routeMode, ...(e.target.value ? { version: e.target.value } : {}) })}
                         >
                           <option value="">最新保存结果</option>
                           {detail.data.versions.map((v) => (
@@ -220,9 +244,9 @@ export default function SourceBooks() {
                       }}
                     />
                     <div className="knowledge-choices" role="radiogroup" aria-label="路线创作方式">
-                      {([['source_development', '原故事推演'], ['original_rewrite', '改编重写'], ['reference_creation', '借鉴创作']] as const).map(([value, label]) => <button type="button" role="radio" aria-checked={routeMode === value} className={routeMode === value ? 'selected' : ''} key={value} onClick={() => setRouteMode(value)}>{label}</button>)}
+                      {([['source_development', '原故事推演'], ['original_rewrite', '改编重写'], ['reference_creation', '借鉴创作']] as const).map(([value, label]) => <button type="button" role="radio" aria-checked={routeMode === value} className={routeMode === value ? 'selected' : ''} key={value} onClick={() => setParams(previous => { const next = new URLSearchParams(previous); next.set('source', id); next.set('mode', value); return next; })}>{label}</button>)}
                     </div>
-                    <SourceRoutes key={`${id}:${routeMode}`} sourceId={id} mode={routeMode} onContinue={continueRoute} />
+                    <SourceRoutes key={`${id}:${routeMode}`} sourceId={id} mode={routeMode} onContinue={continueRoute} onStatusChange={refreshStatus} />
                     {detail.data.result && (
                       <details><summary>在新建页面继续配置</summary><div className="source-library-create">
                         <button

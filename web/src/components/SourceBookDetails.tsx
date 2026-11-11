@@ -1,6 +1,7 @@
 import { sourceBooksApi, type SourceDetail } from "../api/sourceBooks";
 import SourceStudyPanel from "./SourceStudyPanel";
 import SourcePlan from "./SourcePlan";
+import SourceDesignStatus from "./SourceDesignStatus";
 export default function SourceBookDetails({
   book,
   onRefresh,
@@ -18,6 +19,7 @@ export default function SourceBookDetails({
       )}
       <div>
         <h4>{book.title}</h4>
+        <SourceDesignStatus design={book.design} />
         <p>
           {book.chapter_count} 篇清单章节
           {book.supplement_count
