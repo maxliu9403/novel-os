@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from core.outline_planning import _json, content_hash
+from core.outline_planning import content_hash
 from core.planning_capacity import input_limit
 from core import planning_residual_evidence as evidence
 
@@ -30,9 +30,6 @@ instruction can be replaced with the positive source-grounded constraint. Cite t
 of directly relevant adopted passages for EVERY edit. If this window needs no narrative
 change or the available evidence cannot justify one, return an empty edits list and say why.
 Registration and typed promise references are handled separately. Never certify the book."""
-# Bound one editor turn even when the provider has not advertised an input limit.
-# The actual full request (including the frozen creative context) is checked separately.
-_PAGE_BYTES = 48 * 1024
 _GLOBAL = ('structural_risks', 'assumptions')
 _MAP = ('purpose', 'incoming_consequence', 'outgoing_commitment', 'obligations',
         'ending_obligations', 'reserved_reveals')
@@ -188,20 +185,20 @@ def repair(planner, candidate, review, evidence_plan, *, blocked_indices):
         protected = evidence.protected_fields(selected, readonly, fields)
         direct = {**base, 'scoped_evidence': [*author, *readonly, *protected], 'fields': fields}
         binding = {}
-        fits_direct = (len(_json(fields).encode()) <= _PAGE_BYTES and len(_json(direct).encode()) <= 2 * _PAGE_BYTES
-                       and evidence.fits(planner, INSTRUCTION, direct, limit))
-        if not evidence.partitioned(planner, 'narrative', root_hash, INSTRUCTION, direct, not fits_direct):
+        fits_direct = evidence.fits(planner, INSTRUCTION, direct, limit)
+        if (evidence.full_input_upgrade(planner, root_hash, INSTRUCTION, direct, limit)
+                or not evidence.partitioned(planner, 'narrative', root_hash, INSTRUCTION, direct, not fits_direct)):
             contexts = [direct]
         else:
             constraint, binding = evidence.direction(planner, root_hash, base,
-                                                     [*author, *selected], limit, _PAGE_BYTES)
+                                                     [*author, *selected], limit)
             decision = constraint['shared_edit_direction']
             if not decision['direction'].strip():
                 audit.append({'operation': 'narrative_fields', 'issue_index': index, **binding,
                               'edits': [], 'reason': decision['reason']})
                 continue
             contexts = evidence.pages(planner, 'narrative', root_hash, INSTRUCTION, {**base, **constraint},
-                                      'fields', fields, limit, _PAGE_BYTES)
+                                      'fields', fields, limit)
         for context in contexts:
             def validate(value):
                 return _validate(value, context)

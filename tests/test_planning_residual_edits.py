@@ -1,8 +1,10 @@
 import copy
+import json
 
 import pytest
 
 from core import planning_residual_edits as narrative
+from core.outline_planning import _json
 
 
 class Planner:
@@ -101,9 +103,8 @@ def test_closes_global_roadmap_and_nested_mirrors_with_one_request_and_audit():
     assert p.calls[0]['chapter_numbers_by_position']['chapter_map'] == {'1': 1}
 
 
-def test_stopped_window_resumes_from_receipts_and_does_not_trim_fields(monkeypatch):
-    monkeypatch.setattr(narrative, '_PAGE_BYTES', 250)
-    p, candidate = Planner(respond), book()
+def test_stopped_window_resumes_from_receipts_and_does_not_trim_fields():
+    p, candidate = Planner(respond, max_bytes=2_700), book()
 
     def stop_second(ctx):
         if len(p.calls) == 2:
@@ -143,9 +144,106 @@ def test_completed_direct_request_is_reused_when_capacity_shrinks():
     assert len(p.calls) == 1 and not p.evidence and not p.directions
 
 
-def test_interrupted_partition_remains_frozen_when_capacity_increases(monkeypatch):
-    monkeypatch.setattr(narrative, '_PAGE_BYTES', 250)
-    p, candidate = Planner(respond), book()
+@pytest.mark.parametrize('max_bytes', [None, 1_000_000])
+def test_large_complete_input_uses_one_editor_when_the_connection_accepts_it(max_bytes):
+    candidate = book()
+    candidate['chapters'][1]['summary'] = '完整只读依据。' * 30_000
+    p = Planner(respond, max_bytes=max_bytes)
+    new, _ = repair(p, candidate, [issue()])
+    assert len(p.calls) == 1 and not p.evidence and not p.directions
+    assert len(_json(p.calls[0]).encode()) > 600_000
+    assert new['chapters'][1] == candidate['chapters'][1]
+    assert [['chapters', 1], candidate['chapters'][1]] in p.calls[0]['scoped_evidence']
+
+
+def test_evidence_only_split_can_promote_complete_input_and_retains_paid_receipts(tmp_path):
+    p, candidate = Planner(respond, max_bytes=2_700), book()
+    p.cache = tmp_path
+    raw = tmp_path / 'raw'
+    raw.mkdir()
+    original = p._call
+
+    def archive(name, instruction, context, validate, **kwargs):
+        (raw / (name + '.request.prompt.txt')).write_text(instruction + '\n\n' + _json(context))
+        if 'selected_scoped_fields' in context:
+            raise RuntimeError('direction interrupted')
+        result = original(name, instruction, context, validate, **kwargs)
+        (raw / (name + '.request.response.txt')).write_text(json.dumps(result))
+        return result
+
+    p._call = archive
+    with pytest.raises(RuntimeError, match='direction interrupted'):
+        repair(p, candidate, [issue()])
+    retained = {str(f.relative_to(tmp_path)): f.read_bytes() for f in raw.iterdir()}
+    assert not p.calls and p.evidence
+    p.max_bytes = None
+    p._call = original
+    new, receipts = repair(p, candidate, [issue()])
+    promotions = [value for key, (_, value) in p.saved.items() if key.endswith('-full-input')]
+    assert len(promotions) == len(p.calls) == 1
+    assert set(promotions[0]['retained_artifacts']) == set(retained)
+    assert any(path.endswith('.prompt.txt') and path.replace('.prompt.txt', '.response.txt') not in retained
+               for path in retained)
+    assert all((tmp_path / name).read_bytes() == text for name, text in retained.items())
+    assert new['chapters'][0]['summary'] == 'a seal stays intact.'
+    assert repair(p, candidate, [issue()]) == (new, receipts) and len(p.calls) == 1
+    first = next(iter(retained))
+    (tmp_path / first).write_text('changed historical evidence')
+    with pytest.raises(ValueError, match='artifact changed'):
+        repair(p, candidate, [issue()])
+
+
+def test_historical_editor_requests_prevent_promoting_an_already_started_split(tmp_path):
+    p, candidate = Planner(respond, max_bytes=2_700), book()
+    p.cache = tmp_path
+    raw = tmp_path / 'raw'
+    raw.mkdir()
+    original = p._call
+
+    def archive(name, instruction, context, validate, **kwargs):
+        if 'fields' in context:
+            (raw / (name + '.request.prompt.txt')).write_text(instruction + '\n\n' + _json(context))
+        return original(name, instruction, context, validate, **kwargs)
+
+    def stop(ctx):
+        if len(p.calls) == 2:
+            raise RuntimeError('editor interrupted')
+        return respond(ctx)
+
+    p._call, p.response = archive, stop
+    with pytest.raises(RuntimeError, match='editor interrupted'):
+        repair(p, candidate, [issue()])
+    # Version before promotion recorded only raw requests and result receipts.
+    p.saved = {key: value for key, value in p.saved.items() if not key.startswith('residual-editor-started-')}
+    p.max_bytes, p.response = None, respond
+    new, _ = repair(p, candidate, [issue()])
+    assert not any(key.endswith('-full-input') for key in p.saved)
+    assert len(p.calls) == 3 and p.calls[1] == p.calls[2]
+    assert new['chapters'][0]['summary'] == 'a seal stays intact.'
+
+
+@pytest.mark.parametrize('remaining', ['format', 'unreadable_format', 'orphan_result'])
+def test_incomplete_historical_editor_provenance_cannot_enable_full_input_promotion(tmp_path, remaining):
+    from core import planning_residual_evidence as evidence
+
+    p = Planner(respond)
+    p.cache = tmp_path
+    (tmp_path / 'raw').mkdir()
+    context = {'finding': {'message': 'Preserve the seal'}, 'issue_index': 0, 'fields': []}
+    name, deps = evidence._key('narrative', 'candidate', narrative.INSTRUCTION, context)
+    p._save(name + '-split', deps, {'split': True})
+    if remaining == 'orphan_result':
+        (tmp_path / (name + '-response.json')).write_text('{}')
+    else:
+        wrapper = {'original_context': context} if remaining == 'format' else {'completed_response': 'unreadable'}
+        path = tmp_path / 'raw' / (name + '-format-correction.request.prompt.txt')
+        path.write_text('STAGE: format_correction\n\n' + _json(wrapper))
+    assert evidence.full_input_upgrade(p, 'candidate', narrative.INSTRUCTION, context, None) is False
+    assert not any(key.endswith('-full-input') for key in p.saved)
+
+
+def test_interrupted_partition_remains_frozen_when_capacity_increases():
+    p, candidate = Planner(respond, max_bytes=2_700), book()
 
     def stop(ctx):
         if len(p.calls) == 2:
@@ -157,7 +255,7 @@ def test_interrupted_partition_remains_frozen_when_capacity_increases(monkeypatc
         repair(p, candidate, [issue()])
     completed = copy.deepcopy(p.calls[0])
     seen = [row for ctx in p.evidence for row in ctx['evidence_fields']]
-    monkeypatch.setattr(narrative, '_PAGE_BYTES', 10_000_000)
+    p.max_bytes = None
     p.response = respond
     new, _ = repair(p, candidate, [issue()])
     assert completed not in p.calls[2:]
@@ -166,10 +264,9 @@ def test_interrupted_partition_remains_frozen_when_capacity_increases(monkeypatc
     assert new['chapters'][0]['summary'] == 'a seal stays intact.'
 
 
-def test_global_contracts_and_author_choices_reach_both_editor_modes(monkeypatch):
-    for page_bytes in (250, 48 * 1024):
-        monkeypatch.setattr(narrative, '_PAGE_BYTES', page_bytes)
-        p = Planner(respond)
+def test_global_contracts_and_author_choices_reach_both_editor_modes():
+    for max_bytes in (3_200, None):
+        p = Planner(respond, max_bytes=max_bytes)
         choices = [{'choice_id': 'verified-choice', 'selected_author_quote': 'The door stays closed.'}]
         decision = {'selected_author_quote': 'The messenger goes unnamed.'}
         repair(p, book(), [issue(prior_author_choices=choices, binding_author_decision=decision)])
@@ -241,7 +338,8 @@ def test_out_of_scope_stale_or_unsourced_edits_rejected_atomically(change):
     candidate = book()
     with pytest.raises(ValueError):
         repair(p, candidate, [issue()])
-    assert candidate == book() and not p.saved
+    assert candidate == book()
+    assert not any('edits' in value for _, value in p.saved.values())
 
 
 def test_separate_findings_cannot_grant_each_other_write_access_or_evidence():

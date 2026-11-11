@@ -1,6 +1,10 @@
 """Bind all editor windows for one finding to the same source-grounded direction."""
 from __future__ import annotations
 
+import hashlib
+import json
+import re
+
 from core.outline_planning import _json, content_hash
 from core.skeleton_projection import chapter_locations
 
@@ -126,23 +130,114 @@ def partitioned(planner, stage, root_hash, instruction, context, wants_split):
     return False
 
 
-def pages(planner, stage, root_hash, instruction, base, key, rows, limit, page_bytes):
+def _scope_context(context):
+    changing = {'fields', 'evidence_fields', 'selected_scoped_fields', 'scoped_evidence', 'shared_edit_direction'}
+    return {key: value for key, value in context.items() if key not in changing}
+
+
+def _edit_marker(root_hash, instruction, context):
+    deps = {'candidate': root_hash, 'scope': content_hash(_scope_context(context)), 'policy': content_hash(instruction)}
+    return 'residual-editor-started-v1-' + content_hash(deps)[:24], deps
+
+
+def _read_artifact(path):
+    from core.planning_recovery import _artifact
+    return _artifact(path.absolute())
+
+
+def _historical_edit_started(planner, context):
+    cache = getattr(planner, 'cache', None)
+    if cache is None:
+        return False
+    raw = cache / 'raw'
+    for path in cache.glob('residual-narrative-v1-*.json'):
+        if re.fullmatch(r'residual-narrative-v1-[0-9a-f]{24}(?:-format-correction)?(?:-response)?', path.stem):
+            stage = path.stem.removesuffix('-response')
+            if not any(raw.glob(stage + '.*.prompt.txt')):
+                # A result with missing request provenance could be this scope.
+                return True
+    for path in raw.glob('residual-narrative-v1-*.prompt.txt'):
+        prompt = _read_artifact(path)
+        try:
+            start = prompt.index('\n\n{') + 2
+            saved, _ = json.JSONDecoder().raw_decode(prompt[start:])
+        except (ValueError, TypeError):
+            # An unreadable historical request cannot establish that no edit ran.
+            return True
+        if isinstance(saved, dict) and 'original_context' in saved:
+            saved = saved['original_context']
+        if not isinstance(saved, dict) or not {'finding', 'issue_index'} <= saved.keys():
+            return True
+        if _scope_context(saved) == _scope_context(context):
+            return True
+    return False
+
+
+def full_input_upgrade(planner, root_hash, instruction, context, limit):
+    """Promote an old evidence-only split when the complete original input fits.
+
+    Existing edit requests keep their original view. Prior discovery replies remain
+    immutable evidence and the promotion records their bytes, including requests
+    that were interrupted before a reply was archived.
+    """
+    name, deps = _key('narrative', root_hash, instruction, context)
+    split = planner._load(name + '-split', deps, lambda value: value, strict_dependencies=True)
+    if split is None:
+        return False
+    if split != {'split': True}:
+        raise ValueError('Invalid residual partition checkpoint')
+    cache = getattr(planner, 'cache', None)
+
+    def validate(record):
+        if (not isinstance(record, dict) or set(record) != {'mode', 'retained_artifacts'}
+                or record['mode'] != 'complete_input' or not isinstance(record['retained_artifacts'], dict)):
+            raise ValueError('Invalid residual full-input promotion')
+        for relative, digest in record['retained_artifacts'].items():
+            if (cache is None or not isinstance(relative, str) or relative.startswith('/')
+                    or any(part in ('..', '.') for part in relative.split('/'))
+                    or hashlib.sha256(_read_artifact(cache / relative).encode()).hexdigest() != digest):
+                raise ValueError('Promoted residual discovery artifact changed')
+        return record
+
+    if planner._load(name + '-full-input', deps, validate, strict_dependencies=True) is not None:
+        return True
+    marker, marker_deps = _edit_marker(root_hash, instruction, context)
+    if (not fits(planner, instruction, context, limit)
+            or planner._load(marker, marker_deps, lambda value: value, strict_dependencies=True) is not None
+            or _issued(planner, name, deps) or _historical_edit_started(planner, context)):
+        return False
+    retained = {}
+    if cache is not None:
+        for directory in (cache, cache / 'raw'):
+            for pattern in ('residual-select-v1-*', 'residual-direction-v1-*'):
+                for path in directory.glob(pattern):
+                    if path.is_file():
+                        retained[str(path.relative_to(cache))] = hashlib.sha256(_read_artifact(path).encode()).hexdigest()
+    planner._save(name + '-full-input', deps, {'mode': 'complete_input', 'retained_artifacts': retained})
+    return True
+
+
+def pages(planner, stage, root_hash, instruction, base, key, rows, limit):
     """Partition only between complete fields. Dispatch reports accurate capacity
     for an indivisible request and can recover completed responses without a new call."""
     ctx = {**base, key: rows}
-    too_large = len(_json(rows).encode()) > page_bytes or not fits(planner, instruction, ctx, limit)
+    too_large = not fits(planner, instruction, ctx, limit)
     if len(rows) < 2 or not partitioned(planner, stage, root_hash, instruction, ctx, too_large):
         yield ctx
     else:
         mid = len(rows) // 2
-        yield from pages(planner, stage, root_hash, instruction, base, key, rows[:mid], limit, page_bytes)
-        yield from pages(planner, stage, root_hash, instruction, base, key, rows[mid:], limit, page_bytes)
+        yield from pages(planner, stage, root_hash, instruction, base, key, rows[:mid], limit)
+        yield from pages(planner, stage, root_hash, instruction, base, key, rows[mid:], limit)
 
 
 def checkpoint(planner, stage, root_hash, instruction, context, validate, limit):
     name, deps = _key(stage, root_hash, instruction, context)
     result = planner._load(name, deps, validate, strict_dependencies=True)
     if result is None:
+        if stage == 'narrative':
+            marker, marker_deps = _edit_marker(root_hash, instruction, context)
+            if planner._load(marker, marker_deps, lambda value: value, strict_dependencies=True) is None:
+                planner._save(marker, marker_deps, {'issued': True})
         result = planner._call(name, instruction, context, validate, input_limit_bytes=limit, strict_dependencies=True,
                                recover_archived=True)
         planner._save(name, deps, result)
@@ -154,7 +249,7 @@ def _indices(values, size):
             and len(set(values)) == len(values))
 
 
-def direction(planner, root_hash, base, materials, limit, page_bytes):
+def direction(planner, root_hash, base, materials, limit):
     """Select original evidence before resolving the one shared edit direction."""
     fields = []
     for path, value in materials:
@@ -169,7 +264,7 @@ def direction(planner, root_hash, base, materials, limit, page_bytes):
         else:
             fields.extend(_leaves(path, value))
     scans, selected = [], []
-    for page in pages(planner, 'select', root_hash, SELECT, base, 'evidence_fields', fields, limit, page_bytes):
+    for page in pages(planner, 'select', root_hash, SELECT, base, 'evidence_fields', fields, limit):
         values = page['evidence_fields']
 
         def validate_selection(response):
