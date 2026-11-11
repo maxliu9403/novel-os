@@ -1,5 +1,15 @@
 # Novel OS 项目记忆
 
+## 2026-11-11 19:44：新联合审稿真实通过，已进入第9章
+
+第8章首次真实 `joint-editorial.v2` 审稿四项均pass，一次完成，0协议纠正；段落目录逐字符重建完整候选，原回复与派生报告原字节一致。正常晋级第8章，当前同一任务和job正在 `chapter.write / 9`。第7章旧回复迁移及第8章新协议两条生产路径均完成验收，部署仍为 `6f6f0ae`。证据 `output/joint-review-recovery-20261111/new-protocol-accepted.json`；完整结论见[联合审稿修复报告](docs/reports/2026-11-11-joint-review-recovery.md)。不是整本小说完成；后续以实时状态为准。
+
+## 2026-11-11 19:38：联合审稿修复已部署，第7章真实免费恢复
+
+5174已部署 `6f6f0ae`，原生resume job `79ccfecdb48e444089084b9c9ad2d0d5`。真实第7章复用原请求 `fe5f7f27e3a34b50a77723a5d9a4b5a6`，0额外审稿调用，正文原字节不变；仅两引用边界恢复，正常晋级一次。当前 `ac3f15f6efff` running / chapter.write / 8。1,202受保护文件与其他项目31,289文件核验一致，旧报告归档。
+
+最终全量5532通过3跳过，前端构建通过，最终源码隔离原生双次恢复验收通过。证据 `output/joint-review-recovery-20261111/accepted.json`；回滚 volume-obligations。当前仍需观察第8章首次真实v2审稿，不可把旧回复迁移成功当作新模型协议已验收。
+
 ## 2026-11-11 19:30：联合审稿协议与恢复边界修复待发布
 
 当前真实任务 `ac3f15f6efff` failed / chapter.validate / 7，已完成1–6章。第7章原paid回复仅两处摘录多边界引号；正文与请求/回复/冻结上下文SHA均一致。新增[证据ID协议与持久恢复](docs/design/2026-11-11-joint-review-evidence.md)，机器报告不再做散文清洗，完整校验后才进入状态提案；原v1请求精确复用，原判断与状态块不变。历史 long_form.audit 整state指纹及全局失效传播另有缺陷，已隔离只读审计范围，防止重写第7章。
