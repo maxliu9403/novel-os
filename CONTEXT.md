@@ -1,5 +1,13 @@
 # Novel OS domain language
 
+## Whole-story source routes (2026-11-11; implemented, unreleased)
+
+`source-story-design.v1` is an explicit new design operation beside legacy SourceStudy. It reads all supplied material and produces comparable whole-story proposals with concrete causality, emotional scenes, choices, costs, highlights, long promises and endings. A route is not a source chapter or an adopted skeleton. Author corrections, model assumptions, observed source events, character statements and synopsis promises retain separate authority. Reading coverage proves supplied input, not literary understanding.
+
+`story-design` stores immutable source-understanding and route-set versions, exact feedback, scoped revision/expansion actions and model receipts. Source correction preserves historical observations and their provenance without treating a superseded interpretation as a current obligation. Capacity handling keeps complete evidence and artifacts; a changed candidate requires renewed earlier coverage. Indivisible required information that still exceeds capacity is preserved and reported, never silently removed.
+
+`source-route-context.v1` binds a selected discussion direction, actual editable Genre/Tags, latest author feedback and a complete `source-route-evidence.v1` private packet. Selection establishes only the direction node; proposed events remain editable. A durable handoff freezes types, source evidence, cover and discussion rules before creating a session and its first turn. `creative-handoff.v5` carries this binding into subsequent creation. Existing discussions and running novels keep their original contracts. See [implementation and validation](docs/reports/2026-11-11-source-story-routes.md).
+
 ## Joint review evidence and durable recovery (2026-11-11)
 
 `joint-editorial.v2` uses code-owned paragraph IDs bound to the complete candidate and catalog hashes. Models judge; code locates quotations. The v1 compatibility decoder only removes extra outer display quotes when the remainder matches a unique exact continuous span. `joint-review-session.v1` preserves original requests, raw replies and derived bindings before state adoption; issued corrections remain authoritative across recovery. Machine evidence bypasses prose cleanup. A read-only long-form audit owns only its as-of dependencies and cannot restore story state or invalidate later paid production. See [joint review evidence](docs/design/2026-11-11-joint-review-evidence.md).

@@ -8,7 +8,7 @@ import hashlib
 import json
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from .workshop_guidance import Evidence, _evidence_valid
+from .workshop_guidance import Evidence, SourceRouteEvidence, _evidence_valid
 
 AREAS = ('direction', 'opening', 'middle', 'climax', 'ending')
 MAX_CANDIDATE_BYTES = 128 * 1024
@@ -21,7 +21,7 @@ class Node(Record):
     area: Literal['direction', 'opening', 'middle', 'climax', 'ending']
     summary: str = Field(min_length=1, max_length=1800)
     status: Literal['missing', 'proposed', 'settled', 'conflict']
-    evidence: list[Evidence] = Field(default_factory=list, max_length=4)
+    evidence: list[Evidence | SourceRouteEvidence] = Field(default_factory=list, max_length=4)
 
 class Opening(Record):
     situation: str = Field(min_length=1, max_length=1200)
@@ -77,7 +77,7 @@ def validate_candidate(raw, record, session):
         except ValidationError as exc:
             # Only schema-owned field names/indices. Never echo input values,
             # unknown keys, prompts or pydantic's value-containing messages.
-            known_fields = set().union(*(set(cls.model_fields) for cls in (Story, MapCore, Node, Opening, Assumption, Resolution, Evidence)))
+            known_fields = set().union(*(set(cls.model_fields) for cls in (Story, MapCore, Node, Opening, Assumption, Resolution, Evidence, SourceRouteEvidence)))
             for error in exc.errors(include_url=False, include_input=False, include_context=False)[:6]:
                 location = path
                 for part in error['loc']:
@@ -148,7 +148,12 @@ def validate_candidate(raw, record, session):
                 issue('evidence', path + '.evidence', 'invalid_evidence', '引用格式不符；已确认状态降回提案。')
                 evidence, rejected = [], True
             for j, item in enumerate(evidence):
-                parsed = parse(Evidence, item, 'evidence', f'{path}.evidence[{j}]')
+                evidence_model = SourceRouteEvidence if isinstance(item, dict) and 'author_action_ref' in item else Evidence
+                parsed = parse(evidence_model, item, 'evidence', f'{path}.evidence[{j}]')
+                if isinstance(parsed, SourceRouteEvidence) and node.area != 'direction':
+                    parsed = None
+                    rejected = True
+                    issue('evidence', path + '.evidence', 'direction_only', '路线选择仅确认方向，具体事件仍是提案。')
                 if parsed is None or not _evidence_valid(parsed, session, record['message_index']):
                     rejected = True
                     if parsed is not None:

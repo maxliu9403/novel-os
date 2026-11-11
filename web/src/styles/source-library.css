@@ -343,6 +343,19 @@
   cursor: pointer;
 }
 @media (max-width: 640px) {
+  .source-library-page {
+    padding: 12px 8px;
+  }
+  .source-library-page .source-library {
+    padding: 20px 12px;
+  }
+  .source-library-status,
+  .source-library-columns > nav {
+    padding: 16px 0;
+  }
+  .source-library-detail {
+    padding: 6px 0 20px;
+  }
   .source-plan header,
   .source-plan-cards article {
     padding: 16px;

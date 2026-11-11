@@ -727,7 +727,18 @@ JSON and current draft are not an additional mandatory user confirmation round.
                         raise LLMInputLimitError(request_size, min(limits))
                 if receipt is not None and session.get('_save_type_request'):
                     session['_save_type_request'](receipt)
-                text = client.complete(system, user)
+                from core.source_route_context import enabled as route_source_enabled, SourceEvidenceCoordinator
+                if route_source_enabled(session.get('source_context')):
+                    evidence_root = session.get('_source_evidence_root')
+                    if evidence_root is None:
+                        raise ValueError('选中路线缺少完整来源证据目录；未调用模型。')
+                    coordinator = SourceEvidenceCoordinator(
+                        evidence_root, session['source_context'],
+                        cancelled=session['_cancellation_event'].is_set if session.get('_cancellation_event') else None,
+                        deadline=deadline)
+                    text = coordinator.complete(client, system, user, limit=route.get('planning_input_bytes'))
+                else:
+                    text = client.complete(system, user)
                 received_model_response = True
                 if receipt is not None and session.get('_save_type_request'):
                     session['_save_type_request']({**receipt, 'status': 'response_received'})
@@ -1296,7 +1307,8 @@ class WorkshopService:
             self._delivery_identity(data, record)
             save_checkpoint(self._path(data["id"]) / "delivery", data["delivery_run_id"], record)
 
-    def create(self, body: SessionInput) -> dict:
+    def create(self, body: SessionInput, *, _session_id=None, _source_context=None, _source_packet=None,
+               _frozen_type_snapshot=None) -> dict:
         if body.audience_channel is None:
             raise HTTPException(422, '请选择男频或女频，再创建讨论。')
         if not body.creative_types:
@@ -1304,11 +1316,19 @@ class WorkshopService:
         _, version = _skill_bundle()
         initial_input = body.model_dump()
         initial_input['creation_flow'] = 'genre_tags.v2'
-        snapshot = self._type_snapshot(initial_input)
+        snapshot = (self._bind_frozen_types(initial_input, _frozen_type_snapshot)
+                    if _frozen_type_snapshot is not None else self._type_snapshot(initial_input))
         from .source_library import freeze
-        source_context = freeze(self.projects, initial_input.get('source_book'))
-        session_id = uuid.uuid4().hex
-        self._path(session_id).mkdir(parents=True)
+        source_context = (_source_context if _source_context is not None
+                          else freeze(self.projects, initial_input.get('source_book')))
+        session_id = _session_id or uuid.uuid4().hex
+        session_path = self._path(session_id)
+        if (session_path / 'session.json').exists():
+            raise HTTPException(409, '讨论已存在，不能覆盖。')
+        session_path.mkdir(parents=True, exist_ok=_session_id is not None)
+        if _source_packet is not None:
+            from core.source_route_context import save_packet, validate_packet
+            save_packet(session_path, validate_packet(_source_packet, source_context))
         data = {"schema": SCHEMA, "id": session_id, "revision": 0, "input": initial_input,
                 "messages": [], "prompt_md": "", "questions": [], "status": "draft",
                 "last_error": None, "job_id": None, "skill_version": version, "prepared": None,
@@ -1316,6 +1336,19 @@ class WorkshopService:
                 "ready_for_confirmation": False, "source_context": source_context, "creative_design": new_design(initial_input, snapshot)}
         self._save(data)
         return data
+
+    @staticmethod
+    def _bind_frozen_types(initial_input, snapshot):
+        """Resume an accepted handoff without consulting a changed live catalog."""
+        from core.creative_types import parse_document
+        compile_snapshot(snapshot, 'brainstorm')  # validates hash and complete documents
+        refs = [{k: row[k] for k in ('id', 'version', 'source_sha256')} for row in snapshot['documents']]
+        submitted = [{k: row[k] for k in ('id', 'version', 'source_sha256')} for row in initial_input['creative_types']]
+        if refs != submitted or snapshot.get('audience_channel') != initial_input.get('audience_channel'):
+            raise ValueError('冻结题材与本次作者选择不一致。')
+        initial_input['publication_taxonomy'] = deepcopy(snapshot['publication_taxonomy'])
+        initial_input['genres'] = [parse_document(row['markdown'])['name'] for row in snapshot['documents']]
+        return deepcopy(snapshot)
 
     def _type_snapshot(self, initial_input: dict, *, parent_sha256: str | None = None) -> dict | None:
         refs = initial_input.get('creative_types')
@@ -1795,7 +1828,9 @@ class WorkshopService:
                               self._load_delivery_checkpoint(data, skill_version=version))
             except CheckpointError:
                 raise HTTPException(409, "已保存阶段与当前设定或 Skill 不匹配，或完整性检查失败；请重新推导，旧记录已保留。") from None
-            if data["status"] == "error" and (not checkpoint or not checkpoint["completed"]):
+            from core.source_route_context import enabled as route_source_enabled
+            if (data["status"] == "error" and (not checkpoint or not checkpoint["completed"])
+                    and not route_source_enabled(data.get('source_context'))):
                 raise HTTPException(409, "本轮尚未保存可恢复的阶段，请重新提交讨论要求。")
             data["revision"] += 1
             data["turn_intent"] = "deliver" if checkpoint else data.get("turn_intent", "discuss")
@@ -1822,6 +1857,7 @@ class WorkshopService:
         snapshot["_diagnostic_dir"] = self._path(session_id) / "diagnostics"
         snapshot["_candidate_path"] = self._path(session_id) / "candidates" / f"{revision}.md"
         snapshot["_inference_lock_path"] = self._path(session_id) / ".inference.lock"
+        snapshot["_source_evidence_root"] = self._path(session_id)
         snapshot["_save_delivery_checkpoint"] = lambda record: self._save_delivery_checkpoint(snapshot, record, cancel_event)
         snapshot['_save_type_request'] = lambda receipt: self._save_type_request(snapshot, receipt)
         snapshot['_save_delivery_response'] = lambda receipt: self._save_delivery_response(snapshot, receipt)
@@ -1950,7 +1986,10 @@ class WorkshopService:
                 raise HTTPException(422, '请保留 Genre / Tags 创建协议。')
             pending_snapshot = self._type_snapshot(new_input)
             from .source_library import freeze
-            new_source_context = freeze(self.projects, new_input.get('source_book'))
+            from core.source_route_context import enabled as route_source_enabled
+            new_source_context = (deepcopy(data['source_context'])
+                                  if route_source_enabled(data.get('source_context')) and new_input.get('source_book') is None
+                                  else freeze(self.projects, new_input.get('source_book')))
             changes = {key: {"before": data["input"].get(key), "after": value}
                        for key, value in new_input.items() if data["input"].get(key) != value}
             if not changes:
@@ -2199,8 +2238,14 @@ class WorkshopService:
                         _atomic(prompt_path.with_name('knowledge.json'), json.dumps(handoff['type_snapshot'], ensure_ascii=False))
                     if data.get('source_context'):
                         _atomic(project_path / 'outputs/private/source-context.json', json.dumps(data['source_context'], ensure_ascii=False))
-                        from .source_library import carry_cover
-                        carry_cover(self.projects, project_path, data['source_context'])
+                        from core.source_route_context import enabled as route_source_enabled, read_packet, save_packet
+                        if route_source_enabled(data['source_context']):
+                            save_packet(project_path / 'outputs/private', read_packet(self._path(session_id), data['source_context']))
+                            from .workshop_source_handoff import carry_route_cover
+                            carry_route_cover(self._path(session_id), project_path, data['source_context'])
+                        else:
+                            from .source_library import carry_cover
+                            carry_cover(self.projects, project_path, data['source_context'])
                     # Make the project immediately readable without generating an author/model call.
                     ingest_prompt(project_path, prompt_path,
                                   {"title": validated["title"], "genre": validated["genre"]},

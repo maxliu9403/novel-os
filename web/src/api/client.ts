@@ -1,4 +1,5 @@
 import { API_BASE as BASE } from "./base";
+import type { SourceProvenance } from './sourceBooks';
 const coverBase = (id: string) => id.startsWith("workshop:")
   ? `/api/workshop/sessions/${encodeURIComponent(id.slice(9))}/covers`
   : `/api/projects/${encodeURIComponent(id)}/covers`;
@@ -68,7 +69,7 @@ export interface ProjectDeliverySummary {
 }
 
 export interface ProjectSummary {
-  source?: { source_id: string; title: string; analysis_sha256: string; mode: string } | null;
+  source?: (SourceProvenance & { source_id: string; title: string; mode: string }) | null;
   id: string; title: string; genre: string; chapter_count: number; status: string;
   author?: string; word_count?: number; drafted_count?: number;
   content_rating?: "general" | "mature"; updated_at?: string | null;

@@ -78,6 +78,16 @@ export interface SourceVersion {
   created_at: string;
   has_plan: boolean;
 }
+export interface SourceProvenance {
+  source_id?: string;
+  title?: string;
+  mode?: string;
+  schema?: string;
+  analysis_sha256?: string | null;
+  route_set_sha256?: string | null;
+  understanding_sha256?: string | null;
+  route_id?: string | null;
+}
 export interface SourceUsage {
   counts: {
     discussions: number;
@@ -89,13 +99,13 @@ export interface SourceUsage {
     id: string;
     title: string;
     status: string;
-    source: { analysis_sha256: string };
+    source: SourceProvenance;
   }>;
   projects: Array<{
     id: string;
     title: string;
     status: string;
-    source: { analysis_sha256: string };
+    source: SourceProvenance;
   }>;
 }
 export interface SourceDetail extends SourceBook {

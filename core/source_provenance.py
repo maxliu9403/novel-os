@@ -10,10 +10,14 @@ def source_summary(source):
         r"source-[0-9a-f]{64}", str(source.get("source_id", ""))
     ):
         return None
-    return {
+    value = {
         key: source.get(key)
         for key in ("source_id", "title", "analysis_sha256", "mode")
     }
+    if source.get('schema') == 'source-route-context.v1':
+        value.update({key: source.get(key) for key in ('schema', 'understanding_sha256', 'route_set_sha256')})
+        value['route_id'] = source.get('selection', {}).get('route_id')
+    return value
 
 
 @lru_cache(maxsize=512)

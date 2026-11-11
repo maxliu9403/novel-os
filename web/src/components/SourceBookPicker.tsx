@@ -4,17 +4,21 @@ import { sourceBooksApi, type SourceSelection } from "../api/sourceBooks";
 import { useSourceBooks, useSourceBook } from "../hooks/useSourceBooks";
 import { readSourceDraft, saveSourceDraft } from "../lib/sourceDraft";
 import SourceBookDetails from "./SourceBookDetails";
+import SourceRoutes from './SourceRoutes';
+import type { SourceAuthorContext, SourceRouteChoice } from '../api/sourceRoutes';
 
 export default function SourceBookPicker({
   value,
   onChange,
   onReady,
   persistDraft = true,
+  routeDesign,
 }: {
   value?: SourceSelection | null;
   onChange: (v: SourceSelection | null) => void;
   onReady: (v: boolean) => void;
   persistDraft?: boolean;
+  routeDesign?: { authorContext: SourceAuthorContext; draftKey: string; choice?: SourceRouteChoice | null; onChoice: (choice: SourceRouteChoice | null) => void; onContinue?: (choice: SourceRouteChoice) => Promise<void> };
 }) {
   const [draft] = useState(
     () => value ?? (persistDraft ? readSourceDraft() : undefined),
@@ -25,6 +29,9 @@ export default function SourceBookPicker({
   const [id, setId] = useState(draft?.source_id ?? "");
   const [version, setVersion] = useState(draft?.analysis_sha256 ?? "");
   const [useCover, setUseCover] = useState(draft?.use_cover ?? true);
+  const [routeReady, setRouteReady] = useState(false);
+  const routeChoiceRef = useRef<SourceRouteChoice | null>(null);
+  const routeEnabled = !!routeDesign;
   const listing = useSourceBooks();
   const detail = useSourceBook(
     mode === "original" ? "" : id,
@@ -52,10 +59,10 @@ export default function SourceBookPicker({
     readyRef.current = onReady;
   }, [onChange, onReady]);
   useEffect(() => {
-    const ready = mode === "original" || (book?.id === id && !!book.result);
+    const ready = mode === "original" || (routeEnabled ? routeReady : book?.id === id && !!book.result);
     readyRef.current(!!ready);
     onChangeRef.current(
-      mode !== "original" && ready && book?.result
+      !routeEnabled && mode !== "original" && ready && book?.result
         ? {
             source_id: book.id,
             analysis_sha256: book.result.analysis_sha256,
@@ -64,10 +71,12 @@ export default function SourceBookPicker({
           }
         : null,
     );
-  }, [mode, id, book, useCover]);
+  }, [mode, id, book, useCover, routeReady, routeEnabled]);
   function changeMode(next: typeof mode) {
     setMode(next);
     setError("");
+    setRouteReady(false);
+    routeDesign?.onChoice(null);
     if (next !== "original") readyRef.current(false);
   }
   async function upload(files: File[]) {
@@ -78,6 +87,8 @@ export default function SourceBookPicker({
       const added = await sourceBooksApi.upload(files);
       setId(added.id);
       setVersion("");
+      setRouteReady(false);
+      routeDesign?.onChoice(null);
       listing.refresh();
     } catch (e) {
       setError(String(e));
@@ -110,8 +121,8 @@ export default function SourceBookPicker({
             ["original", "原创构想"],
             ["source_development", "原故事推演"],
             ["original_rewrite", "改编重写"],
-            ...(mode === "reference_creation"
-              ? [["reference_creation", "独立参考创作（已保存）"] as const]
+            ...(mode === "reference_creation" || routeDesign
+              ? [["reference_creation", routeDesign ? "借鉴创作" : "独立参考创作（已保存）"] as const]
               : []),
           ] as const
         ).map(([v, label]) => (
@@ -141,6 +152,8 @@ export default function SourceBookPicker({
               onChange={(e) => {
                 setId(e.target.value);
                 setVersion("");
+                setRouteReady(false);
+                routeDesign?.onChoice(null);
               }}
             >
               <option value="">选择已导入的小说</option>
@@ -220,17 +233,19 @@ export default function SourceBookPicker({
               )}
               <SourceBookDetails
                 book={book}
+                showLegacyControls={!routeDesign}
                 onRefresh={() => {
                   detail.refresh();
                   listing.refresh();
                 }}
               />
+              {routeDesign && <SourceRoutes key={`${book.id}:${mode}`} sourceId={book.id} mode={mode} authorContext={routeDesign.authorContext} draftKey={routeDesign.draftKey} choiceOverride={routeDesign.choice} onContinue={routeDesign.onContinue ? choice => routeDesign.onContinue!({ ...choice, use_cover: useCover }) : undefined} onChoice={choice => { routeChoiceRef.current = choice; setRouteReady(!!choice); routeDesign.onChoice(choice ? { ...choice, use_cover: useCover } : null); }} />}
               {book.cover_url && (
                 <label>
                   <input
                     type="checkbox"
                     checked={useCover}
-                    onChange={(e) => setUseCover(e.target.checked)}
+                    onChange={(e) => { setUseCover(e.target.checked); if (routeDesign && routeChoiceRef.current) routeDesign.onChoice({ ...routeChoiceRef.current, use_cover: e.target.checked }); }}
                   />{" "}
                   将来源封面带入封面工作室
                   {mode === "reference_creation" ? "作视觉参考" : "进行二创"}

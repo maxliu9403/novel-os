@@ -1,4 +1,5 @@
 import { useSearchParams, Link, useNavigate } from "react-router-dom";
+import { useState } from 'react';
 import Scene from "../components/Scene";
 import SourceBookDetails from "../components/SourceBookDetails";
 import {
@@ -10,6 +11,10 @@ import {
 import { sourceStatusLabels } from "../lib/sourceStatus";
 import { saveSourceDraft } from "../lib/sourceDraft";
 import { sourceBooksApi } from "../api/sourceBooks";
+import SourceRoutes from '../components/SourceRoutes';
+import { sourceRoutesApi, type SourceRouteChoice } from '../api/sourceRoutes';
+import type { SourceSelection } from '../api/sourceBooks';
+import { clearLocal, newOperationId, operationFor, readLocal, writeLocal } from '../lib/sourceRouteDraft';
 import "../styles/creative-types.css";
 import "../styles/source-library.css";
 
@@ -23,6 +28,23 @@ export default function SourceBooks() {
   const version = params.get("version") ?? undefined;
   const detail = useSourceBook(id, version);
   const usage = useSourceUsage(id);
+  const [routeMode, setRouteMode] = useState<SourceSelection['mode']>('source_development');
+  async function continueRoute(choice: SourceRouteChoice) {
+    const key = `novelos-library-route-handoff:${id}:${routeMode}`;
+    const draftId = readLocal<string>(`${key}:draft`) ?? newOperationId();
+    writeLocal(`${key}:draft`, draftId);
+    const result = await sourceRoutesApi.handoff(operationFor(key, {
+      draft_id: draftId, source_id: choice.source_id, route_set_sha256: choice.route_set_sha256, route_id: choice.route_id,
+      author_note: choice.author_note, mode: choice.mode, use_cover: true,
+      input: { title: '', author: '', premise: '', source_book: null, length_planning: 'story_first' as const,
+        creation_flow: 'genre_tags.v2' as const, creative_types: choice.creative_types, genres: choice.genres,
+        audience_channel: choice.audience_channel, language: '', mode: '' as const, audience: '', market: '', constraints: '' },
+      ...(choice.latest_route_set_sha256 ? { latest_route_set_sha256: choice.latest_route_set_sha256 } : {}),
+      ...(choice.pending_feedback_run_id ? { pending_feedback_run_id: choice.pending_feedback_run_id } : {}),
+    }));
+    clearLocal(key); clearLocal(`${key}:draft`);
+    navigate(`/workshop?session=${encodeURIComponent(result.session_id)}`);
+  }
   function create(mode: "source_development" | "original_rewrite") {
     saveSourceDraft({
       source_id: id,
@@ -34,7 +56,7 @@ export default function SourceBooks() {
   }
   return (
     <Scene quiet>
-      <div className="knowledge-page">
+      <div className="knowledge-page source-library-page">
         <section className="knowledge-shell source-library">
           <header className="knowledge-page-head">
             <div>
@@ -161,7 +183,7 @@ export default function SourceBooks() {
                                   </Link>
                                   <span>
                                     {stateLabel(s.status)} ·{" "}
-                                    {s.source.analysis_sha256.slice(0, 6)}
+                                    {s.source.route_set_sha256 ? '整书路线' : s.source.analysis_sha256?.slice(0, 6) ?? '来源资料'}
                                   </span>
                                 </li>
                               ))}
@@ -172,7 +194,7 @@ export default function SourceBooks() {
                                   </Link>
                                   <span>
                                     {stateLabel(p.status)} ·{" "}
-                                    {p.source.analysis_sha256.slice(0, 6)}
+                                    {p.source.route_set_sha256 ? '整书路线' : p.source.analysis_sha256?.slice(0, 6) ?? '来源资料'}
                                   </span>
                                 </li>
                               ))}
@@ -191,19 +213,24 @@ export default function SourceBooks() {
                     )}
                     <SourceBookDetails
                       book={detail.data}
+                      showLegacyControls={false}
                       onRefresh={() => {
                         detail.refresh();
                         listing.refresh();
                       }}
                     />
+                    <div className="knowledge-choices" role="radiogroup" aria-label="路线创作方式">
+                      {([['source_development', '原故事推演'], ['original_rewrite', '改编重写'], ['reference_creation', '借鉴创作']] as const).map(([value, label]) => <button type="button" role="radio" aria-checked={routeMode === value} className={routeMode === value ? 'selected' : ''} key={value} onClick={() => setRouteMode(value)}>{label}</button>)}
+                    </div>
+                    <SourceRoutes key={`${id}:${routeMode}`} sourceId={id} mode={routeMode} onContinue={continueRoute} />
                     {detail.data.result && (
-                      <div className="source-library-create">
+                      <details><summary>在新建页面继续配置</summary><div className="source-library-create">
                         <button
                           type="button"
                           className="btn-primary"
                           onClick={() => create("source_development")}
                         >
-                          带入头脑风暴 · 原故事推演
+                          新建页 · 原故事推演
                         </button>
                         <button
                           type="button"
@@ -212,7 +239,7 @@ export default function SourceBooks() {
                         >
                           改编重写
                         </button>
-                      </div>
+                      </div></details>
                     )}
                   </>
                 ) : (

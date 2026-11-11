@@ -91,6 +91,10 @@ def create_app(projects_root: Optional[Path] = None, db_url: Optional[str] = Non
     app.include_router(system_prompts_router)
     from .source_library import router as source_library_router
     app.include_router(source_library_router)
+    from .source_routes import router as source_routes_router
+    app.include_router(source_routes_router)
+    from .workshop_source_handoff import router as workshop_source_handoff_router
+    app.include_router(workshop_source_handoff_router)
     from .document_import import router as document_import_router
     app.include_router(document_import_router)
     for error_type in (

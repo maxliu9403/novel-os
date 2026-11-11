@@ -4,10 +4,13 @@ import SourcePlan from "./SourcePlan";
 export default function SourceBookDetails({
   book,
   onRefresh,
+  showLegacyControls = true,
 }: {
   book: SourceDetail;
   onRefresh: () => void;
+  showLegacyControls?: boolean;
 }) {
+  const legacyStudy = <SourceStudyPanel key={book.id} id={book.id} study={book.study} hasPlan={book.versions?.[0]?.has_plan ?? !!book.result?.continuation_plan} onRefresh={onRefresh} />;
   return (
     <article className="source-book-summary">
       {book.cover_url && (
@@ -28,15 +31,7 @@ export default function SourceBookDetails({
           <summary>官方 Synopsis</summary>
           <p className="source-synopsis">{book.synopsis}</p>
         </details>
-        <SourceStudyPanel
-          key={book.id}
-          id={book.id}
-          study={book.study}
-          hasPlan={
-            book.versions?.[0]?.has_plan ?? !!book.result?.continuation_plan
-          }
-          onRefresh={onRefresh}
-        />
+        {showLegacyControls ? legacyStudy : (book.study.status !== 'pending' || book.result) && <details open={['running', 'queued'].includes(book.study.status) || book.study.worker_active}><summary>旧版阅读任务与检查点</summary>{legacyStudy}</details>}
         {book.result &&
           book.versions?.[0] &&
           book.result.analysis_sha256 !== book.versions[0].analysis_sha256 && (
@@ -44,9 +39,7 @@ export default function SourceBookDetails({
               当前展示历史分析；带入头脑风暴时会固定使用此版本。
             </p>
           )}
-        {book.result?.continuation_plan && (
-          <SourcePlan plan={book.result.continuation_plan} />
-        )}
+        {book.result?.continuation_plan && (showLegacyControls ? <SourcePlan plan={book.result.continuation_plan} /> : <details><summary>旧版单路线提案 · 历史保留</summary><SourcePlan plan={book.result.continuation_plan} /></details>)}
         {book.result && (
           <details>
             <summary>查看阅读摘要</summary>

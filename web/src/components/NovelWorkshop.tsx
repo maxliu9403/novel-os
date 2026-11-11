@@ -9,7 +9,9 @@ import { Field, fieldClass, textareaClass } from "./Modal";
 import SourceBookPicker from './SourceBookPicker';
 import StoryBriefInput from './StoryBriefInput';
 import CreativeTypePicker from "./CreativeTypePicker";
-import { bindCreativeSelection, validCreativeInput } from '../api/creativeTypes';
+import { bindCreativeSelection, validCreativeInput, isCreativeTypeRef } from '../api/creativeTypes';
+import { sourceRoutesApi, type SourceRouteChoice } from '../api/sourceRoutes';
+import { clearLocal, newOperationId, operationFor, readLocal, writeLocal } from '../lib/sourceRouteDraft';
 import WorkshopTypeSnapshot from './WorkshopTypeSnapshot';
 import WorkshopProjectProgress from './WorkshopProjectProgress';
 import Icon from "./Icon";
@@ -59,7 +61,12 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
   onSessionChange?: (id: string) => void; onCreateNew?: () => void;
 }) {
   const navigate = useNavigate();
-  const [input, setInput] = useState<WorkshopInput>({ ...seed, length_planning: 'story_first', creation_flow: "genre_tags.v2", audience_channel: null, creative_types: [], language: "", mode: "", audience: "", market: "", constraints: "" });
+  const [input, setInput] = useState<WorkshopInput>(() => {
+    const savedDraft = !initialSessionId ? readLocal<{ seed: string; input: WorkshopInput }>('novelos-workshop-creation-v1') : undefined;
+    return savedDraft?.seed === JSON.stringify(seed) ? savedDraft.input : { ...seed, length_planning: 'story_first', creation_flow: "genre_tags.v2", audience_channel: null, creative_types: [], language: "", mode: "", audience: "", market: "", constraints: "" };
+  });
+  const [creationDraftId, setCreationDraftId] = useState(() => readLocal<string>('novelos-workshop-draft-id-v1') ?? newOperationId());
+  const [sourceRoute, setSourceRoute] = useState<SourceRouteChoice | null>(null);
   const [creationStep,setCreationStep] = useState(0);
   const [sourceReady,setSourceReady] = useState(true);
   const [importPending,setImportPending] = useState(false);
@@ -92,6 +99,12 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
   const mounted = useRef(true);
   const close = useRef(onClose);
   useEffect(() => { close.current = onClose; }, [onClose]);
+  useEffect(() => {
+    if (!session && !initialSessionId) {
+      writeLocal('novelos-workshop-creation-v1', { seed: JSON.stringify(seed), input });
+      writeLocal('novelos-workshop-draft-id-v1', creationDraftId);
+    }
+  }, [input, session, initialSessionId, seed, creationDraftId]);
 
   if (seed !== appliedSeed) {
     setAppliedSeed(seed);
@@ -385,6 +398,8 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
     setSession(null); setDraft(""); setError(null); setConnectionError(null);
     setCopied(false); setShowSessions(false);
     setAcceptedTurn(null);
+    setSourceRoute(null); setCreationDraftId(newOperationId());
+    clearLocal('novelos-workshop-creation-v1');
     setEditingBasics(false);
     setInput({ length_planning: 'story_first', creation_flow: "genre_tags.v2", audience_channel: null, creative_types: [], title: "", author: "", genres: [], premise: "", language: "", mode: "", audience: "", market: "", constraints: "", method_mode: seed.method_mode });
     setStep("details"); setCreationStep(0); setSourceReady(true);
@@ -393,18 +408,50 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
 
   async function start(event: FormEvent) {
     event.preventDefault();
-    if (busy || importPending || !validCreativeInput(input) || !input.premise.trim()) return;
+    if (busy || importPending || !validCreativeInput(input) || (!input.premise.trim() && !sourceRoute)) return;
     setBusy("create"); setError(null);
     try {
       const selectedInput = await bindCreativeSelection({ ...input, title: input.title.trim(), premise: input.premise.trim() });
+      if (sourceRoute) {
+        await handoffSourceRoute(sourceRoute, selectedInput);
+        return;
+      }
       const current = await workshopApi.create(selectedInput);
       if (!mounted.current) return;
       remember(current.id); setSaved(null); setSession(current); setStep("discussion");
+      clearLocal('novelos-workshop-creation-v1');
       await submitTurn(current, INITIAL_MESSAGE, "discuss");
       if (mounted.current) onSessionChange?.(current.id);
     } catch (failure) {
       if (mounted.current) { setError(messageOf(failure)); setBusy(null); }
     }
+  }
+
+  async function handoffSourceRoute(choice: SourceRouteChoice, values: WorkshopInput) {
+    const body = operationFor(`novelos-source-handoff:${creationDraftId}`, {
+      draft_id: creationDraftId, source_id: choice.source_id, route_set_sha256: choice.route_set_sha256,
+      route_id: choice.route_id, input: { ...values, source_book: null }, author_note: choice.author_note,
+      mode: choice.mode, use_cover: choice.use_cover ?? true,
+      ...(choice.latest_route_set_sha256 ? { latest_route_set_sha256: choice.latest_route_set_sha256 } : {}),
+      ...(choice.pending_feedback_run_id ? { pending_feedback_run_id: choice.pending_feedback_run_id } : {}),
+    });
+    const result = await sourceRoutesApi.handoff(body);
+    if (!mounted.current) return;
+    const current = result.session;
+    remember(current.id); setSaved(null); setSession(current); setInput(current.input); setStep('discussion'); setBusy(null);
+    clearLocal('novelos-workshop-creation-v1');
+    clearLocal('novelos-workshop-draft-id-v1');
+    clearLocal(`novelos-source-handoff:${creationDraftId}`);
+    onSessionChange?.(current.id);
+  }
+
+  async function continueSourceRoute(choice: SourceRouteChoice) {
+    if (busy || importPending) return;
+    setBusy('create'); setError(null);
+    try {
+      const values = await bindCreativeSelection({ ...input, creative_types: choice.creative_types, genres: choice.genres, audience_channel: choice.audience_channel });
+      await handoffSourceRoute(choice, values);
+    } catch (failure) { if (mounted.current) { setError(messageOf(failure)); setBusy(null); } throw failure; }
   }
 
   function showBasics() {
@@ -662,7 +709,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
           </div>}
 
           {step === "details" && (
-            <form onSubmit={session ? saveBasics : (event) => { if (importPending) { event.preventDefault(); return; } if (creationStep < 2) { event.preventDefault(); if (input.premise.trim() && sourceReady && (creationStep === 0 || validCreativeInput(input))) setCreationStep(creationStep+1); } else if (sourceReady) void start(event); else event.preventDefault(); }} className="flex min-h-0 flex-none flex-col sm:flex-1">
+            <form onSubmit={session ? saveBasics : (event) => { if (importPending) { event.preventDefault(); return; } if (creationStep < 2) { event.preventDefault(); if ((input.premise.trim() || sourceRoute) && sourceReady && (creationStep === 0 || validCreativeInput(input))) setCreationStep(creationStep+1); } else if (sourceReady) void start(event); else event.preventDefault(); }} className="flex min-h-0 flex-none flex-col sm:flex-1">
               <div className="min-h-0 flex-none px-5 sm:flex-1 sm:overflow-y-auto py-2 sm:px-8">
                 <div className="mb-5 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white/60 px-4 py-3 text-[11px] text-ink-muted">
                   <span>头脑风暴模型：{model}</span><Link to="/settings?tab=text" target="_blank" rel="noreferrer" className="font-medium text-violet">独立模型设置 ↗</Link>
@@ -679,14 +726,15 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
                 {!session && <nav className="workshop-creation-steps" aria-label="创建步骤">{['故事与素材','频道与题材','篇幅与偏好'].map((label,index)=><button type="button" key={label} aria-current={creationStep===index?'step':undefined} disabled={index>creationStep} onClick={()=>setCreationStep(index)}>{index+1} {label}</button>)}</nav>}
                 <fieldset className="min-w-0" disabled={Boolean(busy) || running || launched || Boolean(session && !editingBasics)}>
                 {(session || creationStep===0) && <>
-                <SourceBookPicker persistDraft={!session} key={`${session?.id ?? "new"}:${session?.revision ?? 0}:${editingBasics}`} value={input.source_book} onChange={source_book=>setInput(current=>({...current,source_book}))} onReady={setSourceReady} />
+                <SourceBookPicker persistDraft={!session} key={`${session?.id ?? "new"}:${session?.revision ?? 0}:${editingBasics}`} value={input.source_book} onChange={source_book=>setInput(current=>({...current,source_book}))} onReady={setSourceReady}
+                  routeDesign={!session ? { draftKey: creationDraftId, choice: sourceRoute, authorContext: { ...input, creative_types: input.creative_types?.filter(isCreativeTypeRef) ?? [] }, onContinue: continueSourceRoute, onChoice: choice => { setSourceRoute(choice); if (choice) setInput(current => ({ ...current, creative_types: choice.creative_types, genres: choice.genres, audience_channel: choice.audience_channel })); } } : undefined} />
                 <div className="grid gap-x-5 sm:grid-cols-2">
                   <Field label="暂定书名"><input className={fieldClass} value={input.title} onChange={(e) => setInput({ ...input, title: e.target.value })} placeholder="选填，骨架确认后再由你决定正式书名" /></Field>
                   <Field label="作者"><input className={fieldClass} value={input.author} onChange={(e) => setInput({ ...input, author: e.target.value })} placeholder="留空则在创作时生成笔名" /></Field>
                 </div>
                 <StoryBriefInput key={`${session?.id ?? 'new'}:${editingBasics}`} value={input.premise} onChange={premise => setInput(current => ({ ...current, premise }))} onPendingChange={setImportPending} disabled={Boolean(busy) || running || launched || Boolean(session && !editingBasics)} />
                 </>}
-                {(session || creationStep===1) && <CreativeTypePicker refs={input.creative_types} legacyNames={input.genres} channel={input.audience_channel} legacy={!!session && input.creation_flow !== "genre_tags.v2"} onChange={(genres,creative_types,audience_channel) => setInput(current => ({ ...current, genres, creative_types, audience_channel, ...(audience_channel ? { creation_flow: "genre_tags.v2" as const } : {}) }))} />}
+                {(session || creationStep===1) && <CreativeTypePicker refs={input.creative_types} legacyNames={input.genres} channel={input.audience_channel} legacy={!!session && input.creation_flow !== "genre_tags.v2"} onChange={(genres,creative_types,audience_channel) => { setInput(current => ({ ...current, genres, creative_types, audience_channel, ...(audience_channel ? { creation_flow: "genre_tags.v2" as const } : {}) })); if (!session) setSourceRoute(current => current ? { ...current, genres, creative_types, audience_channel: audience_channel ?? null } : null); }} />}
                 {(session || creationStep===2) && <>
                 {input.length_planning === 'story_first' && <p className="mb-4 rounded-xl bg-violet-soft/60 p-4 text-[15px] leading-7">先把故事设计完整，再按关键场景推荐篇幅。下面的数字是初始偏好，可留空；生成骨架前，你会看到并确认完整的分章方案。</p>}
                 <div className="grid gap-x-5 sm:grid-cols-2">
@@ -715,7 +763,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
                 {session ? <div className="flex flex-wrap gap-2">{editingBasics && <button type="button" className="btn-ghost" disabled={Boolean(busy)} onClick={showBasics}>取消修改</button>}
                   {!launched && (editingBasics ? <button key="save-basics" type="submit" className={PRIMARY} disabled={disabled || importPending || !sourceReady || !input.premise.trim() || Boolean(input.creation_flow && !validCreativeInput(input))}>{busy === "input" ? "正在保存…" : "保存基础设定"}</button>
                     : <button key="edit-basics" type="button" className="btn-secondary" disabled={disabled} onClick={(event) => { event.preventDefault(); setEditingBasics(true); }}>修改基础设定</button>)}</div>
-                  : <button type="submit" className={PRIMARY} disabled={Boolean(busy) || importPending || !sourceReady || !input.premise.trim() || (creationStep>0 && !validCreativeInput(input))}>{busy === "create" ? "正在保存设定…" : creationStep<2 ? "下一步" : "开始头脑风暴"}<Icon name="chevron-right" /></button>}
+                  : <button type="submit" className={PRIMARY} disabled={Boolean(busy) || importPending || !sourceReady || (!input.premise.trim() && !sourceRoute) || (creationStep>0 && !validCreativeInput(input))}>{busy === "create" ? "正在保存设定…" : creationStep<2 ? "下一步" : sourceRoute ? "带入所选路线，开始头脑风暴" : "开始头脑风暴"}<Icon name="chevron-right" /></button>}
               </footer>
             </form>
           )}

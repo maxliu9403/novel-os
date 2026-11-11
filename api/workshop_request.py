@@ -135,6 +135,15 @@ def discussion_system(session: dict, creative_rules: str) -> str:
             parts.append('Put unconfirmed assumptions in design_notes.assumptions (max 6 strings).')
     if workshop_capacity.enabled(session):
         parts.append(CAPACITY)
+    from core.source_route_context import enabled as route_source_enabled, RULES as source_route_rules
+    if route_source_enabled(session.get('source_context')):
+        policy = session['source_context'].get('execution_policy', {})
+        parts.append(policy.get('handoff_rules', source_route_rules))
+        if policy.get('discussion_rules'):
+            parts.append(policy['discussion_rules'])
+        parts.append('For the direction node only, evidence may be {"author_action_ref": source_reference.selection.action_id}. '
+                     'This proves selection of a discussion direction only; opening/middle/climax/ending still require '
+                     'their own exact author evidence to be settled. Keep proposed details editable.')
     return '\n'.join(parts)
 
 

@@ -4,7 +4,7 @@ export default function SourcePlan({ plan }: { plan: ContinuationPlan }) {
   return (
     <section className="source-plan" aria-label="续写规划">
       <header>
-        <span className="source-plan-label">续写提案 · 待讨论</span>
+        <span className="source-plan-label">旧版单路线提案 · 待讨论</span>
         <h3>{plan.premise}</h3>
         <p>{plan.overall_arc}</p>
       </header>

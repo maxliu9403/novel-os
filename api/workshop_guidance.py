@@ -74,6 +74,10 @@ class Evidence(_Record):
     quote: str = Field(min_length=1, max_length=1200)
 
 
+class SourceRouteEvidence(_Record):
+    author_action_ref: str = Field(min_length=8, max_length=64)
+
+
 class Coverage(_Record):
     area: Literal["premise", "characters", "plot", "ending"]
     status: Literal["missing", "proposed", "settled", "conflict"]
@@ -112,6 +116,12 @@ def enable(design: dict) -> dict:
 
 
 def _evidence_valid(item: Evidence, session: dict, assistant_index: int) -> bool:
+    if isinstance(item, SourceRouteEvidence):
+        from core.source_route_context import enabled
+        source = session.get('source_context')
+        return (enabled(source) and source.get('selection', {}).get('scope') == 'discussion_direction'
+                and source['selection'].get('action_id') == item.author_action_ref
+                and item.author_action_ref in session.get('source_route_operations', {}))
     if (item.message_index is None) == (item.input_field is None):
         return False
     if item.input_field is not None:

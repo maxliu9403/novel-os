@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>整书路线 · Novel OS 交互设计稿</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">跳到主要内容</a>
+  <div class="prototype-ribbon"><span>REVIEW ONLY</span> 交互设计稿 · 全部故事内容为虚构样例 · 不会调用模型或创建真实任务</div>
+  <div class="shell">
+    <aside class="sidebar" aria-label="应用导航示意">
+      <div class="brand">Novel<span>OS</span><small>故事，从这里继续。</small></div>
+      <nav><span class="nav-item">我的作品</span><span class="nav-item">头脑风暴</span><span class="nav-item active">参考资料 <span>↗</span></span><span class="nav-item">创作知识库</span></nav>
+      <div class="sidebar-note"><span class="tiny-label">本次设计重点</span><p>让作者先看见<br>读者会在意的故事。</p><div class="side-rule"></div><small>从完整资料出发<br>选定方向，再一起深化</small></div>
+    </aside>
+    <div class="workspace">
+      <header class="toolbar"><div id="breadcrumb">参考资料 <span>/</span> 潮汐来信 <span>/</span> 整书路线</div><label class="scenario">查看状态 <select id="scenario"><option value="ready">路线可选择</option><option value="generating">新版本生成中</option><option value="failed">新版本生成失败</option><option value="legacy">旧版单路线提案</option><option value="partial">首次阅读未完成</option></select></label></header>
+      <main id="main" tabindex="-1"></main>
+      <footer class="selection-dock" id="dock"></footer>
+    </div>
+  </div>
+  <dialog id="detail-dialog" aria-labelledby="detail-title"><div id="detail-content"></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

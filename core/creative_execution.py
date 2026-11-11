@@ -109,6 +109,12 @@ def make_handoff(*, source: str, origin: dict, type_snapshot: dict | None = None
             raise CreativeExecutionError('Author amendment handoff requires the story-first execution policy')
         payload.update(schema='creative-handoff.v4', author_requirements=validate_requirements(
             author_requirements, scope='story', source_sha256=text_hash(source)))
+    from core.source_route_context import enabled as route_source_enabled, validate_context
+    if route_source_enabled(source_context):
+        if story_engine is None or author_requirements is None:
+            raise CreativeExecutionError('Source route execution requires the complete story and author requirements')
+        validate_context(source_context)
+        payload['schema'] = 'creative-handoff.v5'
     payload["handoff_sha256"] = digest(payload)
     return validate_handoff(payload)
 
@@ -116,12 +122,12 @@ def make_handoff(*, source: str, origin: dict, type_snapshot: dict | None = None
 def validate_handoff(value: dict) -> dict:
     expected = {"schema", "source_sha256", "origin", "type_snapshot", "adopted_proposals",
                 "legacy_guidance", "stage_contexts", "handoff_sha256"}
-    if isinstance(value, dict) and value.get('schema') in {'creative-handoff.v2', 'creative-handoff.v3', 'creative-handoff.v4'}:
+    if isinstance(value, dict) and value.get('schema') in {'creative-handoff.v2', 'creative-handoff.v3', 'creative-handoff.v4', 'creative-handoff.v5'}:
         from core.reader_investment import validate
         expected.add('reader_investment')
         if validate(value.get('reader_investment')) is None:
             raise CreativeExecutionError('Missing reader investment snapshot')
-    if isinstance(value, dict) and value.get("schema") in {"creative-handoff.v3", "creative-handoff.v4"}:
+    if isinstance(value, dict) and value.get("schema") in {"creative-handoff.v3", "creative-handoff.v4", "creative-handoff.v5"}:
         from core.story_design import VERSION as engine_version
         expected.update({"story_engine", "source_context"})
         if value.get("story_engine") != engine_version:
@@ -130,11 +136,14 @@ def validate_handoff(value: dict) -> dict:
         if source is not None:
             from core.creation_mode import source_policy
             source_policy(source)
-    if isinstance(value, dict) and value.get('schema') == 'creative-handoff.v4':
+    if isinstance(value, dict) and value.get('schema') in {'creative-handoff.v4', 'creative-handoff.v5'}:
         from core.author_requirements import validate_requirements
         expected.add('author_requirements')
         validate_requirements(value.get('author_requirements'), scope='story', source_sha256=value.get('source_sha256'))
-    if not isinstance(value, dict) or set(value) != expected or value.get("schema") not in {HANDOFF_VERSION, 'creative-handoff.v2', 'creative-handoff.v3', 'creative-handoff.v4'}:
+    if isinstance(value, dict) and value.get('schema') == 'creative-handoff.v5':
+        from core.source_route_context import validate_context
+        validate_context(value.get('source_context'))
+    if not isinstance(value, dict) or set(value) != expected or value.get("schema") not in {HANDOFF_VERSION, 'creative-handoff.v2', 'creative-handoff.v3', 'creative-handoff.v4', 'creative-handoff.v5'}:
         raise CreativeExecutionError("Unsupported creative handoff; no model was called")
     if (not re.fullmatch(r"[0-9a-f]{64}", str(value["source_sha256"]))
             or not isinstance(value["origin"], dict) or not isinstance(value["adopted_proposals"], list)
@@ -247,6 +256,9 @@ class CreativeExecution:
         raw = read_project_bytes(self.project, ("outputs", "input", "prompt.md"))
         if hashlib.sha256(raw).hexdigest() != self._lock["handoff"]["source_sha256"]:
             raise CreativeExecutionError("Adopted skeleton changed after creative handoff; start a new design run")
+        if self._lock['handoff'].get('schema') == 'creative-handoff.v5':
+            from core.source_route_context import read_packet
+            read_packet(self.project / 'outputs/private', self._lock['handoff']['source_context'])
 
     @property
     def story_first(self) -> bool:
@@ -271,6 +283,9 @@ class CreativeExecution:
             from core.creation_mode import source_policy
             context["source_context"] = copy.deepcopy(handoff["source_context"])
             context["source_policy"] = source_policy(handoff["source_context"])
+            if handoff.get('schema') == 'creative-handoff.v5':
+                from core.source_route_context import RULES as route_rules
+                context['source_policy'] += '\n' + handoff['source_context'].get('execution_policy', {}).get('handoff_rules', route_rules)
         if handoff.get('author_requirements'):
             from core.author_requirements import prompt_requirements
             context['author_requirements'] = prompt_requirements(handoff['author_requirements'])
@@ -389,7 +404,14 @@ class CreativeExecution:
         receipt = {**receipt, "status": "adapter_started"}
         _write(path, receipt)
         try:
-            result = client.complete(system=system, user=user)
+            if self._lock['handoff'].get('schema') == 'creative-handoff.v5':
+                from core.source_route_context import SourceEvidenceCoordinator
+                coordinator = SourceEvidenceCoordinator(self.project / 'outputs/private',
+                    self._lock['handoff']['source_context'],
+                    cancelled=getattr(getattr(client, 'cancellation_event', None), 'is_set', None))
+                result = coordinator.complete(client, system, user)
+            else:
+                result = client.complete(system=system, user=user)
         except Exception as exc:
             _write(path, {**receipt, "status": "failed", "error_type": type(exc).__name__})
             raise
