@@ -1333,7 +1333,7 @@ class PipelineRunner:
         Existing immutable revision, state proposal and promotion machinery remains
         authoritative. Local preparation/finalization are not model approvals.
         """
-        from core.chapter_review import read_review
+        from core.chapter_review import validate_report as read_review
 
         if self._foundation_commercial_story(project) is not None:
             raise PipelineError("A frozen legacy commercial contract requires its original workflow", blocked=True)
@@ -1564,6 +1564,10 @@ class PipelineRunner:
     ) -> StageResult:
         previous = manifest.get(phase, chapter)
         stage_label = RunManifest.stage_key(phase, chapter)
+        # A derived audit neither creates story state nor authorizes rewriting
+        # later chapters. Its invalidation is local to its report, including when
+        # upgrading historical whole-state fingerprints.
+        derived_audit = phase == "long_form.audit"
         if (
             manifest.spec.quality_policy == "evidence_v1"
             and phase in {"intake", "outline"}
@@ -1625,7 +1629,7 @@ class PipelineRunner:
                         validator,
                         artifacts,
                     )
-                if previous.state_snapshot_path:
+                if previous.state_snapshot_path and not derived_audit:
                     self._last_valid_state_snapshot = previous.state_snapshot_path
                 # A completed checkpoint may have been produced by an earlier
                 # process instance. Refresh the active orchestrator so
@@ -1634,19 +1638,21 @@ class PipelineRunner:
                 self._reload_active_state(project)
                 print(f"Reusing completed stage: {stage_label}.", flush=True)
                 return previous
-            if self._last_valid_state_snapshot:
-                self._restore_state(project, self._last_valid_state_snapshot)
-            elif len(manifest.stages) > 1:
-                raise PipelineError(
-                    f"Checkpoint {RunManifest.stage_key(phase, chapter)} changed and no prior state snapshot is available",
-                    blocked=True,
-                )
-            self._rerun_started = True
+            if not derived_audit:
+                if self._last_valid_state_snapshot:
+                    self._restore_state(project, self._last_valid_state_snapshot)
+                elif len(manifest.stages) > 1:
+                    raise PipelineError(
+                        f"Checkpoint {RunManifest.stage_key(phase, chapter)} changed and no prior state snapshot is available",
+                        blocked=True,
+                    )
+                self._rerun_started = True
         elif (
             previous
             and previous.status in {"running", "retryable", "blocked", "failed", "pending"}
             and self._last_valid_state_snapshot
             and not self._rerun_started
+            and not derived_audit
         ):
             self._restore_state(project, self._last_valid_state_snapshot)
             self._rerun_started = True
@@ -1708,8 +1714,9 @@ class PipelineRunner:
                     )
                 self._require_quality_gate(manifest.spec.quality_policy, result)
                 self._validate_evidence_records(manifest, project, result)
-                self._save_stage(manifest, project, store, result, snapshot_state=True)
-                self._last_valid_state_snapshot = result.state_snapshot_path
+                self._save_stage(manifest, project, store, result, snapshot_state=not derived_audit)
+                if not derived_audit:
+                    self._last_valid_state_snapshot = result.state_snapshot_path
                 self._event(manifest, "stage.done", phase=phase, chapter=chapter, attempt=attempt)
                 # Stage operations can temporarily swap proposal runtime state
                 # or persist canon through another service. Reload after the
@@ -1936,19 +1943,8 @@ class PipelineRunner:
                 )
             return commercial_book_input_hashes(project, manifest.spec.num_chapters)
         if phase == "long_form.audit":
-            current = chapter or 0
-            span = PipelineRunner._narrative_format(project).volume_for_chapter(current)
-            relatives = ["outputs/state/story_state.json"]
-            for number in range(span.chapter_start, current + 1):
-                relatives.extend([
-                    PipelineRunner._chapter_outline(number),
-                    PipelineRunner._chapter_stage(number, "final"),
-                ])
-            return {
-                relative: PipelineRunner._sha256(project / relative)
-                for relative in relatives
-                if (project / relative).is_file()
-            }
+            from long_form_quality import progress_input_hashes
+            return progress_input_hashes(project, chapter or 0)
         inputs: Dict[str, list[str]] = {
             "outline": ["outputs/input/prompt.md", "outputs/input/brief.json"],
             "foundation.commit": ["outputs/input/foundation.json"],
@@ -3582,6 +3578,12 @@ class PipelineRunner:
         report = project / PipelineRunner._chapter_report(number, "continuity")
         PipelineRunner._require_files(project, [str(report.relative_to(project))])
         text = report.read_text(encoding="utf-8")
+        if getattr(getattr(self, "_active_orchestrator", None), "story_first", False):
+            from core.chapter_review import validate_report
+            candidate = (project / self._chapter_stage(number, "revised")).read_text(encoding="utf-8")
+            if not validate_report(text, candidate).passed:
+                raise PipelineError(f"Joint editorial review blocked chapter {number}", blocked=True)
+            return
         match = re.search(r"status\s*[:*]+\s*(PASS|WARNING|FAIL)", text, re.IGNORECASE)
         if not match:
             raise PipelineError(f"Continuity report for chapter {number} has no PASS/WARNING/FAIL status", blocked=True)
@@ -3691,7 +3693,7 @@ class PipelineRunner:
         candidate = artifacts.get_revision(candidate_stage.revision_id)
         candidate_text = artifacts.read_text(candidate.revision_id)
         if (manifest.spec.creative_handoff or {}).get("story_engine") == "story-first.v1":
-            from core.chapter_review import read_review
+            from core.chapter_review import validate_report as read_review
             reviewed = read_review((project / self._chapter_report(number, "continuity")).read_text(encoding="utf-8"), candidate_text)
             if not reviewed.passed:
                 raise PipelineError("Joint editorial review has not passed", blocked=True)

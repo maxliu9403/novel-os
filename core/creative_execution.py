@@ -401,6 +401,36 @@ class CreativeExecution:
         self._verify_dependencies(receipt)
         return result
 
+    def find_received_response(self, agent: str, user: str, receipt: dict) -> str | None:
+        """Recover a completed request when a crash preceded the caller's copy.
+
+        Only a single distinct received result may be adopted. Multiple paid
+        judgments for identical input are not ordered by UUID or filesystem time.
+        """
+        self._validate_request(agent, user, receipt)
+        matches = {}
+        for path in sorted((self.directory / 'requests').glob('*.json')):
+            raw = read_project_bytes(self.project, tuple(path.relative_to(self.project).parts),
+                                     max_bytes=4 * MAX_REQUEST_BYTES)
+            try:
+                saved = json.loads(raw)
+            except (ValueError, UnicodeError):
+                continue
+            if (not isinstance(saved, dict) or saved.get('status') != 'response_received'
+                    or any(saved.get(key) != value for key, value in receipt.items())):
+                continue
+            response_path = path.with_suffix('.response.txt')
+            stored = read_project_bytes(self.project, tuple(response_path.relative_to(self.project).parts))
+            digest = hashlib.sha256(stored).hexdigest()
+            if digest != saved.get('response_sha256'):
+                raise CreativeExecutionError('Saved creative response failed integrity verification')
+            matches[digest] = stored.decode('utf-8')
+        if len(matches) > 1:
+            raise CreativeExecutionError('Multiple received responses match this request; preserved without choosing a judgment')
+        if not matches:
+            return None
+        return self.recover_response(agent, user, receipt, next(iter(matches.values())))
+
     def recover_response(self, agent: str, user: str, receipt: dict, response: str) -> str | None:
         """Recover an exact received reply after a local processing failure.
 

@@ -339,6 +339,43 @@ def evaluate_progress(project: Path | str, as_of_chapter: int) -> LongFormReport
     )
 
 
+def progress_input_hashes(project: Path | str, as_of_chapter: int) -> dict[str, str]:
+    """Fingerprint exactly the inputs read by an as-of progress audit.
+
+    Future chapter state cannot invalidate an earlier read-only report. Contract
+    revisions and volume-close finals remain real dependencies, including absence.
+    """
+    project = Path(project)
+    state = StoryState(str(project))
+    format_contract = NarrativeFormat.from_dict(state.metadata['narrative_format'])
+    volumes = validate_volume_contracts(format_contract, state.story_bible.get('volume_contracts'))
+    span = format_contract.volume_for_chapter(as_of_chapter)
+
+    def digest(value):
+        return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True,
+                                         separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+
+    hashes = {
+        'audit_policy_sha256': digest([SCHEMA_VERSION, 'as-of-inputs.v1', as_of_chapter]),
+        'narrative_format_sha256': digest(format_contract.to_dict()),
+        'volume_contracts_sha256': digest(volumes),
+    }
+    artifacts = ArtifactStore(project)
+    for chapter in range(span.chapter_start, as_of_chapter + 1):
+        head = artifacts.get_head(chapter, 'chapter_contract')
+        value = None
+        if head is not None:
+            # read_text verifies the immutable revision's recorded SHA as well.
+            text = artifacts.read_text(head.revision_id)
+            value = [head.revision_id, hashlib.sha256(text.encode()).hexdigest()]
+        hashes[f'chapter_contract:{chapter}'] = digest(value)
+        if as_of_chapter == span.chapter_end:
+            relative = f'outputs/manuscript/chapter_{chapter:03d}_final.md'
+            path = project / relative
+            hashes[relative] = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else digest(None)
+    return hashes
+
+
 def report_path(project: Path | str, *, as_of_chapter: int | None = None) -> Path:
     root = Path(project) / "outputs/quality/long-form"
     return root / (

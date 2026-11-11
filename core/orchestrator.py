@@ -1813,7 +1813,7 @@ Do not substitute a repeated confrontation for an irreversible state change.
         self._validate_state_update_mode(resolved_mode)
         print(f"\n🎨 CURATING Chapter {chapter_number}...")
         if self.story_first:
-            from core.chapter_review import read_review
+            from core.chapter_review import validate_report as read_review
             from core.outline_planning import atomic_write
             source = self.manuscript_dir / f"chapter_{chapter_number:03d}_revised.md"
             manuscript = source.read_text(encoding="utf-8")
@@ -2838,8 +2838,7 @@ Provide:
                 chapter.continuity_checks['pre_check_findings'] = [f.to_dict() for f in findings]
 
         if self.story_first:
-            from core.chapter_review import prompt as joint_prompt
-            validation_prompt = joint_prompt(chapter_text)
+            return self._run_joint_review(chapter_number, chapter_text, findings, dry_run=dry_run)
         else:
             validation_prompt = self._generate_validation_prompt(chapter_number, chapter_text)
         if findings:
@@ -2857,12 +2856,89 @@ Provide:
             chapter_number=chapter_number,
         )
 
-        if result is not None and self.story_first:
-            from core.chapter_review import read_review
-            read_review(report_path.read_text(encoding="utf-8"), chapter_text)
         if result is not None and resolved_mode == "legacy_apply":
             chapter.status = 'validated'
             self.state.save_state()
+
+    @scoped_usage("manuscript", lambda a: a["self"].project_path)
+    def _run_joint_review(self, chapter_number, chapter_text, findings, *, dry_run=False):
+        """Receive, bind and validate machine evidence before any state proposal.
+
+        The review session owns durable raw replies and protocol recovery. Prose
+        cleanup belongs to manuscript production, never to this evidence boundary.
+        """
+        from core.chapter_review import legacy_prompt, prompt, validate_report
+        from core.joint_review_session import ReviewSession
+        from core.outline_planning import atomic_write
+
+        runtime = self.creative_execution
+        prompt_path = self.feedback_dir / f"chapter_{chapter_number:03d}_validation_prompt.md"
+        report_path = self.feedback_dir / f"chapter_{chapter_number:03d}_continuity_report.md"
+        raw_path = report_path.with_suffix(report_path.suffix + ".raw")
+
+        def prepare(base):
+            if findings:
+                base = to_context_block(findings) + "\n" + base
+            return self._creative_prompt("continuity_guardian", base, chapter_number)
+
+        def verify(user, receipt):
+            runtime._validate_request("continuity_guardian", user, receipt)
+
+        def recover(user, receipt, raw):
+            return runtime.recover_response("continuity_guardian", user, receipt, raw)
+
+        if dry_run:
+            user, _ = prepare(prompt(chapter_text))
+            atomic_write(prompt_path, user)
+            print(f"   [dry-run] Prompt saved: {prompt_path}")
+            return None
+
+        # Import only the exact original v1 request, not a regenerated v2 prompt
+        # or an unbound report file. This preserves paid work after an upgrade.
+        legacy = None
+        if prompt_path.is_file() and raw_path.is_file():
+            user, receipt = prepare(legacy_prompt(chapter_text))
+            if prompt_path.read_text(encoding="utf-8") == user:
+                raw = raw_path.read_text(encoding="utf-8")
+                received = recover(user, receipt, raw)
+                if received is None:
+                    raise ValueError("Saved joint review has no matching completed request receipt")
+                legacy = (user, receipt, received)
+
+        def complete(user, receipt):
+            # The session already freezes this prompt; the readable alias is for
+            # inspection and is never used as an unverified response cache.
+            atomic_write(prompt_path, user)
+            llm = self._get_llm("continuity_guardian")
+            print(f"   Joint editorial review ({llm.provider}:{llm.model})...")
+            return self._agent_complete(llm, "continuity_guardian", user, receipt)
+
+        session = ReviewSession(
+            directory=self.feedback_dir / "joint-review" / f"chapter_{chapter_number:03d}",
+            candidate=chapter_text, prepare=prepare, complete=complete, verify=verify,
+            recover=recover, validate_report=lambda response: validate_report(response, chapter_text),
+            recover_received=lambda user, receipt: runtime.find_received_response("continuity_guardian", user, receipt),
+        )
+        result = session.run(legacy=legacy)
+        review = validate_report(result, chapter_text)
+        # Preserve any historical report before publishing its derived view.
+        if report_path.exists() and report_path.read_text(encoding="utf-8") != result:
+            previous = report_path.read_bytes()
+            history = self.feedback_dir / "joint-review" / "history" / (hashlib.sha256(previous).hexdigest() + ".md")
+            atomic_write(history, previous.decode("utf-8"))
+        atomic_write(report_path, result)
+        self.last_canon_proposal_ids = []
+        if review.passed and not any(f.severity == "critical" for f in findings):
+            if self.state_update_mode == "proposal_only":
+                self._persist_canon_proposal(
+                    chapter_number=chapter_number, agent_name="continuity_guardian",
+                    normalized_response=result, source_path=report_path,
+                )
+            else:
+                ingest_agent_output(self.state, chapter_number, "continuity_guardian", result)
+                self.state.get_chapter(chapter_number).status = "validated"
+                self.state.save_state()
+        return result
 
     def _commercial_contract_context(self, chapter_number: int) -> tuple[ChapterContract, str, str]:
         """Load the immutable contract heads used by commercial review."""

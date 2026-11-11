@@ -1,5 +1,11 @@
 # Novel OS 项目记忆
 
+## 2026-11-11 19:30：联合审稿协议与恢复边界修复待发布
+
+当前真实任务 `ac3f15f6efff` failed / chapter.validate / 7，已完成1–6章。第7章原paid回复仅两处摘录多边界引号；正文与请求/回复/冻结上下文SHA均一致。新增[证据ID协议与持久恢复](docs/design/2026-11-11-joint-review-evidence.md)，机器报告不再做散文清洗，完整校验后才进入状态提案；原v1请求精确复用，原判断与状态块不变。历史 long_form.audit 整state指纹及全局失效传播另有缺陷，已隔离只读审计范围，防止重写第7章。
+
+原生隔离副本已通过：0新审稿/重写7，正常晋级7一次，第二次resume不重复canon，首次新模型步骤是write8（发送前拦截）；1,202受保护文件字节不变。全量回归与最终崩溃窗口回归仍在验收。真实作品未改，5174仍为3804f2f；未部署/未真实resume。本轮证据与备份 `output/joint-review-recovery-20261111/` 含目标1,654文件、SQLite、20项目32,943文件SHA，回滚 volume-obligations。后续先查实际验收状态再切换。
+
 ## 2026-11-11 18:41：分卷义务修复已部署，真实写作推进至第6章
 
 5174 已部署 `3804f2f`。第5章 long_form.audit 真实passed，原生恢复job `47ff40b0f1b144c5aa9d7608e03dd5de`，GPT任务 `ac3f15f6efff` 正在 `chapter.write / 6`。60章细纲与前5章保持；1,148份受保护历史文件、原晋级回执/Artifact heads/revisions历史和其他作品31,289文件核验一致。旧失败审计原字节归档。不是全书完成。

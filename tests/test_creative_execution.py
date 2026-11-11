@@ -168,6 +168,19 @@ def test_completed_response_recovery_requires_exact_request_and_reply(setup):
     assert (runtime.directory / "requests" / (reused["original_request_id"] + ".json")).is_file()
 
 
+def test_received_request_recovery_closes_gap_before_local_response_copy(setup):
+    _, runtime, _, state, _ = setup
+    user, receipt = runtime.prepare('continuity_guardian', 'Review', 1, state)
+    assert runtime.find_received_response('continuity_guardian', user, receipt) is None
+    runtime.complete(SimpleNamespace(complete=lambda **_: 'Complete paid reply'), 'continuity_guardian', user, receipt)
+    assert runtime.find_received_response('continuity_guardian', user, receipt) == 'Complete paid reply'
+    changed_user, changed_receipt = runtime.prepare('continuity_guardian', 'Different review', 1, state)
+    assert runtime.find_received_response('continuity_guardian', changed_user, changed_receipt) is None
+    runtime.complete(SimpleNamespace(complete=lambda **_: 'Different paid judgment'), 'continuity_guardian', user, receipt)
+    with pytest.raises(ce.CreativeExecutionError, match='Multiple'):
+        runtime.find_received_response('continuity_guardian', user, receipt)
+
+
 def test_completed_response_recovery_rejects_corruption_and_changed_source(setup):
     project, runtime, _, state, _ = setup
     user, receipt = runtime.prepare("style_curator", "Polish", 1, state)

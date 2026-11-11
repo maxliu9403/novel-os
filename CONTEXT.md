@@ -1,5 +1,9 @@
 # Novel OS domain language
 
+## Joint review evidence and durable recovery (2026-11-11)
+
+`joint-editorial.v2` uses code-owned paragraph IDs bound to the complete candidate and catalog hashes. Models judge; code locates quotations. The v1 compatibility decoder only removes extra outer display quotes when the remainder matches a unique exact continuous span. `joint-review-session.v1` preserves original requests, raw replies and derived bindings before state adoption; issued corrections remain authoritative across recovery. Machine evidence bypasses prose cleanup. A read-only long-form audit owns only its as-of dependencies and cannot restore story state or invalidate later paid production. See [joint review evidence](docs/design/2026-11-11-joint-review-evidence.md).
+
 ## Volume obligation binding (2026-11-11)
 
 Volume milestone IDs are application-owned planned assignments, not occurred events or proof of prose delivery. `volume-obligation-binding.v1` derives due IDs from strictly validated serialization and preserves the source contract. Chapter projection and historical long-form audits use the same binding; the latter retains original artifact revisions and records source/derived identities. `long-form-quality.v2` reports plan integrity, explicitly not semantic delivery. Existing joint editorial review retains the complete adopted volume design and candidate prose. See [volume obligation binding](docs/design/2026-11-11-volume-obligation-binding.md).

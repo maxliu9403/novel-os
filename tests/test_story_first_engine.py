@@ -202,8 +202,12 @@ def test_story_map_delta_is_revision_bound_and_never_implies_author_approval():
     assert result["map"]["nodes"][2]["status"] == "proposed"
 
 
-@pytest.mark.parametrize("needs_repair,interrupt_review", [(False, False), (True, False), (True, True)])
-def test_real_story_first_pipeline_promotes_and_resumes_without_extra_models(tmp_path, needs_repair, interrupt_review):
+@pytest.mark.parametrize("needs_repair,interrupt_review,review_case", [
+    (False, False, "legacy"), (True, False, "legacy"), (True, True, "legacy"),
+    (False, False, "v2"), (False, False, "wrapped"),
+    (False, False, "protocol_correction"), (False, False, "legacy_resume"),
+])
+def test_real_story_first_pipeline_promotes_and_resumes_without_extra_models(tmp_path, needs_repair, interrupt_review, review_case, monkeypatch):
     import re
     from test_outline_planning import PlanningModel
     from test_pipeline_integration import PipelineLLM
@@ -246,6 +250,10 @@ def test_real_story_first_pipeline_promotes_and_resumes_without_extra_models(tmp
                 if system.startswith("You are the joint"):
                     self.chapter_calls.append(("review", number))
                     self.reviews[number] = self.reviews.get(number, 0) + 1
+                    if review_case == 'protocol_correction' and number == 1 and self.reviews[number] == 2:
+                        assert not (project / 'outputs/feedback/chapter_001_continuity_report.md').exists()
+                        proposals = [json.loads(p.read_text())['proposal'] for p in (project / 'outputs/state/proposals').glob('*.json')]
+                        assert not any(p['agent_name'] == 'continuity_guardian' for p in proposals)
                     if interrupt_review and number == 1 and self.reviews[number] == 2:
                         from pipeline_runtime import PipelineStopped
                         raise PipelineStopped("Test explicit pause after completed repair")
@@ -258,7 +266,22 @@ def test_real_story_first_pipeline_promotes_and_resumes_without_extra_models(tmp
                     revise = needs_repair and number == 1 and self.reviews[number] == 1
                     draft = self.draft(number)
                     state = draft.split("[SCRIBE_STATE_UPDATE]", 1)[1].split("[/SCRIBE_STATE_UPDATE]", 1)[0]
-                    return (review(manuscript, revise=revise) + "\n[CONTINUITY_REPORT]\nStatus: "
+                    editorial = review(manuscript, revise=revise)
+                    if review_case in {"wrapped", "legacy_resume", "protocol_correction"}:
+                        value = json.loads(editorial.split('[JOINT_REVIEW_JSON]')[1].split('[/JOINT_REVIEW_JSON]')[0])
+                        value['checks'][0]['quote'] = '“' + manuscript + '”'
+                        if review_case == 'protocol_correction' and number == 1 and self.reviews[number] == 1:
+                            value['checks'][0]['quote'] = 'Invented passage that is absent from the candidate.'
+                        editorial = '[JOINT_REVIEW_JSON]' + json.dumps(value) + '[/JOINT_REVIEW_JSON]'
+                    elif review_case == 'v2':
+                        from core.review_evidence import build_catalog
+                        catalog = build_catalog(manuscript)
+                        value = {'schema_version': 'joint-editorial.v2',
+                                 'candidate_sha256': catalog['candidate_sha256'], 'catalog_sha256': catalog['catalog_sha256'],
+                                 'checks': [{'dimension': d, 'status': 'pass', 'evidence_ids': [catalog['entries'][0]['id']],
+                                             'reason': 'Concrete observed effect — exact machine punctuation.', 'repair': ''} for d in sorted(DIMENSIONS)]}
+                        editorial = '[JOINT_REVIEW_JSON]' + json.dumps(value, ensure_ascii=False) + '[/JOINT_REVIEW_JSON]'
+                    return (editorial + "\n[CONTINUITY_REPORT]\nStatus: "
                             + ("FAIL" if revise else "PASS") + "\nCritical_Issues: [None]\nWarnings: [None]\n[/CONTINUITY_REPORT]\n"
                             + "[CONTINUITY_STATE_UPDATE]" + state + "[/CONTINUITY_STATE_UPDATE]")
                 if "THE SCRIBE" in system.splitlines()[0]:
@@ -267,7 +290,7 @@ def test_real_story_first_pipeline_promotes_and_resumes_without_extra_models(tmp
                 if "THE EDITOR" in system.splitlines()[0]:
                     self.chapter_calls.append(("repair", number))
                     path = project / f"outputs/manuscript/chapter_{number:03d}_revised.md"
-                    return "[REVISED_CHAPTER]\n" + path.read_text() + "\n[/REVISED_CHAPTER]\n[EDITOR_STATE_UPDATE]\nImprovements_Made: [Scene made concrete]\n[/EDITOR_STATE_UPDATE]"
+                    return "[REVISED_CHAPTER]\n" + path.read_text() + "\nMara explained why returning the key mattered.\n[/REVISED_CHAPTER]\n[EDITOR_STATE_UPDATE]\nImprovements_Made: [Scene made concrete]\n[/EDITOR_STATE_UPDATE]"
                 pytest.fail("Unexpected chapter model role: " + system[:80])
             return super().complete(system=system, user=user)
 
@@ -291,7 +314,38 @@ def test_real_story_first_pipeline_promotes_and_resumes_without_extra_models(tmp
     spec = RunSpec(project_path=str(project), prompt_path=str(source), num_chapters=2, target_words=60,
                    approval_policy="auto", quality_policy="evidence_v1", creative_handoff=handoff, max_retries=0)
     runner = PipelineRunner(orchestrator_factory=factory)
-    manifest = runner.run(spec)
+    if review_case == 'legacy_resume':
+        # Simulate the deployed v1 lifecycle: save a paid reply and proposal,
+        # then reject its presentation quotes after those writes.
+        original_method = NovelOrchestrator._run_joint_review
+        def old_review(self, number, manuscript, findings, *, dry_run=False):
+            if number != 2:
+                return original_method(self, number, manuscript, findings, dry_run=dry_run)
+            from core.chapter_review import legacy_prompt
+            from continuity_engine import to_context_block
+            text = legacy_prompt(manuscript)
+            if findings:
+                text = to_context_block(findings) + '\n' + text
+            self._run_agent_or_save_prompt(agent_name='continuity_guardian', user_prompt=text,
+                prompt_path=self.feedback_dir / f'chapter_{number:03d}_validation_prompt.md',
+                output_path=self.feedback_dir / f'chapter_{number:03d}_continuity_report.md',
+                dry_run=False, label='Legacy review', chapter_number=number)
+            raise ValueError('联合审稿的正文引用不匹配。')
+        with monkeypatch.context() as patch:
+            patch.setattr(NovelOrchestrator, '_run_joint_review', old_review)
+            manifest = runner.run(spec)
+        assert manifest.status == 'failed' and '引用不匹配' in manifest.error
+        first_promotion = manifest.get('chapter.promote', 1).to_dict()
+        immutable = {p: p.read_bytes() for p in project.rglob('*') if p.is_file() and (
+            p.name.endswith('.response.txt') or p.name.endswith('.raw') or
+            p.name in ('chapter_001_final.md', 'chapter_002_revised.md') or '/planning/checkpoints/' in str(p))}
+        paid_calls = list(client.chapter_calls)
+        manifest = runner.resume(manifest.run_id, project)
+        assert client.chapter_calls == paid_calls
+        assert manifest.get('chapter.promote', 1).to_dict() == first_promotion
+        assert all(p.read_bytes() == body for p, body in immutable.items())
+    else:
+        manifest = runner.run(spec)
     if interrupt_review:
         assert manifest.status != "completed"
         assert manifest.get("chapter.repair.1", 1).status == "done"
@@ -300,11 +354,14 @@ def test_real_story_first_pipeline_promotes_and_resumes_without_extra_models(tmp
         manifest = runner.resume(manifest.run_id, project)
     assert manifest.status == "completed", manifest.error
     assert client.chapter_calls.count(("write", 1)) == 1
-    assert len(client.chapter_calls) == (6 if needs_repair else 4) + int(interrupt_review)
+    assert len(client.chapter_calls) == (6 if needs_repair else 4) + int(interrupt_review) + int(review_case == 'protocol_correction')
     assert manifest.get("chapter.edit", 1) is None
     assert manifest.get("chapter.style", 1).provider == "local"
     for n in (1, 2):
         assert (project / f"outputs/manuscript/chapter_{n:03d}_final.md").read_bytes() == (project / f"outputs/manuscript/chapter_{n:03d}_revised.md").read_bytes()
+        if review_case == 'v2':
+            report = (project / f'outputs/feedback/chapter_{n:03d}_continuity_report.md').read_text()
+            assert 'effect — exact machine punctuation.' in report
     assert StoryState(str(project)).characters["char_001"].outcome_state == "independence"
     before = list(client.chapter_calls)
     assert runner.resume(manifest.run_id, project).status == "completed"
