@@ -1,6 +1,6 @@
 # Novel OS domain language
 
-## Whole-story source routes (2026-11-11; implemented, unreleased)
+## Whole-story source routes (implemented 2026-11-11; deployed 2026-11-12)
 
 `source-story-design.v1` is an explicit new design operation beside legacy SourceStudy. It reads all supplied material and produces comparable whole-story proposals with concrete causality, emotional scenes, choices, costs, highlights, long promises and endings. A route is not a source chapter or an adopted skeleton. Author corrections, model assumptions, observed source events, character statements and synopsis promises retain separate authority. Reading coverage proves supplied input, not literary understanding.
 
