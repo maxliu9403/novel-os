@@ -218,7 +218,10 @@ def test_historical_editor_requests_prevent_promoting_an_already_started_split(t
     p.max_bytes, p.response = None, respond
     new, _ = repair(p, candidate, [issue()])
     assert not any(key.endswith('-full-input') for key in p.saved)
-    assert len(p.calls) == 3 and p.calls[1] == p.calls[2]
+    assert p.calls[1] == p.calls[2]
+    assert p.calls[0] not in p.calls[2:]
+    # Policy length may change how many complete-field windows are needed.
+    # The first completed page is never replayed; the interrupted one is exact.
     assert new['chapters'][0]['summary'] == 'a seal stays intact.'
 
 

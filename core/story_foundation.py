@@ -11,6 +11,7 @@ from narrative_format import (
     bind_foundation_serialization,
 )
 from state_manager import Character, PlotThread, StoryState
+from identity_constraints import validate_identity_constraints
 
 
 def apply_story_foundation(
@@ -32,6 +33,19 @@ def apply_story_foundation(
         raise ValueError("story foundation plot_threads must be a list")
     if not isinstance(chapters, list):
         raise ValueError("story foundation chapters must be a list")
+
+    character_ids = {str(raw.get("id") or f"char_{index:03d}").strip()
+                     for index, raw in enumerate(characters, 1) if isinstance(raw, Mapping)}
+    requested_constraints = foundation.get("identity_constraints", state.story_bible.get("identity_constraints"))
+    identity_constraints = validate_identity_constraints(requested_constraints, character_ids)
+    if state.characters:
+        # Published identities, including deliberately absent constraints, stay authoritative.
+        # Canon reconciliation applies a replacement foundation to a blank candidate state.
+        existing_constraints = validate_identity_constraints(state.story_bible.get("identity_constraints"),
+                                                              character_ids)
+        if identity_constraints != existing_constraints:
+            state._log_action("foundation_identity_constraints_preserved", {})
+        identity_constraints = existing_constraints
 
     format_payload = foundation.get("narrative_format")
     if format_payload is not None:
@@ -135,7 +149,12 @@ def apply_story_foundation(
                 str(raw.get("background") or ""),
             ])),
         )
+    replacing_canon = not state.characters
     state.characters = hydrated_characters
+    if identity_constraints:
+        state.update_story_bible("identity_constraints", identity_constraints)
+    elif replacing_canon:
+        state.story_bible.pop("identity_constraints", None)
 
     hydrated_threads: dict[str, PlotThread] = {}
     for index, raw in enumerate(plot_threads, start=1):

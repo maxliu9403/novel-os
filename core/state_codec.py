@@ -140,6 +140,8 @@ def state_from_payload(payload: Mapping[str, Any]) -> StoryState:
         state.session_log = list(data["session_log"])
     except (AttributeError, KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"state payload is invalid: {exc}") from exc
+    from identity_constraints import state_identity_constraints
+    state_identity_constraints(state)
     return state
 
 

@@ -512,6 +512,50 @@ def _new_interpretation_evidence(planner, candidate, audit, previous_review):
                for item in audit['issues'])
 
 
+def _identity_policy(planner, prefix, candidate, review):
+    """Add a typed capability without rewriting a completed historical round.
+
+    All older narrative requests run first under their original contracts. Once
+    the candidate has been recorded, its audit and review inputs are immutable.
+    A later residual round can apply the new capability to that saved result.
+    """
+    name = prefix + '-identity-policy'
+    dependencies = {'candidate': content_hash(candidate), 'review': content_hash(review),
+                    'source': content_hash(planner.source)}
+    def validate(value):
+        if (not isinstance(value, dict) or set(value) != {'version', 'placement'}
+                or value['version'] != 'residual-identity-v1'
+                or value['placement'] not in ('after_narrative', 'per_authority_phase')):
+            raise ValueError('Unsupported residual identity capability receipt')
+        return value
+
+    saved = planner._load(name, dependencies, validate, strict_dependencies=True)
+    if saved is not None:
+        return saved['placement']
+    if (planner.cache / (prefix + '-candidate.json')).exists():
+        return None
+    # A historical answered-choice request was bound to the pre-capability
+    # candidate. Complete that exact request before adding identity corrections.
+    choice_started = any(planner.cache.glob(prefix + '-choice-*.json')) or any(
+        (planner.cache / 'raw').glob(prefix + '-choice-*'))
+    expected = {'version': 'residual-identity-v1',
+                'placement': 'after_narrative' if choice_started else 'per_authority_phase'}
+    planner._save(name, dependencies, expected)
+    return expected['placement']
+
+
+def _repair_identities(planner, candidate, review, plan, execution, decisions, choices, blocked):
+    from core.planning_residual_identity import repair as repair_identity
+
+    authorized = _authorized_items(plan, execution, decisions)
+    for item in authorized['issues']:
+        if choices:
+            item['prior_author_choices'] = choices
+    assembled, revisions = repair_identity(planner, candidate, review, authorized, blocked_indices=blocked)
+    planner._global({k: copy.deepcopy(v) for k, v in assembled.items() if k != 'chapters'})
+    return assembled, revisions
+
+
 def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=True, late_plan=None, residual=False, previous_review=None):
     from core import planning_evidence_plan as evidence
     from core.planning_author_decisions import defer_for_author, pending_decisions
@@ -558,11 +602,17 @@ def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=T
         **({'independent_verdict': verdicts[item['issue_index']]} if item['issue_index'] in verdicts else {}),
     } for item in plan['issues']}
     group_prefix = contract.VERSION if historical_groups else prefix
+    identity_mode = _identity_policy(planner, prefix, baseline, review) if residual else None
     assembled, resolutions, bindings, late, group_holds, revisions = _phase(
         planner, candidate, review, execution, plan, independent, group_prefix, extra, limit, authority,
         {}, legacy=historical_groups, residual=residual, deferred=deferred)
     capacity_holds.extend(group_holds)
     decisions = {}
+    if identity_mode == 'per_authority_phase':
+        blocked_identity = deferred | {i for hold in capacity_holds for i in hold['issue_indices']}
+        assembled, identity_revisions = _repair_identities(
+            planner, assembled, review, plan, execution, decisions, choices, blocked_identity)
+        revisions.extend(identity_revisions)
     if conflicts:
         questions, decisions = pending_decisions(planner, conflicts)
         if not all(c['issue_index'] in decisions for c in conflicts):
@@ -570,6 +620,8 @@ def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=T
             partial_audit = {'completed_issue_indices': sorted(resolutions),
                              'deferred_issue_indices': sorted(awaiting), 'question': questions,
                              'capacity_holds': capacity_holds}
+            if identity_mode == 'per_authority_phase':
+                partial_audit['identity_revisions'] = identity_revisions
             _record_candidate(planner, prefix + '-independent-' + content_hash(partial_audit)[:16],
                               {'evidence': content_hash(plan), 'audit': content_hash(partial_audit)},
                               assembled, partial_audit)
@@ -591,6 +643,13 @@ def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=T
         bindings.update(new_bindings)
         late.update(new_late)
         capacity_holds.extend(new_holds)
+        if identity_mode == 'per_authority_phase':
+            blocked_identity = ({i['issue_index'] for i in plan['issues']} - can_resume
+                                | {i for hold in capacity_holds for i in hold['issue_indices']})
+            assembled, identity_revisions = _repair_identities(
+                planner, assembled, review, plan, execution, decisions,
+                [*choices, *decisions.values()], blocked_identity)
+            revisions.extend(identity_revisions)
     if capacity_holds:
         progress = {'completed_issue_indices': sorted(resolutions), 'capacity_holds': capacity_holds}
         _record_candidate(planner, prefix + '-capacity-' + content_hash(progress)[:16],
@@ -600,6 +659,11 @@ def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=T
         planner.progress['recovery'] = {'retryable': True, 'action': 'change_planning_capacity', 'reason': reason}
         planner.progress['next_action'] = reason
         raise OutlinePlanningError(reason)
+    if identity_mode == 'after_narrative':
+        assembled, identity_revisions = _repair_identities(
+            planner, assembled, review, plan, execution, decisions,
+            [*choices, *decisions.values()], set())
+        revisions.extend(identity_revisions)
     audit = {'schema': group_prefix, 'baseline_candidate_sha256': content_hash(baseline), 'issues': []}
     for item in execution['issues']:
         i = item['issue_index']
@@ -636,7 +700,7 @@ def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=T
             # Paths refer to the original candidate. Include only references that are still
             # exact after any completed assumption repair.
             item['candidate_evidence'] = [ref for ref in item['candidate_evidence']
-                                         if ref['quote'] in strings.get(ref['path'], '')]
+                                         if evidence.matches_candidate_evidence(ref, strings)]
             if old_i in late:
                 item.update(classification='source_conflict', writable_chapters=[],
                             reason=late[old_i]['reason'], source_quotes=late[old_i]['source_quotes'])

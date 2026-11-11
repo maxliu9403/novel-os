@@ -500,6 +500,14 @@ class StagedOutlinePlanner:
                 ids.append(item["id"])
             if len(ids) != len(set(ids)):
                 raise OutlinePlanningError(f"Duplicate {field} identity")
+        if "identity_constraints" in value:
+            from core.identity_constraints import validate_identity_constraints
+            try:
+                value["identity_constraints"] = validate_identity_constraints(
+                    value["identity_constraints"], (row["id"] for row in value["characters"]),
+                    source=self.source)
+            except ValueError as exc:
+                raise OutlinePlanningError(str(exc)) from exc
         self._validate_source_anchors(value["source_anchors"])
         if with_map:
             self._validate_roadmap(value["chapter_map"], value["source_anchors"], list(range(1, self.chapter_count + 1)))

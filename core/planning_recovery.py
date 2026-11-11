@@ -93,7 +93,8 @@ def _verified_planning(project: Path, run_id: str, progress: dict, *, allow_coor
         recovery = {'retryable': False, 'action': 'inspect_saved_design'}
     if (progress.get('status') != 'failed' or not isinstance(recovery, dict)
             or recovery.get('retryable') is not False
-            or recovery.get('action') != 'inspect_saved_design'
+            or recovery.get('action') not in ({'inspect_saved_design', 'inspect_residual_closure'}
+                                             if residual else {'inspect_saved_design'})
             or not re.fullmatch(r'[a-zA-Z0-9_-]{1,128}', run_id)):
         return False
     identity_hash = progress.get('identity_hash')
@@ -708,7 +709,8 @@ def residual_recovery_availability(project: Path, run_id: str, progress: dict) -
     identity = progress.get('identity_hash')
     recovery = progress.get('recovery') or {}
     if (progress.get('status') != 'failed' or not isinstance(recovery, dict) or recovery.get('retryable') is not False
-            or recovery.get('action') != 'inspect_saved_design' or not isinstance(identity, str)
+            or recovery.get('action') not in {'inspect_saved_design', 'inspect_residual_closure'}
+            or not isinstance(identity, str)
             or not re.fullmatch(r'[0-9a-f]{64}', identity) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,128}', run_id)):
         return None
     root = project / 'outputs/runs' / run_id / 'planning/checkpoints' / identity
@@ -731,12 +733,13 @@ def residual_recovery_availability(project: Path, run_id: str, progress: dict) -
             candidate, review = _specialized_pair(saved, validator, specialized[0])
         choices = authorized_choices(validator)
         if review['status'] == 'blocked':
-            pair = _coordinated_terminal(validator, candidate, review, prefix, choices)
+            pair = _coordinated_terminal(validator, candidate, review, prefix, choices, include_origin=True)
             if pair is None:
                 return False
-            candidate, review = pair
+            candidate, review, origin = pair
             if review['status'] == 'blocked':
-                return True
+                return (_identity_stall_recovery(saved, validator, candidate, review, origin, choices)
+                        if recovery.get('action') == 'inspect_residual_closure' else True)
         # A passed design can subsequently be blocked at the publication gate
         # for a newly settled author choice. Preserve that intervening verdict.
         label = 'review-publication-authority-' + _hash(candidate)[:16]
@@ -746,14 +749,17 @@ def residual_recovery_availability(project: Path, run_id: str, progress: dict) -
             review = read_verdict(validator, label,
                         {'candidate': _hash(candidate), 'representation': REVIEW_CONTEXT_VERSION}, names)
             if review['status'] == 'blocked':
-                pair = _coordinated_terminal(validator, candidate, review, prefix, choices)
-                return bool(pair and pair[1]['status'] == 'blocked')
+                pair = _coordinated_terminal(validator, candidate, review, prefix, choices, include_origin=True)
+                if not pair or pair[1]['status'] != 'blocked':
+                    return False
+                return (_identity_stall_recovery(saved, validator, *pair, choices)
+                        if recovery.get('action') == 'inspect_residual_closure' else True)
         return None
     except (OSError, ValueError, TypeError, KeyError, AttributeError, IndexError):
         return False
 
 
-def _coordinated_terminal(validator, candidate, review, prefix, choices):
+def _coordinated_terminal(validator, candidate, review, prefix, choices, *, include_origin=False):
     scoped = prefix + '-scoped-' + _hash([candidate, review])[:16]
     targets = [prefix, scoped]
     if choices:
@@ -762,5 +768,54 @@ def _coordinated_terminal(validator, candidate, review, prefix, choices):
     for label in targets:
         pair = verified_terminal(validator, candidate, review, label)
         if pair is not None:
-            return pair
+            return (*pair, label) if include_origin else pair
     return None
+
+
+def _identity_stall_recovery(saved, validator, candidate, review, origin, choices):
+    """Replay the old finite convergence ledger read-only before offering a new capability."""
+    from core.outline_planning import OutlinePlanningError
+    from core.planning_residual_loop import converge, _legacy_identity_upgrade
+    from core.planning_terminal import _read_candidate, _read_round
+
+    root = saved['root']
+    entry = 'residual-entry-' + _hash([origin, candidate, review])[:24] + '-author-inputs'
+    dependencies = {'candidate': _hash(candidate), 'review': _hash(review), 'source': _hash(validator.source)}
+    frozen = saved['payload'](entry, dependencies)
+    if (set(frozen) != {'choices'} or not isinstance(frozen['choices'], list)
+            or any(choice not in choices for choice in frozen['choices'])):
+        raise ValueError('Residual entry no longer has its original authorized choices')
+    last = None
+
+    def load(name, dependencies, validate, **options):
+        return validate(saved['payload'](name, dependencies))
+
+    def refuse_write(*args, **kwargs):
+        raise ValueError('Missing completed residual stop receipt')
+
+    def replay(current, findings, prefix, previous_review):
+        nonlocal last
+        names = final_names(root, 'review-' + prefix)
+        if names:
+            fixed, result, _ = _read_round(validator, prefix, current, findings, names)
+        else:
+            fixed, _ = _read_candidate(validator, prefix, current, findings)
+            if fixed != current:
+                raise ValueError('Changed residual candidate requires its completed semantic review')
+            result = findings
+        last = (prefix, current, fixed)
+        return fixed, result
+
+    validator._load, validator._save = load, refuse_write
+    validator._progress, validator.progress = lambda *args: None, {}
+    try:
+        converge(validator, candidate, review, replay, authority=frozen['choices'], allow_identity_upgrade=False)
+    except OutlinePlanningError:
+        if (validator.progress.get('recovery', {}).get('action') != 'inspect_residual_closure' or last is None):
+            raise
+        upgrade = _legacy_identity_upgrade(validator, *last)
+        # A new capability can be offered once. Its interrupted requests already
+        # use the normal resume lifecycle, and a new terminal stop stays terminal.
+        return bool(upgrade and not any(root.glob(upgrade + '*')) and
+                    not any((root / 'raw').glob(upgrade + '*')))
+    return False

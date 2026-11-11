@@ -30,6 +30,15 @@ instruction can be replaced with the positive source-grounded constraint. Cite t
 of directly relevant adopted passages for EVERY edit. If this window needs no narrative
 change or the available evidence cannot justify one, return an empty edits list and say why.
 Registration and typed promise references are handled separately. Never certify the book."""
+CURRENT_INSTRUCTION = INSTRUCTION.replace(
+    'Keep uncertainty when the source leaves identity or fate open, and preserve compatible\n'
+    'established design choices. Do not invent a choice or infer a private fact from public belief.',
+    'Preserve mysteries explicitly required by the author. Source silence is not a prohibition\n'
+    'on candidate-planned action: retain a compatible established bridge, or supply a necessary\n'
+    'visible transition within writable chapters. Label it as planned design, never author testimony.\n'
+    'Keep unresolved identity unknown; do not infer a private fact from public belief. Before\n'
+    'removing an existing bridge, inspect all supplied later dependencies that rely on it.'
+)
 _GLOBAL = ('structural_risks', 'assumptions')
 _MAP = ('purpose', 'incoming_consequence', 'outgoing_commitment', 'obligations',
         'ending_obligations', 'reserved_reveals')
@@ -144,6 +153,17 @@ def _issue_context(item, finding, source):
                if 'binding_author_decision' in item else {})}
 
 
+def _instruction(planner, root_hash, context):
+    # Issued work keeps its exact wire contract, including an interrupted
+    # partition whose editor has not yet begun. New work gets the clearer
+    # distinction between author-required uncertainty and generated transitions.
+    name, deps = evidence._key('narrative', root_hash, INSTRUCTION, context)
+    if (evidence._issued(planner, name, deps)
+            or planner._load(name + '-split', deps, lambda value: value, strict_dependencies=True) is not None):
+        return INSTRUCTION
+    return CURRENT_INSTRUCTION
+
+
 def repair(planner, candidate, review, evidence_plan, *, blocked_indices):
     derived, audit = deepcopy(candidate), []
     # Shared globals also occur in proposals concerning a held author decision.
@@ -184,10 +204,11 @@ def repair(planner, candidate, review, evidence_plan, *, blocked_indices):
         author, readonly, selected = evidence.scoped_material(planner, derived, {**item, 'writable_chapters': sorted(writable)})
         protected = evidence.protected_fields(selected, readonly, fields)
         direct = {**base, 'scoped_evidence': [*author, *readonly, *protected], 'fields': fields}
+        instruction = _instruction(planner, root_hash, direct)
         binding = {}
-        fits_direct = evidence.fits(planner, INSTRUCTION, direct, limit)
-        if (evidence.full_input_upgrade(planner, root_hash, INSTRUCTION, direct, limit)
-                or not evidence.partitioned(planner, 'narrative', root_hash, INSTRUCTION, direct, not fits_direct)):
+        fits_direct = evidence.fits(planner, instruction, direct, limit)
+        if (evidence.full_input_upgrade(planner, root_hash, instruction, direct, limit)
+                or not evidence.partitioned(planner, 'narrative', root_hash, instruction, direct, not fits_direct)):
             contexts = [direct]
         else:
             constraint, binding = evidence.direction(planner, root_hash, base,
@@ -197,13 +218,13 @@ def repair(planner, candidate, review, evidence_plan, *, blocked_indices):
                 audit.append({'operation': 'narrative_fields', 'issue_index': index, **binding,
                               'edits': [], 'reason': decision['reason']})
                 continue
-            contexts = evidence.pages(planner, 'narrative', root_hash, INSTRUCTION, {**base, **constraint},
+            contexts = evidence.pages(planner, 'narrative', root_hash, instruction, {**base, **constraint},
                                       'fields', fields, limit)
         for context in contexts:
             def validate(value):
                 return _validate(value, context)
 
-            result, name = evidence.checkpoint(planner, 'narrative', root_hash, INSTRUCTION,
+            result, name = evidence.checkpoint(planner, 'narrative', root_hash, instruction,
                                                context, validate, limit)
             writes = []
             for edit in result['edits']:

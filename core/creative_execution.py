@@ -306,6 +306,10 @@ class CreativeExecution:
             "coverage": {"included_chapters": [c["number"] for c in nearby],
                          "omitted_chapters": [c["number"] for c in chapters if c not in nearby],
                          "reason": "Current and adjacent chapter plans; all global design fields retained"}}
+        if foundation.get("identity_constraints"):
+            from identity_constraints import RULES, validate_identity_constraints
+            validate_identity_constraints(foundation["identity_constraints"], [c["id"] for c in foundation["characters"]])
+            context["planned_design"]["identity_constraint_rule"] = RULES
         artifacts = ArtifactStore(self.project)
         prose = []
         approved = {}

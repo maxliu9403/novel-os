@@ -126,6 +126,12 @@ def _candidate_strings(candidate):
     return dict(walk('', {k: v for k, v in candidate.items() if k not in ('chapters', 'chapter_map')}))
 
 
+def matches_candidate_evidence(reference, strings):
+    path, quote = reference.get('path'), reference.get('quote')
+    return (_text(path) and path in strings and isinstance(quote, str)
+            and (quote == strings[path] if quote == '' else bool(quote.strip()) and quote in strings[path]))
+
+
 def _check_candidate(value, strings, label, errors):
     if not isinstance(value, list):
         errors.append(f'{label} must be a list of candidate passage references')
@@ -133,9 +139,7 @@ def _check_candidate(value, strings, label, errors):
     for n, ref in enumerate(value):
         ref_label = f'{label}[{n}]'
         ref = _schema(ref, {'path', 'quote'}, ref_label, errors)
-        path, quote = ref.get('path'), ref.get('quote')
-        if (not _text(path) or path not in strings or not _text(quote)
-                or quote not in strings[path]):
+        if not matches_candidate_evidence(ref, strings):
             errors.append(f'{ref_label} must quote the declared visible candidate field exactly')
 
 

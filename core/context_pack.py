@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, Set
+from identity_constraints import render_identity_constraints, state_identity_constraints
 
 PackPurpose = Literal["architect", "scribe", "guardian", "continue", "consequence"]
 
@@ -27,6 +28,7 @@ class ContextPack:
     chapter: int
     purpose: PackPurpose
     cast: List[Dict[str, Any]] = field(default_factory=list)
+    identity_constraints: List[Dict[str, Any]] = field(default_factory=list)
     bonds: List[Dict[str, Any]] = field(default_factory=list)
     threads: List[Dict[str, Any]] = field(default_factory=list)
     foreshadowing: List[Dict[str, Any]] = field(default_factory=list)
@@ -67,7 +69,7 @@ def build_context_pack(
     Optional `chapter_text` (Guardian) pulls named cast from prose so 1-hop
     neighborhood covers people actually on the page.
     """
-    pack = ContextPack(chapter=chapter, purpose=purpose)
+    pack = ContextPack(chapter=chapter, purpose=purpose, identity_constraints=state_identity_constraints(state))
     budget = PURPOSE_BUDGETS[purpose]
     pack.budgets = {"max_chars": budget, "used_chars": 0}
 
@@ -311,11 +313,11 @@ def format_context_pack(pack: ContextPack, *, max_chars: int | None = None) -> s
         lines.append("")
 
     text = "\n".join(lines).rstrip() + "\n"
-    pack.budgets["used_chars"] = len(text)
     # Soft safety: if still over, trim codex block only by removing trailing Codex lines
     if len(text) > limit:
         text = text[: limit - 40].rstrip() + "\n…[context pack truncated]\n"
-        pack.budgets["used_chars"] = len(text)
+    text = render_identity_constraints(pack.identity_constraints) + text
+    pack.budgets["used_chars"] = len(text)
     return text
 
 

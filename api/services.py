@@ -1748,7 +1748,8 @@ POV: {pov or "[unspecified]"}
                 build_context_pack(s, number, purpose="continue"), max_chars=3000,
             )
         except Exception:
-            pack_md = ""
+            from identity_constraints import render_identity_constraints, state_identity_constraints
+            pack_md = render_identity_constraints(state_identity_constraints(s))
 
         prompt = f"""# CONTINUE WRITING one paragraph only
 

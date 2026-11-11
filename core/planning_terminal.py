@@ -37,7 +37,7 @@ def final_names(root: Path, name: str):
         re.escape(name) + r'(?:-choices-[0-9a-f]{16})?', p.stem)]
 
 
-def _read_round(planner, prefix, baseline, previous_review, final_names):
+def _read_candidate(planner, prefix, baseline, previous_review):
     name = prefix + '-candidate'
     record = _record(planner, name)
     child = record['payload']
@@ -58,6 +58,11 @@ def _read_round(planner, prefix, baseline, previous_review, final_names):
                 for field in ('chapter_map', 'chapters')) or
             any(candidate.get(key) != value for key, value in planner.locked.items())):
         raise ValueError(f'{name} lost chapters or changed an author-locked contract')
+    return candidate, audit
+
+
+def _read_round(planner, prefix, baseline, previous_review, final_names):
+    candidate, audit = _read_candidate(planner, prefix, baseline, previous_review)
     deps = {'candidate': content_hash(candidate), 'representation': REVIEW_CONTEXT_VERSION,
             'coordinated_verification': content_hash(audit),
             'verification_policy': content_hash(planning_review_reuse.RULES)}

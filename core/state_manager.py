@@ -11,6 +11,7 @@ from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Optional, Any
 from pathlib import Path
+from identity_constraints import render_identity_constraints, state_identity_constraints
 
 # core/ is on sys.path rather than being a package, so siblings import by
 # top-level name (see the header of api/services.py).
@@ -394,6 +395,8 @@ class StoryState:
                 self.session_log = data.get('session_log', [])
                 self.binder = Binder.from_list(data.get('binder', []))
 
+        state_identity_constraints(self)
+
         # Migrate legacy Character.relationships dict → typed edges once.
         self._migrate_legacy_relationships()
 
@@ -623,7 +626,7 @@ class StoryState:
         text = "\n".join(lines).rstrip() + "\n"
         if len(text) > max_chars:
             text = text[: max_chars - 40].rstrip() + "\n…[codex truncated]\n"
-        return text
+        return render_identity_constraints(state_identity_constraints(self)) + text
 
     def set_character_portrait(self, character_id: str, media_id: str) -> Optional[Character]:
         char = self.characters.get(character_id)
@@ -998,7 +1001,9 @@ class StoryState:
             rel_subset = [
                 e.to_dict() for e in getattr(self, "relationships", {}).values()
             ]
+        constraints = state_identity_constraints(self)
         return {
+            **({'identity_constraints': constraints} if constraints else {}),
             'chapter': chapter,
             'character_identities': {
                 cid: char.identity_dict()

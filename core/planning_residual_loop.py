@@ -30,7 +30,30 @@ def _value(candidate, path):
 _MISSING = object()
 
 
-def converge(planner, candidate, review, repair_round, *, authority, previous_review=None):
+def _legacy_identity_upgrade(planner, prefix, baseline, candidate):
+    """An old terminal candidate can receive the newly introduced typed identity tool once.
+
+    Its normal checkpoint chain has already been replayed by repair_round. Verify the
+    exact terminal payload before choosing a fixed child namespace. The child always
+    records its capability policy before making new requests.
+    """
+    cache = getattr(planner, 'cache', None)
+    if (cache is None or prefix.endswith('-identity-v1')
+            or (cache / (prefix + '-identity-policy.json')).exists()
+            or not (cache / (prefix + '-candidate.json')).is_file()):
+        return None
+    from core.planning_terminal import _record
+
+    saved = _record(planner, prefix + '-candidate')['payload']
+    audit = saved.get('verification', {})
+    if (saved.get('candidate') != candidate or audit.get('schema') != prefix
+            or audit.get('baseline_candidate_sha256') != content_hash(baseline)):
+        raise ValueError('Identity capability recovery does not match the verified terminal candidate')
+    return prefix + '-identity-v1'
+
+
+def converge(planner, candidate, review, repair_round, *, authority, previous_review=None,
+             allow_identity_upgrade=True):
     """A repeated review message is not progress. Every blocked pass must earn another pass.
 
     The best outstanding count or a previously untouched original field must advance.
@@ -43,14 +66,16 @@ def converge(planner, candidate, review, repair_round, *, authority, previous_re
     remaining = set(_slots(candidate))
     # Appending an entry to a nonempty registry does not change an existing scalar.
     # Its length can earn one witness, irrespective of how many entries a writer adds.
-    registries = {('promise_ledger',), ('characters',)}
+    registries = {('promise_ledger',), ('characters',), ('identity_constraints',)}
     registries.update(('chapters', i, k) for i, ch in enumerate(candidate.get('chapters', []))
                       for k in ('setups', 'payoffs') if isinstance(ch.get(k), list))
     anchor = content_hash([VERSION, candidate, review, authority])
     best = len(review['issues'])
     seen = {content_hash(candidate)}
+    pending_upgrade = None
     while review['status'] != 'passed':
-        prefix = VERSION + '-' + content_hash([anchor, candidate, review])[:24]
+        prefix = pending_upgrade or VERSION + '-' + content_hash([anchor, candidate, review])[:24]
+        pending_upgrade = None
         planner._progress('semantic_review', 'running',
                           f'继续修订终审留下的 {len(review["issues"])} 项问题，复用已有章节')
         fixed, checked = repair_round(candidate, review, prefix, previous_review)
@@ -58,11 +83,21 @@ def converge(planner, candidate, review, repair_round, *, authority, previous_re
             return fixed, checked
         before, after = content_hash(candidate), content_hash(fixed)
         witness = {p for p in remaining if _value(candidate, p) != _value(fixed, p)}
-        grown = {p for p in registries if isinstance(_value(candidate, p), list)
-                 and isinstance(_value(fixed, p), list)
-                 and len(_value(candidate, p)) != len(_value(fixed, p))}
+        grown = set()
+        for path in registries:
+            previous, current = _value(candidate, path), _value(fixed, path)
+            if isinstance(current, list) and (previous is _MISSING or isinstance(previous, list)):
+                old_length = 0 if previous is _MISSING else len(previous)
+                if old_length != len(current):
+                    grown.add(path)
         count = len(checked['issues'])
         if after in seen or (not witness and not grown and count >= best):
+            pending_upgrade = (_legacy_identity_upgrade(planner, prefix, candidate, fixed)
+                               if allow_identity_upgrade else None)
+            if pending_upgrade:
+                candidate, review = fixed, checked
+                previous_review = 'review-' + prefix
+                continue
             record = {'before': before, 'after': after, 'input_review': content_hash(review),
                       'final_review': content_hash(checked), 'best_outstanding': best,
                       'outstanding': count, 'reason': 'repeated_candidate' if after in seen else 'no_new_progress'}
