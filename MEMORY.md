@@ -1,5 +1,11 @@
 # Novel OS 项目记忆
 
+## 2026-11-11 18:40：第5章分卷计划编号误阻断修复待发布
+
+真实 GPT 已完成并晋级第1–5章，当前 paused / long_form.audit / Ch5；60章细纲仍通过。错误是 story-first 直接投影未回填程序生成的 `volume_01_promise`，旧审计把计划编号缺项当成质量失败，未读正文。已核对五章实际审稿收到完整冻结分卷设计。新增[共同计划义务投影](docs/design/2026-11-11-volume-obligation-binding.md)，旧 Artifact/正文/canon 保留，审计记录派生来源而不宣称兑现。60/100章回归已复现并修复；全量回归和隔离原生恢复演练进行中。
+
+部署准备 `output/volume-obligations-20261111/` 保存目标1,586文件、SQLite及20部作品32,875文件哈希，回滚为 residual-language。此刻5174仍为3d24e95，尚未切换或真实resume；后续按实际部署及验收回执更新。
+
 ## 2026-11-11 17:43：真实全书核查通过，已进入第1章正文
 
 当前5174部署 `codex/long-form-planning@3d24e95`，恢复job `7964257a62bb4e21b5ff53a2e5d924ae`。GPT任务 `ac3f15f6efff` 的60章终审已真实passed，七项覆盖全部true、issues=[]；validated、foundation.json、完整大纲和首次canon回执已发布。运行状态为 `running / chapter.write / chapter=1`，不是整本正文完成。正式状态含10角色和unknown身份约束，canon哈希与发布回执一致。

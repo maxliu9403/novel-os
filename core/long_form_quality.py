@@ -21,6 +21,7 @@ try:  # Package imports in tests; top-level imports in the pipeline.
         validate_volume_contracts,
     )
     from .state_manager import StoryState
+    from .volume_obligations import bind_planned_volume_obligations
 except ImportError:  # pragma: no cover
     from artifacts import ArtifactError, ArtifactStore
     from contracts import ChapterContract
@@ -30,9 +31,10 @@ except ImportError:  # pragma: no cover
         validate_volume_contracts,
     )
     from state_manager import StoryState
+    from volume_obligations import bind_planned_volume_obligations
 
 
-SCHEMA_VERSION = "long-form-quality.v1"
+SCHEMA_VERSION = "long-form-quality.v2"
 
 
 @dataclass(frozen=True)
@@ -211,7 +213,10 @@ def _contract(artifacts: ArtifactStore, chapter: int) -> ChapterContract | None:
     head = artifacts.get_head(chapter, "chapter_contract")
     if head is None:
         return None
-    return ChapterContract.from_dict(json.loads(artifacts.read_text(head.revision_id)))
+    value = ChapterContract.from_dict(json.loads(artifacts.read_text(head.revision_id)))
+    if value.chapter != chapter:
+        raise ValueError("chapter contract does not belong to its artifact chapter")
+    return value
 
 
 def _repetition_findings(
@@ -258,9 +263,23 @@ def evaluate_progress(project: Path | str, as_of_chapter: int) -> LongFormReport
     findings: list[LongFormFinding] = []
     artifacts = ArtifactStore(project)
     contracts: list[ChapterContract] = []
+    bindings: list[dict[str, Any]] = []
     for chapter in range(span.chapter_start, as_of_chapter + 1):
         try:
             value = _contract(artifacts, chapter)
+            if value is not None:
+                # These IDs are scheduled plan assignments, not observations.
+                # Compile them from the same authoritative volume contract used
+                # by chapter projection. Historical artifacts remain immutable.
+                value, binding = bind_planned_volume_obligations(
+                    value, volume_contracts, format_contract=format_contract,
+                )
+                head = artifacts.get_head(chapter, "chapter_contract")
+                revision = artifacts.get_revision(head.revision_id)
+                bindings.append({**binding,
+                    "source_revision_id": revision.revision_id,
+                    "source_revision_sha256": revision.sha256,
+                })
         except (ArtifactError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             findings.append(LongFormFinding(
                 "blocker", "invalid_chapter_contract",
@@ -281,23 +300,11 @@ def evaluate_progress(project: Path | str, as_of_chapter: int) -> LongFormReport
     # a long volume; local duplication is the stronger filler signal.
     findings.extend(_repetition_findings(contracts[-5:], span.volume_id))
 
-    contract_by_chapter = {item.chapter: item for item in contracts}
     due_obligations = [
         item
         for chapter in range(span.chapter_start, as_of_chapter + 1)
         for item in obligations_for_chapter(volume_contracts, chapter)
     ]
-    for obligation in due_obligations:
-        due = int(obligation["due_chapter"])
-        contract = contract_by_chapter.get(due)
-        if contract is None or obligation["event_id"] not in contract.world_event_ids:
-            findings.append(LongFormFinding(
-                "blocker",
-                "missing_volume_milestone",
-                f"Chapter {due} must record `{obligation['event_id']}` in world_event_ids.",
-                volume_id=span.volume_id,
-                chapter=due,
-            ))
 
     volume_end = as_of_chapter == span.chapter_end
     whole_book = as_of_chapter == format_contract.total_chapters
@@ -319,6 +326,9 @@ def evaluate_progress(project: Path | str, as_of_chapter: int) -> LongFormReport
         as_of_chapter=as_of_chapter,
         volume_id=span.volume_id,
         checks={
+            "assessment_scope": "plan_integrity",
+            "semantic_delivery": "not_assessed",
+            "volume_obligation_bindings": bindings,
             "contracts_checked": len(contracts),
             "milestones_due": len(due_obligations),
             "volume_end": volume_end,
@@ -347,9 +357,24 @@ def write_report(
     path = report_path(project, as_of_chapter=as_of_chapter)
     path.parent.mkdir(parents=True, exist_ok=True)
     body = json.dumps(report.to_dict(), ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+    if path.exists():
+        previous = path.read_bytes()
+        if previous != body.encode("utf-8"):
+            archive = path.parent / "history" / (hashlib.sha256(previous).hexdigest() + ".json")
+            archive.parent.mkdir(parents=True, exist_ok=True)
+            if archive.exists():
+                if archive.read_bytes() != previous:
+                    raise ValueError("Archived long-form report failed integrity verification")
+            else:
+                _atomic_report(archive, previous)
+    _atomic_report(path, body.encode("utf-8"))
+    return path
+
+
+def _atomic_report(path: Path, body: bytes) -> None:
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        with os.fdopen(descriptor, "wb") as handle:
             handle.write(body)
             handle.flush()
             os.fsync(handle.fileno())
@@ -357,7 +382,6 @@ def write_report(
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
-    return path
 
 
 __all__ = [

@@ -1,4 +1,8 @@
 from pathlib import Path
+import hashlib
+import json
+
+import pytest
 
 from core.artifacts import ArtifactStore
 from core.contracts import ChapterContract
@@ -134,7 +138,7 @@ def _write_chapter_contract(
     )
 
 
-def test_interval_audit_blocks_missing_volume_milestone(tmp_path: Path):
+def test_interval_audit_derives_plan_binding_without_changing_legacy_contracts(tmp_path: Path):
     contract = _contract()
     foundation = _foundation(contract)
     initialize_project(str(tmp_path), "The Four Doors", "Women's Fiction")
@@ -147,11 +151,95 @@ def test_interval_audit_blocks_missing_volume_milestone(tmp_path: Path):
     store = ArtifactStore(tmp_path)
     for chapter in range(1, 6):
         _write_chapter_contract(store, chapter)
+    before = {p: p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
 
     report = evaluate_progress(tmp_path, 5)
 
-    assert report.status == "blocked"
-    assert any(item.code == "missing_volume_milestone" for item in report.findings)
+    assert report.status == "passed", [f.message for f in report.findings]
+    assert report.checks['assessment_scope'] == 'plan_integrity'
+    assert report.checks['semantic_delivery'] == 'not_assessed'
+    bindings = report.checks['volume_obligation_bindings']
+    assert bindings[0]['added_event_ids'] == ['volume_01_promise']
+    assert all(p.read_bytes() == body for p, body in before.items())
+    assert evaluate_progress(tmp_path, 5).report_id == report.report_id
+
+
+@pytest.mark.parametrize('chapters', [60, 100])
+def test_story_first_projection_reaches_first_long_form_audit(tmp_path, chapters):
+    """Exercise the real producer/consumer combination, not seeded event IDs."""
+    import re
+    from core.chapter_review import project_outline
+    from commercial_fixtures import legacy_chapter_contract_payload
+    format_contract = _contract(chapters)
+    foundation = _foundation(format_contract)
+    for chapter in foundation['chapters']:
+        number = chapter['number']
+        chapter['execution_contract'] = {
+            **legacy_chapter_contract_payload(), 'chapter': number,
+            'active_choice': f'Choice {number}',
+            'irreversible_change': f'Change {number}',
+            'local_payoff': f'Payoff {number}',
+        }
+        chapter['execution_contract'].pop('world_event_ids', None)
+    assert evaluate_foundation_plan(foundation).status == 'passed'
+    initialize_project(str(tmp_path), 'The Four Doors', "Women's Fiction")
+    state = StoryState(str(tmp_path))
+    state.set_metadata('narrative_format', format_contract.to_dict())
+    apply_story_foundation(state, foundation, format_contract.target_words)
+    state.save_state()
+    store = ArtifactStore(tmp_path)
+    for number in range(1, 6):
+        outline = project_outline(foundation, number)
+        value = json.loads(re.search(r'\[CHAPTER_CONTRACT\]\s*(.*?)\s*\[/CHAPTER_CONTRACT\]', outline, re.S)[1])
+        revision = store.put_json(chapter=number, kind='chapter_contract', value=value, source='architect')
+        store.set_head(number, 'chapter_contract', revision.revision_id, expected_revision_id=None)
+    report = evaluate_progress(tmp_path, 5)
+    assert report.status == 'passed', [f.message for f in report.findings]
+    assert all(not b['added_event_ids'] for b in report.checks['volume_obligation_bindings'])
+    assert 'world_event_ids' not in foundation['chapters'][0]['execution_contract']
+
+
+@pytest.mark.parametrize('defect', ['absent', 'wrong_chapter', 'corrupt'])
+def test_binding_does_not_conceal_missing_or_invalid_contracts(tmp_path, defect):
+    format_contract = _contract()
+    initialize_project(str(tmp_path), 'The Four Doors', "Women's Fiction")
+    state = StoryState(str(tmp_path))
+    state.set_metadata('narrative_format', format_contract.to_dict())
+    apply_story_foundation(state, _foundation(format_contract), format_contract.target_words)
+    state.save_state()
+    store = ArtifactStore(tmp_path)
+    for number in range(2, 6):
+        _write_chapter_contract(store, number)
+    if defect != 'absent':
+        _write_chapter_contract(store, 1)
+        head = store.get_head(1, 'chapter_contract')
+        if defect == 'wrong_chapter':
+            value = json.loads(store.read_text(head.revision_id))
+            value['chapter'] = 2
+            revision = store.put_json(chapter=1, kind='chapter_contract', value=value, source='fixture')
+            store.set_head(1, 'chapter_contract', revision.revision_id, expected_revision_id=head.revision_id)
+        else:
+            revision = store.get_revision(head.revision_id)
+            (store.blob_root / revision.sha256).write_text('{}')
+    report = evaluate_progress(tmp_path, 5)
+    assert report.status == 'blocked'
+    code = 'missing_chapter_contract' if defect == 'absent' else 'invalid_chapter_contract'
+    assert any(f.code == code and f.chapter == 1 for f in report.findings)
+
+
+def test_replacing_audit_preserves_previous_exact_report(tmp_path):
+    from core.long_form_quality import LongFormReport, report_path, write_report
+    old = b'{"schema_version":"long-form-quality.v1","status":"blocked"}\n'
+    path = report_path(tmp_path, as_of_chapter=5)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(old)
+    report = LongFormReport(audit_type='interval', status='passed', format_id='fixture', as_of_chapter=5)
+    write_report(tmp_path, report, as_of_chapter=5)
+    archive = path.parent / 'history' / (hashlib.sha256(old).hexdigest() + '.json')
+    assert archive.read_bytes() == old
+    after = path.read_bytes()
+    write_report(tmp_path, report, as_of_chapter=5)
+    assert path.read_bytes() == after
 
 
 def test_interval_audit_accepts_due_milestone_and_distinct_changes(tmp_path: Path):

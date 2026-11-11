@@ -1,5 +1,9 @@
 # Novel OS domain language
 
+## Volume obligation binding (2026-11-11)
+
+Volume milestone IDs are application-owned planned assignments, not occurred events or proof of prose delivery. `volume-obligation-binding.v1` derives due IDs from strictly validated serialization and preserves the source contract. Chapter projection and historical long-form audits use the same binding; the latter retains original artifact revisions and records source/derived identities. `long-form-quality.v2` reports plan integrity, explicitly not semantic delivery. Existing joint editorial review retains the complete adopted volume design and candidate prose. See [volume obligation binding](docs/design/2026-11-11-volume-obligation-binding.md).
+
 ## Residual outline correction (2026-11-11)
 
 A terminal candidate is the last verified correction paired with its exact blocked review. Residual correction continues that lineage with source-authorized narrative edits and typed promise operations. Affected chapters and read-only dependencies do not grant writes. Progress controls further attempts, while the complete semantic review controls publication. Every completed request retains its original source view and partition when connection capacity changes. See [resumable convergence](docs/design/2026-11-11-resumable-outline-convergence.md).

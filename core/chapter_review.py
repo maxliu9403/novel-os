@@ -96,6 +96,8 @@ projects this contract directly; no extra per-chapter planning model is called.
 
 def project_outline(foundation: dict, number: int) -> str:
     from contracts import ChapterContract
+    if type(number) is not int or number < 1:
+        raise ValueError("章节编号必须是正整数。")
     matches = [c for c in foundation.get("chapters", []) if c.get("number") == number]
     if len(matches) != 1:
         raise ValueError("当前章节缺少唯一的已核查设计。")
@@ -103,8 +105,37 @@ def project_outline(foundation: dict, number: int) -> str:
     contract = ChapterContract.from_dict(chapter["execution_contract"])
     if contract.chapter != number or contract.schema_version != 1:
         raise ValueError("章节执行合同与章节不匹配。")
+    serialization = ""
+    if "narrative_format" in foundation:
+        from core.narrative_format import NarrativeFormat, chapter_binding, validate_volume_contracts
+        from core.volume_obligations import bind_planned_volume_obligations
+        payload = foundation["narrative_format"]
+        if not isinstance(payload, dict):
+            raise ValueError("Declared narrative format must be an object")
+        format_contract = NarrativeFormat.from_dict(payload)
+        volumes = (validate_volume_contracts(format_contract, foundation.get("volume_contracts"))
+                   if format_contract.is_long_form else None)
+        binding = chapter_binding(format_contract, number, volumes)
+        if any(key in chapter and chapter[key] != binding[key]
+               for key in ("volume_id", "volume_number", "chapter_in_volume")):
+            raise ValueError("Chapter volume binding disagrees with the declared narrative format")
+        if format_contract.is_long_form:
+            contract, receipt = bind_planned_volume_obligations(contract, volumes, format_contract=format_contract)
+            volume = next(item for item in volumes if item["volume_id"] == binding["volume_id"])
+            serialization = (
+                "\n\n## Planned volume obligations\n"
+                "These identifiers register planned chapter duties, not observed story events or evidence "
+                "that the manuscript has delivered them. A volume promise at its opening establishes the "
+                "reader expectation; it does not deliver the full volume payoff early. Develop only the "
+                "milestones due in this chapter through the preserved scene design. Retain later reveals "
+                "and payoffs at their assigned chapters. Review actual prose for delivery.\n"
+                "[PLANNED_VOLUME_OBLIGATIONS]\n"
+                + json.dumps({"volume_contract": volume, "binding": receipt}, ensure_ascii=False, indent=2)
+                + "\n[/PLANNED_VOLUME_OBLIGATIONS]\n"
+            )
     # Preserve every planned scene and obligation verbatim; no narrative guessing.
     return (f"# Chapter {number} · {chapter['title']}\n\n"
             + json.dumps({k: v for k, v in chapter.items() if k != "execution_contract"}, ensure_ascii=False, indent=2)
+            + serialization
             + "\n\n[CHAPTER_CONTRACT]\n" + json.dumps(contract.to_dict(), ensure_ascii=False)
             + "\n[/CHAPTER_CONTRACT]\n")

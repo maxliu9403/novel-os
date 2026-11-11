@@ -156,6 +156,7 @@ class ChapterContract(_ContractValue):
     ending_pressure: str
     preserve_facts: Tuple[str, ...] = ()
     allowed_knowledge: Tuple[str, ...] = ()
+    # Planned event references; presence is not evidence of an observed event.
     world_event_ids: Tuple[str, ...] = ()
     reader_jobs: Tuple[str, ...] = ()
     belonging_anchors: Tuple[str, ...] = ()
