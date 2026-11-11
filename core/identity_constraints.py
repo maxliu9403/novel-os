@@ -11,8 +11,11 @@ RULES = (
     'recorded roles and do not prove distinct people. Preserve this uncertainty in prose and '
     'review. Do not merge or rename the records, assert either identity conclusion, or transfer '
     'knowledge, memories, pronouns, actions, injuries or fate from one record to the other. '
-    'Use only the source-supported attributes of the role in the current scene. A source '
-    'pronoun establishes its referent and pronoun usage, not an otherwise unstated gender fact.'
+    'Use only the source-supported attributes of the role in the current scene. Interpret '
+    'gendered descriptions and pronouns in their original-language context: an unambiguous '
+    'gendered reference can establish the author\'s gender portrayal of that role. Preserve '
+    'explicit contrary or uncertain information; neutral or ambiguous references cannot '
+    'establish gender. Never infer physiology or identity from occupation, names or stereotypes.'
 )
 
 

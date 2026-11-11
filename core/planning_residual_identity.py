@@ -34,6 +34,17 @@ operation into a narrative rewrite. An unknown relation records uncertainty, not
 a merger or a claim of distinct people. Both roles require their own original
 occurrence evidence. Do not emit an already recorded pair. The complete candidate
 still receives semantic review after these proposals are validated."""
+CURRENT_INSTRUCTION = INSTRUCTION.replace(
+    'Record source-supported pronouns independently from gender. A source pronoun alone\n'
+    'does not establish an otherwise unstated gender fact. Fill or correct gender only\n'
+    'when the adopted source establishes it. Do not infer from a name, occupation or\n'
+    'romantic role, and do not transfer attributes between possibly identical roles.',
+    'Read descriptions and pronouns in their original-language context. An unambiguous\n'
+    'gendered reference to this role can support the author\'s gender portrayal and pronouns;\n'
+    'a separate biography statement is not required. Respect explicit contrary or uncertain\n'
+    'information. Neutral, ambiguous or collective references cannot establish gender. Do\n'
+    'not infer physiology, gender from names/occupations, or transfer another role\'s attributes.'
+)
 
 _CHARACTER_PATH = re.compile(r'/characters/(0|[1-9][0-9]*)(?:/.*)?')
 
@@ -183,7 +194,11 @@ def repair(planner, candidate, review, evidence_plan, *, blocked_indices):
         def validate(value):
             apply(derived, context, value, planner.source)
             return value
-        patch, checkpoint = evidence.checkpoint(planner, 'identity', content_hash(derived), INSTRUCTION,
+        root_hash = content_hash(derived)
+        historical_name, historical_deps = evidence._key('identity', root_hash, INSTRUCTION, context)
+        instruction = (INSTRUCTION if evidence._issued(planner, historical_name, historical_deps)
+                       else CURRENT_INSTRUCTION)
+        patch, checkpoint = evidence.checkpoint(planner, 'identity', root_hash, instruction,
                                                 context, validate, limit)
         derived = apply(derived, context, patch, planner.source)
         audit.append({'operation': 'identity_metadata', 'issue_index': index, 'checkpoint': checkpoint,
