@@ -10,6 +10,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 import uuid
+import threading
+import subprocess
 
 from fastapi.testclient import TestClient
 import pytest
@@ -60,6 +62,7 @@ class DesignAdapter:
         self.inputs = []
         self.executions = []
         self.route_sets = []
+        self.retry_operations = {}
 
     def list_runs(self):
         return deepcopy(list(self.runs.values()))
@@ -85,6 +88,30 @@ class DesignAdapter:
         if run_id not in self.runs:
             raise ValueError("找不到路线任务。")
         return deepcopy(self.runs[run_id])
+
+    def recovery(self, run_id):
+        state = self.status(run_id)
+        unknown = state['status'] == 'pending_unknown'
+        return {
+            'can_resume': not unknown and state['status'] not in {'ready', 'complete', 'completed'},
+            'can_retry_unknown': unknown,
+            'reason': 'no_verified_terminal_response' if unknown else 'saved_progress',
+            'message': '未保存完整回复，无法查询原请求结果。' if unknown else '可从保存进度继续。',
+            **({'request_sha256': 'a' * 64, 'receipt_sha256': 'b' * 64} if unknown else {}),
+        }
+
+    def authorize_retry(self, run_id, request_sha256, receipt_sha256, operation_id):
+        binding = (run_id, request_sha256, receipt_sha256)
+        if operation_id in self.retry_operations:
+            if self.retry_operations[operation_id] != binding:
+                raise ValueError('重试操作标识已用于其他请求。')
+            return False
+        recovery = self.recovery(run_id)
+        if (not recovery['can_retry_unknown'] or request_sha256 != recovery.get('request_sha256')
+                or receipt_sha256 != recovery.get('receipt_sha256')):
+            raise ValueError('请求状态已变化，请刷新后再操作。')
+        self.retry_operations[operation_id] = binding
+        return True
 
     def run(self, run_id, client, cancelled):
         self.executions.append((run_id, client, cancelled.is_set()))
@@ -325,6 +352,90 @@ def test_symlinked_job_metadata_is_rejected_without_reading_target(routes_api, t
     assert "must not appear" not in response.text
 
 
+def unresolved_run(env):
+    run = env.client.post(env.prefix + '/route-runs', json=payload()).json()
+    env.jobs.jobs[run['job_id']]['status'] = 'done'
+    env.engines[env.source_id].runs[run['run_id']].update(status='pending_unknown')
+    return run, env.prefix + '/route-runs/' + run['run_id']
+
+
+def test_unknown_without_recoverable_response_rejects_plain_resume_and_new_initial(routes_api):
+    env = routes_api
+    run, path = unresolved_run(env)
+    before = env.engines[env.source_id].status(run['run_id'])
+    response = env.client.get(path)
+    assert response.json()['recovery']['can_resume'] is False
+    assert response.json()['recovery']['can_retry_unknown'] is True
+    assert response.json()['worker_active'] is False
+    assert response.json()['worker_status'] == 'done'  # Historical worker receipt is not domain completion.
+    assert env.client.post(path + '/resume', json={}).status_code == 409
+    bypass = env.client.post(env.prefix + '/route-runs', json=payload(operation_id='bypass-unknown-002'))
+    assert bypass.status_code == 409
+    assert len(env.jobs.jobs) == 1
+    assert env.engines[env.source_id].status(run['run_id']) == before
+
+
+def test_explicit_unknown_retry_is_bound_to_receipt_and_idempotent(routes_api):
+    env = routes_api
+    run, path = unresolved_run(env)
+    body = {'action': 'retry_unknown', 'operation_id': 'retry-unknown-001',
+            'request_sha256': 'a' * 64, 'receipt_sha256': 'b' * 64}
+    assert env.client.post(path + '/resume', json={'action': 'retry_unknown'}).status_code == 422
+    assert env.client.post(path + '/resume', json={**body, 'receipt_sha256': 'c' * 64}).status_code == 409
+    env.route['model'] = 'model-b'
+    response = env.client.post(path + '/resume', json=body)
+    assert response.status_code == 202, response.text
+    assert len(env.jobs.jobs) == 2
+    assert env.client.post(path + '/resume', json=body).status_code == 202
+    assert len(env.jobs.jobs) == 2
+    env.jobs.finish(response.json()['job_id'])
+    assert env.clients[-1].binding['model'] == 'model-b'
+    assert env.client.post(path + '/resume', json=body).status_code == 202
+    assert len(env.jobs.jobs) == 2
+    assert env.client.post(path + '/resume', json={**body, 'operation_id': 'different-retry-op', 'receipt_sha256': 'c' * 64}).status_code == 409
+    assert env.engines[env.source_id].inputs[0]['request']['feedback'] == payload()['feedback']
+
+
+def test_historical_unknown_does_not_block_a_newer_completed_design(routes_api):
+    env = routes_api
+    unresolved_run(env)
+    design = env.engines[env.source_id]
+    newer = design.prepare(payload(operation_id='already-completed-newer'), model={}, catalog=[])
+    design.runs[newer['run_id']]['status'] = 'ready'
+    response = env.client.post(env.prefix + '/route-runs', json=payload(operation_id='new-author-revision', operation='expand_routes'))
+    assert response.status_code == 202, response.text
+
+
+@pytest.mark.parametrize('domain_status', ['pending_unknown', 'failed', 'needs_capacity', 'paused'])
+def test_noncomplete_domain_result_never_marks_real_job_done(routes_api, monkeypatch, domain_status):
+    from api.jobs import JobRunner
+    env = routes_api
+    jobs = JobRunner()
+    finished = threading.Event()
+    original_update = jobs._update
+
+    def track_update(job_id, **fields):
+        original_update(job_id, **fields)
+        if fields.get('status') != 'running':
+            finished.set()
+
+    monkeypatch.setattr(jobs, '_update', track_update)
+    monkeypatch.setattr(source_routes, 'runner', jobs)
+    design = source_routes.design_for(env.projects, env.source_id)
+
+    def stopped(run_id, client, cancelled):
+        design.runs[run_id].update(status=domain_status, error='完整资料和进度已保存。')
+        return design.status(run_id)
+
+    monkeypatch.setattr(design, 'run', stopped)
+    response = env.client.post(env.prefix + '/route-runs', json=payload())
+    assert response.status_code == 202
+    assert finished.wait(2), 'fixture worker did not drain'
+    run = response.json()
+    assert jobs.get(run['job_id'])['status'] == 'error'
+    assert env.client.get(env.prefix + '/route-runs/' + run['run_id']).json()['status'] == domain_status
+
+
 class StoryModel:
     """Schema-valid fixture, reading the actual host-provided source IDs."""
     provider_name = "fixture"
@@ -444,3 +555,57 @@ def test_real_core_http_roundtrip_retains_old_analysis_and_runs_revise_then_expa
     assert repeated.json()["run_id"] == second.json()["run_id"]
     env.client.post(env.prefix + "/route-runs/" + second.json()["run_id"] + "/resume", json={})
     assert not env.jobs.jobs and len(clients) == 2
+
+
+def test_real_core_unknown_retry_keeps_inputs_uses_current_model_and_recovers_same_run(routes_api, monkeypatch):
+    env = routes_api
+    monkeypatch.setattr(source_routes, 'design_for', _REAL_DESIGN_FOR)
+    clients = []
+    issued = []
+
+    class Model(StoryModel):
+        def complete(self, system, user):
+            issued.append((system, user))
+            if len(issued) == 1:
+                raise subprocess.TimeoutExpired(['private-test-key', '/private/credentials'], 900)
+            return super().complete(system, user)
+
+    def client_for(binding, cancel):
+        client = Model(binding)
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(source_routes, '_client', client_for)
+    source = env.library.path(env.source_id)
+    preserved = {str(p.relative_to(source)): p.read_bytes() for p in source.rglob('*') if p.is_file()}
+    initial = env.client.post(env.prefix + '/route-runs', json=payload()).json()
+    path = env.prefix + '/route-runs/' + initial['run_id']
+    with pytest.raises(source_routes.SourceRouteJobStopped):
+        env.jobs.finish(initial['job_id'])
+    env.jobs.jobs[initial['job_id']]['status'] = 'error'
+    unknown = env.client.get(path)
+    assert unknown.status_code == 200, unknown.text
+    assert unknown.json()['status'] == 'pending_unknown'
+    assert unknown.json()['worker_active'] is False
+    recovery = unknown.json()['recovery']
+    assert not recovery['can_resume'] and recovery['can_retry_unknown']
+    assert unknown.json()['execution']['timeout_seconds'] == 900
+    assert 'private-test-key' not in unknown.text and '/private/credentials' not in unknown.text
+    assert env.client.post(path + '/resume', json={}).status_code == 409
+    inputs_path = source / 'story-design' / 'runs' / initial['run_id'] / 'inputs.json'
+    original_inputs = inputs_path.read_bytes()
+    retry = {'action': 'retry_unknown', 'operation_id': 'retry-real-model',
+             'request_sha256': recovery['request_sha256'], 'receipt_sha256': recovery['receipt_sha256']}
+    env.route['model'] = 'model-b'
+    resumed = env.client.post(path + '/resume', json=retry)
+    assert resumed.status_code == 202, resumed.text
+    env.jobs.finish(resumed.json()['job_id'])
+    completed = env.client.get(path).json()
+    assert completed['status'] == 'ready'
+    assert len(clients) == 2 and clients[-1].model == 'model-b'
+    assert issued[0] == issued[1]
+    assert inputs_path.read_bytes() == original_inputs
+    assert env.client.post(path + '/resume', json=retry).status_code == 202
+    assert len(env.jobs.jobs) == 2
+    for relative, content in preserved.items():
+        assert (source / relative).read_bytes() == content

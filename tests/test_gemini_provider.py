@@ -85,6 +85,27 @@ def test_truncated_or_blocked_or_interrupted_output_is_never_success(wire, finis
         client.complete('s', 'u')
 
 
+@pytest.mark.parametrize('finish', ['MAX_TOKENS', 'SAFETY', None, 'STOP'])
+def test_attempt_preserves_all_received_prose_without_reasoning(wire, tmp_path, finish):
+    from core.llm_attempt import completion_attempt, recover_completion
+    _, responses, _ = wire
+    responses.append(sse(chunk('PRIVATE_REASONING', thought=True), chunk('first '), chunk('last', finish)))
+    client = LLMClient(provider='gemini', api_key='key', model='gemini-3.5-flash')
+    directory = tmp_path / 'attempt'
+    with completion_attempt(directory, 'r1'):
+        if finish == 'STOP':
+            assert client.complete('s', 'u') == 'first last'
+        else:
+            with pytest.raises(LLMError) as captured:
+                client.complete('s', 'u')
+            if finish == 'MAX_TOKENS':
+                from core.source_request_recovery import classify_failure
+                outcome = classify_failure(captured.value)
+                assert outcome['outcome'] == 'failed' and outcome['finish_reason'] == 'max_tokens'
+    assert (directory / 'partial-response.txt').read_text() == 'first last'
+    assert recover_completion(directory, 'r1') == ('first last' if finish == 'STOP' else None)
+
+
 def test_empty_final_response_and_http_error_are_not_retried(wire):
     requests, responses, _ = wire
     client = LLMClient(provider='gemini', api_key='key', model='gemini-3.5-flash')

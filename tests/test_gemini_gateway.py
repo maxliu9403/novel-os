@@ -70,6 +70,38 @@ def test_incomplete_stream_is_never_accepted(wire, finish):
     with pytest.raises(LLMError, match='未完整完成'): client().complete('s','u')
 
 
+@pytest.mark.parametrize('finish', ['length', 'content_filter', None, 'stop'])
+def test_attempt_preserves_all_received_gateway_prose(wire, tmp_path, finish):
+    from core.llm_attempt import completion_attempt, recover_completion
+    _, responses = wire
+    responses.append(stream(chunk(reasoning='PRIVATE_REASONING'), chunk('first '), chunk('last', finish)))
+    directory = tmp_path / 'attempt'
+    with completion_attempt(directory, 'r1'):
+        if finish == 'stop':
+            assert client().complete('s', 'u') == 'first last'
+        else:
+            with pytest.raises(LLMError) as captured:
+                client().complete('s', 'u')
+            if finish == 'length':
+                from core.source_request_recovery import classify_failure
+                outcome = classify_failure(captured.value)
+                assert outcome['outcome'] == 'failed' and outcome['finish_reason'] == 'length'
+    assert (directory / 'partial-response.txt').read_text() == 'first last'
+    assert recover_completion(directory, 'r1') == ('first last' if finish == 'stop' else None)
+
+
+def test_attempt_preserves_last_chunk_beyond_gateway_output_bound(wire, tmp_path, monkeypatch):
+    from core.llm_attempt import completion_attempt, recover_completion
+    monkeypatch.setattr(gateway, 'OUTPUT_LIMIT_BYTES', 5)
+    _, responses = wire
+    responses.append(stream(chunk('first'), chunk('entire last chunk', 'stop')))
+    with completion_attempt(tmp_path / 'attempt', 'r1'):
+        with pytest.raises(LLMError, match='安全上限'):
+            client().complete('s', 'u')
+    assert (tmp_path / 'attempt' / 'partial-response.txt').read_text() == 'firstentire last chunk'
+    assert recover_completion(tmp_path / 'attempt', 'r1') is None
+
+
 def test_over_budget_is_rejected_without_request_or_truncation(wire):
     sent, _=wire
     from core.llm_client import LLMInputLimitError

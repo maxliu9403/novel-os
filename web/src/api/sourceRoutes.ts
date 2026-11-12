@@ -60,6 +60,31 @@ export interface SourceRouteRunRequest {
   requested_count?: number;
   requested_actions?: Array<{ operation: SourceRouteOperation; target_route_ids?: string[]; requested_count?: number }>;
 }
+export interface SourceRouteExecution {
+  local_outcome?: string;
+  reason?: string;
+  message?: string;
+  timeout_seconds?: number;
+  timeout_scope?: string;
+  elapsed_seconds?: number;
+  observed_at?: string;
+  attempt_count?: number;
+}
+export interface SourceRouteRecovery {
+  can_resume: boolean;
+  can_retry_unknown: boolean;
+  reason: string;
+  message: string;
+  request_sha256?: string;
+  receipt_sha256?: string;
+  execution?: SourceRouteExecution;
+}
+export interface SourceRouteRetryRequest {
+  action: 'retry_unknown';
+  operation_id: string;
+  request_sha256: string;
+  receipt_sha256: string;
+}
 export interface SourceRouteRun {
   run_id: string;
   status: string;
@@ -76,6 +101,8 @@ export interface SourceRouteRun {
   cancel_requested?: boolean;
   pause_requested?: boolean;
   interrupted?: boolean;
+  recovery?: SourceRouteRecovery;
+  execution?: SourceRouteExecution;
 }
 export interface SourceRouteListing {
   items: Array<StoryRouteSet | Pick<StoryRouteSet, 'sha256' | 'created_at' | 'mode'>>;
@@ -136,6 +163,7 @@ export const sourceRoutesApi = {
   run: (id: string, runId: string, signal?: AbortSignal) => request<SourceRouteRun>(`${sourcePath(id)}/route-runs/${encodeURIComponent(runId)}`, undefined, signal),
   pause: (id: string, runId: string) => request<SourceRouteRun>(`${sourcePath(id)}/route-runs/${encodeURIComponent(runId)}/pause`, {}),
   resume: (id: string, runId: string) => request<SourceRouteRun>(`${sourcePath(id)}/route-runs/${encodeURIComponent(runId)}/resume`, {}),
+  retryUnknown: (id: string, runId: string, body: SourceRouteRetryRequest) => request<SourceRouteRun>(`${sourcePath(id)}/route-runs/${encodeURIComponent(runId)}/resume`, body),
   handoff: (body: SourceRouteHandoff) => request<SourceRouteHandoffResult>('/workshop/source-route-handoffs', body),
   getHandoff: (id: string) => request<SourceRouteHandoffResult>(`/workshop/source-route-handoffs/${encodeURIComponent(id)}`),
 };

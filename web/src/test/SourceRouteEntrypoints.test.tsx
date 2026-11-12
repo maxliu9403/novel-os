@@ -12,7 +12,7 @@ import { workshopApi } from '../api/workshop';
 import { api } from '../api/client';
 import { creativeTypesApi } from '../api/creativeTypes';
 import { typeLibrary } from './creativeTypesFixture';
-import { handedSession, routeSet, sourceBook } from './sourceRoutesFixture';
+import { handedSession, routeRun, routeSet, sourceBook } from './sourceRoutesFixture';
 
 const seed = { title: '作者自己的标题', author: '作者姓名', premise: '保留母亲留下的信。\n  不要删掉这一条原话。', genres: [] };
 beforeEach(() => {
@@ -105,4 +105,31 @@ test('linked new route discussions and projects do not require a legacy analysis
   expect(screen.getByRole('link', { name: '参考资料 · 原资料' })).toHaveAttribute('href', '/source-books?source=source-1');
   expect(screen.getAllByText(/整书路线/).length).toBeGreaterThan(0);
   expect(screen.getByText('路线讨论')).toHaveAttribute('href', '/workshop?session=session-route');
+});
+
+test.each(['library', 'workshop'])('%s recovers an unknown design on the same run without changing author material', async entrance => {
+  const user = userEvent.setup();
+  const run = routeRun({ status: 'pending_unknown', worker_active: false, recovery: {
+    can_resume: false, can_retry_unknown: true, reason: 'request_timeout',
+    message: '模型请求等待超时，资料和进度已保存。', request_sha256: 'a'.repeat(64), receipt_sha256: 'b'.repeat(64),
+  } });
+  vi.mocked(sourceRoutesApi.list).mockResolvedValue({ items: [], runs: [run] });
+  const resume = vi.spyOn(sourceRoutesApi, 'resume');
+  const retry = vi.spyOn(sourceRoutesApi, 'retryUnknown').mockResolvedValue(routeRun());
+  if (entrance === 'library') {
+    render(<MemoryRouter initialEntries={['/source-books?source=source-1']}><ConfirmProvider><SourceBooks /></ConfirmProvider></MemoryRouter>);
+  } else {
+    render(<MemoryRouter><ConfirmProvider><NovelWorkshop open seed={seed} onClose={vi.fn()} onBack={vi.fn()} /></ConfirmProvider></MemoryRouter>);
+    await user.click(screen.getByRole('radio', { name: '原故事推演' }));
+    await user.selectOptions(await screen.findByLabelText('选择参考小说'), 'source-1');
+  }
+  const button = await screen.findByRole('button', { name: '重新执行未完成步骤' });
+  expect(screen.queryByRole('button', { name: '继续未完成的设计' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '生成首批整书路线' })).toBeDisabled();
+  await user.click(button);
+  expect(retry).toHaveBeenCalledWith('source-1', run.run_id, expect.objectContaining({ action: 'retry_unknown', request_sha256: 'a'.repeat(64), receipt_sha256: 'b'.repeat(64) }));
+  expect(resume).not.toHaveBeenCalled();
+  expect(sourceRoutesApi.start).not.toHaveBeenCalled();
+  expect(sourceBooksApi.analyze).not.toHaveBeenCalled();
+  if (entrance === 'workshop') expect(screen.getByLabelText('故事构想或已有框架')).toHaveValue(seed.premise);
 });

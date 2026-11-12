@@ -8,6 +8,7 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 import threading
+import time
 from uuid import uuid4
 
 from .creation_mode import RULES
@@ -24,7 +25,8 @@ from .source_routes import (
     ROUTE_PAGES, RouteContent, route_page_contract, route_version, validate_routes,
 )
 from .source_study import lease
-from .source_request_recovery import classify_failure
+from .source_request_recovery import classify_failure, failure_message
+from .source_request_session import SourceRequestSession, RequestOutcomeUnknown, RequestReceiptError
 
 OPERATIONS = {"initial_routes", "revise_routes", "expand_routes", "revisit_source"}
 MODEL_KEYS = {"provider", "provider_name", "model", "model_id", "connection_id", "route_id",
@@ -166,6 +168,57 @@ class SourceStoryDesign:
     def export_evidence(self, understanding_sha: str) -> dict:
         return deepcopy(self.get_understanding(understanding_sha))
 
+    def _recovery_session(self, run_id: str):
+        state = self.store.state(run_id)
+        key = state.get("active_request_sha256")
+        if key:
+            return SourceRequestSession(self.store.path("runs", run_id, "requests", key + ".json"), key)
+        # Old runs did not record the active request. Locate its unresolved
+        # receipt without rewriting any historical input or response.
+        requests = self.store.path("runs", run_id, "requests")
+        unresolved = []
+        for path in requests.glob("*.json"):
+            record = self.store.read("runs", run_id, "requests", path.name)
+            if record.get("raw") is None:
+                unresolved.append((record.get("dispatched_at") or record.get("created_at") or "", path.stem))
+        if unresolved:
+            key = max(unresolved)[1]
+            return SourceRequestSession(self.store.path("runs", run_id, "requests", key + ".json"), key)
+        return None
+
+    def recovery(self, run_id: str) -> dict:
+        state = self.store.state(run_id)
+        session = self._recovery_session(run_id)
+        if session:
+            result = session.recovery()
+            progress = state.get("execution", {})
+            if isinstance(progress, dict):
+                for key in ("elapsed_seconds", "timeout_seconds", "event", "phase", "stdout_bytes", "stderr_bytes", "model_output_chars"):
+                    if key in progress and key not in result["execution"]:
+                        result["execution"][key] = progress[key]
+            if state.get("status") == "ready":
+                result.update(can_resume=False, can_retry_unknown=False)
+            return result
+        unknown = state.get("status") == "pending_unknown"
+        return {"can_resume": state.get("status") != "ready" and not unknown,
+                "can_retry_unknown": False,
+                "reason": "missing_request_receipt" if unknown else "resumable",
+                "message": "未找到可核对的请求记录；资料与进度保留。" if unknown else "可从已保存的步骤继续。"}
+
+    def authorize_retry(self, run_id: str, *, request_sha256: str, receipt_sha256: str, operation_id: str) -> bool:
+        state = self.store.state(run_id)
+        path = self.store.path("runs", run_id, "requests", request_sha256 + ".json")
+        if path.exists():
+            original = SourceRequestSession(path, request_sha256)
+            authorization = original.retry_authorization(operation_id, receipt_sha256)
+            if authorization is not None:
+                return authorization == "pending" and state.get("status") != "ready"
+        with lease(self.store.path("runs", run_id, ".run.lock"), blocking=False):
+            session = self._recovery_session(run_id)
+            if not session or session.identity != request_sha256 or self.store.state(run_id).get("status") == "ready":
+                raise SourceRouteConflict("当前未完成请求已变化，请刷新后继续。")
+            return session.authorize_retry(operation_id, receipt_sha256)
+
     def get_run_context(self, run_id: str) -> dict:
         state = self.store.state(run_id)
         inputs = self.store.read("runs", run_id, "inputs.json")
@@ -238,55 +291,56 @@ class SourceStoryDesign:
             self.store.write(receipt, *parts)
         elif receipt.get("request_sha256") != key or digest([VERSION, receipt.get("system"), receipt.get("payload")]) != key:
             raise SourceRouteError("保存的模型请求身份不匹配，未重新发送。")
-        if receipt.get("raw") is not None:
-            if digest(receipt["raw"]) != receipt.get("response_sha256"):
-                raise SourceRouteError("保存的模型响应完整性校验失败，未重发请求。")
-        elif receipt["status"] in {"dispatched", "pending_unknown"}:
-            # A provider can offer an idempotent status query. Never guess failure.
-            recover = getattr(self._client, "recover_response", None)
-            recovered = recover(key) if callable(recover) else None
-            if not isinstance(recovered, str):
-                raise SourceRouteUnknownError("模型请求结果尚未确认，已有内容全部保留；系统将复用可查询的原请求结果。")
-            receipt.update(raw=recovered, response_sha256=digest(recovered), status="response_received", received_at=now())
-            self.store.write(receipt, *parts)
-        else:
+        session = SourceRequestSession(self.store.path(*parts), key)
+        self._save(active_request_sha256=key)
+        if self._output_truncated(receipt):
+            # A confirmed output limit uses the existing complete-source paging
+            # plan. Retain partial text privately; never parse it as a result or
+            # repeatedly purchase the same over-large response on resume.
+            raise SourceRouteIncompleteError("模型已确认输出到达上限，已接收内容保留，将按完整内容分页继续。")
+
+        def before_send():
+            self._check()
             if not self._fits(system, payload):
                 raise SourceRouteCapacityError("完整作者要求、路线与必要依据超过当前连接容量；资料和进度已保留，请换更大容量连接继续。")
-            while True:
-                self._check()
-                receipt.setdefault("attempts", []).append({"model": model_receipt(self._client), "dispatched_at": now()})
-                receipt.update(status="dispatched", dispatched_at=now(), model=model_receipt(self._client))
-                self.store.write(receipt, *parts)
-                self._save(model_calls=self._state["model_calls"] + 1)
-                try:
-                    complete = getattr(self._client, "complete", self._client)
-                    raw = complete(system, json.dumps(payload, ensure_ascii=False))
-                except LLMInputLimitError as exc:
-                    outcome = classify_failure(exc)
-                    receipt["attempts"][-1]["outcome"] = outcome
-                    receipt.update(status="not_sent", limit_bytes=exc.limit_bytes, failure=outcome)
-                    self.store.write(receipt, *parts)
-                    self._limit = exc.limit_bytes
-                    self._save(model_calls=self._state["model_calls"] - 1)
-                    raise SourceRouteCapacityError(str(exc)) from exc
-                except Exception as exc:
-                    outcome = classify_failure(exc)
-                    receipt["attempts"][-1]["outcome"] = outcome
-                    receipt.update(status="pending_unknown" if outcome["outcome"] == "unknown" else outcome["outcome"], failure=outcome)
-                    self.store.write(receipt, *parts)
-                    if outcome["outcome"] == "unknown":
-                        raise SourceRouteUnknownError("模型请求结果尚未确认；完整请求已保存。当前连接如支持查询将核对原响应，否则不会盲目重发。") from exc
-                    if outcome["retryable"] and not self._automatic_retry_used:
-                        self._automatic_retry_used = True
-                        continue
-                    status = outcome.get("http_status")
-                    detail = f"（HTTP {status}）" if status else ""
-                    raise SourceRouteError(f"模型请求已明确失败{detail}，已保留全部进度；恢复时可继续未完成步骤。") from exc
-                receipt["attempts"][-1]["outcome"] = {"outcome": "response_received"}
+            self._save(model_calls=self._state["model_calls"] + 1, execution={})
+
+        last_update = 0.0
+        def observe(event):
+            nonlocal last_update
+            # Attempt observers receive only code-owned metadata, never content.
+            stamp = time.monotonic()
+            if stamp - last_update < 1 and event.get("event") not in {
+                "request.completed", "request.failed", "request.timeout", "request.cancelled"}:
+                return
+            last_update = stamp
+            self._save(execution={**self._state.get("execution", {}), **event})
+
+        while True:
+            try:
+                session.execute(self._client, before_send=before_send, observer=observe)
                 break
-            # Persist before inspecting cancellation or parsing a paid response.
-            receipt.update(raw=raw, response_sha256=digest(raw), status="response_received", received_at=now())
-            self.store.write(receipt, *parts)
+            except RequestOutcomeUnknown as exc:
+                raise SourceRouteUnknownError(str(exc)) from exc
+            except RequestReceiptError as exc:
+                raise SourceRouteError(str(exc)) from exc
+            except LLMInputLimitError as exc:
+                self._limit = exc.limit_bytes
+                self._save(model_calls=self._state["model_calls"] - 1)
+                raise SourceRouteCapacityError(str(exc)) from exc
+            except (SourceRouteError, _Paused):
+                raise
+            except Exception as exc:
+                outcome = classify_failure(exc)
+                if self._output_truncated({"failure": outcome}):
+                    raise SourceRouteIncompleteError("模型已确认输出到达上限，已接收内容保留，将按完整内容分页继续。") from exc
+                if outcome["outcome"] == "unknown":
+                    raise SourceRouteUnknownError(failure_message(outcome)) from exc
+                if outcome["retryable"] and not self._automatic_retry_used:
+                    self._automatic_retry_used = True
+                    continue
+                raise SourceRouteError(failure_message(outcome)) from exc
+        receipt = self.store.read(*parts)
         try:
             result = parse_response(receipt["raw"], contract)
             self._validate_response(result, payload, contract)
@@ -336,7 +390,14 @@ class SourceStoryDesign:
         system = self._system(operation)
         key = digest([VERSION, system, payload])
         receipt = self.store.read("runs", self._run_id, "requests", key + ".json")
-        return receipt is not None and (receipt.get("raw") is not None or receipt.get("status") in {"dispatched", "pending_unknown"})
+        return receipt is not None and (receipt.get("raw") is not None or receipt.get("status") in {"dispatched", "pending_unknown"} or self._output_truncated(receipt))
+
+    @staticmethod
+    def _output_truncated(receipt):
+        failure = receipt.get("failure", {})
+        return (receipt.get("raw") is None and failure.get("outcome") == "failed"
+                and failure.get("local_outcome") == "incomplete"
+                and failure.get("finish_reason") in {"length", "max_tokens"})
 
     def _validate_response(self, result: dict, payload: dict, contract):
         source = payload.get("source_view", [])

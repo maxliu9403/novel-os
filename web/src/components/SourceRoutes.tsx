@@ -13,7 +13,8 @@ const emptyDraft: SavedDraft = { feedback: '', scope: '', routeDrafts: {} };
 const active = (run?: SourceRouteRun | null) => !!run && ['prepared', 'queued', 'running'].includes(run.status) && !run.interrupted && run.worker_active !== false;
 const complete = (run: SourceRouteRun) => ['ready', 'complete', 'completed'].includes(run.status);
 const failureText = (error: unknown) => error instanceof Error ? error.message : String(error);
-const statusText: Record<string, string> = { prepared: '正在准备整书设计', queued: '等待开始设计', running: '正在研读与设计', ready: '整书路线已保存', complete: '整书路线已保存', completed: '整书路线已保存', paused: '已暂停，进度已保存', cancelled: '已暂停，进度已保存', failed: '本次设计尚未完成', error: '本次设计尚未完成', pending_unknown: '请求结果尚未确认，进度已保存', needs_author: '有一项故事取舍需要明确', interrupted: '进度已保存，可继续' };
+const duration = (seconds: number) => seconds >= 60 ? `${Math.round(seconds / 60)} 分钟` : `${Math.round(seconds)} 秒`;
+const statusText: Record<string, string> = { prepared: '正在准备整书设计', queued: '等待开始设计', running: '正在研读与设计', ready: '整书路线已保存', complete: '整书路线已保存', completed: '整书路线已保存', paused: '已暂停，进度已保存', cancelled: '已暂停，进度已保存', failed: '本次设计尚未完成', error: '本次设计尚未完成', pending_unknown: '请求结果尚未确认，进度已保存', needs_author: '有一项故事取舍需要明确', needs_capacity: '当前模型容量不足，进度已保存', conflict: '设计内容需要确认，进度已保存', interrupted: '进度已保存，可继续' };
 const tabNames = ['情绪与看点', '完整故事走向', '全书悬念与兑现', '原文与新设想'] as const;
 const displayValue = (value: unknown): string => {
   if (typeof value === 'string') return value;
@@ -139,7 +140,7 @@ export default function SourceRoutes({ sourceId, mode, authorContext = {}, draft
     setDraft(value => ({ ...value, routeDrafts: { ...value.routeDrafts, [selectedKey]: { ...selectedDraft, ...change } } }));
   }
   async function submit(operation: SourceRouteOperation) {
-    if (busyRef.current || active(run) || disabled) return;
+    if (busyRef.current || active(run) || run?.worker_active || run?.status === 'pending_unknown' || disabled) return;
     busyRef.current = true; setBusy(true); setError('');
     const feedback = draft.feedback;
     const payload = { operation, mode, author_context: authorContext, feedback,
@@ -167,6 +168,22 @@ export default function SourceRoutes({ sourceId, mode, authorContext = {}, draft
     catch (e) { if (mounted.current) setError(failureText(e)); }
     finally { busyRef.current = false; if (mounted.current) setBusy(false); }
   }
+  async function retryUnknown() {
+    const recovery = run?.recovery;
+    if (!run || busyRef.current || disabled || run.worker_active || !recovery?.can_retry_unknown || !recovery.request_sha256 || !recovery.receipt_sha256) return;
+    busyRef.current = true; setBusy(true); setError('');
+    const payload = operationFor(`${storageKey}:retry:${run.run_id}`, {
+      action: 'retry_unknown' as const,
+      request_sha256: recovery.request_sha256, receipt_sha256: recovery.receipt_sha256,
+    });
+    try {
+      const value = await sourceRoutesApi.retryUnknown(sourceId, run.run_id, payload);
+      // Keep this operation binding even after acknowledgement: stale polling or
+      // a lost browser response must not authorize a second attempt on this receipt.
+      if (mounted.current) { setRun(value); refresh(); onStatusChange?.(); }
+    } catch (e) { if (mounted.current) setError(failureText(e)); }
+    finally { busyRef.current = false; if (mounted.current) setBusy(false); }
+  }
   async function proceed() {
     if (!choice || !onContinue || busyRef.current) return;
     busyRef.current = true; setBusy(true); setError('');
@@ -174,16 +191,25 @@ export default function SourceRoutes({ sourceId, mode, authorContext = {}, draft
     finally { busyRef.current = false; if (mounted.current) setBusy(false); }
   }
   const unsettled = run && !complete(run);
+  const canResume = unsettled && (run.recovery?.can_resume ?? run.status !== 'pending_unknown');
+  const canRetryUnknown = run?.recovery?.can_retry_unknown && run.recovery.request_sha256 && run.recovery.receipt_sha256;
+  const blockedSubmission = active(run) || run?.worker_active || run?.status === 'pending_unknown';
+  const execution = run?.execution ?? run?.recovery?.execution;
   const feedbacks = currentSet?.feedback_history.map(item => item.exact_text ?? item.feedback ?? item.text ?? '').filter(Boolean) ?? [];
   return <section className="source-routes" aria-label="整书路线工作台">
     <header className="source-routes-heading"><div><span className="source-routes-eyebrow">从全部资料到一部完整故事</span><h3>选择值得继续写的方向</h3><p>先比较人物选择、情绪回报和故事结局，再一起打磨骨架。</p></div>
       <button type="button" className="btn-ghost" onClick={() => { refresh(); onStatusChange?.(); }}>刷新路线</button></header>
     {syncError && <p className="source-route-notice" role="status">路线状态暂未同步，已有内容仍保留。<button type="button" onClick={refresh}>重试同步</button></p>}
     {error && <p role="alert" className="source-route-error">{error}</p>}
-    {run && <div className="source-route-run" aria-live="polite"><strong>{run.interrupted ? statusText.interrupted : statusText[run.status] ?? '正在保存设计进度'}</strong>
+    {run && <div className="source-route-run" aria-live="polite"><strong>{run.interrupted ? statusText.interrupted : run.worker_active && run.status === 'pending_unknown' ? '正在恢复未完成的设计' : statusText[run.status] ?? '设计状态待同步'}</strong>
       {run.total > 0 && <span>已保存 {run.completed} / {run.total} 个步骤</span>}
+      {run.status === 'pending_unknown' && run.worker_active !== true && <p className="knowledge-muted">本次设计已停止</p>}
+      {unsettled && !active(run) && !run.worker_active && run.recovery?.message && <p>{run.recovery.message}</p>}
+      {execution?.elapsed_seconds !== undefined && <p className="knowledge-muted">已等待 {duration(execution.elapsed_seconds)}{execution.timeout_seconds !== undefined ? ` · ${execution.timeout_scope === 'request' ? '单次请求' : execution.timeout_scope === 'local_process' ? '本地执行' : execution.timeout_scope === 'idle' ? '无响应等待' : '本次等待'}上限 ${duration(execution.timeout_seconds)}` : ''}</p>}
       <div className="source-route-actions">{active(run) ? <button type="button" className="btn-secondary" disabled={busy || run.cancel_requested || run.pause_requested} onClick={() => void control('pause')}>{run.cancel_requested || run.pause_requested ? '正在保存并暂停…' : '暂停设计'}</button>
-        : unsettled && <button type="button" className="btn-secondary" disabled={busy || disabled} onClick={() => void control('resume')}>继续未完成的设计</button>}</div>
+        : !run.worker_active && canResume && <button type="button" className="btn-secondary" disabled={busy || disabled} onClick={() => void control('resume')}>继续未完成的设计</button>}
+        {!run.worker_active && canRetryUnknown && <button type="button" className="btn-secondary" disabled={busy || disabled} onClick={() => void retryUnknown()}>重新执行未完成步骤</button>}</div>
+      {canRetryUnknown && <p>保留资料和旧记录；原请求结果无法查询，重新执行可能产生额外模型费用。</p>}
       {run.error && <details><summary>查看本次未完成原因</summary><p>{run.error}</p></details>}
       <details><summary>运行详情</summary><p>当前阶段：{run.stage} · 模型调用：{run.model_calls} 次</p><p>原文、已保存方案和检查点保留；不会要求填写技术对账。</p></details>
     </div>}
@@ -214,10 +240,10 @@ export default function SourceRoutes({ sourceId, mode, authorContext = {}, draft
       <p className="knowledge-muted">输入会保留为草稿；点击后才提交。补充不会自动采用任何路线。</p>
       {currentSet && <label>本次修改范围<select aria-label="本次修改范围" value={draft.scope} onChange={e => setDraft(value => ({ ...value, scope: e.target.value }))}><option value="">当前版本全部方案</option>{currentSet.routes.map(route => <option key={route.route_id} value={route.route_id}>{route.title}</option>)}</select></label>}
       <div className="source-route-actions">{currentSet ? <>
-        <button type="button" className="btn-secondary" disabled={busy || disabled || active(run) || !draft.feedback.trim()} onClick={() => void submit('revise_routes')}>按补充完善方案</button>
+        <button type="button" className="btn-secondary" disabled={busy || disabled || blockedSubmission || !draft.feedback.trim()} onClick={() => void submit('revise_routes')}>按补充完善方案</button>
         <label className="source-route-count">新增<input type="number" min="1" step="1" aria-label="新增路线数量" value={additionalCount} onChange={e => setAdditionalCount(Math.max(1, Math.floor(Number(e.target.value) || 1)))} />条</label>
-        <button type="button" className="btn-primary" disabled={busy || disabled || active(run)} onClick={() => void submit('expand_routes')}>保留已有，再给新方案</button>
-      </> : <><label className="source-route-count">首批<input type="number" min="1" step="1" aria-label="首批路线数量" value={initialCount} onChange={e => setInitialCount(Math.max(1, Math.floor(Number(e.target.value) || 1)))} />条</label><button type="button" className="btn-primary" disabled={busy || disabled || active(run)} onClick={() => void submit('initial_routes')}>生成首批整书路线</button></>}</div>
+        <button type="button" className="btn-primary" disabled={busy || disabled || blockedSubmission} onClick={() => void submit('expand_routes')}>保留已有，再给新方案</button>
+      </> : <><label className="source-route-count">首批<input type="number" min="1" step="1" aria-label="首批路线数量" value={initialCount} onChange={e => setInitialCount(Math.max(1, Math.floor(Number(e.target.value) || 1)))} />条</label><button type="button" className="btn-primary" disabled={busy || disabled || blockedSubmission} onClick={() => void submit('initial_routes')}>生成首批整书路线</button></>}</div>
     </section>
     {selected && selectedDraft && <section className="source-route-selection" aria-label="所选路线与题材"><h4>以「{selected.title}」为讨论方向</h4><p>具体事件仍是可修改设想；题材与意见将一起带入头脑风暴。</p>
       <div className="source-route-type-suggestion"><strong>本路线推荐</strong><p>{selected.type_suggestion.reason}</p><button type="button" className="btn-secondary" disabled={disabled || !recommend(selected)} onClick={() => { const value = recommend(selected); if (value) updateSelected({ ...value, author_note: selectedDraft.author_note }); }}>采用这组推荐</button>{!recommend(selected) && <p>部分推荐条目当前不可用，请在下方选择有效题材。</p>}</div>

@@ -46,6 +46,7 @@ def public_route_state(library, identifier, value, runner):
     active = bool(job and job.get("status") == "running")
     result.update(
         job_id=job.get("job_id") if job else None,
+        worker_status=job.get("status") if job else "absent",
         worker_active=active,
         cancel_requested=bool(job and job.get("cancel_requested")),
         interrupted=not active and value.get("status") in _ACTIVE,

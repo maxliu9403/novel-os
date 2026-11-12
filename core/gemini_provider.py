@@ -13,7 +13,9 @@ DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com"
 
 
 class GeminiError(ValueError):
-    pass
+    def __init__(self, message, *, finish_reason=None):
+        super().__init__(message)
+        self.finish_reason = finish_reason
 
 
 def is_continuation(request) -> bool:
@@ -104,7 +106,7 @@ def discover_models(api_key: str, base_url: str, timeout_seconds: float) -> dict
 
 def complete(client, *, model: str, system: str, user: str, max_tokens: int,
              effort: str, images: tuple[bytes, ...] = (), check_cancelled,
-             diagnostic, observe, set_stream) -> str:
+             diagnostic, observe, set_stream, preserve_received=None) -> str:
     from google.genai import types
     from google.genai.errors import APIError
     thinking = thinking_options(model, effort, max_tokens)
@@ -127,6 +129,7 @@ def complete(client, *, model: str, system: str, user: str, max_tokens: int,
     )
     stream = None
     output = []
+    received = [] if preserve_received is not None else None
     chars = 0
     finish = ""
     last_signal = 0.0
@@ -136,6 +139,12 @@ def complete(client, *, model: str, system: str, user: str, max_tokens: int,
             model=model, contents=[types.Content(role="user", parts=parts)], config=config)
         set_stream(stream)
         for chunk in stream:
+            if received is not None:
+                # Keep every received public text part before cancellation,
+                # safety or completion checks; thoughts are never manuscript.
+                received.extend(part.text for candidate in (chunk.candidates or [])[:1]
+                                for part in (candidate.content.parts if candidate.content else []) or []
+                                if part.text and not part.thought)
             check_cancelled()
             if chunk.usage_metadata is not None:
                 observe(chunk.usage_metadata, provider="gemini", replace=True,
@@ -156,7 +165,8 @@ def complete(client, *, model: str, system: str, user: str, max_tokens: int,
                 last_signal = now
         check_cancelled()
         if finish != "STOP":
-            raise GeminiError(f"Gemini 输出未完整结束（{finish or 'stream interrupted'}）；请检查输出上限或服务状态，未接受部分结果")
+            raise GeminiError(f"Gemini 输出未完整结束（{finish or 'stream interrupted'}）；请检查输出上限或服务状态，未接受部分结果",
+                              finish_reason=finish or "unknown")
         text = "".join(output)
         if not text.strip():
             raise GeminiError("Gemini 返回空正文；未接受为完成结果")
@@ -166,9 +176,13 @@ def complete(client, *, model: str, system: str, user: str, max_tokens: int,
         # SDK messages may include request details. Persist only the status.
         raise GeminiError(f"Gemini API 请求失败（HTTP {error.code}）；请检查模型权限、配额与 API 地址") from None
     finally:
-        if stream is not None:
-            try:
-                stream.close()
-            except Exception:
-                pass
-        set_stream(None)
+        try:
+            if preserve_received is not None:
+                preserve_received("".join(received))
+        finally:
+            if stream is not None:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+            set_stream(None)

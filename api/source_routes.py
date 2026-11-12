@@ -13,7 +13,7 @@ import threading
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException
-from pydantic import Field, StringConstraints
+from pydantic import Field, StringConstraints, model_validator
 
 from core.creation_mode import SourceMode
 from core.creative_types import StrictModel, TypeRef, active_document, digest
@@ -62,6 +62,23 @@ class RouteRunRequest(StrictModel):
 
 class ResumeRequest(StrictModel):
     """Explicit resume always uses the current connection for unfinished work."""
+    action: Literal["resume", "retry_unknown"] = "resume"
+    operation_id: OperationId | None = None
+    request_sha256: Sha | None = None
+    receipt_sha256: Sha | None = None
+
+    @model_validator(mode="after")
+    def validate_retry_binding(self):
+        values = (self.operation_id, self.request_sha256, self.receipt_sha256)
+        if self.action == "retry_unknown" and not all(values):
+            raise ValueError("重新执行需要完整的请求版本和操作标识，请刷新后重试。")
+        if self.action == "resume" and any(values):
+            raise ValueError("普通继续不能包含重新执行授权。")
+        return self
+
+
+class SourceRouteJobStopped(RuntimeError):
+    """A saved domain result is not necessarily a completed design."""
 
 
 def design_for(projects: ProjectService, identifier: str):
@@ -142,7 +159,14 @@ def _job(projects: ProjectService, identifier: str, run_id: str) -> dict | None:
 
 def public_state(projects: ProjectService, identifier: str, value: dict) -> dict:
     """GET is read-only: worker loss is a projection, not a state migration."""
-    return public_route_state(source_store(projects), identifier, value, runner)
+    result = public_route_state(source_store(projects), identifier, value, runner)
+    recovery = design_for(projects, identifier).recovery(value["run_id"])
+    result["recovery"] = recovery
+    if value.get("status") == "pending_unknown":
+        result["error"] = recovery["message"]
+    if recovery.get("execution"):
+        result["execution"] = recovery["execution"]
+    return result
 
 
 def _model_binding(route: dict) -> dict:
@@ -182,16 +206,28 @@ def _dispatch(projects, identifier, design, state, route):
         cancel = threading.Event()
 
         def operation():
-            client = _client(route, cancel)
+            try:
+                client = _client(route, cancel)
+            except Exception as exc:
+                raise SourceRouteJobStopped("模型连接未能启动；资料和进度已保存，请检查当前模型设置。") from exc
             with usage_scope(source_store(projects).path(identifier), "brainstorming"):
-                return design.run(run_id, client, cancel)
+                result = design.run(run_id, client, cancel)
+            if result.get("status") not in _COMPLETE:
+                recovery = design.recovery(run_id)
+                raise SourceRouteJobStopped(
+                    recovery.get("message") or "本次设计尚未完成；资料和进度已保存。"
+                )
+            return result
 
         job_id = runner.submit(
             "source.routes", operation,
             meta={"source_id": identifier, "route_run_id": run_id},
             unique_key=str(_job_path(projects, identifier, run_id)),
             cancel_event=cancel, defer_cancel_completion=True,
-            result_mapper=lambda _: {"source_id": identifier, "route_run_id": run_id},
+            result_mapper=lambda result: {
+                "source_id": identifier, "route_run_id": run_id,
+                "status": result["status"],
+            },
         )
         atomic_json(_job_path(projects, identifier, run_id), {"run_id": run_id, "job_id": job_id})
         return public_state(projects, identifier, design.status(run_id))
@@ -214,6 +250,12 @@ def create_run(identifier: str, body: RouteRunRequest, projects: ProjectService 
         if any(row.get("request", {}).get("operation_id") == body.operation_id for row in design.list_runs()):
             existing = design.prepare(request, model={}, catalog=[])
             return public_state(projects, identifier, existing)
+        current = next((row for row in ordered_route_states(
+            public_route_state(source_store(projects), identifier, row, runner)
+            for row in design.list_runs()
+        ) if row.get("request", {}).get("mode") == body.mode), None)
+        if current and current.get("status") == "pending_unknown":
+            raise ValueError("此设计还有结果未确认的步骤，请先恢复或重新执行该步骤；原资料和方案已保留。")
         catalog = catalog_for(projects)
         _validate_author_selection(body.author_context, catalog)
         route = deepcopy(_resolve_route())
@@ -268,13 +310,27 @@ def resume_run(
 ):
     design = _design_or_404(projects, identifier)
     try:
-        state = design.status(run_id)
-        if state.get("status") in _COMPLETE:
-            return public_state(projects, identifier, state)
-        job = _job(projects, identifier, run_id)
-        if job and job.get("status") == "running":
-            return public_state(projects, identifier, state)
-        return _dispatch(projects, identifier, design, state, deepcopy(_resolve_route()))
+        with _DISPATCH_LOCK:
+            state = design.status(run_id)
+            if body.action == "retry_unknown":
+                # Validate binding even if a newer worker exists. Repeated delivery
+                # of the same consumed operation is readable without redispatch.
+                authorized = design.authorize_retry(
+                    run_id, request_sha256=body.request_sha256,
+                    receipt_sha256=body.receipt_sha256, operation_id=body.operation_id,
+                )
+                if not authorized:
+                    return public_state(projects, identifier, state)
+            elif state.get("status") in _COMPLETE:
+                return public_state(projects, identifier, state)
+            job = _job(projects, identifier, run_id)
+            if job and job.get("status") == "running":
+                return public_state(projects, identifier, state)
+            if body.action == "resume":
+                recovery = design.recovery(run_id)
+                if not recovery["can_resume"]:
+                    raise ValueError(recovery["message"])
+            return _dispatch(projects, identifier, design, state, deepcopy(_resolve_route()))
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
 

@@ -95,6 +95,87 @@ def create(study, model=None):
     return study.get_route_set(state["route_set_sha256"]), state, model
 
 
+def test_unknown_retry_uses_current_model_preserves_inputs_and_all_old_attempts(tmp_path):
+    study = service(tmp_path)
+    state = study.prepare({"operation_id": "timeout", "feedback": "Keep the quiet ending"}, model={}, catalog=CATALOG)
+    class TimeoutModel(Model):
+        def complete(self, system, user):
+            self.calls.append((system, json.loads(user)))
+            raise TimeoutError("private upstream details")
+    failed = TimeoutModel()
+    stopped = study.run(state["run_id"], failed)
+    assert stopped["status"] == "pending_unknown"
+    inputs = study.store.path("runs", state["run_id"], "inputs.json").read_bytes()
+    recovery = study.recovery(state["run_id"])
+    assert recovery["execution"]["local_outcome"] == "timeout"
+    assert "private upstream" not in json.dumps(recovery)
+    binding = {"operation_id": "retry-current", "request_sha256": recovery["request_sha256"], "receipt_sha256": recovery["receipt_sha256"]}
+    assert study.authorize_retry(state["run_id"], **binding)
+    current = Model()
+    current.model = "newly-selected-model"
+    ready = study.run(state["run_id"], current)
+    assert ready["status"] == "ready"
+    assert len(current.calls) == 1 and current.calls == failed.calls
+    assert study.store.path("runs", state["run_id"], "inputs.json").read_bytes() == inputs
+    assert not study.authorize_retry(state["run_id"], **binding)
+    receipt = study.store.read("runs", state["run_id"], "requests", recovery["request_sha256"] + ".json")
+    assert len(receipt["attempts"]) == 2
+    assert receipt["attempts"][0]["failure"]["local_outcome"] == "timeout"
+    assert receipt["attempts"][1]["model"]["model"] == "newly-selected-model"
+
+
+def test_consumed_retry_is_readable_while_worker_owns_run_lease(tmp_path):
+    study = service(tmp_path)
+    state = study.prepare({"operation_id": "concurrent-retry"}, model={}, catalog=CATALOG)
+    def timeout(*_):
+        raise TimeoutError()
+    study.run(state["run_id"], timeout)
+    recovery = study.recovery(state["run_id"])
+    binding = {"operation_id": "retry-once", "request_sha256": recovery["request_sha256"], "receipt_sha256": recovery["receipt_sha256"]}
+    study.authorize_retry(state["run_id"], **binding)
+    entered, release = threading.Event(), threading.Event()
+    class WaitingModel(Model):
+        def complete(self, system, user):
+            entered.set()
+            assert release.wait(10)
+            return super().complete(system, user)
+    model, results = WaitingModel(), []
+    worker = threading.Thread(target=lambda: results.append(study.run(state["run_id"], model)))
+    worker.start()
+    try:
+        assert entered.wait(10)
+        assert not study.authorize_retry(state["run_id"], **binding)
+    finally:
+        release.set()
+        worker.join(10)
+    assert not worker.is_alive() and results[0]["status"] == "ready"
+    assert len(model.calls) == 1
+
+
+def test_verified_output_limit_keeps_existing_full_source_paging_recovery(tmp_path):
+    from core.llm_attempt import current_attempt
+    from core.llm_client import LLMIncompleteResponseError
+    class LimitedModel(Model):
+        def complete(self, system, user):
+            value = json.loads(user)
+            if value["response_schema"]["title"] == "InitialResponse":
+                self.calls.append((system, value))
+                current_attempt().save_partial_response('{"understanding":')
+                raise LLMIncompleteResponseError("length")
+            return super().complete(system, user)
+    study, model = service(tmp_path), LimitedModel()
+    state = study.prepare({"operation_id": "output-limit"}, model={}, catalog=CATALOG)
+    state = study.run(state["run_id"], model)
+    assert state["status"] == "ready", state
+    assert sum(p["response_schema"]["title"] == "InitialResponse" for _, p in model.calls) == 1
+    understanding = study.get_understanding(state["understanding_sha256"])
+    assert understanding["coverage"]["all_supplied_text_sent"]
+    assert list(study.root.rglob("partial-response.txt"))[0].read_text() == '{"understanding":'
+    before = len(model.calls)
+    assert study.run(state["run_id"], model)["status"] == "ready"
+    assert len(model.calls) == before
+
+
 def test_full_source_one_call_private_evidence_and_old_analysis_untouched(tmp_path):
     study = service(tmp_path)
     legacy = study.library.path(study.source_id) / "study" / "result.json"

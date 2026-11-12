@@ -176,46 +176,26 @@ class SourceEvidenceCoordinator:
 
     def _call(self, client, system, user, directory):
         from core.source_request_recovery import classify_failure
+        from core.source_request_session import RequestOutcomeUnknown, SourceRequestSession
         self._check()
         identity = digest({"system": system, "user": user})
         path = _managed(directory, identity + ".json")
-        record = {}
         if path.exists():
             record = json.loads(path.read_text("utf-8"))
             if record.get("system") != system or record.get("user") != user:
                 raise ValueError("Source evidence request identity mismatch")
-            if "response" in record:
-                if (not isinstance(record['response'], str) or record.get('response_sha256')
-                        != hashlib.sha256(record['response'].encode()).hexdigest()):
-                    raise ValueError('Saved source response integrity mismatch')
-                return record["response"]
-            if record.get("state") == "dispatched":
-                recover = getattr(client, 'recover_response', None)
-                recovered = recover(identity) if callable(recover) else None
-                if not isinstance(recovered, str):
-                    raise ValueError("模型请求结果尚未确认；完整请求已保留，不会重复发送。")
-                atomic_json(path, {**record, 'state': 'received', 'response': recovered,
-                                   'response_sha256': hashlib.sha256(recovered.encode()).hexdigest()})
-                return recovered
-        model = {name: getattr(client, name) for name in
-                 ('provider_name', 'model', 'model_id', 'reasoning_effort', 'planning_input_bytes', 'max_tokens')
-                 if isinstance(getattr(client, name, None), (str, int, float, bool))}
-        record.update(system=system, user=user, state='prepared', model=model)
+        else:
+            atomic_json(path, {'system': system, 'user': user, 'state': 'prepared'})
+        session = SourceRequestSession(path, identity, kind='evidence')
         while True:
-            atomic_json(path, record)
-            self._check()
-            record.setdefault('attempts', []).append({'model': model, 'state': 'dispatched'})
-            record['state'] = 'dispatched'
-            atomic_json(path, record)
             try:
-                response = client.complete(system, user)
-                break
+                return session.execute(client, before_send=self._check)
+            except RequestOutcomeUnknown:
+                # Failure to query an old request says nothing about the
+                # original request's outcome or its transport retry allowance.
+                raise
             except Exception as exc:
                 evidence = classify_failure(exc)
-                record['attempts'][-1].update(state=evidence['outcome'], failure=evidence)
-                record['state'] = ('dispatched' if evidence['outcome'] == 'unknown' else
-                                   'prepared' if evidence['outcome'] == 'not_sent' else 'failed')
-                atomic_json(path, record)
                 # One transient transport recovery per coordinator invocation;
                 # subsequent explicit resume retains every failed attempt.
                 if evidence['retryable'] and self._transport_retries == 0:
@@ -225,12 +205,6 @@ class SourceEvidenceCoordinator:
                         time.sleep(0.1)
                     continue
                 raise
-        if not isinstance(response, str):
-            raise ValueError("Model response must be complete text")
-        record['attempts'][-1]['state'] = 'received'
-        atomic_json(path, {**record, "state": "received", "response": response,
-                           "response_sha256": hashlib.sha256(response.encode()).hexdigest()})
-        return response
 
     def complete(self, client, system, user, *, limit=None):
         from core.gemini_gateway import input_bytes

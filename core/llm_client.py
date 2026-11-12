@@ -34,7 +34,14 @@ Provider-native keys also work as fallbacks:
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from contextvars import copy_context
+try:
+    from core.llm_attempt import current_attempt
+except ModuleNotFoundError as exc:
+    if exc.name != "core":
+        raise
+    from llm_attempt import current_attempt
 try:
     from core.pipeline_runtime import current_runtime, client_scope, is_execution_stop
 except ModuleNotFoundError as exc:
@@ -61,6 +68,7 @@ def _gemini_http_attempt_started(request):
 
 import base64
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 import signal
@@ -174,6 +182,16 @@ class LLMInputLimitError(LLMError):
 
 class LLMCancelledError(LLMError):
     """The caller cancelled this completion; it must not be retried automatically."""
+
+
+class LLMIncompleteResponseError(LLMError):
+    """Received text lacks a normal provider termination; partial text is retained."""
+
+    def __init__(self, finish_reason):
+        self.finish_reason = finish_reason if isinstance(finish_reason, str) and finish_reason in {
+            "length", "max_tokens", "content_filter", "tool_calls", "tool_use",
+        } else "unknown"
+        super().__init__("Model response has no complete termination; received text was preserved")
 
 
 # --------------------------------------------------------------------------- client
@@ -465,10 +483,16 @@ class LLMClient:
             with usage_request(self.provider_name, self.model):
                 return self._complete_observed(system, user)
 
-    def _complete_observed(self, system: str, user: str, *, operation=None) -> str:
+    def _complete_observed(self, system: str, user: str, *, operation=None, image_digests=()) -> str:
         """Single-turn message → assistant text."""
         call = operation or (lambda: self._complete_text(system, user))
-        if getattr(self, "diagnostic_callback", None) is None:
+        attempt = current_attempt()
+        if attempt is not None:
+            attempt.bind_request(system, user, provider=self.provider_name, model=self.model,
+                                 parameters={"max_tokens": self.max_tokens,
+                                             "reasoning_effort": self.reasoning_effort,
+                                             "image_sha256": list(image_digests)})
+        if getattr(self, "diagnostic_callback", None) is None and attempt is None:
             return call()
         started = time.monotonic()
         self._record_diagnostic("request.start", provider=self.provider_name, model=self.model,
@@ -482,6 +506,10 @@ class LLMClient:
                                 system_bytes=len(system.encode("utf-8")), user_bytes=len(user.encode("utf-8")))
         try:
             result = call()
+            if attempt is not None:
+                # This receipt survives a business-layer crash before parsing or
+                # checkpointing. It never promotes timed-out partial output.
+                attempt.save_response(result)
         except BaseException as exc:
             event = "request.failed"
             if isinstance(exc, LLMCancelledError):
@@ -504,10 +532,17 @@ class LLMClient:
                           replace=fields.get("usage_scope") == "request_total",
                           incomplete_fields=fields.get("usage_incomplete_fields", ()))
         callback = getattr(self, "diagnostic_callback", None)
+        entry = {**fields, "event": event, "time": datetime.now(timezone.utc).isoformat(),
+                 "request_id": current_request().request_id if current_request() else None}
+        attempt = current_attempt()
+        if attempt is not None:
+            try:
+                attempt.record_diagnostic(entry)
+            except Exception:
+                pass
         if callback is not None:
             try:
-                callback({**fields, "event": event, "time": datetime.now(timezone.utc).isoformat(),
-                          "request_id": current_request().request_id if current_request() else None})
+                callback(entry)
             except Exception:
                 pass
 
@@ -559,7 +594,14 @@ class LLMClient:
         def request():
             try:
                 self._check_cancelled()
-                result["value"] = call()
+                value = call()
+                attempt = current_attempt()
+                if attempt is not None:
+                    # Normal adapter termination is valid evidence even if the
+                    # caller stopped waiting. Preserve it on its own attempt;
+                    # never publish a partial stream as a completed response.
+                    attempt.save_response(value)
+                result["value"] = value
             except BaseException as exc:
                 result["error"] = exc
             finally:
@@ -567,7 +609,8 @@ class LLMClient:
 
         # Python cannot terminate a blocked SDK thread. Cancellation releases
         # this local wait; close() usually interrupts transport I/O. A remote
-        # provider may still finish the request, whose late result is discarded.
+        # provider may still finish the request. Opted-in attempts retain a
+        # normally completed late response without committing business state.
         threading.Thread(target=copy_context().run, args=(request,), daemon=True, name="llm-http-request").start()
         timeout = getattr(self, "timeout_seconds", None)
         deadline = time.monotonic() + timeout if timeout else None
@@ -597,7 +640,9 @@ class LLMClient:
         with client_scope(self):
             self._check_cancelled()
             with usage_request(self.provider_name, self.model):
+                images = tuple(bytes(item) for item in images if item)
                 return self._complete_observed(system, user,
+                    image_digests=tuple(hashlib.sha256(image).hexdigest() for image in images),
                     operation=lambda: self._complete_with_images_observed(system, user, images))
 
     def _complete_with_images_observed(
@@ -722,10 +767,15 @@ class LLMClient:
         )
         prompt = f"{preamble}# ROLE\n{system}\n\n# TASK / CONTEXT\n{user}" if system else f"{preamble}{user}"
         run_options = {"timeout": self.timeout_seconds} if self.timeout_seconds is not None else {}
-        with tempfile.TemporaryDirectory(prefix="novel-os-codex-") as directory:
+        attempt = current_attempt()
+        workspace = (nullcontext(attempt.cli_directory()) if attempt is not None
+                     else tempfile.TemporaryDirectory(prefix="novel-os-codex-"))
+        with workspace as directory:
             output_path = Path(directory) / "last-message.txt"
+            if attempt is not None and (output_path.exists() or output_path.is_symlink()):
+                raise LLMError("This completion attempt already has CLI evidence; use recovery or a new attempt")
             diagnostics = None
-            if getattr(self, "diagnostic_callback", None) is not None or tracking_enabled():
+            if attempt is not None or getattr(self, "diagnostic_callback", None) is not None or tracking_enabled():
                 try:
                     from .llm_diagnostics import CLIDiagnostics
                 except ImportError:  # Standalone imports used by the CLI entry points.
@@ -734,6 +784,8 @@ class LLMClient:
                     entry["event"], **{key: value for key, value in entry.items() if key != "event"}))
 
             def finish_diagnostics(event: str, **fields):
+                if attempt is not None:
+                    attempt.sync_cli_evidence()
                 if diagnostics is None:
                     return
                 try:
@@ -779,7 +831,7 @@ class LLMClient:
                     from codex_telemetry import CodexTelemetry
                 telemetry = CodexTelemetry(lambda entry: self._record_diagnostic(
                     entry["event"], **{key: value for key, value in entry.items() if key != "event"}),
-                    enable_metrics=getattr(self, "diagnostic_callback", None) is not None).start()
+                    enable_metrics=attempt is not None or getattr(self, "diagnostic_callback", None) is not None).start()
                 command.extend(telemetry.config_args)
             command.append("-")
             try:
@@ -830,13 +882,16 @@ class LLMClient:
                     detail = detail[-500:]
                 raise LLMError(f"Codex CLI failed (exit {process.returncode}): {detail}")
             try:
-                result = output_path.read_text(encoding="utf-8").strip()
+                result = (attempt.read_cli_final() if attempt is not None
+                          else output_path.read_text(encoding="utf-8")).strip()
             except OSError as exc:
                 finish_diagnostics("cli.failed", exit_code=process.returncode)
                 raise LLMError("Codex CLI returned no final message") from exc
             if not result:
                 finish_diagnostics("cli.failed", exit_code=process.returncode)
                 raise LLMError("Codex CLI returned an empty final message")
+            if attempt is not None:
+                attempt.save_response(result)
             finish_diagnostics("cli.completed", exit_code=process.returncode, output_chars=len(result))
             return result
 
@@ -846,7 +901,10 @@ class LLMClient:
         cancellation_event: threading.Event,
         *, diagnostics=None, upstream_observer=None, completion_grace_seconds: float = 0,
     ) -> subprocess.CompletedProcess[str]:
+        attempt = current_attempt()
         def observe(method, *args):
+            if attempt is not None and method == "observe":
+                attempt.capture_cli_output(*args)
             if upstream_observer is not None:
                 try:
                     upstream_observer.poll()
@@ -933,6 +991,14 @@ class LLMClient:
                 except ProcessLookupError:
                     pass
                 process.wait(timeout=1)
+                if attempt is not None:
+                    # This proves only that our local child stopped. It is not
+                    # evidence that any remote generation was cancelled.
+                    try:
+                        attempt.record_diagnostic({"event": "process_stopped", "local_process_stopped": True,
+                                                   "exit_code": process.returncode})
+                    except Exception:
+                        pass
                 if diagnostics is not None:
                     # Drain shutdown output before the pipes and temporary result
                     # disappear. Only safe event metadata reaches the log sink.
@@ -994,7 +1060,18 @@ class LLMClient:
             messages=[{"role": "user", "content": user}],
         )
         observe_usage(getattr(resp, "usage", None), provider=self.provider_name, observed_model=getattr(resp, "model", None))
-        return "".join(getattr(b, "text", "") or "" for b in resp.content)
+        text = "".join(getattr(b, "text", "") or "" for b in resp.content)
+        self._require_complete_response(text, getattr(resp, "stop_reason", None), {"end_turn", "stop_sequence"})
+        return text
+
+    def _require_complete_response(self, text, finish_reason, accepted=frozenset({"stop"})):
+        attempt = current_attempt()
+        if attempt is not None and (not isinstance(finish_reason, str) or finish_reason not in accepted):
+            attempt.save_partial_response(text)
+            error = LLMIncompleteResponseError(finish_reason)
+            self._record_diagnostic("request.incomplete", finish_reason=error.finish_reason,
+                                    output_chars=len(text), output_bytes=len(text.encode("utf-8")))
+            raise error
 
     def _complete_openai_shape(self, system: str, user: str) -> str:
         max_tokens = self.max_tokens
@@ -1016,7 +1093,9 @@ class LLMClient:
         if not _env_flag("NOVEL_OS_LLM_STREAMING", True):
             resp = self._backend.chat.completions.create(**request)
             observe_usage(getattr(resp, "usage", None), provider=self.provider_name, observed_model=getattr(resp, "model", None))
-            return resp.choices[0].message.content or ""
+            text = resp.choices[0].message.content or ""
+            self._require_complete_response(text, getattr(resp.choices[0], "finish_reason", None))
+            return text
 
         # Official OpenAI streaming emits usage only when explicitly requested.
         # Third-party compatibility routes may reject this option; do not add
@@ -1028,6 +1107,8 @@ class LLMClient:
         if cancellable:
             self._active_stream = stream
         parts = []
+        received = [] if current_attempt() is not None else None
+        finish_reason = None
         output_chars = 0
         last_diagnostic = 0.0
         print("   Response stream started", end="", flush=True)
@@ -1036,6 +1117,14 @@ class LLMClient:
         try:
             self._check_cancelled()
             for chunk in stream:
+                if received is not None:
+                    # The chunk has already arrived, even if cancellation was
+                    # signalled with it. Retain only public text before the
+                    # cancellation check, without accepting its finish reason.
+                    for choice in (getattr(chunk, "choices", None) or [])[:1]:
+                        content = getattr(getattr(choice, "delta", None), "content", None)
+                        if content:
+                            received.append(content)
                 observe_usage(getattr(chunk, "usage", None), provider=self.provider_name, observed_model=getattr(chunk, "model", None))
                 self._check_cancelled()
                 now = time.monotonic()
@@ -1045,6 +1134,8 @@ class LLMClient:
                 choices = getattr(chunk, "choices", None) or []
                 if not choices:
                     continue
+                if getattr(choices[0], "finish_reason", None) is not None:
+                    finish_reason = choices[0].finish_reason
                 delta = getattr(choices[0], "delta", None)
                 content = getattr(delta, "content", None)
                 if not content:
@@ -1054,7 +1145,10 @@ class LLMClient:
                 if now - last_diagnostic >= 1:
                     self._record_diagnostic('content.progress', model_output_chars=output_chars)
                     last_diagnostic = now
-        except Exception:
+        except BaseException:
+            attempt = current_attempt()
+            if attempt is not None:
+                attempt.save_partial_response("".join(received))
             if progress_started:
                 print(" interrupted", flush=True)
             raise
@@ -1067,6 +1161,7 @@ class LLMClient:
                 except Exception:
                     pass
                 self._active_stream = None
+        self._require_complete_response("".join(parts), finish_reason)
         if progress_started:
             print(" done", flush=True)
         return "".join(parts)
@@ -1094,7 +1189,9 @@ class LLMClient:
             ],
         )
         observe_usage(getattr(response, "usage", None), provider=self.provider_name, observed_model=getattr(response, "model", None))
-        return response.choices[0].message.content or ""
+        text = response.choices[0].message.content or ""
+        self._require_complete_response(text, getattr(response.choices[0], "finish_reason", None))
+        return text
 
     def _complete_gemini_gateway(self, system: str, user: str, *, images=()) -> str:
         try:
@@ -1102,17 +1199,22 @@ class LLMClient:
         except ImportError:
             from gemini_gateway import complete, GatewayError, GatewayInputLimitError
         self.last_response_metadata = {}
+        attempt = current_attempt()
+        preservation = {"preserve_received": attempt.save_partial_response} if attempt is not None else {}
         try:
             text, self.last_response_metadata = complete(
                 self._backend, model=self.model, system=system, user=user,
                 effort=self.reasoning_effort or "", images=images,
                 check_cancelled=self._check_cancelled, diagnostic=self._record_diagnostic,
                 observe=observe_usage, set_stream=lambda stream: setattr(self, "_active_stream", stream),
+                **preservation,
             )
             return text
         except GatewayInputLimitError as exc:
             raise LLMInputLimitError(exc.actual_bytes, exc.limit_bytes) from exc
         except GatewayError as exc:
+            if attempt is not None and exc.finish_reason is not None:
+                raise LLMIncompleteResponseError(exc.finish_reason.lower()) from exc
             raise LLMError(str(exc)) from exc
 
     def _complete_gemini(self, system: str, user: str, *, images=()) -> str:
@@ -1120,12 +1222,17 @@ class LLMClient:
             from .gemini_provider import complete, GeminiError
         except ImportError:  # legacy top-level imports
             from gemini_provider import complete, GeminiError
+        attempt = current_attempt()
+        preservation = {"preserve_received": attempt.save_partial_response} if attempt is not None else {}
         try:
             return complete(
                 self._backend, model=self.model, system=system, user=user,
                 max_tokens=self.max_tokens, effort=self.reasoning_effort or "", images=images,
                 check_cancelled=self._check_cancelled, diagnostic=self._record_diagnostic,
                 observe=observe_usage, set_stream=lambda stream: setattr(self, "_active_stream", stream),
+                **preservation,
             )
         except GeminiError as exc:
+            if attempt is not None and exc.finish_reason is not None:
+                raise LLMIncompleteResponseError(exc.finish_reason.lower()) from exc
             raise LLMError(str(exc)) from exc

@@ -22,7 +22,9 @@ OUTPUT_LIMIT_BYTES = 2_000_000
 
 
 class GatewayError(ValueError):
-    pass
+    def __init__(self, message, *, finish_reason=None):
+        super().__init__(message)
+        self.finish_reason = finish_reason
 
 
 class GatewayInputLimitError(GatewayError):
@@ -91,7 +93,7 @@ def attachment_capacity(client) -> int:
 
 
 def complete(client, *, model, system, user, effort, images=(), check_cancelled,
-             diagnostic, observe, set_stream):
+             diagnostic, observe, set_stream, preserve_received=None):
     from openai import APIError
     validate_model(model, effort)
     size = input_bytes(system, user)
@@ -116,6 +118,7 @@ def complete(client, *, model, system, user, effort, images=(), check_cancelled,
             "url": f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"}})
     stream = None
     output = []
+    received = [] if preserve_received is not None else None
     output_bytes = 0
     chars = 0
     finish = ""
@@ -132,6 +135,11 @@ def complete(client, *, model, system, user, effort, images=(), check_cancelled,
         )
         set_stream(stream)
         for chunk in stream:
+            if received is not None:
+                # The last chunk may exceed the adapter's existing bound or
+                # arrive with cancellation. Preserve it without accepting it.
+                received.extend(choice.delta.content for choice in (chunk.choices or [])[:1]
+                                if choice.delta.content)
             check_cancelled()
             if chunk.model:
                 reported = chunk.model
@@ -157,7 +165,8 @@ def complete(client, *, model, system, user, effort, images=(), check_cancelled,
                     last_signal = now
         check_cancelled()
         if finish != "stop" or not "".join(output).strip():
-            raise GatewayError(f"网关输出未完整完成（{finish or '连接中断'}）或正文为空；未接受部分结果")
+            raise GatewayError(f"网关输出未完整完成（{finish or '连接中断'}）或正文为空；未接受部分结果",
+                               finish_reason=finish or "unknown")
         diagnostic("content.progress", model_output_chars=chars)
         # This gateway echoes the requested/canonical ID, not upstream identity.
         return "".join(output), {"reported_model": reported, "finish_reason": finish,
@@ -172,9 +181,13 @@ def complete(client, *, model, system, user, effort, images=(), check_cancelled,
                 "ip_slot_full": "网关当前并发已满"}.get(code, "请检查 Token、型号权限、网关配额和日志")
         raise GatewayError(f"Gemini 网关请求失败（HTTP {getattr(error, 'status_code', None) or 'stream'}）；{hint}") from None
     finally:
-        if stream is not None:
-            try:
-                stream.close()
-            except Exception:
-                pass
-        set_stream(None)
+        try:
+            if preserve_received is not None:
+                preserve_received("".join(received))
+        finally:
+            if stream is not None:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+            set_stream(None)

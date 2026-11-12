@@ -129,3 +129,42 @@ test('publishes a visible new-version entry without silently adopting it', async
   await screen.findByText('新版调整了事业线。', { exact: false });
   expect(choice).toHaveBeenLastCalledWith(null);
 });
+
+test('unknown response shows stopped worker and explicit retry instead of ineffective resume or a new initial run', async () => {
+  const user = userEvent.setup();
+  const run = routeRun({ status: 'pending_unknown', worker_active: false, recovery: {
+    can_resume: false, can_retry_unknown: true, reason: 'request_timeout',
+    message: '模型请求等待超时，未保存完整回复。', request_sha256: 'a'.repeat(64), receipt_sha256: 'b'.repeat(64),
+  }, execution: { timeout_scope: 'request', timeout_seconds: 900, elapsed_seconds: 900 } });
+  vi.mocked(sourceRoutesApi.list).mockResolvedValue({ items: [], runs: [run] });
+  const resume = vi.spyOn(sourceRoutesApi, 'resume');
+  const retry = vi.spyOn(sourceRoutesApi, 'retryUnknown').mockRejectedValueOnce(new Error('网络中断')).mockResolvedValueOnce(routeRun());
+  view();
+  await screen.findByText('模型请求等待超时，未保存完整回复。');
+  expect(screen.getByText('本次设计已停止')).toBeVisible();
+  expect(screen.getByText(/原请求结果无法查询，重新执行可能产生额外模型费用/)).toBeVisible();
+  expect(screen.getByText(/已等待 15 分钟/)).toBeVisible();
+  expect(screen.queryByRole('button', { name: '继续未完成的设计' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '生成首批整书路线' })).toBeDisabled();
+  expect(retry).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button', { name: '重新执行未完成步骤' }));
+  await screen.findByRole('alert');
+  const request = retry.mock.calls[0][2];
+  expect(request).toEqual({ action: 'retry_unknown', operation_id: expect.any(String), request_sha256: 'a'.repeat(64), receipt_sha256: 'b'.repeat(64) });
+  await user.click(screen.getByRole('button', { name: '重新执行未完成步骤' }));
+  expect(retry).toHaveBeenCalledTimes(2);
+  expect(retry.mock.calls[1][2]).toEqual(request);
+  expect(resume).not.toHaveBeenCalled();
+  expect(sourceRoutesApi.start).not.toHaveBeenCalled();
+});
+
+test('legacy unknown without capabilities never offers unsafe plain resume and refresh remains available', async () => {
+  const run = routeRun({ status: 'pending_unknown', worker_active: false });
+  vi.mocked(sourceRoutesApi.list).mockResolvedValue({ items: [], runs: [run] });
+  view();
+  await screen.findByText('请求结果尚未确认，进度已保存');
+  expect(screen.queryByRole('button', { name: '继续未完成的设计' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '重新执行未完成步骤' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '刷新路线' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: '生成首批整书路线' })).toBeDisabled();
+});
