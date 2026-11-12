@@ -1,5 +1,16 @@
 # Novel OS domain language
 
+## Proposed route-development vocabulary (review draft, not current behavior)
+
+- **Creative baseline**: the progressively established author requirements and adopted or explicitly delegated creative commitments used for development. It may be partial and does not require reference material; undecided areas remain open to exploration.
+- **Route baseline**: a creative baseline established from a selected direction, including compatible later author decisions. It is distinct from the complete historical route proposal and is not a separate engine for reference-based books.
+- **Creative commitment**: an intended event, relationship direction or reader payoff adopted for the new story. Adoption does not make it an event already present in the source work.
+- **Expansion**: a concrete realization that preserves the applicable core commitments. An alternative core direction remains a proposal until the author authorizes the change.
+- **Candidate promotion**: treating a checked expansion as part of the current design. Saving a reply or quoting it in history is not promotion.
+- **Narrative function**: the connected expectation, choice, cost, relationship or situation change, and payoff served by a design item. Author-protected concrete scenes retain their specified form as well as their function.
+
+These terms belong to the pending [route-development proposal](docs/design/2026-11-12-route-development-baseline.md); they do not enlarge the authority of historical route selections.
+
 ## Workshop next-step capabilities (deployed 2026-11-12)
 
 No pending major choice does not mean author-confirmed length. The read-only `next_step` projection separates discussion, capacity planning/selection, delivery and recovery. Typed `advance` actions are idempotent control intent, not adoption of model proposals; only their `author_note` is author testimony. Legacy messages retain their prior interpretation. Paused or failed operations keep their existing recovery path.
