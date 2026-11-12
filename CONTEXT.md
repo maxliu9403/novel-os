@@ -1,12 +1,12 @@
 # Novel OS domain language
 
-## Source request execution and recovery (2026-11-12; implemented, not deployed)
+## Source request execution and recovery (deployed 2026-11-12)
 
 `SourceRequestSession` is the shared boundary for whole-story design and portable source-evidence requests. It preserves legacy receipt formats and complete immutable input, while each actual execution has an opt-in `CompletionAttempt` with private output and safe diagnostics. Local timeout/cancellation, remote outcome, complete response, and business completion are distinct facts. Parseable partial text and a stopped local child never prove complete generation.
 
 Verified saved completions resume without model calls. Unknown requests require a receipt-bound, idempotent explicit re-execution when no result can be retrieved; old receipt bytes and attempt evidence remain. Current model settings apply to the new attempt without rewriting original inputs. Missing/corrupt completed receipts fail closed. Route UI capabilities and job results follow these distinctions; read-only status never sends or migrates. Existing novel jobs and historical source artifacts remain untouched. See [recovery implementation](docs/reports/2026-11-12-source-request-recovery.md).
 
-## Source design status (2026-11-12; implemented, not deployed)
+## Source design status (deployed 2026-11-12)
 
 The source library's optional `design` projection is distinct from legacy `study` reading status. It reports actual route-worker activity, saved steps and the currently relevant mode without loading story artifacts or modifying runs. Lists and route details share active-worker-first, then latest-update ordering; an orphaned persisted running state is interrupted, not live. UI filters and refresh preserve the current route mode and unsent feedback. See [implementation acceptance](docs/reports/2026-11-12-source-design-status.md).
 
