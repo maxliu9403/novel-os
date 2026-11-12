@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import type { CapacityOption, GuidedTurn, WorkshopSession } from '../api/workshop';
+import { workshopNextStep } from '../lib/workshopNextStep';
 
 function CapacityCard({ option, limit, unit, locked, proposal, onAdopt, onRepartition, children }: {
   option: CapacityOption; limit?: number | null; unit: string; locked: boolean; proposal: string;
@@ -58,7 +59,7 @@ export default function WorkshopCapacity({ session, disabled, draft, onAdopt, on
       {option.chapters.map(ch => <tr key={ch.number} className="border-t border-paper-line"><td className="py-3 pr-3 whitespace-nowrap">第 {ch.number} 章</td><td className="pr-4">{ch.scene_ids.map(id => { const scene = plan?.scenes.find(s => s.id === id); return scene?.partition_label ?? scene?.title ?? id; }).join(' · ')}</td><td className="whitespace-nowrap text-right tabular-nums">{ch.target_words.toLocaleString()} {unit}</td></tr>)}
     </tbody></table></div>
   </details>;
-  return <section aria-label="故事容量与篇幅" className="my-5 rounded-2xl border border-paper-line bg-white/80 p-5 sm:p-6">
+  return <section id="workshop-capacity" tabIndex={-1} aria-label="故事容量与篇幅" className="my-5 rounded-2xl border border-paper-line bg-white/80 p-5 sm:p-6">
     <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-[20px] font-semibold text-ink-text">给故事足够的展开空间</h3><span className="rounded-full bg-violet-soft px-3 py-1 text-[13px] text-violet">{confirmed ? '篇幅已确认' : '编辑规划 · 篇幅估算'}</span></div>
     {confirmed ? <><p className="mt-3 text-[16px] leading-relaxed">{confirmed.option.chapters.length} 章 · 约 {confirmed.option.total_words.toLocaleString()} {unit} · {confirmed.language}</p><p className="mt-2 text-[14px] text-ink-muted">已保存你的选择。正文允许合理浮动；分章目标会随骨架传递到写作规划。</p>{allocation(confirmed.option)}</>
       : replanRequest ? <><p className="mt-3 text-[16px] leading-7">{session.status === 'running' ? '正在' : '等待'}重新安排为 {replanRequest.request.chapters} 章 · 约 {replanRequest.total_words.toLocaleString()} {unit}</p>
@@ -72,7 +73,7 @@ export default function WorkshopCapacity({ session, disabled, draft, onAdopt, on
         </div>
         <details className="mt-4 text-[14px]"><summary className="cursor-pointer text-ink-muted">为什么需要这些场景与篇幅</summary><div className="mt-3 space-y-3">{plan.scenes.map(scene => <div key={scene.id} className="rounded-xl bg-white p-4"><p className="font-medium">{scene.title} · {scene.presentation === 'on_page' ? '完整呈现场景' : '过渡概述'} · {scene.minimum}–{scene.maximum} {unit}</p><p className="mt-2 leading-6">{scene.reader_value}</p><p className="mt-1 leading-6 text-ink-muted">{scene.reason}</p><blockquote className="mt-2 border-l-2 border-violet/25 pl-3 text-ink-muted">{scene.source_quote}</blockquote></div>)}</div></details>
       </> : <><p className="mt-3 text-[15px] leading-7 text-ink-muted">{state?.notice ?? '先确定主要故事走向，再由模型按关键场景、人物变化和高潮余波提出篇幅方案。初始章数是偏好，避免为了凑章数把重要情节一笔带过。'}</p>
-        <button type="button" className="btn-secondary mt-4" disabled={disabled || pending} onClick={onPlan}>按当前故事规划篇幅</button></>}
+        <button type="button" className="btn-secondary mt-4" disabled={disabled || pending || !workshopNextStep(session).can_plan_capacity} onClick={onPlan}>按当前故事规划篇幅</button></>}
     {!confirmed && <p className="mt-4 text-[13px] leading-6 text-ink-muted">{hint} 数字是编辑估算，不代表阅读质量已通过评议。</p>}
   </section>;
 }

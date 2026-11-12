@@ -111,13 +111,25 @@ def prompt_requirements(snapshot: dict) -> dict:
     return result
 
 
+def author_text(message: Mapping) -> str:
+    """Return exact author words without promoting host operation text to canon.
+
+    Workshop advance actions retain executable instructions in content; only
+    their separate author_note is author evidence. Unmarked historical messages
+    keep their existing interpretation and byte-for-byte text.
+    """
+    if message.get('role') != 'user':
+        return ''
+    field = 'author_note' if message.get('action') in {'develop_story', 'plan_capacity'} else 'content'
+    value = message.get(field)
+    return value if isinstance(value, str) else ''
+
+
 def workshop_requirements(messages: Iterable[Mapping], *, source_sha256: str = "") -> dict:
     entries = []
     for index, message in enumerate(messages):
-        if message.get("role") != "user":
-            continue
-        text = message.get("content")
-        if isinstance(text, str) and text.strip():
+        text = author_text(message)
+        if text.strip():
             entries.append({"id": f"author-message-{index + 1}", "text": text,
                             "source": f"messages[{index}]"})
     return build_requirements("story", entries, source_sha256=source_sha256)

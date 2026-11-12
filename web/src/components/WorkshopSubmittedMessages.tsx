@@ -13,7 +13,10 @@ export default function WorkshopSubmittedMessages({ session, submitted, onHistor
   const lastUser = session.messages.findLastIndex(message => message.role === 'user');
   const previousAssistant = session.messages.findLastIndex((message, index) => index < lastUser && message.role === 'assistant');
   const messages = localReceipt ? [submitted.content]
-    : session.messages.slice(previousAssistant + 1, lastUser + 1).filter(message => message.role === 'user').map(message => message.content);
+    : session.messages.slice(previousAssistant + 1, lastUser + 1).filter(message => message.role === 'user').map(message => {
+      const action = message.action === 'develop_story' ? '继续完善故事' : message.action === 'plan_capacity' ? '完善篇幅方案' : null;
+      return action ? [action, message.author_note].filter(Boolean).join('\n\n') : message.content;
+    });
   if (!messages.length) return null;
   return <section aria-label="已发送的内容" className="mb-5 rounded-2xl border border-violet/20 bg-violet-soft/40 p-5">
     <div className="mb-3 flex items-center justify-between gap-3">

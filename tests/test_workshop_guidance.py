@@ -35,6 +35,62 @@ def guided_notes(ready=False):
     return value
 
 
+@pytest.mark.parametrize('blocker', [None, 'invalid_map', 'causal_gap', 'pending', 'question', 'conflict'])
+def test_story_first_convergence_does_not_require_old_optional_setup_fields(blocker):
+    from api.workshop_design import record_round
+    initial = {'premise': '医师救助流亡者', 'publication_taxonomy': {'genre_id': 'genre.romance'}}
+    design = new_design(initial)
+    data = {'id': 'optional-input', 'revision': 2, 'turn_intent': 'discuss', 'input': initial, 'creative_design': design,
+            'messages': [{'role': 'user', 'content': '继续完善整个故事'}, {'role': 'assistant', 'content': '全书路线已完整'}]}
+    raw = guided_notes(True)
+    raw['guidance']['coverage'] = []
+    raw['story'] = {'synopsis': '她决定帮助流亡者，拒绝庇护交换，最终建立愿意付出真实代价的共同体。',
+        'focus': 'ending', 'nodes': [{'area': area, 'summary': '已形成具体故事走向', 'status': 'proposed', 'evidence': []}
+            for area in ('direction', 'opening', 'middle', 'climax', 'ending')], 'changes': []}
+    if blocker == 'invalid_map':
+        raw['story']['nodes'].pop()
+    elif blocker == 'causal_gap':
+        raw['story']['assumptions'] = [{'kind': 'causal_gap', 'text': '尚未解释她为何能找到证人'}]
+    elif blocker == 'pending':
+        design['story_state']['pending'] = {'id': 'unanswered-major-choice'}
+    elif blocker == 'conflict':
+        raw['conflicts'] = ['结局仍存在两种相互冲突的走向']
+    record_round(data, {'design_notes': raw, 'questions': ['结局选择哪种？'] if blocker == 'question' else []}, source_revision=1)
+    if blocker is None:
+        assert design['rounds'][-1]['guidance']['next_action'] == 'generate'
+        assert all(node['status'] == 'proposed' for node in design['story_state']['map']['nodes'])
+    else:
+        assert design['rounds'][-1]['guidance']['next_action'] != 'generate'
+    assert design['decisions'] == []
+
+
+@pytest.mark.parametrize('action', ['develop_story', 'plan_capacity'])
+@pytest.mark.parametrize('cite_author_note', [False, True])
+def test_advance_commands_cannot_become_author_confirmation_in_story_or_guidance(action, cite_author_note):
+    from api.workshop_design import record_round
+    from api.workshop_guidance import Evidence, _evidence_valid
+    command, note = '系统继续指令不代表采用任何尚未确认的设想。', '保留独立结局，不让两人复合。'
+    initial = {'premise': '她重新选择自己的生活', 'publication_taxonomy': {'genre_id': 'genre.romance'}}
+    data = {'id': 'author-evidence', 'revision': 2, 'turn_intent': 'discuss', 'input': initial,
+            'creative_design': new_design(initial),
+            'messages': [{'role': 'user', 'content': command + '\n' + note, 'action': action, 'author_note': note},
+                         {'role': 'assistant', 'content': '故事路线已完整'}]}
+    evidence = {'message_index': 0, 'quote': note if cite_author_note else command}
+    assert _evidence_valid(Evidence(**evidence), data, 1) is cite_author_note
+    raw = guided_notes(True)
+    raw['guidance']['coverage'] = []
+    raw['story'] = {'synopsis': '她主动离开旧关系并完成独立事业。', 'focus': 'ending',
+                    'nodes': [{'area': area, 'summary': '当前故事设计', 'status': 'settled', 'evidence': [evidence]}
+                              for area in ('direction', 'opening', 'middle', 'climax', 'ending')], 'changes': []}
+    record_round(data, {'design_notes': raw, 'questions': []}, source_revision=1)
+    state = data['creative_design']['story_state']
+    assert all(node['status'] == ('settled' if cite_author_note else 'proposed') for node in state['map']['nodes'])
+    if not cite_author_note:
+        assert all(issue['code'] == 'unverifiable_evidence' for issue in state['validation']['issues'])
+        assert data['creative_design']['rounds'][-1]['guidance']['next_action'] != 'generate'
+    assert data['messages'][0]['content'] == command + '\n' + note
+
+
 def discussed(client, monkeypatch, ready=False):
     original_new_design = workshop.new_design
     monkeypatch.setattr(workshop, 'new_design', lambda *a, **kw: original_new_design(*a, **{**kw, 'story': False}))

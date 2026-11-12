@@ -54,6 +54,44 @@ test('capacity adoption is one atomic intent and cannot skip a story change in t
   expect(turn).toHaveBeenCalledWith(data.id, expect.objectContaining({ intent: 'deliver', message: '', proposal_ids: [], capacity_choice: { proposal_sha256: 'a'.repeat(64), option_id: 'expanded' } }));
 });
 
+test('the next-step card opens saved capacity choices without adopting an option', async () => {
+  const data = capacitySession();
+  data.next_step = { kind: 'choose_capacity', label: '查看篇幅方案', reason: '篇幅方案已保存，请选择后生成完整骨架。',
+    can_continue: true, can_deliver: false, can_plan_capacity: true, delivery_blocked_reason: '请先选择并确认篇幅方案。' };
+  vi.spyOn(workshopApi, 'get').mockResolvedValue(data);
+  const turn = vi.spyOn(workshopApi, 'guidedTurn');
+  const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+  const scroll = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scroll });
+  try {
+    render(<MemoryRouter><NovelWorkshop open seed={data.input} initialSessionId={data.id} onClose={vi.fn()} onBack={vi.fn()}/></MemoryRouter>);
+    await userEvent.click(await screen.findByRole('button', { name: '查看篇幅方案' }));
+    expect(scroll).toHaveBeenCalled();
+    expect(screen.getByRole('region', { name: '故事容量与篇幅' })).toHaveFocus();
+    expect(turn).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '生成完整骨架' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /采用「保留故事，展开场景」并生成骨架/ })).toBeEnabled();
+  } finally {
+    if (original) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', original);
+    else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+  }
+});
+
+test('confirmed allocation enables delivery while a missing confirmed record remains blocked', async () => {
+  const data = capacitySession();
+  data.capacity!.status = 'confirmed';
+  vi.spyOn(workshopApi, 'get').mockResolvedValue(data);
+  const screenView = render(<MemoryRouter><NovelWorkshop open seed={data.input} initialSessionId={data.id} onClose={vi.fn()} onBack={vi.fn()}/></MemoryRouter>);
+  await screen.findByRole('heading', { name: '当前没有需要你决定的重大分歧' });
+  expect(screen.getByRole('button', { name: '生成完整骨架' })).toBeDisabled();
+  screenView.unmount();
+  data.capacity!.confirmed = { option: data.capacity!.plan!.options[0], language: 'English', count_unit: 'words' };
+  data.next_step = { kind: 'deliver', label: '生成完整骨架', reason: '篇幅已确认。', can_continue: true, can_deliver: true, can_plan_capacity: false, delivery_blocked_reason: null };
+  render(<MemoryRouter><NovelWorkshop open seed={data.input} initialSessionId={data.id} onClose={vi.fn()} onBack={vi.fn()}/></MemoryRouter>);
+  await screen.findByRole('heading', { name: '可以生成完整骨架了' });
+  expect(screen.getByRole('button', { name: '生成完整骨架' })).toBeEnabled();
+});
+
 test('stale recommendations remain non-executable and confirmed targets survive refresh', () => {
   const data = capacitySession();
   data.capacity!.status = 'stale';

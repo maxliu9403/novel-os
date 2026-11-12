@@ -77,6 +77,7 @@ export interface StoryState {
   assumptions: Array<{ id: string; text: string; kind: 'major_premise' | 'causal_gap' | 'detail' | 'external_fact'; status: string; source_revision: number; proposal_id?: string | null; question_id?: string | null; resolution?: string }>;
 }
 export interface GuidedTurn {
+  advance?: 'develop_story' | 'plan_capacity';
   capacity_replan?: { proposal_sha256: string; option_id: string; chapters: number };
   capacity_choice?: { proposal_sha256: string; option_id: string };
   story_action?: StoryAction;
@@ -201,6 +202,7 @@ export interface WorkshopRuntimeProgress {
 }
 
 export interface WorkshopSession {
+  next_step?: WorkshopNextStep;
   capacity_replan?: { request: NonNullable<GuidedTurn['capacity_replan']>; chapter_words_limit: number; total_words: number } | null;
   skeleton_review?: SkeletonReview;
   capacity?: StoryCapacity;
@@ -208,7 +210,7 @@ export interface WorkshopSession {
   revision: number;
   input: WorkshopInput;
   initial_input?: WorkshopInput;
-  messages: Array<{ role: "user" | "assistant"; content: string; questions?: string[] }>;
+  messages: Array<{ role: "user" | "assistant"; content: string; questions?: string[]; action?: GuidedTurn['advance']; author_note?: string }>;
   prompt_md: string;
   questions: string[];
   ready_for_confirmation: boolean;
@@ -243,6 +245,16 @@ export interface WorkshopSession {
     requests: Array<{ instructions: string; current_title?: string; created_at: string; candidates?: Array<{ title: string; reason: string; angle?: string }>; error?: string;
       metrics?: { input_bytes: number; context_bytes: number; skeleton_bytes: number; prompt_version?: number; attempts: number } }>;
   } | null;
+}
+
+export interface WorkshopNextStep {
+  kind: 'discuss' | 'resolve_question' | 'plan_capacity' | 'choose_capacity' | 'deliver' | 'wait' | 'recover' | 'edit_basics' | 'complete';
+  label: string;
+  reason: string;
+  can_continue: boolean;
+  can_deliver: boolean;
+  can_plan_capacity: boolean;
+  delivery_blocked_reason: string | null;
 }
 
 export interface WorkshopSessionSummary {

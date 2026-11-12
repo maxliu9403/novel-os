@@ -64,6 +64,22 @@ def test_workshop_snapshot_keeps_all_user_text_not_model_suggestions():
     assert [entry["id"] for entry in ledger["entries"]] == ["author-message-1", "author-message-3"]
 
 
+@pytest.mark.parametrize('action', ['develop_story', 'plan_capacity'])
+def test_workshop_advance_preserves_only_exact_author_note_as_requirement(action):
+    note = '  保留她的职业，不要让她复合。\n'
+    messages = [{'role': 'user', 'content': '这是旧的作者原话。'},
+                {'role': 'user', 'action': action, 'content': '系统操作指令：继续并保留全部已确认故事。'},
+                {'role': 'user', 'action': action, 'author_note': '', 'content': '系统操作指令：规划完整篇幅。'},
+                {'role': 'user', 'action': action, 'author_note': note,
+                 'content': '系统操作指令：继续推演。\n' + note},
+                {'role': 'assistant', 'author_note': '助手不能伪造作者原话', 'content': '不应成为要求'}]
+    before = deepcopy(messages)
+    ledger = workshop_requirements(messages)
+    assert [row['text'] for row in ledger['entries']] == [messages[0]['content'], note]
+    assert [row['id'] for row in ledger['entries']] == ['author-message-1', 'author-message-4']
+    assert messages == before  # Execution instructions remain in the model context.
+
+
 def test_repeated_original_text_shares_bytes_without_losing_chronological_precedence():
     original = "Retain her established professional identity. " * 100
     ledger = workshop_requirements([{"role": "user", "content": original},

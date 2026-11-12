@@ -40,6 +40,7 @@ from .workshop_design import DecisionStatus, apply_decision, apply_selected_choi
 from . import workshop_capacity
 from . import workshop_repartition
 from . import workshop_guidance
+from . import workshop_next_step
 from core.publication_taxonomy import bind_classification
 
 LOG = logging.getLogger("uvicorn.error.workshop")
@@ -120,6 +121,7 @@ class RevisionInput(BaseModel):
 
 
 class TurnInput(RevisionInput):
+    advance: Literal['develop_story', 'plan_capacity'] | None = None
     capacity_replan: workshop_repartition.Request | None = None
     capacity_choice: workshop_capacity.Choice | None = None
     story_action: workshop_story.Action | None = None
@@ -131,6 +133,8 @@ class TurnInput(RevisionInput):
 
 def _turn_request_hash(body: TurnInput) -> str:
     payload = body.model_dump()
+    if payload.get('advance') is None:
+        payload.pop('advance')
     if payload.get('story_action') is None:
         payload.pop('story_action')  # retain persisted v1 idempotency keys
     if payload.get('capacity_choice') is None:
@@ -524,6 +528,7 @@ JSON and current draft are not an additional mandatory user confirmation round.
     original_chapters = None
     original_checked = False
     source_coverage = None
+    capacity_source_receipt = None
     negotiated_source_limit = None
     window_budget_fixed = False
     declared_chapters = session["input"].get("chapters")
@@ -674,6 +679,7 @@ JSON and current draft are not an additional mandatory user confirmation round.
                         "prompt_profile": profile, "narrative_mode": narrative_mode,
                         "system_bytes": len(system.encode("utf-8"))})
         received_model_response = False
+        capacity_source_receipt = None
         try:
             if plan is not None and "assembly" in plan.record["completed"]:
                 # Crash after stage save and before session publication: revalidate
@@ -737,8 +743,13 @@ JSON and current draft are not an additional mandatory user confirmation round.
                         cancelled=session['_cancellation_event'].is_set if session.get('_cancellation_event') else None,
                         deadline=deadline)
                     text = coordinator.complete(client, system, user, limit=route.get('planning_input_bytes'))
+                    if not delivering and workshop_capacity.enabled(session):
+                        capacity_source_receipt = workshop_capacity.make_source_receipt(
+                            session, json.loads(user), evidence_packet=coordinator.packet)
                 else:
                     text = client.complete(system, user)
+                    if not delivering and workshop_capacity.enabled(session):
+                        capacity_source_receipt = workshop_capacity.make_source_receipt(session, json.loads(user))
                 received_model_response = True
                 if receipt is not None and session.get('_save_type_request'):
                     session['_save_type_request']({**receipt, 'status': 'response_received'})
@@ -1023,6 +1034,10 @@ JSON and current draft are not an additional mandatory user confirmation round.
                             "error_category": "storage_error" if isinstance(exc, ResponseStorageError) else "internal_error",
                             "error_type": type(exc).__name__})
             raise
+    if not delivering:
+        # This provenance belongs to the actual successful request. Never trust
+        # a similarly named field supplied by the model or an older response.
+        data['_capacity_source_receipt'] = capacity_source_receipt
     return data, {"provider": route["provider"], "model": route["model"], "timeout_seconds": timeout}
 
 
@@ -1547,9 +1562,9 @@ class WorkshopService:
             raise HTTPException(409, "此骨架已启动创作，请新建会话设计另一本作品。")
 
     def turn(self, session_id: str, body: TurnInput) -> dict:
-        if not body.message.strip() and not body.proposal_ids and body.story_action is None and body.capacity_choice is None and body.capacity_replan is None:
+        if not body.message.strip() and not body.proposal_ids and body.story_action is None and body.capacity_choice is None and body.capacity_replan is None and body.advance is None:
             raise HTTPException(422, "请输入想法或修改要求。")
-        if (body.proposal_ids or body.story_action or body.capacity_choice or body.capacity_replan) and not body.operation_id:
+        if (body.proposal_ids or body.story_action or body.capacity_choice or body.capacity_replan or body.advance) and not body.operation_id:
             raise HTTPException(422, "请选择方案后重新提交。")
         with self._locked(session_id) as data:
             request_hash = _turn_request_hash(body)
@@ -1570,6 +1585,8 @@ class WorkshopService:
             skill, version = _skill_bundle(phase)
             timeout = _timeout()
             try:
+                advance_message = workshop_next_step.action_message(data, body.advance, intent=body.intent,
+                    mixed=bool(body.proposal_ids or body.story_action or body.capacity_choice or body.capacity_replan))
                 repartitioning = workshop_repartition.prepare(data, body.capacity_replan, intent=body.intent,
                     mixed=bool(body.message.strip() or body.proposal_ids or body.story_action or body.capacity_choice))
                 allocation = workshop_capacity.validate_choice(data, body.capacity_choice, body.intent,
@@ -1593,14 +1610,15 @@ class WorkshopService:
                 capacity_message = workshop_repartition.message(repartitioning)
             choices = apply_selected_choices(data, body.proposal_ids, now=_now()) if body.proposal_ids else []
             action_message = workshop_story.apply_action(data, body.story_action, body.proposal_ids, body.message, _now()) if body.story_action else ''
-            message = '\n\n'.join([*choices, *([capacity_message] if capacity_message else []), *([action_message] if action_message else []), *([body.message.strip()] if body.message.strip() else [])])
+            message = '\n\n'.join([*choices, *([capacity_message] if capacity_message else []), *([action_message] if action_message else []), *([advance_message] if advance_message else []), *([body.message.strip()] if body.message.strip() else [])])
             if body.story_action and body.story_action.mode in {'select', 'custom', 'delegate', 'reopen'}:
                 data['design_needs_revision'] = True
             if choices:
                 message += '\n\n请结合以上选择和补充，' + ('生成完整骨架。' if body.intent == 'deliver' else '推进下一轮故事设计。')
                 data['design_needs_revision'] = True
             data["revision"] += 1
-            data["messages"].append({"role": "user", "content": message})
+            data["messages"].append({"role": "user", "content": message,
+                                     **({'action':body.advance, 'author_note':body.message} if body.advance else {})})
             if repartitioning:
                 repartitioning['request_basis'] = workshop_capacity.digest(workshop_capacity.source(data))
             if body.operation_id:
@@ -1900,6 +1918,7 @@ class WorkshopService:
             result, route = _complete(snapshot, skill)
             if cancel_event.is_set():
                 return
+            capacity_source_receipt = result.pop('_capacity_source_receipt', None)
             repartition_receipt = None
             if snapshot.get('capacity_replan'):
                 result, repartition_receipt = workshop_repartition.finish(snapshot, result.get('capacity_partition'))
@@ -1951,7 +1970,8 @@ class WorkshopService:
                         validation['candidate_save_failed'] = True
                         record['story_validation'] = deepcopy(validation)
                         LOG.warning('workshop.story_candidate.save_failed session=%s revision=%s', session_id, snapshot['revision'])
-                workshop_capacity.record(data, result, snapshot)
+                workshop_capacity.record(data, result, snapshot,
+                    source_receipt=capacity_source_receipt)
                 if repartition_receipt:
                     data['capacity']['repartition'] = repartition_receipt
                     data['capacity_replan'] = None
@@ -2288,9 +2308,14 @@ def get_workshop_service(projects: ProjectService = Depends(get_service)) -> Wor
     return WorkshopService(projects)
 
 
+def _session_response(data: dict) -> dict:
+    """Project capabilities consistently without persisting presentation state."""
+    return {**data, 'next_step': workshop_next_step.project(data)}
+
+
 @router.post("/sessions", status_code=201)
 def create_session(body: SessionInput, service: WorkshopService = Depends(get_workshop_service)):
-    return service.create(body)
+    return _session_response(service.create(body))
 
 
 @router.get("/sessions")
@@ -2307,7 +2332,7 @@ def get_session(session_id: str, service: WorkshopService = Depends(get_workshop
     data = service.get(session_id)
     progress = runtime_progress(data, service._path(session_id) / "diagnostics")
     delivery = service.delivery_progress(data)
-    result = {**data, "runtime_progress": progress} if progress is not None else data
+    result = {**_session_response(data), **({'runtime_progress':progress} if progress is not None else {})}
     return {**result, "delivery_progress": delivery} if delivery is not None else result
 
 
@@ -2325,17 +2350,17 @@ def add_turn(session_id: str, body: TurnInput, service: WorkshopService = Depend
 
 @router.post("/sessions/{session_id}/decisions")
 def decide_proposal(session_id: str, body: DecisionInput, service: WorkshopService = Depends(get_workshop_service)):
-    return service.decide(session_id, body)
+    return _session_response(service.decide(session_id, body))
 
 
 @router.post('/sessions/{session_id}/guidance')
 def upgrade_guidance(session_id: str, body: GuidanceUpgradeInput, service: WorkshopService = Depends(get_workshop_service)):
-    return service.upgrade_guidance(session_id, body)
+    return _session_response(service.upgrade_guidance(session_id, body))
 
 
 @router.post('/sessions/{session_id}/choices')
 def save_choices(session_id: str, body: TurnInput, service: WorkshopService = Depends(get_workshop_service)):
-    return service.save_choices(session_id, body)
+    return _session_response(service.save_choices(session_id, body))
 
 
 @router.get('/sessions/{session_id}/type-context')
@@ -2345,12 +2370,12 @@ def get_type_context(session_id: str, service: WorkshopService = Depends(get_wor
 
 @router.post('/sessions/{session_id}/type-snapshot')
 def adopt_type_snapshot(session_id: str, body: TypeSnapshotInput, service: WorkshopService = Depends(get_workshop_service)):
-    return service.adopt_types(session_id, body)
+    return _session_response(service.adopt_types(session_id, body))
 
 
 @router.post("/sessions/{session_id}/pause")
 def pause_session(session_id: str, body: PauseInput, service: WorkshopService = Depends(get_workshop_service)):
-    return service.pause(session_id, body)
+    return _session_response(service.pause(session_id, body))
 
 
 @router.post("/sessions/{session_id}/resume", status_code=202)
@@ -2371,19 +2396,19 @@ def get_session_history(session_id: str, revision: int, service: WorkshopService
 @router.post("/sessions/{session_id}/prepare")
 def prepare_session(session_id: str, body: PrepareInput, service: WorkshopService = Depends(get_workshop_service)):
     try:
-        return service.prepare(session_id, body)
+        return _session_response(service.prepare(session_id, body))
     except (ValueError, KeyError, TypeError) as exc:
         raise HTTPException(422, f"骨架格式尚需修正：{exc}") from exc
 
 
 @router.post('/sessions/{session_id}/skeleton-revision')
 def revise_session_skeleton(session_id: str, body: SkeletonRevisionInput, service: WorkshopService = Depends(get_workshop_service)):
-    return service.revise_skeleton(session_id, body)
+    return _session_response(service.revise_skeleton(session_id, body))
 
 
 @router.post("/sessions/{session_id}/input")
 def update_session_input(session_id: str, body: UpdateInput, service: WorkshopService = Depends(get_workshop_service)):
-    return service.update_input(session_id, body)
+    return _session_response(service.update_input(session_id, body))
 
 
 @router.post("/sessions/{session_id}/titles", status_code=202)

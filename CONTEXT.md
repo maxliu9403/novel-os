@@ -1,5 +1,11 @@
 # Novel OS domain language
 
+## Workshop next-step capabilities (implemented 2026-11-12; not deployed)
+
+No pending major choice does not mean author-confirmed length. The read-only `next_step` projection separates discussion, capacity planning/selection, delivery and recovery. Typed `advance` actions are idempotent control intent, not adoption of model proposals; only their `author_note` is author testimony. Legacy messages retain their prior interpretation. Paused or failed operations keep their existing recovery path.
+
+Capacity citations may use source context and evidence actually supplied by the successful request, bound by a host-owned receipt to the session revision and source packet. Citation validity establishes provenance, not author approval or literary quality. Failed candidates and structured diagnostics remain available for the next explicit refinement; historical capacity fingerprints stay unchanged. See [implementation verification](docs/reports/2026-11-12-workshop-next-step.md).
+
 ## Source request execution and recovery (deployed 2026-11-12)
 
 `SourceRequestSession` is the shared boundary for whole-story design and portable source-evidence requests. It preserves legacy receipt formats and complete immutable input, while each actual execution has an opt-in `CompletionAttempt` with private output and safe diagnostics. Local timeout/cancellation, remote outcome, complete response, and business completion are distinct facts. Parseable partial text and a stopped local child never prove complete generation.

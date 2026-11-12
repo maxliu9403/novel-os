@@ -24,6 +24,97 @@ function view() {
   return { data, ...rendered };
 }
 
+test('a completed round without a major question can continue without inventing author feedback', async () => {
+  const data = storySession();
+  data.creative_design!.story_state!.pending = null;
+  data.creative_design!.rounds[0].guidance!.groups = [];
+  data.creative_design!.rounds[0].guidance!.next_action = 'refine';
+  const turn = vi.spyOn(workshopApi, 'guidedTurn').mockResolvedValue({ job_id: 'next', kind: 'workshop', status: 'running', error: null });
+  vi.spyOn(workshopApi, 'get').mockResolvedValueOnce(data).mockRejectedValue(new Error('状态暂未同步'));
+  render(<MemoryRouter><NovelWorkshop open seed={data.input} initialSessionId={data.id} onClose={vi.fn()} onBack={vi.fn()}/></MemoryRouter>);
+  await screen.findByRole('heading', { name: '当前没有需要你决定的重大分歧' });
+  expect(screen.getByLabelText(/补充你的想法/)).toHaveValue('');
+  const advance = screen.getByRole('button', { name: '继续完善故事' });
+  expect(advance).toBeEnabled();
+  await userEvent.click(advance);
+  expect(turn).toHaveBeenCalledTimes(1);
+  expect(turn).toHaveBeenCalledWith(data.id, expect.objectContaining({ intent: 'discuss', message: '', proposal_ids: [], advance: 'develop_story' }));
+  expect(turn.mock.calls[0][1].story_action).toBeUndefined();
+  expect(within(await screen.findByRole('region', { name: '已发送的内容' })).getByText('继续完善故事')).toBeVisible();
+});
+
+test('the next step explains unavailable capacity and plans it without adopting proposals', async () => {
+  const data = storySession();
+  data.input.language = ''; data.input.mode = ''; data.input.chapters = undefined; data.input.words_per_chapter = undefined;
+  data.creative_design!.policy.capacity_version = 'story-capacity.v1';
+  data.creative_design!.story_state!.pending = null;
+  data.capacity = { schema: 'story-capacity.v1', status: 'unavailable' };
+  data.next_step = { kind: 'plan_capacity', label: '完善篇幅方案', reason: '下一步先整理完整故事的场景与篇幅。', can_continue: true, can_deliver: false, can_plan_capacity: true,
+    delivery_blocked_reason: '请先完善并确认篇幅方案，完整骨架会保留所有已确认故事。' };
+  vi.spyOn(workshopApi, 'get').mockResolvedValueOnce(data).mockRejectedValue(new Error('状态暂未同步'));
+  const turn = vi.spyOn(workshopApi, 'guidedTurn').mockResolvedValue({ job_id: 'next', kind: 'workshop', status: 'running', error: null });
+  render(<MemoryRouter><NovelWorkshop open seed={data.input} initialSessionId={data.id} onClose={vi.fn()} onBack={vi.fn()}/></MemoryRouter>);
+  const user = userEvent.setup();
+  const plan = await screen.findByRole('button', { name: '完善篇幅方案' });
+  expect(plan).toBeEnabled();
+  expect(screen.getByRole('button', { name: '继续完善故事' })).toBeEnabled();
+  const delivery = screen.getByRole('button', { name: '生成完整骨架' });
+  expect(delivery).toBeDisabled();
+  expect(delivery).toHaveAccessibleDescription(/请先完善并确认篇幅方案/);
+  expect(screen.queryByText('可以生成完整骨架了')).not.toBeInTheDocument();
+  await user.type(screen.getByLabelText(/补充你的想法/), '保留最后的安静余韵');
+  await user.dblClick(plan);
+  expect(turn).toHaveBeenCalledTimes(1);
+  expect(turn).toHaveBeenCalledWith(data.id, expect.objectContaining({ intent: 'discuss', message: '保留最后的安静余韵', proposal_ids: [], advance: 'plan_capacity' }));
+  expect(turn.mock.calls[0][1].capacity_choice).toBeUndefined();
+  const submitted = await screen.findByRole('region', { name: '已发送的内容' });
+  expect(within(submitted).getByText(/完善篇幅方案/)).toBeVisible();
+  expect(within(submitted).getByText(/保留最后的安静余韵/)).toBeVisible();
+});
+
+test('an explicit continuation keeps one operation on retry and cannot become a capacity command', () => {
+  const first = choiceRequest('advance-session', 'turn', 10, '', 'discuss', [], undefined, undefined, undefined, 'develop_story');
+  expect(choiceRequest('advance-session', 'turn', 11, '', 'discuss', [], undefined, undefined, undefined, 'develop_story')).toEqual(first);
+  expect(choiceRequest('advance-session', 'turn', 11, '', 'discuss', [], undefined, undefined, undefined, 'plan_capacity').operation_id).not.toBe(first.operation_id);
+  expect(choiceRequest('advance-session', 'turn', 11, '', 'discuss', []).advance).toBeUndefined();
+});
+
+test('a saved progress action shows the author note without presenting control instructions as author text', async () => {
+  const data = storySession();
+  data.creative_design!.story_state!.pending = null;
+  data.messages.push({ role: 'user', content: 'INTERNAL ADVANCE INSTRUCTION\n\n保留姐妹关系', action: 'develop_story', author_note: '保留姐妹关系' });
+  data.messages.push({ role: 'assistant', content: '故事已进一步完善。' });
+  vi.spyOn(workshopApi, 'get').mockResolvedValue(data);
+  render(<MemoryRouter><NovelWorkshop open seed={data.input} initialSessionId={data.id} onClose={vi.fn()} onBack={vi.fn()}/></MemoryRouter>);
+  const receipt = await screen.findByRole('region', { name: '已发送的内容' });
+  expect(within(receipt).getByText(/继续完善故事/)).toBeVisible();
+  expect(within(receipt).getByText(/保留姐妹关系/)).toBeVisible();
+  expect(within(receipt).queryByText(/INTERNAL ADVANCE INSTRUCTION/)).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('tab', { name: '讨论记录' }));
+  expect(screen.getByText(/INTERNAL ADVANCE INSTRUCTION/)).toBeVisible();
+});
+
+test.each(['paused', 'error'] as const)('a %s delivery exposes recovery without starting an empty new discussion', async status => {
+  const data = storySession();
+  data.status = status;
+  data.turn_intent = 'deliver';
+  data.creative_design!.policy.capacity_version = 'story-capacity.v1';
+  data.capacity = { schema: 'story-capacity.v1', status: 'unavailable' };
+  data.creative_design!.story_state!.pending = null;
+  data.delivery_progress = { status, completed_stages: ['story_design'], active_stage: 'chapter_plan', resumable: true };
+  vi.spyOn(workshopApi, 'get').mockResolvedValue(data);
+  const turn = vi.spyOn(workshopApi, 'guidedTurn');
+  render(<MemoryRouter><NovelWorkshop open seed={data.input} initialSessionId={data.id} onClose={vi.fn()} onBack={vi.fn()}/></MemoryRouter>);
+  await screen.findByRole('heading', { name: '当前没有需要你决定的重大分歧' });
+  expect(screen.queryByRole('button', { name: '继续完善故事' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '从已保存阶段继续' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: '发送想法' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: '按当前故事规划篇幅' })).toBeDisabled();
+  expect(turn).not.toHaveBeenCalled();
+  await userEvent.type(screen.getByLabelText(/补充你的想法/), '我决定修改结局');
+  expect(screen.getByRole('button', { name: '发送想法' })).toBeEnabled();
+});
+
 test('one choice is required for advance and delivery; atomic choice and additions are sent once', async () => {
   const turn = vi.spyOn(workshopApi, 'guidedTurn').mockResolvedValue({ job_id: 'next', kind: 'workshop', status: 'running', error: null });
   const save = vi.spyOn(workshopApi, 'saveChoices');
@@ -39,6 +130,21 @@ test('one choice is required for advance and delivery; atomic choice and additio
   await user.dblClick(next);
   expect(turn).toHaveBeenCalledTimes(1); expect(save).not.toHaveBeenCalled();
   expect(turn).toHaveBeenCalledWith('guided-session', expect.objectContaining({ proposal_ids: ['r1:p2'], message: '保留姐妹关心彼此', story_action: { mode: 'select', question_id: 'r1:g1' } }));
+});
+
+test('a pending choice can still be atomically adopted with delivery when capacity review is not enabled', async () => {
+  const data = storySession();
+  data.next_step = { kind: 'resolve_question', label: '决定当前问题', reason: '先决定本题。', can_continue: false, can_deliver: false, can_plan_capacity: false, delivery_blocked_reason: '先决定本题。' };
+  vi.spyOn(workshopApi, 'get').mockResolvedValue(data);
+  const turn = vi.spyOn(workshopApi, 'guidedTurn').mockResolvedValue({ job_id: 'next', kind: 'workshop', status: 'running', error: null });
+  render(<MemoryRouter><NovelWorkshop open seed={data.input} initialSessionId={data.id} onClose={vi.fn()} onBack={vi.fn()}/></MemoryRouter>);
+  const user = userEvent.setup();
+  const delivery = await screen.findByRole('button', { name: '生成完整骨架' });
+  expect(delivery).toBeDisabled();
+  await user.click(screen.getAllByRole('radio')[0]);
+  expect(delivery).toBeEnabled();
+  await user.click(delivery);
+  expect(turn).toHaveBeenCalledWith(data.id, expect.objectContaining({ intent: 'deliver', proposal_ids: ['r1:p1'], story_action: { mode: 'select', question_id: 'r1:g1' } }));
 });
 
 test('submitted additions stay visible on the decision tab while waiting for the next reply', async () => {

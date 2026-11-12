@@ -18,6 +18,142 @@ def review():
                         'replacement': '母亲出示新证据后，对方拒绝回应。她仍收回已答应的支持，并面对关系立刻改变的后果。'}], 'notes': []}
 
 
+def test_capacity_accepts_only_bound_supplied_source_packet_and_selected_route(tmp_path):
+    from api import workshop_capacity
+    from core.source_route_context import read_packet
+    from test_source_route_handoff import evidence_fixture
+    context, _ = evidence_fixture(tmp_path, QUOTE)
+    initial = {'premise': '来源故事续写', 'language': 'English', 'mode': 'short_novel'}
+    snapshot = {'id': 'source-capacity', 'revision': 1, 'input': initial, 'messages': [],
+                'creative_design': {'policy': {'capacity_version': 'story-capacity.v1'}}, 'source_context': context}
+    session = deepcopy(snapshot)
+    result = {'capacity_plan': capacity_plan()}
+    original_basis = digest(source(snapshot))
+    packet = read_packet(tmp_path, context)
+    receipt = workshop_capacity.make_source_receipt(snapshot, {'source_reference': context}, evidence_packet=packet)
+    workshop_capacity.record(session, result, snapshot, source_receipt=receipt)
+    assert session['capacity']['status'] == 'proposed'
+    assert session['capacity']['source_sha256'] == original_basis
+    assert session['capacity']['validation']['source_evidence_sha256'] == packet['sha256']
+    assert snapshot.get('capacity') is None
+
+    forged = deepcopy(packet)
+    forged['content']['unread_extra'] = QUOTE
+    rejected = deepcopy(snapshot)
+    receipt = workshop_capacity.make_source_receipt(snapshot, {'source_reference': context}, evidence_packet=forged)
+    workshop_capacity.record(rejected, result, snapshot, source_receipt=receipt)
+    assert rejected['capacity']['status'] == 'unavailable'
+    assert rejected['capacity']['validation']['issues'][0]['code'] == 'source_evidence_invalid'
+    assert rejected['capacity']['candidate'] == result['capacity_plan']
+
+    # A stored packet is not proof that this request supplied it.
+    not_supplied = deepcopy(snapshot)
+    receipt = workshop_capacity.make_source_receipt(snapshot, {'source_reference': context})
+    workshop_capacity.record(not_supplied, result, snapshot, source_receipt=receipt)
+    assert not_supplied['capacity']['status'] == 'unavailable'
+    assert not_supplied['capacity']['validation']['issues'][0]['code'] == 'source_quote_not_found'
+
+
+def test_capacity_selected_direction_is_quoteable_only_when_actually_supplied(tmp_path):
+    from api import workshop_capacity
+    from test_source_route_handoff import evidence_fixture
+    context, _ = evidence_fixture(tmp_path, 'A different source event.')
+    context['selected_proposal'] = {'story': QUOTE, 'sha256': digest({'story': QUOTE})}
+    context['context_sha256'] = digest({k: v for k, v in context.items() if k != 'context_sha256'})
+    snapshot = {'id': 'selected-direction', 'revision': 2, 'input': {}, 'messages': [],
+                'creative_design': {'policy': {'capacity_version': 'story-capacity.v1'}, 'decisions': []},
+                'source_context': context}
+    receipt = workshop_capacity.make_source_receipt(snapshot, {'source_reference': context})
+    session = deepcopy(snapshot)
+    workshop_capacity.record(session, {'capacity_plan': capacity_plan()}, snapshot, source_receipt=receipt)
+    assert session['capacity']['status'] == 'proposed'
+    assert session['capacity']['confirmed'] is None
+    assert session['creative_design']['decisions'] == []  # quote scope is not author approval
+
+    omitted = workshop_capacity.make_source_receipt(snapshot, {})
+    session = deepcopy(snapshot)
+    workshop_capacity.record(session, {'capacity_plan': capacity_plan()}, snapshot, source_receipt=omitted)
+    assert session['capacity']['validation']['issues'][0]['code'] == 'source_evidence_invalid'
+
+
+@pytest.mark.parametrize('mutation', ['another_packet', 'other_revision', 'model_json', 'changed_reference'])
+def test_capacity_source_receipt_rejects_unbound_or_forged_scope(tmp_path, mutation):
+    from dataclasses import asdict
+    from api import workshop_capacity
+    from core.source_route_context import make_packet
+    from test_source_route_handoff import evidence_fixture
+    context, packet = evidence_fixture(tmp_path, QUOTE)
+    snapshot = {'id': 'bound-request', 'revision': 3, 'input': {}, 'messages': [],
+                'creative_design': {'policy': {'capacity_version': 'story-capacity.v1'}}, 'source_context': context}
+    supplied = {'source_reference': deepcopy(context)}
+    if mutation == 'another_packet':
+        packet = make_packet({'text': QUOTE}, source_id='source-' + 'f' * 64,
+                             source_sha256='e' * 64, understanding_sha256='c' * 64)
+    elif mutation == 'changed_reference':
+        supplied['source_reference']['selected_proposal']['story'] = QUOTE
+    receipt = workshop_capacity.make_source_receipt(snapshot, supplied, evidence_packet=packet)
+    if mutation == 'other_revision':
+        snapshot['revision'] += 1
+    elif mutation == 'model_json':
+        receipt = asdict(receipt)
+    session = deepcopy(snapshot)
+    workshop_capacity.record(session, {'capacity_plan': capacity_plan()}, snapshot, source_receipt=receipt)
+    assert session['capacity']['status'] == 'unavailable'
+    assert session['capacity']['validation']['issues'][0]['code'] == 'source_evidence_invalid'
+
+
+def test_capacity_preserves_unusable_candidate_and_explains_missing_exact_source():
+    from api import workshop_capacity
+    snapshot = {'id': 'no-source', 'revision': 1, 'input': {'premise': 'This is another story.'},
+                'messages': [], 'creative_design': {'policy': {'capacity_version': 'story-capacity.v1'}}}
+    session = deepcopy(snapshot)
+    raw = capacity_plan()
+    workshop_capacity.record(session, {'capacity_plan': raw}, snapshot)
+    assert session['capacity']['status'] == 'unavailable'
+    assert session['capacity']['candidate'] == raw
+    issues = session['capacity']['validation']['issues']
+    assert issues and issues[0]['code'] == 'source_quote_not_found'
+    assert issues[0]['scene_id'] == raw['scenes'][0]['id']
+    correction = workshop_capacity.context(session)['story_capacity']
+    assert correction['candidate_to_repair'] == raw
+    assert correction['validation']['issues'] == issues
+    # Starting the next discussion invalidates the old execution proposal. It
+    # must still supply the failed candidate and diagnostics for repair.
+    workshop_capacity.invalidate(session)
+    correction = workshop_capacity.context(session)['story_capacity']
+    assert correction['candidate_to_repair'] == raw
+    assert correction['validation']['issues'] == issues
+
+
+def test_capacity_cannot_cite_unsent_candidate_history_or_joined_fields():
+    from api import workshop_capacity
+    raw = capacity_plan()
+    split = len(QUOTE) // 2
+    raw['scenes'][0]['source_quote'] = QUOTE[:split] + '\n' + QUOTE[split:]
+    snapshot = {'id': 'no-expanded-scope', 'revision': 1,
+                'input': {'premise': QUOTE[:split], 'constraints': QUOTE[split:]}, 'messages': [],
+                'capacity_history': [{'candidate': {'full_scene': QUOTE}}],
+                'creative_design': {'policy': {'capacity_version': 'story-capacity.v1'}}}
+    session = deepcopy(snapshot)
+    workshop_capacity.record(session, {'capacity_plan': raw}, snapshot)
+    issues = session['capacity']['validation']['issues']
+    assert len(issues) == len(raw['scenes'])
+    assert all(issue['code'] == 'source_quote_not_found' for issue in issues)
+
+
+def test_capacity_retains_structurally_invalid_companion_without_raw_error_inputs():
+    from api import workshop_capacity
+    snapshot = {'id': 'invalid-candidate', 'revision': 1, 'input': {}, 'messages': [],
+                'creative_design': {'policy': {'capacity_version': 'story-capacity.v1'}}}
+    raw = {'language': 'Never discard this literary material.', 'scenes': [{'id': 'one'}]}
+    session = deepcopy(snapshot)
+    workshop_capacity.record(session, {'capacity_plan': raw}, snapshot)
+    assert session['capacity']['candidate'] == raw
+    assert session['capacity']['validation']['candidate_sha256'] == digest(raw)
+    assert all(issue['code'] == 'invalid_plan' for issue in session['capacity']['validation']['issues'])
+    assert 'Never discard' not in json.dumps(session['capacity']['validation'])
+
+
 def propose(client, monkeypatch, *, legacy_root=None):
     response, route = model_result()
     response['capacity_plan'] = capacity_plan()

@@ -55,6 +55,9 @@ Supply exactly five DISTINCT nodes, one per area, and at most four changes.
 settled needs exact USER words: evidence:[{"message_index":0,"quote":"exact quote"}]
 with the zero-based conversation index, OR {"input_field":"premise","quote":"exact quote"}.
 Use other status values where author support is absent; assistant proposals are not evidence.
+For user messages with action develop_story or plan_capacity, content contains host
+operation instructions. Only their author_note field contains the author's own words;
+an empty author_note cannot prove adoption or settle a story node.
 Do not output guidance.coverage: the validated five-node map is the sole progress view.
 If an opening is designed, include its current concise story.opening with six string fields:
 situation, anchor, reader_experience, genre_cause, first_value, next_expectation;
@@ -80,7 +83,10 @@ scenes:[{id:string,title:string,source_quote:string,presentation:'on_page'|'summ
 reader_value:string,minimum:positive_int,maximum:positive_int,reason:string}],
 options:[{id:string,title:string,tradeoff:string,recommended:boolean,total_words:positive_int,
 chapters:[{number:1,scene_ids:[string],target_words:positive_int}]}]}.
-Cite exact source_quote (8+ characters) from the provided brief/conversation for each scene.
+Cite exact source_quote (8+ characters) from the provided brief/conversation,
+source_reference or supplied SOURCE_EVIDENCE content for each scene. Source citations
+establish provenance, not author adoption: source facts, model proposals and author
+decisions remain distinct. Do not cite unseen files or invent supporting quotations.
 Each of 1–3 options covers every scene once; consecutive chapters start at 1 (max 511),
 targets sum to total and lie within their assigned scenes' summed ranges. Split cross-chapter
 scenes into independently budgeted groups. All options retain the same cast/events/ending.

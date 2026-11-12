@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import type { StoryAction, StoryArea, WorkshopSession } from '../api/workshop';
+import type { StoryAction, StoryArea, WorkshopSession, WorkshopNextStep } from '../api/workshop';
+import { workshopNextStep } from '../lib/workshopNextStep';
 import WorkshopSubmittedMessages, { type SubmittedTurn } from './WorkshopSubmittedMessages';
 import WorkshopProposalImpact from './WorkshopProposalImpact';
 
@@ -9,12 +10,14 @@ const STATES = { missing: '待设计', proposed: '已有提案', settled: '有�
 const KINDS = { major_premise: '重大前提', causal_gap: '因果缺口', detail: '创作细节', external_fact: '现实资料' };
 const ASSUMPTION_STATES: Record<string, string> = { reframed: '已重新拟定方案', pending: '待处理', provisional: '模型暂定', unverified: '尚未核实', adopted_premise: '随所选方案采用', not_adopted: '未采用', delegated: '本题已委托', superseded_by_custom: '以自定义方向为准', model_resolved: '模型已提出解释' };
 
-export default function WorkshopStoryWorkspace({ session, tab, onTab, mode, selected, disabled, onSelect, onMode, onReopen, latestReply, submitted }: {
+export default function WorkshopStoryWorkspace({ session, tab, onTab, mode, selected, disabled, onSelect, onMode, onReopen, latestReply, submitted, nextStep, nextStepAction }: {
   session: WorkshopSession; tab: StoryTab; onTab: (tab: StoryTab) => void;
   mode: string; selected: string[]; disabled: boolean;
   onSelect: (group: string, id: string) => void; onMode: (mode: StoryAction['mode']) => void;
   onReopen: (id: string) => void; latestReply: ReactNode;
   submitted?: SubmittedTurn;
+  nextStep?: WorkshopNextStep;
+  nextStepAction?: ReactNode;
 }) {
   const state = session.creative_design?.story_state;
   if (!state) return null;
@@ -23,9 +26,9 @@ export default function WorkshopStoryWorkspace({ session, tab, onTab, mode, sele
   const notice = state.notice && !validation
     ? '讨论已保存，故事地图未更新，当前展示上次地图。本次历史记录没有保存具体校验原因；可继续本轮讨论，不会自动重试。'
     : state.notice;
-  const guidance = session.creative_design?.rounds.at(-1)?.guidance;
+  const progress = nextStep ?? workshopNextStep(session);
   const fresh = map?.reviewed_revision === session.revision && session.status !== 'running';
-  const ready = !pending && guidance?.reviewed_revision === session.revision && guidance.next_action === 'generate';
+  const ready = !pending && progress.kind === 'deliver' && progress.can_deliver;
   const decisions = state.actions.filter(a => ['select', 'custom', 'delegate'].includes(a.mode));
   return <section className="mb-5" aria-label="故事共创工作台">
     <div className="mb-4 rounded-2xl border border-paper-line bg-white/85 px-5 py-4 sm:px-6">
@@ -85,7 +88,7 @@ export default function WorkshopStoryWorkspace({ session, tab, onTab, mode, sele
         {pending.recommendation_reason && <p className="mt-4 rounded-xl bg-violet-soft/40 p-4 text-[15px] leading-relaxed">推荐理由：{pending.recommendation_reason}</p>}
         <div className="mt-3 flex flex-wrap gap-2"><button type="button" aria-pressed={mode === 'question'} className="btn-ghost !text-[14px]" disabled={disabled} onClick={() => onMode('question')}>先问清楚，不作决定</button><button type="button" aria-pressed={mode === 'reframe'} className="btn-ghost !text-[14px]" disabled={disabled} onClick={() => onMode('reframe')}>都不合适，换一组</button></div>
         <p className="mt-2 text-[14px] text-ink-muted">{mode === 'question' ? '请在下方填写问题。此次只解释，不采用方案。' : mode === 'reframe' ? '可补充不满意的原因。提交后仅调整本题方案，未决状态会保留。' : '选择后可补充想法，再点击「采用并继续推演」。未选择不会默认采用推荐项。'}</p>
-      </> : <div className="rounded-2xl border border-paper-line bg-white/85 p-6"><h4 className="text-[20px] font-semibold">{session.status === 'running' ? '正在推演你刚才的决定与补充' : ready ? '可以生成完整骨架了' : '当前没有需要你决定的重大分歧'}</h4><p className="mt-3 text-[16px] leading-relaxed text-ink-muted">{session.status === 'running' ? '本轮回复尚未完成。你的输入已保留在上方，完整记录可随时查看。' : guidance?.reason ?? '可以补充故事方向，也可以查看完整讨论。模型会完成专业细节，必要时再提出影响全书的选择。'}</p>{ready && <p className="mt-3 text-[14px] text-violet">下方生成按钮将展开章节、人物、伏笔与回报；不会直接启动正文。</p>}</div>}
+      </> : <div className="rounded-2xl border border-paper-line bg-white/85 p-6"><h4 className="text-[20px] font-semibold">{session.status === 'running' ? '正在推演你刚才的决定与补充' : ready ? '可以生成完整骨架了' : '当前没有需要你决定的重大分歧'}</h4><p className="mt-3 text-[16px] leading-relaxed text-ink-muted">{session.status === 'running' ? '本轮回复尚未完成。你的输入已保留在上方，完整记录可随时查看。' : progress.reason}</p>{session.status !== 'running' && nextStepAction}{ready && <p className="mt-3 text-[14px] text-violet">下方生成按钮将展开章节、人物、伏笔与回报；不会直接启动正文。</p>}</div>}
       <details className="mt-5 rounded-xl border border-paper-line bg-white/65 p-4" open={!pending && session.status !== 'running'}><summary className="cursor-pointer text-[15px] font-medium">{session.status === 'running' ? '上一轮设计说明' : '本轮设计说明'}</summary><div className="mt-4">{latestReply}</div></details>
     </div>}
     {tab === 'story' && <div role="tabpanel" id="story-panel-story" aria-labelledby="story-tab-story" className="space-y-5">

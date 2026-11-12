@@ -130,7 +130,8 @@ def _evidence_valid(item: Evidence, session: dict, assistant_index: int) -> bool
     if item.message_index >= assistant_index:
         return False
     message = session["messages"][item.message_index]
-    return message["role"] == "user" and item.quote in message["content"]
+    from core.author_requirements import author_text
+    return item.quote in author_text(message)
 
 
 def record_guidance(raw: object, record: dict, session: dict, questions: list) -> dict:
@@ -169,7 +170,11 @@ def record_guidance(raw: object, record: dict, session: dict, questions: list) -
                 entry["status"] = "proposed"
             coverage.append(entry)
         # These are eligibility checks for a recommendation, not semantic proof.
-        complete_basics = all(session["input"].get(k) for k in
+        from core.story_design import enabled as story_first
+        # Story-first sessions intentionally defer optional execution settings:
+        # chapter count comes from the separately adopted capacity plan. Their
+        # readiness is finalized against this round's validated story map below.
+        complete_basics = story_first(session) or all(session["input"].get(k) for k in
                               ("chapters", "words_per_chapter", "language", "mode", "audience", "market"))
         can_recommend = (advice.next_action == "generate" and not groups and not proposals
                          and not advice.missing and not questions and not record.get("conflicts")
