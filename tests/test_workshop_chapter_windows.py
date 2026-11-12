@@ -148,9 +148,11 @@ def test_incomplete_json_reduces_output_unit_without_losing_cards(tmp_path, desi
     assert load_checkpoint(directory, session['delivery_run_id'])['completed']['chapter_plan']['content'] == chapters
 
 
-def test_existing_hundred_chapter_amendment_reads_original_future_scene(tmp_path, design, monkeypatch):
+@pytest.mark.parametrize('envelope_recovery', [None, 'inline', 'resume'])
+def test_existing_hundred_chapter_amendment_reads_original_future_scene(tmp_path, design, monkeypatch, envelope_recovery):
     from core.gemini_gateway import input_bytes
     from core.story_design import render
+    from api.workshop_stage_repair import load_repair, save_repair
 
     session, story, chapters, directory, route = setup_book(design, tmp_path, monkeypatch, story_first=True)
     route['planning_input_bytes'] = 110000
@@ -169,13 +171,32 @@ def test_existing_hundred_chapter_amendment_reads_original_future_scene(tmp_path
         {'role': 'assistant', 'content': 'The earlier alternate ending requires both witnesses.'},
         {'role': 'user', 'content': 'Keep Iris present when the locker is opened.'}])
     seen = set()
+    stopped = False
+    generating_context = None
+    session_root = tmp_path / 'session'
+    session['delivery_source_revision'] = session['revision']
+    replies = session_root / 'stage-responses'
+    replies.mkdir(parents=True)
+    session['_save_delivery_response'] = lambda record: workshop._atomic(
+        replies / f"{record['revision']}-{record['attempt']}.json", json.dumps(record))
+    session['_save_stage_repair'] = lambda record: save_repair(session_root, record)
+    session['_load_stage_repair'] = lambda stage, chapter_range=None: load_repair(
+        session_root, session, stage=stage, chapter_range=chapter_range)
 
     class Client:
         def __init__(self, **kw): pass
 
         def complete(self, system, user):
+            nonlocal stopped, generating_context
             assert input_bytes(system, user) <= route['planning_input_bytes']
             data = json.loads(user)
+            if data.get('operation') == 'repair_stage_envelope':
+                assert data['author_context'] == generating_context
+                assert distant in data['author_context']['previous_skeleton']['original_chapters']['text']
+                if envelope_recovery == 'resume' and not stopped:
+                    stopped = True
+                    raise InterruptedError('stop metadata correction')
+                return json.dumps({'stage_envelope': {'narrative_mode': chapters['narrative_mode']}})
             if data['delivery_stage'] == 'story_design':
                 return json.dumps(story)
             window = data['chapter_window']
@@ -196,9 +217,17 @@ def test_existing_hundred_chapter_amendment_reads_original_future_scene(tmp_path
                 assert distant in source['text']
                 result[0]['core_plot'] = [distant]
             seen.update(range(first, last + 1))
+            if first == 1 and envelope_recovery:
+                generating_context = deepcopy(data)
+                return json.dumps({**chapters, 'chapters': result, 'narrative_mode': 'single_volume'})
             return json.dumps({**chapters, 'chapters': result})
 
     monkeypatch.setattr(llm_client, 'LLMClient', Client)
+    if envelope_recovery == 'resume':
+        with pytest.raises(InterruptedError, match='stop metadata correction'):
+            workshop._complete(session, 'Guidance')
+        session.update(_delivery_record=load_checkpoint(directory, session['delivery_run_id']),
+                       revision=session['revision'] + 1, job_id='resumed-job')
     result, _ = workshop._complete(session, 'Guidance')
     assert seen == set(range(1, 101))
     assert distant in result['prompt_md']

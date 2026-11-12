@@ -37,6 +37,12 @@ from __future__ import annotations
 from contextlib import nullcontext
 from contextvars import copy_context
 try:
+    from core.codex_terminal_failure import PROVIDER_CODES, terminal_http_failure
+except ModuleNotFoundError as exc:
+    if exc.name != "core":
+        raise
+    from codex_terminal_failure import PROVIDER_CODES, terminal_http_failure
+try:
     from core.llm_attempt import current_attempt
 except ModuleNotFoundError as exc:
     if exc.name != "core":
@@ -168,6 +174,19 @@ def _openai_compatible_options(timeout_seconds: float | None = None) -> dict:
 
 class LLMError(RuntimeError):
     """Raised when the LLM call cannot be made or fails."""
+
+
+class LLMHTTPError(LLMError):
+    """Verified terminal HTTP rejection; contains no provider response text."""
+
+    def __init__(self, status_code: int, *, provider_code: str = ""):
+        if type(status_code) is not int or not 400 <= status_code <= 599:
+            raise ValueError("Expected an HTTP error status")
+        self.status_code = status_code
+        self.provider_code = (provider_code if isinstance(provider_code, str)
+                              and provider_code in PROVIDER_CODES else "")
+        detail = f"; {self.provider_code}" if self.provider_code else ""
+        super().__init__(f"Model provider rejected the request (HTTP {status_code}{detail})")
 
 
 class LLMInputLimitError(LLMError):
@@ -808,9 +827,10 @@ class LLMClient:
                 "--ignore-rules",
                 "--output-last-message",
                 str(output_path),
+                "--json",
+                "--color",
+                "never",
             ]
-            if diagnostics is not None:
-                command.extend(["--json", "--color", "never"])
             if self.model:
                 command.extend(["--model", self.model])
             if self.reasoning_effort:
@@ -877,6 +897,19 @@ class LLMClient:
                 raise
             if process.returncode != 0:
                 finish_diagnostics("cli.failed", exit_code=process.returncode)
+                try:
+                    has_final_output = output_path.stat().st_size > 0
+                except FileNotFoundError:
+                    has_final_output = False
+                except OSError:
+                    # Unreadable result evidence must not be treated as absent.
+                    has_final_output = True
+                failure = terminal_http_failure(
+                    process.stdout or "", exit_code=process.returncode,
+                    complete_response=has_final_output,
+                )
+                if failure is not None:
+                    raise LLMHTTPError(failure.status_code, provider_code=failure.provider_code)
                 detail = (process.stderr or process.stdout or "Codex command failed").strip()
                 if len(detail) > 500:
                     detail = detail[-500:]

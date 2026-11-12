@@ -13,7 +13,7 @@ import re
 from uuid import uuid4
 
 from .creative_types import digest
-from .llm_attempt import completion_attempt, recover_completion
+from .llm_attempt import completion_attempt, recover_completion, recover_terminal_failure
 from .reference_assets import atomic_bytes, atomic_json
 from .source_request_recovery import classify_failure, failure_message
 from .source_routes import VERSION
@@ -88,6 +88,25 @@ class SourceRequestSession:
         directory = self._attempt_path(record)
         return recover_completion(directory, self.identity) if directory else None
 
+    def _terminal_failure(self, record):
+        if not self._unknown(record):
+            return None
+        directory = self._attempt_path(record)
+        proof = recover_terminal_failure(directory, self.identity) if directory else None
+        if proof is None:
+            return None
+        from .llm_client import LLMHTTPError
+        return classify_failure(LLMHTTPError(proof.status_code, provider_code=proof.provider_code))
+
+    def _archive(self, snapshot):
+        identity = hashlib.sha256(snapshot).hexdigest()
+        history = self._safe(self.directory / 'history' / (identity + '.json'))
+        if history.exists() and history.read_bytes() != snapshot:
+            raise RequestReceiptError('历史请求完整性校验失败。')
+        if not history.exists():
+            atomic_bytes(history, snapshot)
+        return identity
+
     def _receive(self, record, raw):
         if not isinstance(raw, str):
             raise ValueError("模型回复不是文本，完整请求已保留。")
@@ -107,15 +126,16 @@ class SourceRequestSession:
         record, snapshot = self._read_snapshot()
         raw = record.get(self.response_key)
         local = self._recovered(record) if raw is None else raw
-        unknown = self._unknown(record) and local is None
+        terminal_failure = self._terminal_failure(record) if local is None else None
+        unknown = self._unknown(record) and local is None and terminal_failure is None
         authorized = any(a.get("status") == "pending" for a in record.get("retry_authorizations", []))
-        failure = (record.get("failure") or (record.get("attempts") or [{}])[-1].get("failure", {})) if local is None else {}
+        failure = (terminal_failure or record.get("failure") or (record.get("attempts") or [{}])[-1].get("failure", {})) if local is None else {}
         reason = failure.get("reason", "missing_terminal_evidence" if unknown else "resumable")
         message = failure_message(failure) if failure else (
             "旧请求未保存可确认的完整回复和详细失败原因；原资料与请求仍保留。" if unknown else "可从已保存的步骤继续。")
         if local is not None and raw is None:
             reason, message = "saved_completion", "完整回复已保存，继续时将直接复用，无需重复调用模型。"
-        execution = {k: failure[k] for k in ("local_outcome", "timeout_scope", "timeout_seconds", "http_status") if k in failure}
+        execution = {k: failure[k] for k in ("local_outcome", "timeout_scope", "timeout_seconds", "http_status", "provider_code") if k in failure}
         execution.update(reason=reason, message=message, attempt_count=len(record.get("attempts", [])))
         observed = record.get("observed_at") or record.get("received_at") or record.get("dispatched_at")
         if observed:
@@ -161,12 +181,21 @@ class SourceRequestSession:
 
     def execute(self, client, *, before_send=None, observer=None):
         with lease(self._safe(self.path.with_suffix(".execution.lock")), blocking=False):
-            record = self._read()
+            record, snapshot = self._read_snapshot()
             if record.get(self.response_key) is not None:
                 return record[self.response_key]
             local = self._recovered(record)
             if local is not None:
                 return self._receive(record, local)
+            failure = self._terminal_failure(record)
+            if failure is not None:
+                archived = self._archive(snapshot)
+                record.update({self.status_key: 'failed', 'failure': failure,
+                               'terminal_failure_recovery': {'receipt_sha256': archived,
+                                   'attempt_id': record.get('active_attempt_id'), 'observed_at': now()}})
+                # Keep historical attempts exactly as originally recorded. The
+                # verified projection is an additional receipt, not a rewrite.
+                self._write(record)
             authorization = next((a for a in record.get("retry_authorizations", []) if a.get("status") == "pending"), None)
             if self._unknown(record) and not authorization:
                 recover = getattr(client, "recover_response", None)

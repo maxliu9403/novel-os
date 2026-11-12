@@ -389,3 +389,9 @@ A regular Codex discussion deadline can grant one optional, bounded finish windo
 `creative-handoff.v6` adds frozen baseline, actual delivery review, author adjustments and placements. v1–v5 remain unchanged. `creative-runtime-basis.v1` includes effective obligations and exact author constraints, with lossless on-demand access to the frozen historical evidence archive. A catalog is not a claim that its contents were read. Selected large history and original source evidence share the existing complete evidence paging protocol.
 
 Route length recommendation is editorial advice, not adoption. Capacity editing may allocate locally within complete existing scene ranges or request a scoped reestimate; neither authorizes dropping story substance. Total words, chapter targets and chapter-length limits remain separate editable values. Readiness distinguishes exploration, length choice, skeleton generation, retained repair and delivery; absence of questions alone proves none of these.
+
+## Terminal provider rejection and stage request provenance (2026-11-12)
+
+`LLMHTTPError` carries verified terminal status and allowlisted provider codes. Codex transient diagnostics, timeouts, killed processes and partial outputs remain distinct from a stopped turn's explicit HTTP rejection. Source request recovery may read bound legacy execution evidence without mutation; explicit resume archives the original receipt before adding a terminal-failure recovery record. No account error changes the selected connection or authorizes background retries.
+
+`workshop.stage-envelope-repair.v2` retains the exact generating request projection and original source coverage alongside the immutable candidate. Metadata-only repair cannot re-expand the original skeleton, invent coverage, or alter story fields. Legacy v1 records remain readable and can upgrade only with matching request receipts.

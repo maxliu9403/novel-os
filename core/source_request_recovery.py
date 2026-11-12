@@ -30,6 +30,9 @@ def failure_message(failure: dict | None) -> str:
     outcome = failure.get('outcome')
     status = failure.get('http_status')
     if outcome == 'failed' and type(status) is int and 400 <= status <= 599:
+        if status == 402 and failure.get('provider_code') == 'deactivated_workspace':
+            return ('当前模型工作区已停用（HTTP 402，deactivated_workspace），本次请求已明确失败。'
+                    '请恢复该工作区后继续；当前连接、完整资料与已完成阶段均已保留，不会自动重试。')
         return f'模型服务返回 HTTP {status}，本次请求失败；已有资料和进度已保留。'
     if outcome == 'not_sent':
         if failure.get('reason') == 'local_capacity_preflight':
@@ -77,9 +80,12 @@ def classify_failure(error: BaseException) -> dict:
                     getattr(response, 'status_code', None), getattr(current, 'code', None))
         for status in statuses:
             if type(status) is int and 400 <= status <= 599:
-                return {**evidence, 'outcome': 'failed', 'http_status': status,
+                result = {**evidence, 'outcome': 'failed', 'http_status': status,
                         'retryable': status in (408, 425, 429) or status >= 500,
                         'reason': 'returned_http_error'}
+                if status == 402 and getattr(current, 'provider_code', None) == 'deactivated_workspace':
+                    result['provider_code'] = 'deactivated_workspace'
+                return result
     if any(isinstance(current, (ConnectionRefusedError, socket.gaierror)) for current in chain):
         return {**evidence, 'outcome': 'not_sent', 'retryable': True,
                 'reason': 'connection_not_established'}

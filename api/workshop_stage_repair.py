@@ -21,7 +21,8 @@ from .workshop_delivery import (DeliveryError, StageEnvelopeResponseError,
     checkpoint_fingerprint, parse_stage, repair_stage_envelope,
     stage_envelope_contract, stage_envelope_rules)
 
-VERSION = 'workshop.stage-envelope-repair.v1'
+VERSION = 'workshop.stage-envelope-repair.v2'
+LEGACY_VERSION = 'workshop.stage-envelope-repair.v1'
 MAX_BYTES = 4 * 1024 * 1024
 _ID = re.compile(r'[0-9a-f]{32}\Z')
 
@@ -124,6 +125,8 @@ class StageEnvelopeRepair:
         self.status = 'active'
         self.binding = None
         self.source_receipt = None
+        self.generating_request = None
+        self.request_needs_save = False
         # Issues are code-owned. Recalculate rather than trusting stored/model
         # issue names to grant write access to arbitrary candidate fields.
         actual = []
@@ -137,7 +140,39 @@ class StageEnvelopeRepair:
         if not actual or actual != self.issues:
             raise StageRepairError('阶段格式修复的问题范围已改变。')
 
-    def request(self, context: dict) -> tuple[str, str]:
+    @_storage_operation
+    def bind_request(self, user: str, source_coverage: dict | None = None) -> None:
+        """Retain the exact projection that generated this candidate, not a new view.
+
+        The response receipt binds the original request bytes. Coverage is derived
+        from that view, so a resumed patch cannot claim unobserved source chapters.
+        """
+        if not isinstance(user, str):
+            raise StageRepairError('阶段格式修复缺少原请求；原候选仍保留。')
+        context = _decode(user.encode())
+        if not isinstance(context, dict) or context.get('delivery_stage') != self.stage:
+            raise StageRepairError('阶段格式修复的原请求阶段不匹配。')
+        if self.source_receipt is not None and hashlib.sha256(user.encode()).hexdigest() != self.source_receipt['user_sha256']:
+            raise StageRepairError('无法核对阶段候选的原请求上下文；候选与检查点仍保留，请恢复原请求记录后继续。')
+        coverage = request_source_coverage(context, self.chapter_range, self.chapter_count)
+        if source_coverage != coverage:
+            raise StageRepairError('阶段格式修复的原文读取范围与原请求不一致。')
+        request = {'user': user, 'source_coverage': deepcopy(coverage)}
+        if self.generating_request is not None and self.generating_request != request:
+            raise StageRepairError('阶段格式修复的原请求不能被替换。')
+        if self.generating_request is None:
+            self.generating_request = request
+            self.request_needs_save = True
+
+    @property
+    def source_coverage(self):
+        return deepcopy(self.generating_request['source_coverage']) if self.generating_request else None
+
+    def request(self, context: dict | None = None) -> tuple[str, str]:
+        if self.generating_request is not None:
+            context = _decode(self.generating_request['user'].encode())
+        if context is None:
+            raise StageRepairStorageError('阶段格式修复缺少原请求上下文；候选与检查点仍保留。')
         body = {'operation': 'repair_stage_envelope', 'delivery_stage': self.stage,
                 'candidate': self.candidate, 'issues': self.issues,
                 'stage_envelope_contract': stage_envelope_contract(self.mode, self.chapter_count),
@@ -184,12 +219,36 @@ class StageEnvelopeRepair:
                 raise StageRepairError('阶段原回复来自尚未发生的讨论版本。')
             self.source_receipt = {key: deepcopy(receipt[key]) for key in
                 ('revision', 'attempt', 'stage', 'part', 'job_id', 'response_sha256', 'system_sha256', 'user_sha256')}
+        if self.generating_request is not None:
+            self.bind_request(**self.generating_request)
         record = {'schema': VERSION, 'binding': identity, 'stage': self.stage, 'status': self.status,
                   'chapter_range': list(self.chapter_range) if self.chapter_range else None,
                   'mode': self.mode, 'chapter_count': self.chapter_count,
                   'candidate': self.candidate, 'issues': self.issues,
-                  'source_receipt': self.source_receipt, 'saved_patch': self.saved_patch}
+                  'source_receipt': self.source_receipt, 'saved_patch': self.saved_patch,
+                  'generating_request': self.generating_request}
         return {**deepcopy(record), 'sha256': _digest(record)}
+
+
+def request_source_coverage(context: dict, chapter_range=None, chapter_count=None):
+    projected = (context.get('previous_skeleton') or {}).get('original_chapters')
+    if projected is None:
+        return None
+    window = context.get('chapter_window') or {}
+    if (not isinstance(projected, dict) or chapter_range is None
+            or (window.get('first'), window.get('last')) != tuple(chapter_range)):
+        raise StageRepairError('阶段原请求的章节窗口与修复范围不匹配。')
+    digest, included = projected.get('source_sha256'), projected.get('included_chapters')
+    # OriginalChapters.recognize currently permits this projection only when
+    # the original and target chapter counts match. Count-changing revisions
+    # keep their complete original input and do not enter this coverage contract.
+    if (not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest)
+            or not isinstance(included, list) or type(chapter_count) is not int
+            or any(type(n) is not int or not 1 <= n <= chapter_count for n in included)
+            or included != sorted(set(included))
+            or not set(range(chapter_range[0], chapter_range[1] + 1)) <= set(included)):
+        raise StageRepairError('阶段原请求未完整保留原文读取范围。')
+    return {'source_sha256': digest, 'included_chapters': deepcopy(included)}
 
 
 def _check_receipt(receipt, identity, stage, candidate):
@@ -212,7 +271,9 @@ def _check_receipt(receipt, identity, stage, candidate):
 def _validated(record: dict, session: dict | None = None) -> StageEnvelopeRepair:
     fields = {'schema', 'binding', 'stage', 'status', 'chapter_range', 'mode', 'chapter_count',
               'candidate', 'issues', 'source_receipt', 'saved_patch', 'sha256'}
-    if (not isinstance(record, dict) or set(record) != fields or record['schema'] != VERSION
+    if isinstance(record, dict) and record.get('schema') == VERSION:
+        fields.add('generating_request')
+    if (not isinstance(record, dict) or set(record) != fields or record['schema'] not in {VERSION, LEGACY_VERSION}
             or record['status'] not in {'active', 'resolved'}
             or record['sha256'] != _digest({k:v for k,v in record.items() if k != 'sha256'})):
         raise StageRepairError('阶段格式修复完整性检查失败；原文件仍保留。')
@@ -231,6 +292,12 @@ def _validated(record: dict, session: dict | None = None) -> StageEnvelopeRepair
     item.binding = deepcopy(record['binding'])
     item.status = record['status']
     item.source_receipt = deepcopy(record['source_receipt'])
+    request = record.get('generating_request')
+    if request is not None:
+        if not isinstance(request, dict) or set(request) != {'user', 'source_coverage'}:
+            raise StageRepairError('阶段格式修复的原请求记录不完整。')
+        item.bind_request(**request)
+        item.request_needs_save = False
     if record['saved_patch'] is not None:
         item.accept(_canonical({'stage_envelope': record['saved_patch']}).decode())
     return item
@@ -291,6 +358,8 @@ def load_repair(session_dir: Path, session: dict, *, stage: str, chapter_range=N
         if record is not None:
             _verify_source(Path(session_dir), record)
         item = _validated(record, session) if record is not None else None
+        if item is not None and item.status == 'active' and item.generating_request is None:
+            _recover_retained_request(Path(session_dir), item)
         return item if item is not None and item.status == 'active' else None
     finally:
         os.close(fd)
@@ -329,7 +398,7 @@ def save_repair(session_dir: Path, record: dict) -> None:
             replacing = (prior['status'] == 'resolved' and record['status'] == 'active'
                          and any(prior[k] != record[k] for k in ('candidate', 'issues', 'source_receipt')))
             if replacing:
-                locks = ('schema', 'binding', 'stage', 'chapter_range', 'mode', 'chapter_count')
+                locks = ('binding', 'stage', 'chapter_range', 'mode', 'chapter_count')
                 if any(prior[k] != record[k] for k in locks):
                     raise StageRepairError('新阶段修复不能改变原执行的身份或范围。')
                 archive = name[:-5] + '.history-' + prior['sha256'] + '.json'
@@ -340,9 +409,16 @@ def save_repair(session_dir: Path, record: dict) -> None:
                     _write(fd, archive, _canonical(prior))
                 _write(fd, name, payload)
                 return
-            stable = set(record) - {'sha256', 'saved_patch', 'status'}
+            stable = set(record) - {'sha256', 'saved_patch', 'status', 'schema', 'generating_request'}
             if any(prior[k] != record[k] for k in stable):
                 raise StageRepairError('已保存的阶段修复候选不能被替换。')
+            old_request, new_request = prior.get('generating_request'), record.get('generating_request')
+            if old_request is not None and old_request != new_request:
+                raise StageRepairError('已保存的阶段原请求不能被替换。')
+            if old_request is None and new_request is not None and prior['source_receipt'] is None:
+                raise StageRepairError('旧阶段候选缺少原请求凭据；不能补写未经核对的上下文。')
+            if prior['schema'] == VERSION and record['schema'] == LEGACY_VERSION:
+                raise StageRepairError('阶段格式修复不能退回旧格式。')
             if prior['saved_patch'] is not None and prior['saved_patch'] != record['saved_patch']:
                 raise StageRepairError('已保存的阶段格式修正不能被替换。')
             if prior['status'] == 'resolved' and record['status'] != 'resolved':
@@ -468,6 +544,30 @@ def _legacy_source_records(session_dir: Path) -> list[tuple[str, str, dict]]:
     return records
 
 
+def _recover_retained_request(session_dir: Path, repair: StageEnvelopeRepair) -> None:
+    """Recover historical evidence-backed request bytes without writing on read."""
+    reference = repair.source_receipt
+    if reference is None:
+        return
+    from core.creative_types import digest
+    for _group, request_id, record in _legacy_source_records(session_dir):
+        system, full_user = record.get('system'), record.get('user')
+        if (record.get('state') not in {'received', 'response_received'}
+                or record.get('response_sha256') != reference['response_sha256']
+                or not isinstance(record.get('response'), str)
+                or hashlib.sha256(record['response'].encode()).hexdigest() != reference['response_sha256']
+                or not isinstance(system, str) or not isinstance(full_user, str)
+                or hashlib.sha256(system.encode()).hexdigest() != reference['system_sha256']
+                or request_id != digest({'system': system, 'user': full_user})):
+            continue
+        user = full_user.split('\n\n[SOURCE_EVIDENCE]\n', 1)[0]
+        if hashlib.sha256(user.encode()).hexdigest() != reference['user_sha256']:
+            continue
+        context = _decode(user.encode())
+        repair.bind_request(user, request_source_coverage(context, repair.chapter_range, repair.chapter_count))
+        return
+
+
 @_storage_operation
 def import_matching_legacy_repair(session_dir: Path, failed_session: dict) -> StageEnvelopeRepair | None:
     """Recover a provably identical old first-stage metadata failure.
@@ -542,7 +642,7 @@ def import_matching_legacy_repair(session_dir: Path, failed_session: dict) -> St
             failure = previous.get('validation') or {}
             if failure.get('status') != 'invalid' or not isinstance(failure.get('detail'), str):
                 return None
-            context.update(previous_model_response=previous['raw'], validation_error=failure['detail'],
+            context.update(previous_model_response=previous['raw'].strip(), validation_error=failure['detail'],
                            repair_instruction=_LEGACY_REPAIR_INSTRUCTION)
         context.update(delivery_stage='story_design', delivery_mode=None, saved_story_stages={})
         user = json.dumps(delivery_context(context), ensure_ascii=False, separators=(',', ':'))
@@ -565,5 +665,8 @@ def import_matching_legacy_repair(session_dir: Path, failed_session: dict) -> St
             if not verified:
                 return None
         previous = receipt
-    return import_legacy_repair(session_dir, session, expected_user_sha256=latest['user_sha256'],
+    repair = import_legacy_repair(session_dir, session, expected_user_sha256=latest['user_sha256'],
                                 chapter_count=count, story_first=story_first)
+    if repair is not None:
+        repair.bind_request(user)
+    return repair

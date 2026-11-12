@@ -93,7 +93,7 @@ def safe_diagnostic(entry: dict) -> dict:
         result["usage_incomplete_fields"] = [key for key in entry["usage_incomplete_fields"] if isinstance(key, str) and key in _USAGE]
     if "error_type" in entry:
         result["error_type"] = entry["error_type"] if isinstance(entry["error_type"], str) and entry["error_type"] in {
-            "LLMError", "LLMCancelledError", "TimeoutExpired", "TimeoutError", "APITimeoutError",
+            "LLMError", "LLMHTTPError", "LLMCancelledError", "TimeoutExpired", "TimeoutError", "APITimeoutError",
             "ReadTimeout", "ConnectTimeout", "ConnectionError", "OSError", "ValueError", "PipelineStopped", "LLMIncompleteResponseError",
         } else "Error"
     return result
@@ -196,6 +196,66 @@ def recover_completion(directory: Path, identity: str) -> str | None:
     try:
         return _recover(fd, identity)
     finally:
+        os.close(fd)
+
+
+def recover_terminal_failure(directory: Path, identity: str):
+    """Read a stopped, request-bound Codex rejection; never infer from prose.
+
+    This compatibility reader uses the private stdout plus the adapter's saved
+    process-exit diagnostic. A live attempt, missing binding, partial capture,
+    timeout, or successful completion cannot authorize another request.
+    """
+    try:
+        from .codex_terminal_failure import terminal_http_failure, MAX_STDOUT_BYTES
+    except ImportError:
+        from codex_terminal_failure import terminal_http_failure, MAX_STDOUT_BYTES
+    try:
+        _, fd = _directory_fd(directory)
+    except FileNotFoundError:
+        return None
+    lock = cli = None
+    try:
+        try:
+            lock = _open(fd, 'attempt.lock', os.O_RDONLY)
+            fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except (FileNotFoundError, BlockingIOError):
+            return None
+        if _recover(fd, identity) is not None:
+            return None
+        try:
+            binding = json.loads(_read(fd, 'request.json'))
+            if (not isinstance(binding, dict) or binding.get('identity') != identity
+                    or set(binding) != {'identity', 'request_sha256'}
+                    or not isinstance(binding['request_sha256'], str)
+                    or not re.fullmatch(r'[a-f0-9]{64}', binding['request_sha256'])):
+                raise ValueError('Terminal failure request binding mismatch')
+            with os.fdopen(_open(fd, 'diagnostics.jsonl', os.O_RDONLY), 'rb') as stream:
+                diagnostics = stream.read(MAX_STDOUT_BYTES + 1)
+            if len(diagnostics) > MAX_STDOUT_BYTES:
+                return None
+            records = [json.loads(line) for line in diagnostics.splitlines() if line.strip()]
+            terminal = [entry for entry in records if isinstance(entry, dict) and entry.get('event') in
+                        {'cli.failed', 'cli.timeout', 'cli.cancelled', 'cli.completed'}]
+            if len(terminal) != 1 or terminal[0].get('event') != 'cli.failed':
+                return None
+            cli = os.open('cli', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            try:
+                with os.fdopen(_open(cli, 'last-message.txt', os.O_RDONLY), 'rb') as final:
+                    if os.fstat(final.fileno()).st_size:
+                        return None
+            except FileNotFoundError:
+                pass
+            with os.fdopen(_open(cli, 'stdout.jsonl', os.O_RDONLY), 'rb') as stream:
+                stdout = stream.read(MAX_STDOUT_BYTES + 1)
+        except FileNotFoundError:
+            return None
+        return terminal_http_failure(stdout, exit_code=terminal[0].get('exit_code'))
+    finally:
+        if cli is not None:
+            os.close(cli)
+        if lock is not None:
+            os.close(lock)
         os.close(fd)
 
 

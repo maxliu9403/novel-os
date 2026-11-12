@@ -581,8 +581,15 @@ JSON and current draft are not an additional mandatory user confirmation round.
                 envelope_repair = session['_load_stage_repair'](plan.stage, chapter_window)
         if format_repair is not None:
             return format_repair.request(_narrative_contract_reference(format_repair.mode, stage_response=True))
-        if envelope_repair is not None:
-            return envelope_repair.request(plan.context(context))
+        if envelope_repair is not None and envelope_repair.generating_request is not None:
+            source_coverage = envelope_repair.source_coverage
+            if envelope_repair.request_needs_save:
+                persist_envelope(envelope_repair)
+            return envelope_repair.request()
+        if envelope_repair is not None and envelope_repair.saved_patch is not None and not chapter_window:
+            # Historical saved patches are replayed locally, without a model
+            # request or any reconstructed author/evidence view.
+            return '', ''
         stage_context = context
         type_snapshot = (session.get('creative_design') or {}).get('policy', {}).get('type_snapshot')
         if type_snapshot is not None and plan.stage == 'chapter_plan':
@@ -664,11 +671,19 @@ JSON and current draft are not an additional mandatory user confirmation round.
             deadline += extra
             task_budget += extra
             window_budget_fixed = True
+        if envelope_repair is not None:
+            # Older records did not retain their generating projection. Upgrade
+            # only when this exact reconstruction matches its response receipt.
+            # A missing prior lookup cannot be guessed or silently regenerated.
+            envelope_repair.bind_request(user, source_coverage)
+            persist_envelope(envelope_repair)
+            return envelope_repair.request()
         return system, user
 
     def persist_envelope(repair, *, receipt=None, status='active'):
         if session.get('_save_stage_repair'):
             session['_save_stage_repair'](repair.record(session, receipt=receipt, status=status))
+        repair.request_needs_save = False
 
     if plan is not None:
         system, user = stage_request()
@@ -1005,6 +1020,7 @@ JSON and current draft are not an additional mandatory user confirmation round.
                 envelope_repair = StageEnvelopeRepair(exc.candidate, exc.issues,
                     stage=stage, mode=narrative_mode, chapter_count=plan.expected_chapter_count,
                     chapter_range=chapter_window)
+                envelope_repair.bind_request(user, source_coverage)
                 persist_envelope(envelope_repair, receipt=response_record.record if response_record else None)
             if repartitioning or repair_count == 2:
                 raise
@@ -1150,10 +1166,12 @@ def _failure(exc: Exception, *, timeout_seconds: float, has_prompt: bool) -> str
     from .workshop_assembly import AssemblyError
     from .workshop_checkpoints import CheckpointError
     from .workshop_responses import ResponseStorageError
+    from .workshop_stage_repair import StageRepairStorageError
     from core.llm_client import LLMInputLimitError
     from core.author_requirements import AuthorRequirementConflict
     from core.creative_development import DevelopmentCapacityError, DevelopmentProtocolError
     from core.source_request_session import RequestOutcomeUnknown, RequestReceiptError
+    from core.source_request_recovery import classify_failure, failure_message
     from .workshop_development_delivery import DeliveryProjectionError
     retained = _preserved_context(has_prompt)
     if isinstance(exc, (DevelopmentCapacityError, DevelopmentProtocolError, DeliveryProjectionError, RequestReceiptError)):
@@ -1164,6 +1182,9 @@ def _failure(exc: Exception, *, timeout_seconds: float, has_prompt: bool) -> str
         return str(exc) + retained
     if isinstance(exc, LLMInputLimitError):
         return str(exc) + retained
+    failure = classify_failure(exc)
+    if failure.get('outcome') == 'failed' and failure.get('http_status'):
+        return failure_message(failure) + retained
     if isinstance(exc, DeliveryTimeoutError):
         scope = (f"整轮交付上限 {exc.task_seconds:g} 秒" if exc.task_expired
                  else f"单次请求上限 {exc.request_seconds:g} 秒")
@@ -1177,7 +1198,7 @@ def _failure(exc: Exception, *, timeout_seconds: float, has_prompt: bool) -> str
         return f"{detail[:400]}。{retained}"
     if isinstance(exc, CheckpointError):
         return f"阶段成果未能安全保存或恢复，请检查存储与当前设定；已保存文件保持不变。{retained}"
-    if isinstance(exc, ResponseStorageError):
+    if isinstance(exc, (ResponseStorageError, StageRepairStorageError)):
         return f"{exc}{retained}"
     if isinstance(exc, (KeyError, TypeError, AttributeError)):
         return f"故事处理发生内部错误（{type(exc).__name__}），需要检查解析与处理逻辑。{retained}不会自动重试。"
@@ -2543,8 +2564,11 @@ def get_workshop_service(projects: ProjectService = Depends(get_service)) -> Wor
 
 def _session_response(data: dict, root: Path | None = None) -> dict:
     """Project capabilities consistently without persisting presentation state."""
+    from .workshop_request_recovery import failure_message as request_failure_message
     recovery = workshop_development.recovery_view(data, root)
+    request_failure = request_failure_message(data, root)
     return {**data, 'next_step': workshop_next_step.project(data),
+            **({'last_error': request_failure} if request_failure else {}),
             **({'recovery': recovery} if recovery else {}),
             **({'development_view': workshop_development.view(data)} if workshop_development.enabled(data) else {})}
 

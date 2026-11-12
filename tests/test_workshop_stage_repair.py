@@ -252,7 +252,7 @@ def test_storage_errors_are_never_model_validation_errors(case, tmp_path):
     assert not isinstance(error.value, DeliveryError)
 
 
-def captured_legacy_chain(case, tmp_path, *, source=False):
+def captured_legacy_chain(case, tmp_path, *, source=False, whitespace=False):
     from api.workshop_delivery import author_context
     from api.workshop_request import delivery_context
     from api.workshop_stage_repair import _LEGACY_REPAIR_INSTRUCTION
@@ -276,7 +276,7 @@ def captured_legacy_chain(case, tmp_path, *, source=False):
     for attempt in (1,2,3):
         context = author_context(session)
         if previous:
-            context.update(previous_model_response=previous['raw'], validation_error=previous['validation']['detail'],
+            context.update(previous_model_response=previous['raw'].strip(), validation_error=previous['validation']['detail'],
                            repair_instruction=_LEGACY_REPAIR_INSTRUCTION)
         context.update(delivery_stage='story_design',delivery_mode=None,saved_story_stages={})
         user = json.dumps(delivery_context(context),ensure_ascii=False,separators=(',',':'))
@@ -286,6 +286,11 @@ def captured_legacy_chain(case, tmp_path, *, source=False):
             system_sha256=hashlib.sha256(system.encode()).hexdigest(),
             validation={'status':'invalid','detail':f'Preserved old format issue {attempt}.'})
         previous = json.loads(path.read_text()); paths.append(path)
+        if whitespace:
+            previous['raw'] = '\n  ' + previous['raw'] + ' \n'
+            previous['response_sha256'] = hashlib.sha256(previous['raw'].encode()).hexdigest()
+            previous['response_bytes'] = len(previous['raw'].encode())
+            path.write_text(json.dumps(previous))
         if packet:
             full = user+'\n\n[SOURCE_EVIDENCE]\n'+json.dumps(packet,ensure_ascii=False,separators=(',',':'))+'\n[/SOURCE_EVIDENCE]'
             group = digest({'system':system,'user':user,'evidence':packet['sha256']})
@@ -297,13 +302,15 @@ def captured_legacy_chain(case, tmp_path, *, source=False):
 
 
 @pytest.mark.parametrize('source',[False,True])
-def test_legacy_request_chain_matches_complete_current_context_without_writes(case,tmp_path,source):
-    captured_legacy_chain(case,tmp_path,source=source)
+@pytest.mark.parametrize('whitespace',[False,True])
+def test_legacy_request_chain_matches_complete_current_context_without_writes(case,tmp_path,source,whitespace):
+    captured_legacy_chain(case,tmp_path,source=source,whitespace=whitespace)
     before = {str(p):p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
     imported = import_matching_legacy_repair(tmp_path,case[0])
     assert imported is not None and imported.candidate == case[1]
     assert before == {str(p):p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
     assert not (tmp_path/'stage-repairs').exists()
+    assert imported.generating_request is not None
 
 
 @pytest.mark.parametrize('change',['author','capacity','missing_previous','previous_error','latest_hash','other_job'])
@@ -348,3 +355,64 @@ def test_legacy_helper_skips_unrelated_failure_without_requiring_source_receipts
     latest['raw'] = json.dumps(candidate)
     paths[-1].write_text(json.dumps(latest))
     assert import_matching_legacy_repair(tmp_path,case[0]) is None
+
+
+def legacy_repair_record(record):
+    from api.workshop_stage_repair import LEGACY_VERSION, _digest
+    old = deepcopy(record)
+    old.pop('generating_request')
+    old['schema'] = LEGACY_VERSION
+    old['sha256'] = _digest({k: v for k, v in old.items() if k != 'sha256'})
+    return old
+
+
+def test_v1_repair_recovers_exact_retained_source_request_without_writing_on_read(case, tmp_path):
+    captured_legacy_chain(case, tmp_path, source=True, whitespace=True)
+    imported = import_matching_legacy_repair(tmp_path, case[0])
+    exact = deepcopy(imported.generating_request)
+    save_repair(tmp_path, legacy_repair_record(imported.record(case[0])))
+    before = {str(p): p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
+    loaded = load_repair(tmp_path, case[0], stage='story_design')
+    assert loaded.generating_request == exact and loaded.request_needs_save
+    assert before == {str(p): p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
+    save_repair(tmp_path, loaded.record(case[0]))
+    again = load_repair(tmp_path, case[0], stage='story_design')
+    assert again.generating_request == exact and not again.request_needs_save
+    assert again.candidate == case[1]
+
+
+def test_v1_repair_upgrade_requires_exact_reconstructed_request(case, tmp_path):
+    captured_legacy_chain(case, tmp_path)
+    imported = import_matching_legacy_repair(tmp_path, case[0])
+    exact = imported.generating_request['user']
+    save_repair(tmp_path, legacy_repair_record(imported.record(case[0])))
+    loaded = load_repair(tmp_path, case[0], stage='story_design')
+    assert loaded.generating_request is None
+    with pytest.raises(StageRepairStorageError, match='原请求上下文'):
+        loaded.bind_request(exact.replace('Keep every emotional payoff.', 'New ending.'))
+    assert loaded.generating_request is None and loaded.candidate == case[1]
+    loaded.bind_request(exact)
+    save_repair(tmp_path, loaded.record(case[0]))
+    assert load_repair(tmp_path, case[0], stage='story_design').generating_request['user'] == exact
+
+
+def test_projected_request_coverage_is_derived_and_immutable():
+    from workshop_delivery_fixtures import chapter_plan
+    candidate = {**chapter_plan(100), 'narrative_mode': 'single_volume'}
+    candidate['chapters'] = candidate['chapters'][:4]
+    with pytest.raises(StageEnvelopeResponseError) as caught:
+        parse_stage(json.dumps(candidate), 'chapter_plan', 'standalone_long', 100, chapter_range=(1, 4))
+    repair = StageEnvelopeRepair(candidate, caught.value.issues, stage='chapter_plan',
+                                 mode='standalone_long', chapter_count=100, chapter_range=(1, 4))
+    coverage = {'source_sha256': 'c' * 64, 'included_chapters': [1, 2, 3, 4, 83]}
+    context = {'delivery_stage': 'chapter_plan', 'chapter_window': {'first': 1, 'last': 4},
+               'previous_skeleton': {'original_chapters': {**coverage, 'text': 'Verbatim distant prerequisite.'}}}
+    user = json.dumps(context)
+    with pytest.raises(StageRepairStorageError, match='读取范围'):
+        repair.bind_request(user, {**coverage, 'included_chapters': [1, 2, 3, 4]})
+    repair.bind_request(user, coverage)
+    changed = deepcopy(coverage); changed['included_chapters'].append(84)
+    context['previous_skeleton']['original_chapters'].update(changed)
+    with pytest.raises(StageRepairStorageError, match='不能被替换'):
+        repair.bind_request(json.dumps(context), changed)
+    assert repair.source_coverage == coverage
