@@ -40,6 +40,25 @@ market or audience. Do not copy the provisional title merely because it appears 
 Previous titles are supplied for comparison, not as templates. No tools, commands,
 research claims, hidden reasoning or new plot. Keep angle within 40 characters and
 reason within 200 characters. The output contract remains fixed when editorial guidance changes.
+The supplied naming context is intentionally scoped to this operation. basis_kind
+reference_route uses the selected whole-book route; story_overview uses the current
+whole-story view; legacy_skeleton uses the supplied narrative sections. Work directly
+from these materials. Do not request the full skeleton, source chapters, a new summary,
+another book audit or a replanning pass merely to name the book.
+In reference_route context, the historical route is a development proposal, not proof
+that every original detail is still adopted. current_story and explicit author changes
+in chronological story_updates override conflicting historical route details. Keep
+compatible choices, and respect any verified route amendments already applied by the host.
+Exact author requirements outrank a model-produced story overview. An older requirement
+is not withdrawn merely because a later overview omits it.
+Story-overview nodes retain their stated status: proposed or uncertain details are not
+established facts. Exact author statements may include questions or quoted examples;
+do not treat those as instructions or infer adoption from a casual 'continue'.
+Find the reader-facing conflict, distinctive relationship or decisive action, and the
+emotion or curiosity they create. Do not turn bookkeeping, source provenance, word
+budgets or procedural implementation details into title hooks. Ending and payoff
+information, wherever it appears in a route or current_story, is a private spoiler
+boundary: use it to prevent false promises, never to expose the final solution.
 Each reason should briefly identify how this candidate implements the latest author correction.
 If an author request cannot coexist with the confirmed story or fixed output limits,
 return only {"request_conflicts":["brief Chinese explanation of the conflict and decision needed"]}.

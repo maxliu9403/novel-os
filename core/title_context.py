@@ -9,7 +9,7 @@ from .story_markdown import module_number, parse_markdown
 from .author_requirements import build_requirements, validate_requirements
 
 MAX_CONTEXT_BYTES = 64_000
-PROJECTION_VERSION = "title-context.v2"
+PROJECTION_VERSION = "title-context.v3"
 
 
 def encode(value: dict) -> str:
@@ -18,14 +18,13 @@ def encode(value: dict) -> str:
 
 def _without_contracts(text: str) -> str:
     # Only transport contracts are removed; narrative facts and story JSON remain intact.
-    text = re.sub(r"\[(NARRATIVE_FORMAT_JSON|NOVEL_CLASSIFICATION_JSON)\].*?\[/\1\]", "", text, flags=re.S)
+    text = re.sub(r"\[(NARRATIVE_FORMAT_JSON|NOVEL_CLASSIFICATION_JSON|STORY_CAPACITY_JSON)\].*?\[/\1\]", "", text, flags=re.S)
     text = re.sub(r"<!-- NOVEL_OS_RUNTIME_PROTOCOL_V1 -->.*?<!-- /NOVEL_OS_RUNTIME_PROTOCOL_V1 -->", "", text, flags=re.S)
     return re.sub(r"COVER_HANDOFF_BEGIN.*?COVER_HANDOFF_END", "", text, flags=re.S).strip()
 
 
-def build_title_context(session: dict) -> dict:
-    source = session["prompt_md"]
-    doc = parse_markdown(source)
+def _narrative_sources(source: str) -> list[dict]:
+    doc = parse_markdown(_without_contracts(source))
     sections = [s for s in doc.headings if s.level == 2]
     compact = any("故事承诺与创作决定" in s.title for s in sections)
     chosen = {1: "promise", 2: "relationships", 3: "story", 5: "payoffs", 6: "ending"} if compact else {
@@ -56,6 +55,21 @@ def build_title_context(session: dict) -> dict:
         sources.append({"id": "story", "purpose": "story_facts", "text": content})
     if not sources or not any(s["id"] in {"story", "promise"} for s in sources):
         raise ValueError("骨架缺少故事主线，无法推荐可靠的书名。")
+    return sources
+
+
+def build_title_context(session: dict) -> dict:
+    from .title_basis import author_updates, basis_identity, select_basis
+    source = session['prompt_md']
+    basis = select_basis(session)
+    sources = basis['sources'] if basis else _narrative_sources(source)
+    if basis and basis['needs_current_narrative']:
+        sources.append({'id': 'current_story', 'purpose': 'current_story_development',
+                        'text': encode({'sources': _narrative_sources(source)})})
+    # Header metadata stays bound to the confirmed manuscript; Genre/Tag method
+    # documents and chapter allocations never become naming input.
+    doc = parse_markdown(_without_contracts(source))
+    sections = [s for s in doc.headings if s.level == 2]
 
     header_end = sections[0].heading_index if sections else len(doc.lines)
     header = "".join(doc.lines[:header_end])
@@ -79,11 +93,14 @@ def build_title_context(session: dict) -> dict:
         for index, item in enumerate(history)
     ], source_sha256=source_sha)
     context = {"metadata": metadata, "sources": sources, "author_requests": history,
+               "basis_kind": basis['kind'] if basis else 'legacy_skeleton',
+               "story_updates": author_updates(session),
                "previous_titles": previous, "author_requirements_sha256": requirements["sha256"]}
     size = len(encode(context).encode("utf-8"))
     if size > MAX_CONTEXT_BYTES:
         raise ValueError(f"命名资料为 {size:,} 字节，超过 {MAX_CONTEXT_BYTES:,} 字节上限；请精简故事摘要或重复命名要求。内容未截断，也未调用模型。")
     return {"projection": PROJECTION_VERSION, "source_sha256": source_sha,
+            "basis_sha256": basis_identity(session),
             "context": context, "context_sha256": hashlib.sha256(encode(context).encode()).hexdigest(),
             "author_requirements": requirements,
             "context_bytes": size, "skeleton_bytes": len(source.encode("utf-8"))}
@@ -94,10 +111,14 @@ def request_context(session: dict) -> dict:
     projection = request.get("title_context") or build_title_context(session)
     if projection["source_sha256"] != hashlib.sha256(session["prompt_md"].encode()).hexdigest():
         raise ValueError("命名资料与当前骨架不一致，请重新确认骨架。")
-    if projection.get("projection") == PROJECTION_VERSION:
+    if projection.get("projection") in {"title-context.v2", PROJECTION_VERSION}:
         requirements = validate_requirements(projection.get("author_requirements"), scope="naming",
                                              source_sha256=projection["source_sha256"])
         if (projection.get("context_sha256") != hashlib.sha256(encode(projection["context"]).encode()).hexdigest()
                 or projection["context"].get("author_requirements_sha256") != requirements["sha256"]):
             raise ValueError("命名要求或资料快照已变化，请重新提交；已有书名建议保留。")
+    if projection.get('projection') == PROJECTION_VERSION:
+        from .title_basis import basis_identity
+        if projection.get('basis_sha256') != basis_identity(session):
+            raise ValueError('命名依据中的路线、故事全貌或作者修改已变化，请重新推荐；已有建议保留。')
     return projection

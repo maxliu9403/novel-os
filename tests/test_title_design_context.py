@@ -39,7 +39,7 @@ The captain is the killer. Do not reveal this in a title.
 
 
 def test_projection_keeps_complete_story_sources_omits_bulk_and_unrelated_inputs():
-    session = {"prompt_md": compact_story(), "input": {"language": "Chinese", "chapters": 12, "premise": "STALE_PREMISE", "type_snapshot": "HUGE_TAG_PROMPT"},
+    session = {"prompt_md": compact_story(), "input": {"language": "Chinese", "chapters": 12, "premise": "AUTHOR_INITIAL_BRIEF", "type_snapshot": "HUGE_TAG_PROMPT"},
                "messages": [{"content": "OLD_CHAT"}], "naming": {"requests": [
                    {"instructions": "Keep 'Case'", "candidates": [{"title": "Old", "reason": "OLD_REASON"}], "error": "OLD_ERROR"},
                    {"instructions": "Shorter", "current_title": "Her Last Case"}]}}
@@ -48,7 +48,9 @@ def test_projection_keeps_complete_story_sources_omits_bulk_and_unrelated_inputs
     assert projection["context_bytes"] < projection["skeleton_bytes"] / 20
     assert projection["context"]["metadata"]["language"] == "English"
     assert projection["context"]["author_requests"] == [{"instructions": "Keep 'Case'"}, {"instructions": "Shorter", "current_title": "Her Last Case"}]
-    for absent in ["UNNEEDED_CHAPTER_DETAIL", "STALE_PREMISE", "HUGE_TAG_PROMPT", "OLD_CHAT", "OLD_REASON", "OLD_ERROR", "irrelevant_transport", "ignore_this_dictionary", "Provisional name"]:
+    # v3 keeps actual author requirements even if the story overview omits them.
+    assert {"source": "input.premise", "text": "AUTHOR_INITIAL_BRIEF"} in projection["context"]["story_updates"]
+    for absent in ["UNNEEDED_CHAPTER_DETAIL", "HUGE_TAG_PROMPT", "OLD_CHAT", "OLD_REASON", "OLD_ERROR", "irrelevant_transport", "ignore_this_dictionary", "Provisional name"]:
         assert absent not in user
     assert "not her husband" in user and "missing case file" in user
     ending = next(s for s in projection["context"]["sources"] if s["id"] == "ending")
