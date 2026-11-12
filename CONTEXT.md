@@ -1,6 +1,12 @@
 # Novel OS domain language
 
-## Proposed route-development vocabulary (review draft, not current behavior)
+## Stage envelope correction (implemented 2026-11-12)
+
+`workshop-stage-envelope.v1` defines the shared `narrative_mode` enum and positive integer `total_chapters` for all delivery profiles and chapter windows. Confirmed capacity constrains the first stage, before a saved story exists. A complete candidate with invalid metadata remains an unvalidated artifact; `workshop.stage-envelope-repair.v1` permits changes only to the exact invalid fields, preserving all story content. It does not infer literary form from chapter count or globally map ambiguous mode aliases.
+
+Candidate, raw receipt and accepted metadata correction are bound to delivery run, original source revision, Skill and complete author-context fingerprint. A saved correction replays locally through normal stage validation. Explicit resume can migrate an old first-stage candidate only after reconstructing its complete request/repair chain and verifying available source evidence. GET neither migrates nor runs inference. Storage or provenance failures stop before another model request. Story/structure/semantic review still controls publication; metadata repair does not establish literary quality.
+
+## Creative baseline and route-development vocabulary (deployed 2026-11-12)
 
 - **Creative baseline**: the progressively established author requirements and adopted or explicitly delegated creative commitments used for development. It may be partial and does not require reference material; undecided areas remain open to exploration.
 - **Route baseline**: a creative baseline established from a selected direction, including compatible later author decisions. It is distinct from the complete historical route proposal and is not a separate engine for reference-based books.
@@ -9,7 +15,9 @@
 - **Candidate promotion**: treating a checked expansion as part of the current design. Saving a reply or quoting it in history is not promotion.
 - **Narrative function**: the connected expectation, choice, cost, relationship or situation change, and payoff served by a design item. Author-protected concrete scenes retain their specified form as well as their function.
 
-These terms belong to the pending [route-development proposal](docs/design/2026-11-12-route-development-baseline.md); they do not enlarge the authority of historical route selections.
+These terms are implemented by the shared original/reference development workflow in the [route-development design](docs/design/2026-11-12-route-development-baseline.md). New explicit core-and-emotion adoption protects that scope; historical direction-only route selections retain their original scope. Complete generated candidates are saved before independent scoped checks and promotion. Actual skeleton Markdown is checked by complete chapter and relevant causal endpoints; verified chapter/emotion bindings enter `creative-handoff.v6`, while historical v1–v5 remain unchanged. Read-only access does not migrate old sessions; the next explicit operation joins the new checks. See [implementation](docs/reports/2026-11-12-creative-baseline-capacity.md) and [deployment verification](docs/reports/2026-11-12-creative-baseline-deployment.md).
+
+Readiness is a shared backend projection, surfaced proactively across discussion tabs. Story readiness and author-confirmed capacity are separate. Route recommendations and existing capacity plans allow total, per-chapter and chapter-count editing, with individual chapter targets for an existing arrangement. Feasible allocation within retained scenes is local; edits do not silently adopt a proposal or start prose. Changing a numeric budget never authorizes dropping story commitments or evidence.
 
 ## Workshop next-step capabilities (deployed 2026-11-12)
 

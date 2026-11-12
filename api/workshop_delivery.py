@@ -20,11 +20,11 @@ import time
 import uuid
 import weakref
 
+from core.narrative_format import MODES
 from .workshop_checkpoints import SCHEMA_VERSION, STAGES, make_fingerprint
 from .workshop_assembly import (ASSEMBLY_PARTS, ASSEMBLY_PART_LABELS, ASSEMBLY_PROTOCOL_VERSION,
                                 parse_part, render_part)
 
-MODES = frozenset({"short_novel", "standalone_long", "multi_volume", "series_installment"})
 LABELS = {"story_design": "全局故事设计", "chapter_plan": "完整章节规划", "assembly": "骨架交付整合"}
 _LOCKS = weakref.WeakValueDictionary()
 _LOCKS_GUARD = threading.Lock()
@@ -42,6 +42,88 @@ class NarrativeFormatResponseError(DeliveryError):
     def __init__(self, detail: str, candidate: dict):
         super().__init__(detail)
         self.candidate = deepcopy(candidate)
+
+
+class StageEnvelopeResponseError(DeliveryError):
+    """A complete candidate with invalid stage metadata, retained for narrow repair."""
+
+    def __init__(self, candidate: dict, issues: list[dict]):
+        self.candidate = deepcopy(candidate)
+        self.issues = deepcopy(issues)
+        details = []
+        for issue in issues:
+            field, code = issue['field'], issue['code']
+            if code == 'enum':
+                details.append(f"{field} 必须为以下值之一：{', '.join(issue['expected'])}")
+            elif code == 'const':
+                details.append(f"{field} 必须保持已确定的值 {issue['expected']}")
+            else:
+                details.append(f"{field} 必须为正整数，不能使用字符串、布尔值或小数")
+        # Raw model values are private evidence, never part of the public error.
+        super().__init__('阶段结果字段无效：' + '；'.join(details) + '。完整故事内容已保留。')
+
+
+def stage_envelope_contract(mode: str | None = None, chapter_count: int | None = None) -> dict:
+    """One schema for first design, saved stages, chapter windows and repairs."""
+    if mode is not None and mode not in MODES:
+        raise DeliveryError('骨架交付缺少有效的组织形式。')
+    if chapter_count is not None and (type(chapter_count) is not int or chapter_count < 1):
+        raise DeliveryError('骨架交付缺少有效的已确定章节数。')
+    return {'schema': 'workshop-stage-envelope.v1', 'required': ['narrative_mode', 'total_chapters'],
+            'fields': {
+                'narrative_mode': {'type': 'string', 'enum': sorted(MODES),
+                                   **({'const': mode} if mode is not None else {})},
+                'total_chapters': {'type': 'integer', 'minimum': 1,
+                                   **({'const': chapter_count} if chapter_count is not None else {})}}}
+
+
+def stage_envelope_rules(mode: str | None = None, chapter_count: int | None = None) -> str:
+    contract = json.dumps(stage_envelope_contract(mode, chapter_count), ensure_ascii=False, separators=(',', ':'))
+    return '\nSTAGE METADATA CONTRACT: ' + contract + '''
+Use canonical enum values exactly; do not invent aliases or localized values.
+short_novel is a short complete novel; standalone_long is a standalone long novel;
+multi_volume is one story explicitly organized into volumes; series_installment is
+the current installment of a series. Chapter count alone does not select the form.
+Respect any const bound to a saved design or confirmed allocation. Otherwise choose
+from the FULL author context and latest explicit choices; compatible author choices
+outrank model suggestions, and newly saved settings outrank conflicting older inputs.
+If form is genuinely unspecified, explain the recommended form in decisions without
+adding a separate approval round. Keep the confirmed total_chapters exactly, not a
+quoted number. These metadata rules do not authorize changing any story content.
+'''
+
+
+def _stage_envelope_issues(data: dict, mode: str | None, chapter_count: int | None) -> list[dict]:
+    contract = stage_envelope_contract(mode, chapter_count)['fields']
+    issues = []
+    for field, rules in contract.items():
+        value = data.get(field)
+        if field == 'narrative_mode' and (not isinstance(value, str) or value not in rules['enum']):
+            code, expected = 'enum', rules['enum']
+        elif field == 'total_chapters' and (type(value) is not int or value < 1):
+            code, expected = 'positive_integer', {'type': 'integer', 'minimum': 1}
+        elif 'const' in rules and value != rules['const']:
+            code, expected = 'const', rules['const']
+        else:
+            continue
+        issues.append({'field': field, 'code': code, 'expected': expected, 'actual': deepcopy(value)})
+    return issues
+
+
+def repair_stage_envelope(candidate: dict, patch: dict, *, mode: str | None = None,
+                          chapter_count: int | None = None) -> dict:
+    """Apply only the invalid metadata fields; the complete story stays frozen."""
+    if not isinstance(candidate, dict):
+        raise DeliveryError('阶段结果必须是完整 JSON 对象。')
+    issues = _stage_envelope_issues(candidate, mode, chapter_count)
+    fields = {issue['field'] for issue in issues}
+    if not fields or not isinstance(patch, dict) or set(patch) != fields:
+        raise DeliveryError('阶段字段修复超出范围：仅可返回全部待修复字段，不得重写故事或有效字段。')
+    result = {**deepcopy(candidate), **deepcopy(patch)}
+    remaining = _stage_envelope_issues(result, mode, chapter_count)
+    if remaining:
+        raise StageEnvelopeResponseError(result, remaining)
+    return result
 
 
 def author_context(session: dict) -> dict:
@@ -133,13 +215,11 @@ def parse_stage(text: str, stage: str, mode: str | None, chapter_count: int | No
         data = json.loads(text)
     except json.JSONDecodeError:
         raise IncompleteStageResponse("阶段结果不是完整 JSON，请保留故事内容并修复格式。") from None
-    if (not isinstance(data, dict) or not isinstance(data.get("narrative_mode"), str)
-            or data["narrative_mode"] not in MODES
-            or (mode is not None and data["narrative_mode"] != mode)
-            or type(data.get("total_chapters")) is not int or data["total_chapters"] < 1):
-        raise DeliveryError("阶段结果缺少有效的组织形式或全书章节数。")
-    if chapter_count is not None and data["total_chapters"] != chapter_count:
-        raise DeliveryError("章节规划必须保持已保存故事设计的章节数。")
+    if not isinstance(data, dict):
+        raise DeliveryError("阶段结果必须是完整 JSON 对象。")
+    issues = _stage_envelope_issues(data, mode, chapter_count)
+    if issues:
+        raise StageEnvelopeResponseError(data, issues)
     if stage == "story_design":
         content = data.get("story_design")
         if not isinstance(content, dict) or not all(_text(content.get(key)) for key in
@@ -207,7 +287,7 @@ class DeliveryPlan:
         for stage in STAGES[:2]:
             if stage in self.record["completed"]:
                 parse_stage(json.dumps(self.record["completed"][stage]["content"], ensure_ascii=False),
-                            stage, mode, self.chapter_count if stage == "chapter_plan" else None, story_first=self.story_first)
+                            stage, mode, self.expected_chapter_count, story_first=self.story_first)
         if "chapter_windows" in self.record and "chapter_plan" not in self.record["completed"]:
             from .workshop_chapter_windows import prefix
             cards = prefix(self.record)
@@ -221,6 +301,19 @@ class DeliveryPlan:
     def chapter_count(self) -> int | None:
         story = self.record["completed"].get("story_design")
         return story["content"]["total_chapters"] if story else None
+
+    @property
+    def expected_chapter_count(self) -> int | None:
+        """A confirmed allocation binds the very first stage, before a checkpoint."""
+        from .workshop_capacity import enabled
+        capacity = self.session.get('capacity') or {}
+        if enabled(self.session) and capacity.get('status') == 'confirmed':
+            allocation = capacity.get('confirmed') or {}
+            chapters = (allocation.get('option') or {}).get('chapters')
+            if not isinstance(chapters, list) or not chapters:
+                raise DeliveryError('已确认篇幅缺少完整的章节分配；原记录仍保留。')
+            return len(chapters)
+        return self.chapter_count
 
     def chapter_window(self, max_tokens: int | None, max_width: int | None = None) -> tuple[int, int] | None:
         from .workshop_chapter_windows import prefix, window_width
@@ -362,7 +455,8 @@ class DeliveryPlan:
         if stage != self.stage:
             raise DeliveryError("不能跳过未完成的骨架交付阶段。")
         if stage == "story_design" and self.mode is None:
-            parse_stage(json.dumps(data, ensure_ascii=False), stage, None, story_first=self.story_first)
+            parse_stage(json.dumps(data, ensure_ascii=False), stage, None,
+                        self.expected_chapter_count, story_first=self.story_first)
             self.mode = data["narrative_mode"]
             self.record["narrative_mode"] = self.mode
         if stage == "assembly" and "assembly_parts" in self.record:
@@ -384,19 +478,20 @@ class DeliveryPlan:
 
     def rules(self, *, window: bool = False) -> str:
         from core.story_design import enabled, DESIGN_RULES, CHAPTER_RULES, CHAPTER_CARD_RULES
+        envelope = stage_envelope_rules(self.mode, self.expected_chapter_count)
         if window:
             from .workshop_chapter_windows import WINDOW_RULES
             if self.story_first:
-                return CHAPTER_CARD_RULES + WINDOW_RULES
-            return WINDOW_RULES + """
+                return envelope + CHAPTER_CARD_RULES + WINDOW_RULES
+            return envelope + WINDOW_RULES + """
 Return ONLY JSON with narrative_mode, total_chapters and chapters: a list of
 {number:int,title:string,plan:string}. Each plan contains POV, concrete events,
 motivated choices, causal advance, emotional change, setup/payoff references and
 ending hook; link to the global causal chain and preserve the earned ending.
 """
         if enabled(self.session):
-            return DESIGN_RULES if self.stage == "story_design" else CHAPTER_RULES
-        common = """
+            return envelope + (DESIGN_RULES if self.stage == "story_design" else CHAPTER_RULES)
+        common = envelope + """
 CURRENT REQUEST PROFILE: STAGED SKELETON DELIVERY.
 Read the FULL author brief and conversation. They are not shortened. Preserve explicit
 facts, hard constraints and accepted decisions. Reuse saved_story_stages as the design
@@ -409,16 +504,7 @@ Publication contract serialization is deferred to assembly. The finished skeleto
 contain the whole design, not a summary that drops chapter events or established facts.
 """
         if self.stage == "story_design":
-            mode_rule = (
-                "Choose narrative_mode from the FULL author context and latest decisions: "
-                "short_novel, standalone_long, multi_volume, or series_installment. "
-                "Preserve the author's chosen form, including choices made in discussion; "
-                "newly saved basic-setting changes take precedence over older discussion. "
-                "If genuinely unspecified, make and label a suitable recommendation in decisions. "
-                "Do not silently default to a short novel or require a separate handoff call.\n"
-                if self.mode is None else "Preserve the supplied delivery_mode.\n"
-            )
-            return common + mode_rule + """
+            return common + """
 STAGE: story_design. Design the complete global story before mapping every chapter.
 Return ONLY JSON:
 {"narrative_mode":"the supplied delivery_mode","total_chapters":21,

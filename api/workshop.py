@@ -377,8 +377,10 @@ def _complete_impl(session: dict, skill: str) -> tuple[dict, dict]:
     from .workshop_chapter_windows import (ORIGINAL_RULES, OriginalChapters, window_width,
                                           scope as chapter_scope, source_request)
     from .workshop_delivery import (DeliveryError, DeliveryPlan, IncompleteStageResponse,
-                                   NarrativeFormatResponseError, author_context, parse_stage)
+                                   NarrativeFormatResponseError, StageEnvelopeResponseError,
+                                   author_context, parse_stage)
     from .workshop_format_repair import NarrativeFormatRepair
+    from .workshop_stage_repair import StageEnvelopeRepair
     from .workshop_assembly import AssemblyError, AssemblyPlan, parse_part, repair_part
 
     route = provider_settings.resolve_text_route("workshop")
@@ -530,6 +532,9 @@ JSON and current draft are not an additional mandatory user confirmation round.
     assembly_part = None
     assembly_repair_part = None
     format_repair = None
+    envelope_repair = None
+    retiring_envelope = None
+    loaded_envelopes = set()
     chapter_window = None
     adaptive_width = None
     requested_cards = set()
@@ -565,11 +570,19 @@ JSON and current draft are not an additional mandatory user confirmation round.
     def stage_request():
         nonlocal assembly, assembly_part, chapter_window, window_budget_fixed, deadline, task_budget
         nonlocal original_chapters, original_checked, source_coverage, adaptive_width, negotiated_source_limit
+        nonlocal envelope_repair
         source_coverage = None
         assert plan is not None
         chapter_window = plan.chapter_window(route["max_tokens"], adaptive_width)
+        repair_key = (plan.stage, chapter_window)
+        if plan.stage != 'assembly' and repair_key not in loaded_envelopes:
+            loaded_envelopes.add(repair_key)
+            if session.get('_load_stage_repair'):
+                envelope_repair = session['_load_stage_repair'](plan.stage, chapter_window)
         if format_repair is not None:
             return format_repair.request(_narrative_contract_reference(format_repair.mode, stage_response=True))
+        if envelope_repair is not None:
+            return envelope_repair.request(plan.context(context))
         stage_context = context
         type_snapshot = (session.get('creative_design') or {}).get('policy', {}).get('type_snapshot')
         if type_snapshot is not None and plan.stage == 'chapter_plan':
@@ -653,6 +666,10 @@ JSON and current draft are not an additional mandatory user confirmation round.
             window_budget_fixed = True
         return system, user
 
+    def persist_envelope(repair, *, receipt=None, status='active'):
+        if session.get('_save_stage_repair'):
+            session['_save_stage_repair'](repair.record(session, receipt=receipt, status=status))
+
     if plan is not None:
         system, user = stage_request()
     while True:
@@ -690,7 +707,11 @@ JSON and current draft are not an additional mandatory user confirmation round.
         received_model_response = False
         capacity_source_receipt = None
         try:
-            if plan is not None and "assembly" in plan.record["completed"]:
+            if envelope_repair is not None and envelope_repair.saved_patch is not None and format_repair is None:
+                # A valid tiny patch was saved before the stage checkpoint. Replay
+                # it locally; the full candidate still passes every stage gate.
+                text = json.dumps({'stage_envelope': envelope_repair.saved_patch}, ensure_ascii=False)
+            elif plan is not None and "assembly" in plan.record["completed"]:
                 # Crash after stage save and before session publication: revalidate
                 # locally rather than paying for the same completed result again.
                 text = json.dumps(plan.record["completed"]["assembly"]["content"], ensure_ascii=False)
@@ -780,6 +801,7 @@ JSON and current draft are not an additional mandatory user confirmation round.
         try:
             response_record = (StageResponse(session, attempt=attempt, stage=stage,
                                             part=('narrative_format' if format_repair is not None else
+                                                  'stage_envelope' if envelope_repair is not None else
                                                   f'chapters-{chapter_window[0]}-{chapter_window[1]}' if chapter_window else assembly_part),
                                             text=text, system=system, user=user)
                                if plan is not None and received_model_response else None)
@@ -788,6 +810,11 @@ JSON and current draft are not an additional mandatory user confirmation round.
                 diagnostic({"event": "attempt.failed", "phase": "response_parse", "error_category": "storage_error"})
             raise
         text = text.strip()
+        if retiring_envelope is not None and received_model_response and format_repair is None:
+            # A replacement full candidate now has its own immutable receipt;
+            # the older metadata repair must not be resurrected on resume.
+            persist_envelope(retiring_envelope, status='resolved')
+            retiring_envelope = None
         data = None
         validation_phase = "response_parse"
         try:
@@ -841,9 +868,15 @@ JSON and current draft are not an additional mandatory user confirmation round.
                             diagnostic({"event": "attempt.completed"})
                         system, user = stage_request()
                         continue
-                stage_text = format_repair.merge(text) if format_repair is not None else text
+                if format_repair is not None:
+                    stage_text = format_repair.merge(text)
+                elif envelope_repair is not None:
+                    stage_text = envelope_repair.accept(text)
+                    persist_envelope(envelope_repair)
+                else:
+                    stage_text = text
                 data = parse_stage(stage_text, stage, narrative_mode,
-                                   plan.chapter_count if stage == "chapter_plan" else None, story_first=story_first, chapter_range=chapter_window)
+                                   plan.expected_chapter_count, story_first=story_first, chapter_range=chapter_window)
                 try:
                     data = workshop_capacity.bind_stage(session, stage, data, chapter_range=chapter_window)
                 except ValueError as exc:
@@ -858,6 +891,12 @@ JSON and current draft are not an additional mandatory user confirmation round.
                     repair_count = 0  # Each validated range has made durable progress.
                 else:
                     plan.finish(stage, data)
+                if envelope_repair is not None:
+                    persist_envelope(envelope_repair, status='resolved')
+                if retiring_envelope is not None:
+                    persist_envelope(retiring_envelope, status='resolved')
+                envelope_repair = None
+                retiring_envelope = None
                 format_repair = None
                 narrative_mode = plan.mode
                 if diagnostic is not None:
@@ -960,6 +999,13 @@ JSON and current draft are not an additional mandatory user confirmation round.
                 }[validation_phase]
                 diagnostic({"event": "validation.failure", "phase": validation_phase, "error_category": category})
                 diagnostic({"event": "attempt.failed", "phase": validation_phase, "error_category": category})
+            # Persist a complete candidate before spending another request, even
+            # when this turn has exhausted its bounded correction allowance.
+            if isinstance(exc, StageEnvelopeResponseError) and envelope_repair is None:
+                envelope_repair = StageEnvelopeRepair(exc.candidate, exc.issues,
+                    stage=stage, mode=narrative_mode, chapter_count=plan.expected_chapter_count,
+                    chapter_range=chapter_window)
+                persist_envelope(envelope_repair, receipt=response_record.record if response_record else None)
             if repartitioning or repair_count == 2:
                 raise
             repair_count += 1
@@ -976,6 +1022,15 @@ JSON and current draft are not an additional mandatory user confirmation round.
                     format_repair.error = str(exc)
                     system, user = stage_request()
                     continue
+                if envelope_repair is not None:
+                    if envelope_repair.saved_patch is None:
+                        system, user = stage_request()
+                        continue
+                    # Metadata is now valid, but the actual story contract still
+                    # needs correction. Retain it until the next reply is saved.
+                    retiring_envelope = envelope_repair
+                    envelope_repair = None
+                    text = stage_text
                 if chapter_window:
                     if isinstance(exc, IncompleteStageResponse) and chapter_window[0] < chapter_window[1]:
                         # The estimate failed for these cards. Reduce the unit
@@ -1429,6 +1484,22 @@ class WorkshopService:
                 raise OSError('Response directory must not be a symlink')
             _atomic(directory / f"{snapshot['revision']}-{receipt['attempt']}.json",
                     json.dumps(receipt, ensure_ascii=False, indent=2))
+
+    def _save_stage_repair(self, snapshot: dict, record: dict):
+        from core.llm_client import LLMCancelledError
+        from .workshop_stage_repair import save_repair
+        with self._locked(snapshot['id']) as data:
+            if not self._current_operation(data, snapshot) or snapshot['_cancellation_event'].is_set():
+                raise LLMCancelledError('Stage repair belongs to a stopped turn')
+            save_repair(self._path(data['id']), record)
+
+    def _load_stage_repair(self, snapshot: dict, stage: str, chapter_range=None):
+        from core.llm_client import LLMCancelledError
+        from .workshop_stage_repair import load_repair
+        with self._locked(snapshot['id']) as data:
+            if not self._current_operation(data, snapshot) or snapshot['_cancellation_event'].is_set():
+                raise LLMCancelledError('Stage repair belongs to a stopped turn')
+            return load_repair(self._path(data['id']), snapshot, stage=stage, chapter_range=chapter_range)
 
     def adopt_types(self, session_id: str, body: TypeSnapshotInput) -> dict:
         with self._locked(session_id) as data:
@@ -1887,8 +1958,27 @@ class WorkshopService:
                               self._load_delivery_checkpoint(data, skill_version=version))
             except CheckpointError:
                 raise HTTPException(409, "已保存阶段与当前设定或 Skill 不匹配，或完整性检查失败；请重新推导，旧记录已保留。") from None
+            stage_repair = None
+            if (data.get('turn_intent') == 'deliver' and data.get('delivery_run_id')
+                    and (not checkpoint or not checkpoint['completed'])):
+                from .workshop_stage_repair import (StageRepairStorageError, load_repair,
+                                                   import_matching_legacy_repair, save_repair)
+                try:
+                    stage_repair = load_repair(self._path(session_id),
+                        {**data, 'skill_version': version}, stage='story_design')
+                    if stage_repair is None:
+                        stage_repair = import_matching_legacy_repair(self._path(session_id), data)
+                        if stage_repair is not None:
+                            # This explicit resume is the migration boundary.
+                            # Preserve the raw reply, then bind its candidate to
+                            # the current lineage before revision/job changes.
+                            save_repair(self._path(session_id), stage_repair.record(
+                                {**data, 'skill_version': version}))
+                except StageRepairStorageError as exc:
+                    raise HTTPException(409, str(exc)) from None
             from core.source_route_context import enabled as route_source_enabled
             if (data["status"] == "error" and (not checkpoint or not checkpoint["completed"])
+                    and stage_repair is None
                     and not route_source_enabled(data.get('source_context'))
                     and not workshop_development.recovery_view(data, self._path(session_id))):
                 raise HTTPException(409, "本轮尚未保存可恢复的阶段，请重新提交讨论要求。")
@@ -1899,7 +1989,8 @@ class WorkshopService:
             if data.get("active_operation") != "titles" and not data.get("delivery_run_id"):
                 data.update(delivery_run_id=uuid.uuid4().hex, delivery_source_revision=data["revision"],
                             delivery_published_run_id=None)
-            self._log(data, "turn_started", "正在恢复已保存的阶段，仅继续尚未完成的内容。" if checkpoint else
+            self._log(data, "turn_started", "正在修正已保存设计的格式字段，保留完整故事后继续生成。" if stage_repair else
+                      "正在恢复已保存的阶段，仅继续尚未完成的内容。" if checkpoint else
                       "正在使用已保存的完整上下文，重新处理暂停前尚未完成的要求。",
                       operation=data.get("active_operation", "brainstorm"), timeout_seconds=data["turn_timeout_seconds"], resumed=True)
             return self._submit_inference(data, skill=skill)
@@ -1921,6 +2012,8 @@ class WorkshopService:
         snapshot["_save_delivery_checkpoint"] = lambda record: self._save_delivery_checkpoint(snapshot, record, cancel_event)
         snapshot['_save_type_request'] = lambda receipt: self._save_type_request(snapshot, receipt)
         snapshot['_save_delivery_response'] = lambda receipt: self._save_delivery_response(snapshot, receipt)
+        snapshot['_save_stage_repair'] = lambda record: self._save_stage_repair(snapshot, record)
+        snapshot['_load_stage_repair'] = lambda stage, chapter_range=None: self._load_stage_repair(snapshot, stage, chapter_range)
         try:
             snapshot["_delivery_record"] = self._load_delivery_checkpoint(snapshot)
             record = snapshot["_delivery_record"]
