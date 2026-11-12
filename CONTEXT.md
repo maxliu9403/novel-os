@@ -1,6 +1,6 @@
 # Novel OS domain language
 
-## Workshop next-step capabilities (implemented 2026-11-12; not deployed)
+## Workshop next-step capabilities (deployed 2026-11-12)
 
 No pending major choice does not mean author-confirmed length. The read-only `next_step` projection separates discussion, capacity planning/selection, delivery and recovery. Typed `advance` actions are idempotent control intent, not adoption of model proposals; only their `author_note` is author testimony. Legacy messages retain their prior interpretation. Paused or failed operations keep their existing recovery path.
 
