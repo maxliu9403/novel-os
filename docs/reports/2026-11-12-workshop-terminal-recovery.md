@@ -19,8 +19,18 @@
 
 当前任务已用保存的真实请求回执作只读验收：正确得到HTTP402/deactivated_workspace，普通恢复可用，技术未知重执行入口不适用，原回执字节不变。该验收没有启动请求或调整模型配置。
 
-最终影响集 **1193 项全部通过，0失败、0错误、0跳过**，耗时 186.8 秒。范围包括 Workshop、来源设计/证据/恢复、Codex 适配器与诊断、取消/流式、故事优先引擎及组织形式。JUnit 与日志为 `output/workshop-terminal-failure-20261112/regression.*`。发布证据在验收后补充。私有原件、日志和副本保存在Git忽略的 `output/workshop-terminal-failure-20261112/`；部署备份与固定快照位于 `output/workshop-terminal-failure-release-20261112/`。
+最终影响集 **1193 项全部通过，0失败、0错误、0跳过**，耗时 186.8 秒。范围包括 Workshop、来源设计/证据/恢复、Codex 适配器与诊断、取消/流式、故事优先引擎及组织形式。JUnit 与日志为 `output/workshop-terminal-failure-20261112/regression.*`。发布验收结果见下文。私有原件、日志和副本保存在Git忽略的 `output/workshop-terminal-failure-20261112/`；部署备份与固定快照位于 `output/workshop-terminal-failure-release-20261112/`。
 
 ## 限制
 
 这些修复保证错误分类、请求恢复和内容保全，不代替文学质量核验，也不能解除上游工作区停用。工作区恢复前不重复发送生成请求；恢复后沿现有全局设计继续章节规划。
+
+## 发布验收（上海 2026-11-12 21:27）
+
+后端已发布固定提交 `bda943e962ec3015992eb23b0744c566f54a5f0d`，镜像 `novel-os-backend:workshop-recovery-bda943e96`；前端保持f4cf56e。无网络、只读、无生产挂载的镜像验收通过，未提供模型认证。
+
+部署前确认无活动worker，完整备份38,223份文件及SQLite16表；部署后527份运行源码与固定快照一致，文件SHA和数据库逻辑记录完全保持，环境、端口、挂载与连接未改变，前后端健康。Docker返回的挂载列表曾仅顺序变化，发布脚本因此先停止；核对后将比较按挂载目标排序，继续严格验证每条路径及访问权限，再完成切换。
+
+真实页面API现返回工作区停用的明确提示。任务保持revision16/error，完整全局设计已保存、下一阶段为chapter_plan，未启动任何新生成请求。服务重启未改变章节、历史讨论或检查点。作者仍自行处理上游工作区，完成后可沿现有任务继续。
+
+源码快照、离线镜像结果、全量备份、`public-error-checkpoint-check.json`、`deployed.json` 与rollback配置均在 `output/workshop-terminal-failure-release-20261112/`。回滚仅切换后端镜像至d029775，不覆盖最新业务数据。
