@@ -10,11 +10,13 @@ export default function StoryBriefInput({
   onChange,
   onPendingChange,
   disabled = false,
+  required = true,
 }: {
   value: string;
   onChange: (text: string) => void;
   onPendingChange: (pending: boolean) => void;
   disabled?: boolean;
+  required?: boolean;
 }) {
   const id = useId();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -141,7 +143,7 @@ export default function StoryBriefInput({
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         placeholder="输入故事背景、人物设定或已有框架，也可导入文件。"
-        required
+        required={required}
       />
       <p className="mt-1 text-[12px] text-ink-muted">
         TXT、MD、Word（DOC/DOCX）、PDF · 单个文件不超过 10 MiB

@@ -73,6 +73,14 @@ These are model explanations; they cannot adopt major premises or verify externa
 CAPACITY = '''
 When the route converges, include optional capacity_plan in this same response; omit
 while a major choice is pending unless the author explicitly requests a length comparison.
+For a selected source route, proactively recommend story-based total length, chapter
+length and count in the first meaningful development response; do not wait for the
+author to ask or invent mandatory length questions. Explain the expected space for
+specific emotional scenes and earned payoffs. initial_brief.target_total_words is
+an explicit editable preference when present: preserve all adopted story content
+and explain feasibility or necessary pacing changes rather than silently changing
+the target or cutting important events. A saved length_recommendation is advice,
+not an author-confirmed allocation. The author can edit before adopting.
 Cover the entire adopted story, not just this act. Budget meaningful choices, relationship
 changes, climax and aftermath on-page, compress transitions rather than story substance.
 Prefer one recommended allocation; add an alternative only for a useful pacing tradeoff.
@@ -122,6 +130,9 @@ def discussion_system(session: dict, creative_rules: str) -> str:
     from . import workshop_capacity, workshop_guidance, workshop_story
 
     parts = [creative_rules, TRANSPORT]
+    from core.creative_baseline import DEVELOPMENT_VERSION, RULES as baseline_rules
+    if (session.get('development') or {}).get('schema') == DEVELOPMENT_VERSION:
+        parts.append(baseline_rules)
     design = session.get('creative_design')
     if design:
         parts.append(PROPOSALS)
@@ -147,9 +158,25 @@ def discussion_system(session: dict, creative_rules: str) -> str:
         parts.append(policy.get('handoff_rules', source_route_rules))
         if policy.get('discussion_rules'):
             parts.append(policy['discussion_rules'])
-        parts.append('For the direction node only, evidence may be {"author_action_ref": source_reference.selection.action_id}. '
-                     'This proves selection of a discussion direction only; opening/middle/climax/ending still require '
-                     'their own exact author evidence to be settled. Keep proposed details editable.')
+        if workshop_guidance.source_core_adopted(session):
+            parts.append('CURRENT AUTHOR SELECTION SCOPE: core_and_payoffs. This explicit host-recorded scope '
+                'supersedes the historical direction-only selection wording in the frozen source policy above; '
+                'it does not change source facts or imply that future events already happened. '
+                'The direction node may cite {"author_action_ref": source_reference.selection.action_id}. '
+                'For opening/middle/climax/ending, adopted core meaning may support settled nodes using '
+                '{"author_action_ref": source_reference.selection.action_id, "route_path":["causal_arc","ending"], '
+                '"quote":"exact text from that selected_proposal field"}. Use the relevant field for each node. '
+                'Allowed core fields are reader_promise, causal_arc, character_relationship_arcs, emotional_design, '
+                'highlights and long_hooks_and_payoffs. route_path is relative to selected_proposal and must reach '
+                'a specific string; list indexes are zero-based. A field quote proves only its adopted core meaning, '
+                'not every added detail. Explicitly optional/conditional details and proposed_assumptions remain '
+                'proposals, and type suggestions or tradeoffs never prove event adoption. Latest author corrections '
+                'retain priority; keep incompatible or unadopted extensions proposed/conflict. Do not ask the author '
+                'to reconfirm adopted core choices just to settle the other story nodes.')
+        else:
+            parts.append('For the direction node only, evidence may be {"author_action_ref": source_reference.selection.action_id}. '
+                         'This proves selection of a discussion direction only; opening/middle/climax/ending still require '
+                         'their own exact author evidence to be settled. Keep proposed details editable.')
     return '\n'.join(parts)
 
 

@@ -5,7 +5,7 @@ import json
 from typing import Annotated, Literal
 
 from copy import deepcopy
-from pydantic import Field, ValidationError, create_model
+from pydantic import Field, ValidationError, create_model, model_validator
 
 from .creative_types import StrictModel, digest
 
@@ -74,6 +74,26 @@ class TypeSuggestion(StrictModel):
     reason: Text
 
 
+class LengthRecommendation(StrictModel):
+    """Editorial estimate in the target language, never an accepted allocation."""
+    total_words: int = Field(ge=1)
+    words_per_chapter: int = Field(ge=1)
+    chapters: int = Field(ge=1, le=511)
+    language: Text
+    count_unit: Literal['words', 'characters']
+    reason: Text
+
+    @model_validator(mode='after')
+    def coherent(self):
+        from core.story_capacity import language_key
+        expected = {'en': 'words', 'zh': 'characters'}.get(language_key(self.language))
+        if expected and self.count_unit != expected:
+            raise ValueError('篇幅推荐的计量单位必须与正文语言一致。')
+        if not self.chapters <= self.total_words <= self.chapters * self.words_per_chapter:
+            raise ValueError('篇幅推荐需能容纳在建议章数和每章目标上限内。')
+        return self
+
+
 class RouteContent(StrictModel):
     slot: Text
     title: Text
@@ -90,6 +110,7 @@ class RouteContent(StrictModel):
     tradeoffs: list[Text]
     difference_from_existing: Text
     changes_from_parent: str = ""
+    length_recommendation: LengthRecommendation | None = None
 
 
 class Observation(StrictModel):
@@ -141,7 +162,7 @@ class ReadingResponse(StrictModel):
 
 
 ROUTE_PAGES = [
-    ("RouteIdentityPage", ["slot", "title", "reader_promise", "continuity_basis", "source_refs", "type_suggestion", "proposed_assumptions", "tradeoffs", "difference_from_existing", "changes_from_parent"]),
+    ("RouteIdentityPage", ["slot", "title", "reader_promise", "continuity_basis", "source_refs", "type_suggestion", "proposed_assumptions", "tradeoffs", "difference_from_existing", "changes_from_parent", "length_recommendation"]),
     ("RouteCausalPage", ["slot", "causal_arc", "character_relationship_arcs"]),
     ("RouteEmotionPage", ["slot", "emotional_design", "highlights", "long_hooks_and_payoffs"]),
 ]
@@ -180,7 +201,15 @@ def parse_response(raw: str, contract) -> dict:
         raise SourceRouteProtocolError("模型回复包含非法数值；原始响应已保存。")
     try:
         value = json.loads(body, object_pairs_hook=unique, parse_constant=invalid)
-        return contract.model_validate(value).model_dump()
+        result = contract.model_validate(value).model_dump()
+        # An absent recommendation on a saved legacy response must not acquire
+        # a new null field and change its content identity during recovery.
+        if result.get('length_recommendation', 'absent') is None:
+            result.pop('length_recommendation')
+        for route in result.get('routes', []):
+            if route.get('length_recommendation', 'absent') is None:
+                route.pop('length_recommendation')
+        return result
     except (json.JSONDecodeError, ValidationError, RecursionError) as exc:
         if isinstance(exc, ValidationError):
             first = exc.errors(include_input=False, include_url=False)[0]

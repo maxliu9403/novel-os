@@ -48,9 +48,10 @@ def author_context(session: dict) -> dict:
     from core.creation_mode import source_policy
     from .workshop_design import design_context
     from .workshop_capacity import context as capacity_context
+    from core.creative_baseline import context as development_context
     return {"initial_brief": session["input"], "conversation": session["messages"],
             "previous_pending_questions": session.get("questions", []),
-            "current_complete_skeleton": session.get("prompt_md", ""), **design_context(session), **capacity_context(session),
+            "current_complete_skeleton": session.get("prompt_md", ""), **design_context(session), **capacity_context(session), **development_context(session),
             **({'publication_selection_policy': 'initial_brief.publication_taxonomy is author-selected public metadata. The frozen Genre/Tag knowledge supplies writing guidance. Never add or change selected IDs; propose changes to the author. Server code binds exactly this taxonomy into the skeleton, EPUB and package.'}
                if session['input'].get('publication_taxonomy') else {}),
             **({'source_reference': session['source_context'], 'source_reference_policy': source_policy(session['source_context'])}

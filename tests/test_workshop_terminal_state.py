@@ -10,11 +10,12 @@ import pytest
 from api import workshop, workshop_titles
 from api.jobs import JobRunner
 from api.services import ProjectService
-from test_workshop_api import complete_prompt, model_result
+from test_workshop_api import complete_prompt, model_result, install_fake_creative_judge
 
 
 @pytest.fixture
 def service(tmp_path, monkeypatch):
+    install_fake_creative_judge(monkeypatch)
     monkeypatch.setattr(workshop, "runner", JobRunner())
     monkeypatch.setenv("NOVEL_OS_SETTINGS_PATH", str(tmp_path / "settings.json"))
     return workshop.WorkshopService(ProjectService(tmp_path / "projects"))
@@ -219,4 +220,4 @@ def test_actual_turn_calls_model_and_commits_result_within_bounded_wait(service,
     assert finished["status"] == "draft"
     assert finished["revision"] == 2
     assert finished["questions"] == ["结局要保留什么情绪？"]
-    assert finished["messages"][-1]["content"] == "本轮完成"
+    assert finished["messages"][-1]["content"] == "### 本轮说明\n\n本轮完成"

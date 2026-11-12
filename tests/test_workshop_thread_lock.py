@@ -10,10 +10,12 @@ import pytest
 from api import workshop
 from api.jobs import JobRunner
 from api.services import ProjectService
+from test_workshop_api import install_fake_creative_judge
 
 
 @pytest.fixture
 def service(tmp_path, monkeypatch):
+    install_fake_creative_judge(monkeypatch)
     monkeypatch.setattr(workshop, "runner", JobRunner())
     monkeypatch.setattr(workshop, "_skill_bundle", lambda *_: ("test skill", "test version"))
     monkeypatch.setattr(workshop, "_timeout", lambda: 900)
@@ -94,7 +96,7 @@ def test_turn_worker_reads_only_after_running_state_is_persisted(service, monkey
     assert saved["status"] == "draft"
     assert saved["revision"] == 2
     assert [message["role"] for message in saved["messages"]] == ["user", "assistant"]
-    assert saved["messages"][-1]["content"] == "The heir refuses the deal."
+    assert saved["messages"][-1]["content"] == "### 本轮说明\n\nThe heir refuses the deal."
 
 
 @pytest.mark.parametrize("alias", [False, True])

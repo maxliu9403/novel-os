@@ -8,8 +8,8 @@ import threading
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import Field, StringConstraints
-from typing import Annotated
+from pydantic import Field, StringConstraints, model_serializer
+from typing import Annotated, Literal
 
 from core.creation_mode import SourceMode, source_policy
 from core.creative_types import StrictModel, digest
@@ -40,6 +40,14 @@ class RouteHandoffInput(StrictModel):
     author_note: Annotated[str, StringConstraints(strip_whitespace=False)] = ""
     session_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     revision: int | None = Field(default=None, ge=0)
+    adoption_scope: Literal['core_and_payoffs'] | None = None
+
+    @model_serializer(mode='wrap')
+    def serialize(self, handler):
+        value = handler(self)
+        if self.adoption_scope is None:
+            value.pop('adoption_scope', None)
+        return value
 
 
 @contextmanager
@@ -134,8 +142,9 @@ def _read_session(service, session_id):
 def _public(record, service):
     data = _read_session(service, record["session_id"])
     status = "running" if data["status"] == "running" else "error" if data["status"] == "error" else "ready"
+    from .workshop import _session_response
     return {"operation_id": record["operation_id"], "session_id": data["id"],
-            "status": status, "stage": record["stage"], "session": data}
+            "status": status, "stage": record["stage"], "session": _session_response(data)}
 
 
 def handoff(projects, body):
@@ -176,7 +185,9 @@ def handoff(projects, body):
                       "session_id": identifier, "stage": "prepared", "created_at": _now(),
                       "source_context": context, "evidence_packet": packet,
                       "first_turn_operation_id": "source-" + hashlib.sha256(body.operation_id.encode()).hexdigest()[:40],
-                      "input": initial, "type_snapshot": frozen_types, "author_note": body.author_note}
+                      "input": initial, "type_snapshot": frozen_types, "author_note": body.author_note,
+                      "development_version": "creative-development.v1",
+                      "first_turn_message": body.author_note or "请在我选中的整书方向上继续完善人物选择、情绪看点和因果骨架，并主动推荐适合完整故事的总篇幅、每章字数及章数，供我修改。"}
             if context.get('cover_asset'):
                 from core.reference_assets import ReferenceAssets
                 original = ReferenceAssets(source_store(projects).path(body.source_id) / 'images').read(context['cover_asset']['asset_id'])
@@ -221,19 +232,27 @@ def handoff(projects, body):
                 data["source_context"] = deepcopy(context)
                 data.setdefault("source_route_operations", {})[body.operation_id] = fingerprint
                 data["source_route_selection"] = deepcopy(context["selection"])
+                if body.adoption_scope:
+                    # New selection consent is separate from the immutable old
+                    # source/evidence contract. Legacy operations keep their scope.
+                    data['source_route_selection']['adoption_scope'] = body.adoption_scope
+                    data['source_route_selection']['adopted_at_message_index'] = len(data.get('messages', []))
                 data.update(prepared=None, ready_for_confirmation=False, design_needs_revision=True)
                 _seed_direction(data, context)
                 service._save(data)
             record.update(stage="session_created", session_revision=data["revision"])
             atomic_json(path, record)
-        message = record["author_note"] or "请在我选中的整书方向上继续完善人物选择、情绪看点和因果骨架。"
+        # An older saved first-turn operation must replay its exact old payload.
+        message = record.get('first_turn_message') or record["author_note"] or "请在我选中的整书方向上继续完善人物选择、情绪看点和因果骨架。"
         # Persist the exact accepted first-turn revision before dispatch. A replay
         # sends the same operation identity even after the session has advanced.
         if "first_turn_revision" not in record:
             record["first_turn_revision"] = record["session_revision"]
             atomic_json(path, record)
         service.turn(identifier, TurnInput(revision=record["first_turn_revision"], message=message,
-                                          operation_id=record["first_turn_operation_id"], intent="discuss"))
+                                          operation_id=record["first_turn_operation_id"], intent="discuss"),
+                     **({'_source_action': {'author_note': record['author_note'], 'action_id': record['operation_id']}}
+                        if record.get('development_version') else {}))
         record["stage"] = "first_turn_queued"
         atomic_json(path, record)
         return _public(record, service)

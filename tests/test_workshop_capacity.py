@@ -263,11 +263,16 @@ def test_revision_applies_exact_patch_preserves_source_and_checks_prepare_gate(c
     assert new['skeleton_review']['reader_validation'] == 'not_run'
     assert new['skeleton_review']['verification'] == 'exact_edits_and_structure_validated'
     assert new['prepared'] is None
-    assert client.post(root + '/skeleton-revision', json=body).json()['revision'] == new['revision']
+    repeated = client.post(root + '/skeleton-revision', json=body).json()
+    assert repeated['job_id'] == new['job_id']
     assert client.post(root + '/skeleton-revision', json=body | {'selected_ids': []}).status_code == 409
     versions = tmp_path / 'workshop_v2' / done['id'] / 'versions'
     assert (versions / f'{done["revision"]}.md').read_text() == done['prompt_md']
-    assert client.post(root + '/prepare', json={'revision': new['revision']}).status_code == 200
+    checked = finish(client, done['id'])
+    assert checked['status'] == 'ready', checked.get('last_error')
+    assert checked['development']['delivery_verification']['source_sha256'] != done['development']['delivery_verification']['source_sha256']
+    assert checked['development']['delivery_history'][-1] == done['development']['delivery_verification']
+    assert client.post(root + '/prepare', json={'revision': checked['revision']}).status_code == 200
 
 
 def test_author_can_keep_original_without_extra_inference(client, monkeypatch, tmp_path):

@@ -13,11 +13,19 @@ def project(session: dict) -> dict:
     capacity = session.get('capacity') or {}
     guidance = ((design.get('rounds') or [{}])[-1].get('guidance') or {})
     enabled = workshop_capacity.enabled(session)
+    development = session.get('development') or {}
+    reply_only = development.get('reply_only') or {}
+    guidance_current = (guidance.get('reviewed_revision') == session.get('revision') or
+        reply_only.get('current_revision') == session.get('revision') and
+        guidance.get('reviewed_revision') == reply_only.get('source_revision'))
+    development_blocked = development.get('status') in {'reviewing', 'needs_revision', 'needs_author', 'needs_evidence'}
     unavailable = status in {'running','launched','paused','error'} or session.get('deleted_at') or session.get('restart_required')
     can_continue = bool(not unavailable and not pending and workshop_story.enabled(design))
-    can_plan = bool(not unavailable and not pending and enabled)
+    can_plan = bool(not unavailable and not pending and not development_blocked and enabled)
     capacity_ready = not enabled or (capacity.get('status') == 'confirmed' and bool(capacity.get('confirmed')))
-    can_deliver = bool(not unavailable and not pending and capacity_ready and session.get('input',{}).get('premise','').strip())
+    has_story_basis = bool(session.get('input', {}).get('premise', '').strip()
+                           or (session.get('source_context') or {}).get('selected_proposal'))
+    can_deliver = bool(not unavailable and not pending and not development_blocked and capacity_ready and has_story_basis)
     reason = None
     if status in {'paused', 'error'}:
         reason = '请先恢复未完成的推演，保留已有阶段和篇幅确认。'
@@ -25,6 +33,8 @@ def project(session: dict) -> dict:
         reason = '请等待当前任务完成。' if status == 'running' else '请先处理当前会话状态。'
     elif pending:
         reason = '请先决定当前故事走向，再确定篇幅并生成骨架。'
+    elif development_blocked:
+        reason = '本轮设计尚在协调，完整候选已保存；先完成修订再生成骨架。'
     elif not capacity_ready:
         reason = '生成骨架前需要确认篇幅方案；无需额外输入故事想法。'
     elif not can_deliver:
@@ -43,16 +53,34 @@ def project(session: dict) -> dict:
         kind,label,detail = 'recover','继续未完成的推演','已有内容和选择已保存，可恢复未完成的步骤。'
     elif not session.get('messages'):
         kind,label,detail = 'discuss','继续完善故事','先基于你的构想形成整书走向，再安排篇幅。'
+    elif development_blocked:
+        kind,label,detail = 'discuss','继续修订设计',reason
     elif enabled and capacity.get('status') == 'proposed' and capacity.get('plan'):
         kind,label,detail = 'choose_capacity','查看篇幅方案','故事走向没有待选问题。请选择篇幅方案，采用后生成骨架。'
     elif enabled and not capacity_ready:
         kind,label,detail = 'plan_capacity','完善篇幅方案','故事走向没有待选问题。下一步由模型完善场景与分章安排，再由你确认篇幅。'
     elif can_deliver and (capacity.get('status') == 'confirmed' or
-            (guidance.get('next_action') == 'generate' and guidance.get('reviewed_revision') == session.get('revision'))):
+            (guidance.get('next_action') == 'generate' and guidance_current)):
         kind,label,detail = 'deliver',('更新完整骨架' if session.get('prompt_md') else '生成完整骨架'),'可以生成章节、人物、伏笔与回报的完整骨架；这不会启动正文创作。'
     else:
         kind,label,detail = 'discuss','继续完善故事','可让模型基于已有讨论继续完善，不必额外输入想法。'
-    return {**result,'kind':kind,'label':label,'reason':detail}
+    if status == 'launched' or (session.get('prompt_md') and session.get('ready_for_confirmation') and not session.get('design_needs_revision')):
+        readiness = {'state': 'delivered', 'title': '完整骨架已保存',
+                     'detail': '可以查看骨架；启动正文仍由你决定。'}
+    elif unavailable or pending or development_blocked:
+        readiness = {'state': 'blocked', 'title': '先完成当前步骤', 'detail': reason}
+    elif (capacity_ready and can_deliver and (capacity.get('status') == 'confirmed'
+          or guidance.get('next_action') == 'generate' and guidance_current)):
+        readiness = {'state': 'ready_for_skeleton', 'title': '故事已可以生成完整骨架',
+                     'detail': '主要走向与篇幅已就绪。点击生成，将整理人物、逐章故事、伏笔与情绪回报；不会启动正文。'}
+    elif enabled and (capacity.get('status') == 'proposed' and capacity.get('plan')
+          or guidance.get('next_action') == 'generate' and guidance_current):
+        readiness = {'state': 'ready_for_capacity', 'title': '故事已具备生成骨架的条件',
+                     'detail': '下一步确认篇幅即可生成。你可以先编辑总字数、每章字数和分章安排，也可以继续完善故事。'}
+    else:
+        readiness = {'state': 'exploring', 'title': '正在完善整书设计',
+                     'detail': '继续明确人物选择、情绪看点与高潮结局；方向具备条件时会主动提示生成骨架。'}
+    return {**result,'kind':kind,'label':label,'reason':detail,'readiness':readiness}
 
 
 def action_message(session: dict, action: str | None, *, intent: str, mixed: bool) -> str:

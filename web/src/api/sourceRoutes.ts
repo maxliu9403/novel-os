@@ -16,6 +16,7 @@ export interface SourceAuthorContext {
   [key: string]: unknown;
 }
 export interface StoryRoute {
+  length_recommendation?: { total_words: number; words_per_chapter: number; chapters: number; language: string; count_unit: 'words' | 'characters'; reason: string };
   route_id: string;
   sha256: string;
   title: string;
@@ -110,6 +111,11 @@ export interface SourceRouteListing {
   runs?: SourceRouteRun[];
 }
 export interface SourceRouteChoice {
+  adoption_scope?: 'core_and_payoffs';
+  target_total_words?: number;
+  words_per_chapter?: number;
+  chapters?: number;
+  language?: string;
   source_id: string;
   route_set_sha256: string;
   route_id: string;
@@ -124,6 +130,7 @@ export interface SourceRouteChoice {
   pending_feedback_run_id?: string;
 }
 export interface SourceRouteHandoff {
+  adoption_scope?: 'core_and_payoffs';
   operation_id: string;
   draft_id?: string;
   source_id: string;

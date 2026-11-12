@@ -9,7 +9,7 @@ export function workshopNextStep(session: WorkshopSession): WorkshopNextStep {
   });
   if (session.status === 'running') return result('wait', '正在推演', '等待本轮回复完成，已保存内容会继续保留。');
   if (session.status === 'launched') return result('complete', '已启动创作', '请在作品任务中查看创作进度。');
-  if (session.restart_required || !session.input.premise.trim()) return result('edit_basics', '检查基础设定', '请先保存有效的基础设定，再继续讨论。');
+  if (session.restart_required || (!session.input.premise.trim() && !session.source_context?.selected_proposal?.route_id)) return result('edit_basics', '检查基础设定', '请先保存有效的基础设定，再继续讨论。');
   if (session.status === 'paused' || session.status === 'error') return result('recover', '恢复本轮', '请先恢复或重试尚未完成的本轮任务。');
   if (session.creative_design?.story_state?.pending) return result('resolve_question', '决定当前问题', '请先决定本轮故事走向，再生成完整骨架。');
   if (session.creative_design?.policy.capacity_version === 'story-capacity.v1') {

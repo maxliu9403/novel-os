@@ -8,7 +8,7 @@ import hashlib
 import json
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from .workshop_guidance import Evidence, SourceRouteEvidence, _evidence_valid
+from .workshop_guidance import Evidence, SourceRouteEvidence, _evidence_valid, source_core_adopted
 
 AREAS = ('direction', 'opening', 'middle', 'climax', 'ending')
 MAX_CANDIDATE_BYTES = 128 * 1024
@@ -150,10 +150,14 @@ def validate_candidate(raw, record, session):
             for j, item in enumerate(evidence):
                 evidence_model = SourceRouteEvidence if isinstance(item, dict) and 'author_action_ref' in item else Evidence
                 parsed = parse(evidence_model, item, 'evidence', f'{path}.evidence[{j}]')
-                if isinstance(parsed, SourceRouteEvidence) and node.area != 'direction':
+                if (isinstance(parsed, SourceRouteEvidence) and node.area != 'direction'
+                        and (not source_core_adopted(session) or parsed.route_path is None)):
                     parsed = None
                     rejected = True
-                    issue('evidence', path + '.evidence', 'direction_only', '路线选择仅确认方向，具体事件仍是提案。')
+                    if source_core_adopted(session):
+                        issue('evidence', path + '.evidence', 'core_evidence_required', '请引用已采用路线的具体核心字段；单独的选择记录仅证明方向。')
+                    else:
+                        issue('evidence', path + '.evidence', 'direction_only', '路线选择仅确认方向，具体事件仍是提案。')
                 if parsed is None or not _evidence_valid(parsed, session, record['message_index']):
                     rejected = True
                     if parsed is not None:

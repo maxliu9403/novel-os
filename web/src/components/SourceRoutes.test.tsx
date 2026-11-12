@@ -20,6 +20,24 @@ afterEach(() => vi.restoreAllMocks());
 function view(props: Partial<Parameters<typeof SourceRoutes>[0]> = {}) {
   return render(<MemoryRouter><ConfirmProvider><SourceRoutes sourceId="source-1" mode="source_development" {...props} /></ConfirmProvider></MemoryRouter>);
 }
+test('route length recommendation is editable and carried as preference without losing the selected route', async () => {
+  const data = routeSet();
+  data.routes[0].length_recommendation = { total_words: 80000, words_per_chapter: 4000, chapters: 20, language: '简体中文', count_unit: 'characters', reason: '让关键对峙和关系重建都有完整场面。' };
+  vi.mocked(sourceRoutesApi.list).mockResolvedValue({ items: [data], runs: [] });
+  vi.mocked(sourceRoutesApi.get).mockResolvedValue(data);
+  const proceed = vi.fn(), user = userEvent.setup();
+  view({ onContinue: proceed });
+  await user.click(await screen.findByRole('button', { name: '选这条路线 · 不再等待道歉' }));
+  const total = screen.getByRole('spinbutton', { name: '希望的总篇幅' });
+  expect(total).toHaveValue(80000);
+  const perChapter = screen.getByRole('spinbutton', { name: '希望的每章字数' });
+  expect(perChapter).toHaveValue(4000);
+  await user.clear(total); await user.type(total, '100000');
+  await user.clear(perChapter); await user.type(perChapter, '2500');
+  await user.click(screen.getByRole('button', { name: /带入头脑风暴|采用此路线并展开/ }));
+  expect(proceed).toHaveBeenCalledWith(expect.objectContaining({ route_id: 'route-a', target_total_words: 100000, words_per_chapter: 2500, adoption_scope: 'core_and_payoffs' }));
+  expect(sourceRoutesApi.start).not.toHaveBeenCalled();
+});
 test('compares complete stories and exposes concrete emotions without adopting a recommendation', async () => {
   const choice = vi.fn(), proceed = vi.fn(); const user = userEvent.setup();
   view({ onChoice: choice, onContinue: proceed });
@@ -33,7 +51,7 @@ test('compares complete stories and exposes concrete emotions without adopting a
   await user.click(within(dialog).getByRole('tab', { name: '完整故事走向' }));
   expect(within(dialog).getByText('她在听证会上承担自己的错误，拒绝交易换取沉默。')).toBeVisible();
   await user.click(within(dialog).getByRole('button', { name: '选这条路线，继续调整' }));
-  await user.click(await screen.findByRole('button', { name: '带入头脑风暴' }));
+  await user.click(await screen.findByRole('button', { name: '采用此路线并展开' }));
   expect(proceed).toHaveBeenCalledWith(expect.objectContaining({ route_id: 'route-a', route_set_sha256: 'a'.repeat(64), creative_types: typeLibrary().items.slice(0, 2).map(creativeRef), author_note: '' }));
   expect(sourceRoutesApi.start).not.toHaveBeenCalled();
 });

@@ -431,7 +431,7 @@ def test_single_route_output_pages_retain_causal_emotional_and_ending_fields(tmp
                 self.calls.append((system, payload))
                 content = route(payload["task"]["allowed_output_slots"][0], [s["id"] for s in payload["source_view"]])
                 content.update(followup_actions=[], defer_current=False)
-                return json.dumps({k: content[k] for k in payload["response_schema"]["properties"]})
+                return json.dumps({k: content[k] for k in payload["response_schema"]["properties"] if k in content})
             return super().complete(system, user)
     model = PageOutput()
     state = study.prepare({"operation_id": "output-pages", "requested_count": 1}, model={}, catalog=CATALOG)
@@ -647,7 +647,7 @@ def test_incomplete_final_output_page_can_resume_without_regenerating_completed_
                     return '{"emotional_design": ['
                 content = route(payload["task"]["allowed_output_slots"][0], [s["id"] for s in payload["source_view"]])
                 content.update(followup_actions=[], defer_current=False)
-                return json.dumps({k: content[k] for k in payload["response_schema"]["properties"]})
+                return json.dumps({k: content[k] for k in payload["response_schema"]["properties"] if k in content})
             return super().complete(system, user)
     state = study.prepare({"operation_id": "page-recovery", "requested_count": 1}, model={}, catalog=CATALOG)
     first = PageLimited()

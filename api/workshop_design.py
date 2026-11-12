@@ -271,6 +271,11 @@ def execution_handoff(session: dict) -> dict:
     amendments = (workshop_requirements(session.get('messages', []),
                   source_sha256=hashlib.sha256(session['prompt_md'].encode()).hexdigest())
                   if policy.get('story_engine') else None)
+    verification = (session.get('development') or {}).get('delivery_verification')
+    # An old approved skeleton without a new delivery review keeps its original
+    # handoff contract. A stale new verification must never silently downgrade.
+    if verification is not None and verification.get('source_sha256') != hashlib.sha256(session['prompt_md'].encode()).hexdigest():
+        raise ValueError('当前骨架与已核验的创作依据不一致，请完成本次修订后再启动。')
     return make_handoff(
         source=session["prompt_md"],
         reader_investment=policy.get("reader_investment"),
@@ -282,6 +287,7 @@ def execution_handoff(session: dict) -> dict:
         adopted_proposals=context.get("adopted_proposals", []),
         legacy_guidance=policy.get("guidance", {}) if policy.get("type_snapshot") is None else {},
         author_requirements=amendments,
+        development_basis=verification,
     )
 
 

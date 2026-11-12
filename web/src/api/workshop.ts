@@ -78,7 +78,7 @@ export interface StoryState {
 }
 export interface GuidedTurn {
   advance?: 'develop_story' | 'plan_capacity';
-  capacity_replan?: { proposal_sha256: string; option_id: string; chapters: number };
+  capacity_replan?: { proposal_sha256: string; option_id: string; chapters: number; total_words?: number; words_per_chapter?: number; chapter_targets?: Array<{ number: number; target_words: number }> };
   capacity_choice?: { proposal_sha256: string; option_id: string };
   story_action?: StoryAction;
   revision: number;
@@ -132,6 +132,7 @@ export interface WorkshopInput {
   premise: string;
   chapters?: number;
   words_per_chapter?: number;
+  target_total_words?: number;
   language: string;
   mode?: NarrativeMode | "" | null;
   audience: string;
@@ -202,6 +203,14 @@ export interface WorkshopRuntimeProgress {
 }
 
 export interface WorkshopSession {
+  recovery?: { kind: 'saved_generation'; can_resume: boolean; label: string; detail: string };
+  source_context?: { schema?: string; selected_proposal?: import('./sourceRoutes').StoryRoute; [key: string]: unknown } | null;
+  development_view?: {
+    phase: 'exploring' | 'developing' | 'reviewing' | 'needs_revision' | 'needs_author'; title: string; notice?: string;
+    issues?: Array<{ reason: string; quote: string; repair?: string }>;
+    commitments: Array<{ id: string; category: string; text: string; adoption: string | { kind: string; ref?: string; scope?: string; status?: string; scope_rule?: string } }>;
+    emotion_designs: Array<{ expectation: string; scene: string; choice: string; cost: string; change: string; payoff: string }>;
+  };
   next_step?: WorkshopNextStep;
   capacity_replan?: { request: NonNullable<GuidedTurn['capacity_replan']>; chapter_words_limit: number; total_words: number } | null;
   skeleton_review?: SkeletonReview;
@@ -248,6 +257,7 @@ export interface WorkshopSession {
 }
 
 export interface WorkshopNextStep {
+  readiness?: { state: 'exploring' | 'ready_for_capacity' | 'ready_for_skeleton' | 'blocked' | 'delivered'; title: string; detail: string };
   kind: 'discuss' | 'resolve_question' | 'plan_capacity' | 'choose_capacity' | 'deliver' | 'wait' | 'recover' | 'edit_basics' | 'complete';
   label: string;
   reason: string;
@@ -286,6 +296,8 @@ export interface SkeletonRevisionRequest {
   revision: number; review_sha256: string; selected_ids: string[]; operation_id: string;
 }
 export interface StoryCapacity {
+  length_request?: { target_total_words: number; matches_requested_total: boolean };
+  adjustment?: { status: 'needs_more_space'; reason: string; minimum_total_words: number; requested_total_words: number; requested_chapters: number; chapter_words_limit: number };
   schema: 'story-capacity.v1'; status: 'proposed' | 'confirmed' | 'stale' | 'unavailable';
   notice?: string; proposal_sha256?: string; reviewed_revision?: number;
   plan?: { language: string; count_unit: 'words' | 'characters'; rationale: string;

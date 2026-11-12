@@ -21,6 +21,8 @@ from safe_project_io import read_project_bytes
 
 VERSION = "creative-execution.v1"
 HANDOFF_VERSION = "creative-handoff.v1"
+DEVELOPMENT_BASIS_VERSION = "creative-development-basis.v1"
+HANDOFF_VERSIONS = {HANDOFF_VERSION, *(f'creative-handoff.v{n}' for n in range(2, 7))}
 MAX_REQUEST_BYTES = 2 * 1024 * 1024
 STAGES = ("story_design", "chapter_plan", "draft", "review")
 AGENTS = ("architect", "scribe", "editor", "continuity_guardian", "style_curator", "outline_planner")
@@ -81,9 +83,131 @@ def text_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _sha(value) -> bool:
+    return isinstance(value, str) and re.fullmatch(r'[0-9a-f]{64}', value) is not None
+
+
+def make_development_basis(verification: dict, source_sha256: str) -> dict:
+    """Bind a host-verified delivery, retaining its original review authority."""
+    if not isinstance(verification, dict):
+        raise CreativeExecutionError('Missing verified creative development basis')
+    if verification.get('schema') == DEVELOPMENT_BASIS_VERSION:
+        return validate_development_basis(verification, source_sha256)
+    review = copy.deepcopy(verification.get('review'))
+    if not isinstance(review, dict):
+        raise CreativeExecutionError('Missing creative development review receipt')
+    value = {'schema': DEVELOPMENT_BASIS_VERSION, 'status': verification.get('status'),
+             'source_sha256': verification.get('source_sha256'),
+             'reviewed_source_sha256': verification.get('reviewed_source_sha256', verification.get('source_sha256')),
+             'baseline': copy.deepcopy(verification.get('baseline')), 'review': review,
+             'placements': copy.deepcopy(review.get('placements', [])),
+             'transformations': copy.deepcopy(verification.get('transformations', []))}
+    value['sha256'] = digest(value)
+    return validate_development_basis(value, source_sha256)
+
+
+def validate_development_basis(value: dict, source_sha256: str) -> dict:
+    from core.creative_baseline import validate as validate_baseline
+    from core.creative_development import VERSION as review_version, REVIEW_RULES, required_placement_ids
+    fields = {'schema', 'status', 'source_sha256', 'reviewed_source_sha256', 'baseline',
+              'review', 'placements', 'transformations', 'sha256'}
+    if (not isinstance(value, dict) or set(value) != fields
+            or value.get('schema') != DEVELOPMENT_BASIS_VERSION or value.get('status') != 'passed'
+            or value.get('source_sha256') != source_sha256 or not _sha(source_sha256)
+            or not _sha(value.get('reviewed_source_sha256'))
+            or value.get('sha256') != digest({k: v for k, v in value.items() if k != 'sha256'})):
+        raise CreativeExecutionError('Creative development verification does not match the complete adopted skeleton')
+    baseline = validate_baseline(value['baseline'])
+    review = value['review']
+    if (not isinstance(review, dict) or review.get('schema') != review_version
+            or review.get('scope') != 'delivery'
+            or review.get('baseline_sha256') != baseline['sha256']
+            or review.get('session_id') != baseline['session_id']
+            or review.get('session_revision') != baseline['session_revision']
+            or any(not _sha(review.get(key)) for key in ('binding_sha256', 'candidate_sha256', 'original_candidate_sha256'))
+            or not isinstance(review.get('coverage'), list) or not review['coverage']
+            or any(not isinstance(row, dict) or row.get('status') != 'pass'
+                   or not isinstance(row.get('units'), list) or not row['units']
+                   or any(not isinstance(unit, dict) or not isinstance(unit.get('path'), list)
+                          or not _sha(unit.get('sha256')) for unit in row['units'])
+                   for row in review['coverage'])
+            or not isinstance(review.get('request_ids'), list) or not review['request_ids']
+            or any(not _sha(identity) for identity in review['request_ids'])
+            or review.get('missing_placements') != [] or not isinstance(review.get('placements'), list)
+            or value['placements'] != review['placements']):
+        raise CreativeExecutionError('Creative development review is incomplete or belongs to another baseline')
+    expected_evidence = (baseline.get('source_identity', {}).get('evidence') or {}).get('sha256')
+    if review.get('evidence_sha256') != expected_evidence:
+        raise CreativeExecutionError('Creative development review source evidence changed')
+    ids = {item['id'] for item in baseline['items']} | {rule['id'] for rule in REVIEW_RULES}
+    if not isinstance(value['placements'], list):
+        raise CreativeExecutionError('Invalid narrative placement receipt')
+    for placement in value['placements']:
+        if (not isinstance(placement, dict) or placement.get('commitment_id') not in ids
+                or not isinstance(placement.get('quote'), str) or not placement['quote'].strip()
+                or not isinstance(placement.get('candidate_paths'), list) or not placement['candidate_paths']):
+            raise CreativeExecutionError('Narrative placement is not bound to a reviewed commitment')
+        for path in placement['candidate_paths']:
+            if (not isinstance(path, list) or not path or path[0] not in {'chapter_plan', 'chapters', 'chapter_cards'}
+                    or not any(type(part) is int for part in path)
+                    or any(type(part) not in {str, int} or (type(part) is int and part < 0) for part in path)):
+                raise CreativeExecutionError('Narrative placement must address an actual reviewed chapter')
+    required = required_placement_ids(baseline, review.get('author_adjustments', []))
+    if (review.get('required_placements') != required
+            or not set(required).issubset({row['commitment_id'] for row in value['placements']})):
+        raise CreativeExecutionError('Creative development delivery is missing required narrative placements')
+    previous = value['reviewed_source_sha256']
+    if not isinstance(value['transformations'], list):
+        raise CreativeExecutionError('Invalid skeleton packaging transformation history')
+    for transformation in value['transformations']:
+        if (not isinstance(transformation, dict) or transformation.get('kind') not in {'title', 'packaging'}
+                or transformation.get('before_sha256') != previous or not _sha(transformation.get('after_sha256'))):
+            raise CreativeExecutionError('Skeleton packaging transformation is not bound to the reviewed source')
+        previous = transformation['after_sha256']
+    if previous != source_sha256:
+        raise CreativeExecutionError('The reviewed skeleton changed without a recorded packaging transformation')
+    return copy.deepcopy(value)
+
+
+def _source_packet_enabled(handoff: dict) -> bool:
+    from core.source_route_context import enabled
+    return handoff.get('schema') in {'creative-handoff.v5', 'creative-handoff.v6'} and enabled(handoff.get('source_context'))
+
+
+def _development_projection(basis: dict, provided: dict, *, basis_sha256: str | None = None) -> dict:
+    """Share exact values already present in the request; never summarize them."""
+    lookup = {}
+    def index(value, path):
+        encoded_value = encoded(value)
+        if len(encoded_value) >= 80:
+            lookup.setdefault(encoded_value, list(path))
+        if isinstance(value, dict):
+            for key in sorted(value):
+                index(value[key], (*path, key))
+        elif isinstance(value, list):
+            for key, child in enumerate(value):
+                index(child, (*path, key))
+    index(provided, ())
+    def share(value):
+        key = encoded(value)
+        if key in lookup and lookup[key]:
+            return {'context_ref': lookup[key], 'value_sha256': digest(value)}
+        if isinstance(value, dict):
+            return {name: share(child) for name, child in value.items()}
+        if isinstance(value, list):
+            return [share(child) for child in value]
+        return copy.deepcopy(value)
+    return {'representation': 'creative-basis-exact-references.v1', 'basis_sha256': basis_sha256 or basis['sha256'],
+            'data': share(basis), 'rule': 'A context_ref is a JSON key/index path to the exact complete value '
+            'elsewhere in this request, bound by value_sha256. Resolve it as that value; nothing was summarized. '
+            'The original baseline, review and placements are retained in the frozen handoff. Historical proposals '
+            'and checked plans do not prove events occurred in prose. Follow later author decisions and the adopted '
+            'complete skeleton; preserve concrete choices, costs, relationship changes and earned payoffs.'}
+
+
 def make_handoff(*, source: str, origin: dict, type_snapshot: dict | None = None,
                  adopted_proposals: list | None = None, legacy_guidance: dict | None = None, reader_investment: dict | None = None, story_engine: str | None = None, source_context: dict | None = None,
-                 author_requirements: dict | None = None) -> dict:
+                 author_requirements: dict | None = None, development_basis: dict | None = None) -> dict:
     from core.creative_types import compile_snapshot
 
     if not source.strip():
@@ -115,6 +239,11 @@ def make_handoff(*, source: str, origin: dict, type_snapshot: dict | None = None
             raise CreativeExecutionError('Source route execution requires the complete story and author requirements')
         validate_context(source_context)
         payload['schema'] = 'creative-handoff.v5'
+    if development_basis is not None:
+        if story_engine is None or author_requirements is None:
+            raise CreativeExecutionError('Verified creative development requires the story-first author contract')
+        payload.update(schema='creative-handoff.v6',
+                       development_basis=make_development_basis(development_basis, text_hash(source)))
     payload["handoff_sha256"] = digest(payload)
     return validate_handoff(payload)
 
@@ -122,12 +251,12 @@ def make_handoff(*, source: str, origin: dict, type_snapshot: dict | None = None
 def validate_handoff(value: dict) -> dict:
     expected = {"schema", "source_sha256", "origin", "type_snapshot", "adopted_proposals",
                 "legacy_guidance", "stage_contexts", "handoff_sha256"}
-    if isinstance(value, dict) and value.get('schema') in {'creative-handoff.v2', 'creative-handoff.v3', 'creative-handoff.v4', 'creative-handoff.v5'}:
+    if isinstance(value, dict) and value.get('schema') in HANDOFF_VERSIONS - {HANDOFF_VERSION}:
         from core.reader_investment import validate
         expected.add('reader_investment')
         if validate(value.get('reader_investment')) is None:
             raise CreativeExecutionError('Missing reader investment snapshot')
-    if isinstance(value, dict) and value.get("schema") in {"creative-handoff.v3", "creative-handoff.v4", "creative-handoff.v5"}:
+    if isinstance(value, dict) and value.get("schema") in {"creative-handoff.v3", "creative-handoff.v4", "creative-handoff.v5", "creative-handoff.v6"}:
         from core.story_design import VERSION as engine_version
         expected.update({"story_engine", "source_context"})
         if value.get("story_engine") != engine_version:
@@ -136,14 +265,29 @@ def validate_handoff(value: dict) -> dict:
         if source is not None:
             from core.creation_mode import source_policy
             source_policy(source)
-    if isinstance(value, dict) and value.get('schema') in {'creative-handoff.v4', 'creative-handoff.v5'}:
+    if isinstance(value, dict) and value.get('schema') in {'creative-handoff.v4', 'creative-handoff.v5', 'creative-handoff.v6'}:
         from core.author_requirements import validate_requirements
         expected.add('author_requirements')
         validate_requirements(value.get('author_requirements'), scope='story', source_sha256=value.get('source_sha256'))
     if isinstance(value, dict) and value.get('schema') == 'creative-handoff.v5':
         from core.source_route_context import validate_context
         validate_context(value.get('source_context'))
-    if not isinstance(value, dict) or set(value) != expected or value.get("schema") not in {HANDOFF_VERSION, 'creative-handoff.v2', 'creative-handoff.v3', 'creative-handoff.v4', 'creative-handoff.v5'}:
+    if isinstance(value, dict) and value.get('schema') == 'creative-handoff.v6':
+        expected.add('development_basis')
+        basis = validate_development_basis(value.get('development_basis'), value.get('source_sha256'))
+        if basis['baseline']['session_id'] != value.get('origin', {}).get('workshop_id'):
+            raise CreativeExecutionError('Creative development belongs to another Workshop')
+        source_identity = basis['baseline'].get('source_identity', {})
+        if any(source_identity.get(key) != (value.get('source_context') or {}).get(key)
+               for key in ('source_id', 'source_sha256', 'context_sha256', 'mode', 'evidence') if key in source_identity):
+            raise CreativeExecutionError('Creative development source identity differs from the handoff')
+        if (basis['baseline'].get('route_snapshot') is not None
+                and basis['baseline']['route_snapshot'] != (value.get('source_context') or {}).get('selected_proposal')):
+            raise CreativeExecutionError('Creative development route snapshot differs from the handoff')
+        if _source_packet_enabled(value):
+            from core.source_route_context import validate_context
+            validate_context(value['source_context'])
+    if not isinstance(value, dict) or set(value) != expected or value.get("schema") not in HANDOFF_VERSIONS:
         raise CreativeExecutionError("Unsupported creative handoff; no model was called")
     if (not re.fullmatch(r"[0-9a-f]{64}", str(value["source_sha256"]))
             or not isinstance(value["origin"], dict) or not isinstance(value["adopted_proposals"], list)
@@ -235,6 +379,15 @@ class CreativeExecution:
                     "Assess the exact manuscript; do not rewrite it or substitute fixed emotion quotas.\n" + RULES
                     + "\n# OUTPUT CONTRACT (MANDATORY DO NOT OMIT)\n"
                     + lock["system_prompts"]["continuity_guardian"].split("# OUTPUT CONTRACT (MANDATORY DO NOT OMIT)", 1)[-1])
+            if handoff.get('schema') == 'creative-handoff.v6':
+                from core.creative_runtime_evidence import VERSION as projection_version, RULES as history_rules, evidence_policy
+                lock['development_context_version'] = projection_version
+                lock['development_evidence_policy'] = evidence_policy()
+                # Freeze this opt-in contract. Existing v1-v5 and any older
+                # locks retain their exact prompts and request representation.
+                for prompts in (lock['system_prompts'], lock.get('planning_system_prompts', {})):
+                    for name in prompts:
+                        prompts[name] += '\n\n' + history_rules
             _write(directory / "lock.json", lock)
         else:
             lock = json.loads(raw)
@@ -256,13 +409,22 @@ class CreativeExecution:
         raw = read_project_bytes(self.project, ("outputs", "input", "prompt.md"))
         if hashlib.sha256(raw).hexdigest() != self._lock["handoff"]["source_sha256"]:
             raise CreativeExecutionError("Adopted skeleton changed after creative handoff; start a new design run")
-        if self._lock['handoff'].get('schema') == 'creative-handoff.v5':
+        if _source_packet_enabled(self._lock['handoff']):
             from core.source_route_context import read_packet
             read_packet(self.project / 'outputs/private', self._lock['handoff']['source_context'])
 
     @property
     def story_first(self) -> bool:
         return self._lock["handoff"].get("story_engine") == "story-first.v1"
+
+    def read_development_evidence(self, path: list, *, start_char=None, end_char=None) -> dict:
+        """Read exact frozen values by JSON address, never by a file path."""
+        from core.creative_runtime_evidence import read_evidence
+        self.verify_source()
+        basis = self._lock['handoff'].get('development_basis')
+        if basis is None:
+            raise CreativeExecutionError('This run has no frozen creative development evidence')
+        return read_evidence(basis, path, start_char=start_char, end_char=end_char)
 
     def design_context(self, stage: str) -> dict:
         self.verify_source()
@@ -283,7 +445,7 @@ class CreativeExecution:
             from core.creation_mode import source_policy
             context["source_context"] = copy.deepcopy(handoff["source_context"])
             context["source_policy"] = source_policy(handoff["source_context"])
-            if handoff.get('schema') == 'creative-handoff.v5':
+            if _source_packet_enabled(handoff):
                 from core.source_route_context import RULES as route_rules
                 context['source_policy'] += '\n' + handoff['source_context'].get('execution_policy', {}).get('handoff_rules', route_rules)
         if handoff.get('author_requirements'):
@@ -295,6 +457,19 @@ class CreativeExecution:
                 'they are not automatic acceptance of every suggestion. Later explicit corrections '
                 'override old proposals. If the approved skeleton contradicts an unresolved author '
                 'correction, report that conflict in the existing review; do not silently choose an old route.')
+        if handoff.get('development_basis'):
+            # These complete authority objects remain stable in prepare().
+            # Genre guidance is subsequently compacted for each request and is
+            # deliberately not a target of an exact-value reference.
+            shared = {key: context[key] for key in ('source_context', 'author_requirements', 'adopted_proposals')
+                      if key in context}
+            basis = handoff['development_basis']
+            if self._lock.get('development_context_version') == 'creative-runtime-basis.v1':
+                from core.creative_runtime_evidence import project_basis
+                context['development_basis'] = _development_projection(project_basis(basis), shared,
+                                                                      basis_sha256=basis['sha256'])
+            else:
+                context['development_basis'] = _development_projection(basis, shared)
         return context
 
     def outline_for_execution(self, outline: str) -> str:
@@ -404,11 +579,18 @@ class CreativeExecution:
         receipt = {**receipt, "status": "adapter_started"}
         _write(path, receipt)
         try:
-            if self._lock['handoff'].get('schema') == 'creative-handoff.v5':
+            coordinator = None
+            if _source_packet_enabled(self._lock['handoff']):
                 from core.source_route_context import SourceEvidenceCoordinator
                 coordinator = SourceEvidenceCoordinator(self.project / 'outputs/private',
                     self._lock['handoff']['source_context'],
                     cancelled=getattr(getattr(client, 'cancellation_event', None), 'is_set', None))
+            if self._lock.get('development_context_version') == 'creative-runtime-basis.v1':
+                from core.creative_runtime_evidence import complete as complete_with_history
+                result = complete_with_history(client, system, user,
+                    basis=self._lock['handoff']['development_basis'], root=self.directory / 'development-evidence',
+                    source_coordinator=coordinator, policy=self._lock.get('development_evidence_policy'))
+            elif coordinator is not None:
                 result = coordinator.complete(client, system, user)
             else:
                 result = client.complete(system=system, user=user)

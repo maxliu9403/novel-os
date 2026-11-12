@@ -47,3 +47,12 @@ def fake_author_model(monkeypatch):
     monkeypatch.setattr(book_author, "_default_complete", complete)
     monkeypatch.setattr(core.book_author, "_default_complete", complete)
     return calls
+
+
+@pytest.fixture(autouse=True)
+def block_live_creative_judge(monkeypatch):
+    """Every semantic-review test must deliberately supply a local fake."""
+    from api import workshop_development
+    def missing_fake(*_args, **_kwargs):
+        raise RuntimeError('creative development tests must inject a fake reviewer')
+    monkeypatch.setattr(workshop_development, '_client', missing_fake)

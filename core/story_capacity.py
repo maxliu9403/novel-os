@@ -44,6 +44,9 @@ class Scene(Record):
     minimum: int = Field(ge=1)
     maximum: int = Field(ge=1)
     reason: str = Field(min_length=1, max_length=800)
+    # An explicit author length revision may re-estimate space. Keep the old
+    # dramatic justification verbatim rather than replacing it with a number.
+    estimate_reason: str | None = Field(default=None, min_length=1, max_length=800)
 
     @model_validator(mode='after')
     def ordered(self):

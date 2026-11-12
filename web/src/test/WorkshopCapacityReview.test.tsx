@@ -7,6 +7,7 @@ import { api } from '../api/client';
 import { creativeTypesApi } from '../api/creativeTypes';
 import { typeLibrary } from './creativeTypesFixture';
 import { storySession } from './workshopStoryFixture';
+import { storyRoute } from './sourceRoutesFixture';
 import NovelWorkshop from '../components/NovelWorkshop';
 import WorkshopCapacity from '../components/WorkshopCapacity';
 import WorkshopSkeletonReview from '../components/WorkshopSkeletonReview';
@@ -24,6 +25,121 @@ function capacitySession() {
         chapters: [{ number: 1, target_words: 1200, scene_ids: ['scene_1'] }] }] } };
   return session;
 }
+
+test('capacity editor changes total and chapter length without adopting or generating', async () => {
+  const data = capacitySession();
+  const replan = vi.fn(), adopt = vi.fn();
+  render(<WorkshopCapacity session={data} disabled={false} draft="" onAdopt={adopt} onPlan={vi.fn()} onRepartition={replan}/>);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: '编辑篇幅方案' }));
+  const total = screen.getByRole('spinbutton', { name: /目标总篇幅/ });
+  const length = screen.getByRole('spinbutton', { name: /每章规划字数/ });
+  await user.clear(total); await user.type(total, '2400');
+  await user.clear(length); await user.type(length, '1500');
+  const count = screen.getByRole('spinbutton', { name: /章节数/ });
+  await user.clear(count); await user.type(count, '2');
+  expect(replan).not.toHaveBeenCalled(); expect(adopt).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button', { name: '保存调整并重新安排' }));
+  expect(replan).toHaveBeenCalledWith({ proposal_sha256: 'a'.repeat(64), option_id: 'expanded', chapters: 2, total_words: 2400, words_per_chapter: 1500 });
+  expect(adopt).not.toHaveBeenCalled();
+});
+
+test('confirmed capacity stays editable and unsaved fields survive status refresh', async () => {
+  const data = capacitySession();
+  data.capacity!.status = 'confirmed';
+  data.capacity!.confirmed = { option: data.capacity!.plan!.options[0], language: 'English', count_unit: 'words' };
+  const replan = vi.fn();
+  const props = { disabled: false, draft: '', onAdopt: vi.fn(), onPlan: vi.fn(), onRepartition: replan };
+  const view = render(<WorkshopCapacity session={data} {...props}/>);
+  await userEvent.click(screen.getByRole('button', { name: '编辑篇幅方案' }));
+  const total = screen.getByRole('spinbutton', { name: /目标总篇幅/ });
+  await userEvent.clear(total); await userEvent.type(total, '1250');
+  view.rerender(<WorkshopCapacity session={structuredClone(data)} {...props}/>);
+  expect(screen.getByRole('spinbutton', { name: /目标总篇幅/ })).toHaveValue(1250);
+  expect(replan).not.toHaveBeenCalled();
+  expect(screen.getByText('篇幅已确认')).toBeVisible();
+});
+
+test('individual chapter targets update the total and submit all rows without silently changing the ceiling', async () => {
+  const data = capacitySession(), replan = vi.fn();
+  const option = data.capacity!.plan!.options[0];
+  option.total_words = 2200;
+  option.chapters.push({ number: 2, target_words: 1000, scene_ids: ['scene_2'] });
+  render(<WorkshopCapacity session={data} disabled={false} draft="" onAdopt={vi.fn()} onPlan={vi.fn()} onRepartition={replan}/>);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: '编辑篇幅方案' }));
+  await user.click(screen.getByRole('checkbox', { name: /逐章调整字数/ }));
+  const first = screen.getByRole('spinbutton', { name: '第 1 章目标字数' });
+  await user.clear(first); await user.type(first, '1300');
+  expect(screen.getByRole('spinbutton', { name: /目标总篇幅/ })).toHaveValue(2300);
+  expect(screen.getByRole('button', { name: '保存调整并重新安排' })).toBeDisabled();
+  await user.clear(first); await user.type(first, '1100');
+  await user.click(screen.getByRole('button', { name: '保存调整并重新安排' }));
+  expect(replan).toHaveBeenCalledWith(expect.objectContaining({ chapters: 2, total_words: 2100, words_per_chapter: 1200,
+    chapter_targets: [{ number: 1, target_words: 1100 }, { number: 2, target_words: 1000 }] }));
+});
+
+test('a declined compression exposes the reason and editable retained plan without an adoption button', async () => {
+  const data = capacitySession(), replan = vi.fn();
+  data.capacity!.status = 'stale';
+  data.capacity!.adjustment = { status: 'needs_more_space', reason: '不能把母女分别与之后的反应压缩为一句概述。', minimum_total_words: 1100, requested_total_words: 500, requested_chapters: 1, chapter_words_limit: 1200 };
+  render(<WorkshopCapacity session={data} disabled={false} draft="" onAdopt={vi.fn()} onPlan={vi.fn()} onRepartition={replan}/>);
+  expect(screen.getByText(data.capacity!.adjustment.reason)).toBeVisible();
+  await userEvent.click(screen.getByRole('button', { name: '编辑篇幅方案' }));
+  expect(screen.getByRole('spinbutton', { name: /目标总篇幅/ })).toBeVisible();
+  expect(screen.queryByRole('button', { name: /并生成骨架/ })).not.toBeInTheDocument();
+});
+
+test('readiness is announced before capacity choice and remains visible on other workshop tabs', async () => {
+  const data = capacitySession();
+  data.next_step = { kind: 'choose_capacity', label: '查看篇幅方案', reason: '请先确认篇幅。', can_continue: true, can_deliver: false, can_plan_capacity: true, delivery_blocked_reason: '请先确认篇幅。',
+    readiness: { state: 'ready_for_capacity', title: '故事已经可以进入骨架设计', detail: '关键走向已明确，选择或调整下面的篇幅方案后就可以生成。' } };
+  vi.spyOn(workshopApi, 'get').mockResolvedValue(data);
+  const turn = vi.spyOn(workshopApi, 'guidedTurn');
+  render(<MemoryRouter><NovelWorkshop open seed={data.input} initialSessionId={data.id} onClose={vi.fn()} onBack={vi.fn()}/></MemoryRouter>);
+  const readiness = await screen.findByRole('status', { name: '骨架准备提示' });
+  expect(within(readiness).getByText('故事已经可以进入骨架设计')).toBeVisible();
+  expect(within(readiness).getByRole('button', { name: '查看并调整篇幅' })).toBeEnabled();
+  await userEvent.click(screen.getByRole('tab', { name: /待定事项/ }));
+  expect(readiness).toBeVisible();
+  expect(screen.getByRole('button', { name: '生成完整骨架' })).toBeDisabled();
+  expect(turn).not.toHaveBeenCalled();
+});
+
+test('editing confirmed capacity blocks the shortcut to skeleton delivery until closed', async () => {
+  const data = capacitySession();
+  data.capacity!.status = 'confirmed';
+  data.capacity!.confirmed = { option: data.capacity!.plan!.options[0], language: 'English', count_unit: 'words' };
+  data.next_step = { kind: 'deliver', label: '生成完整骨架', reason: '篇幅已确认。', can_continue: true, can_deliver: true, can_plan_capacity: true, delivery_blocked_reason: null,
+    readiness: { state: 'ready_for_skeleton', title: '可以生成完整骨架了', detail: '主线和篇幅已经准备好。' } };
+  vi.spyOn(workshopApi, 'get').mockResolvedValue(data);
+  render(<MemoryRouter><NovelWorkshop open seed={data.input} initialSessionId={data.id} onClose={vi.fn()} onBack={vi.fn()}/></MemoryRouter>);
+  const user = userEvent.setup();
+  const generate = await screen.findByRole('button', { name: '开始生成完整骨架' });
+  expect(generate).toBeEnabled();
+  await user.click(screen.getByRole('button', { name: '编辑篇幅方案' }));
+  expect(generate).toBeDisabled();
+  expect(screen.getByRole('button', { name: '生成完整骨架' })).toBeDisabled();
+  await user.click(screen.getByRole('button', { name: '收起，保留草稿' }));
+  expect(generate).toBeEnabled();
+});
+
+test('a reference-route discussion can generate with confirmed length and no synthetic author premise', async () => {
+  const data = capacitySession();
+  data.input.premise = '';
+  data.source_context = { schema: 'source-route-context.v1', selected_proposal: storyRoute() };
+  data.capacity!.status = 'confirmed';
+  data.capacity!.confirmed = { option: data.capacity!.plan!.options[0], language: 'English', count_unit: 'words' };
+  data.next_step = { kind: 'deliver', label: '生成完整骨架', reason: '路线与篇幅已确认。', can_continue: true, can_deliver: true, can_plan_capacity: true, delivery_blocked_reason: null };
+  vi.spyOn(workshopApi, 'get').mockResolvedValue(data);
+  const turn = vi.spyOn(workshopApi, 'guidedTurn').mockResolvedValue({ job_id: 'next', kind: 'workshop', status: 'running', error: null });
+  render(<MemoryRouter><NovelWorkshop open seed={data.input} initialSessionId={data.id} onClose={vi.fn()} onBack={vi.fn()}/></MemoryRouter>);
+  const generate = await screen.findByRole('button', { name: '生成完整骨架' });
+  expect(generate).toBeEnabled();
+  await userEvent.click(generate);
+  expect(turn).toHaveBeenCalledWith(data.id, expect.objectContaining({ intent: 'deliver', proposal_ids: [] }));
+  expect(data.input.premise).toBe('');
+});
 
 const review: SkeletonReview = { schema: 'skeleton-review.v1', status: 'proposed', source_revision: 4, source_sha256: 'b'.repeat(64), review_sha256: 'c'.repeat(64),
   summary: '让选择产生可见后果', issues: [{ id: 'issue_1', chapter: 1, category: 'reader_value', problem: '目前只有结果，缺少行动代价',

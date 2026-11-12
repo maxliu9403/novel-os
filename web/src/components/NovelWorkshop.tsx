@@ -24,6 +24,9 @@ import WorkshopGuidancePanel from './WorkshopGuidance';
 import WorkshopStoryWorkspace, { type StoryTab } from './WorkshopStoryWorkspace';
 import type { SubmittedTurn } from './WorkshopSubmittedMessages';
 import WorkshopCapacity from './WorkshopCapacity';
+import WorkshopReadiness from './WorkshopReadiness';
+import WorkshopCreativeBasis from './WorkshopCreativeBasis';
+import { routeLengthPreferences, validRouteLengthPreferences } from '../lib/routeLengthPreferences';
 import WorkshopSkeletonReview from './WorkshopSkeletonReview';
 import type { GuidedTurn, SkeletonRevisionRequest } from '../api/workshop';
 import { currentGuidance, choiceRequest, clearChoiceRequest, readChoices, writeChoices } from '../lib/workshopChoiceRequest';
@@ -77,6 +80,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
   const [step, setStep] = useState<"details" | "discussion" | "preview" | "sessions">("details");
   const [showSessions, setShowSessions] = useState(false);
   const [draft, setDraft] = useState("");
+  const [capacityEditing, setCapacityEditing] = useState(false);
   const [storyTab, setStoryTab] = useState<StoryTab>('decision');
   const [choiceDraft, setChoiceDraft] = useState<{ key: string; values: Record<string, string> }>({ key: '', values: {} });
   const submitting = useRef(false);
@@ -195,9 +199,11 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
     ? recordedProgress : null;
   const deliveryProgress = !session?.restart_required && session?.active_operation !== "titles" ? session?.delivery_progress : null;
   const resumableDelivery = Boolean(deliveryProgress?.resumable && (paused || session?.status === "error"));
+  const resumableGeneration = Boolean(session?.recovery?.can_resume && (paused || session?.status === "error"));
   const savedAssembly = deliveryProgress?.completed_stages.includes("assembly");
   const savedAssemblyParts = (deliveryProgress?.assembly?.completed_parts ?? 0) > 0;
   const deliveryResumeLabel = savedAssembly ? "完成骨架保存" : savedAssemblyParts ? "从已保存部分继续" : deliveryProgress?.completed_stages.length ? "从已保存阶段继续" : "继续骨架交付";
+  const recoveryLabel = resumableGeneration ? session?.recovery?.label : deliveryResumeLabel;
   const newTurn = acceptedTurn && acceptedTurn.sessionId === sessionId && acceptedTurn.jobId === jobId ? acceptedTurn : null;
   // The optimistic session after submit still has the previous round's logs.
   // Trust those logs only once a newly appended turn_started is present.
@@ -338,7 +344,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
   }
 
   async function controlRequest(action: "pause" | "resume") {
-    if (!session || busy || (action === "pause" ? !running || !session.job_id : !paused && !resumableDelivery)) return;
+    if (!session || busy || (action === "pause" ? !running || !session.job_id : !paused && !resumableDelivery && !resumableGeneration)) return;
     const current = session;
     // Invalidate outstanding polls before the control request, not after React
     // commits the paused state, so a late response cannot undo the user's action.
@@ -431,9 +437,11 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
   }
 
   async function handoffSourceRoute(choice: SourceRouteChoice, values: WorkshopInput) {
+    if (!validRouteLengthPreferences(values)) throw new Error('篇幅请填写正整数，章节数不超过 511；也可留空由模型建议。');
     const body = operationFor(`novelos-source-handoff:${creationDraftId}`, {
       draft_id: creationDraftId, source_id: choice.source_id, route_set_sha256: choice.route_set_sha256,
       route_id: choice.route_id, input: { ...values, source_book: null }, author_note: choice.author_note,
+      ...(choice.adoption_scope ? { adoption_scope: choice.adoption_scope } : {}),
       mode: choice.mode, use_cover: choice.use_cover ?? true,
       ...(choice.latest_route_set_sha256 ? { latest_route_set_sha256: choice.latest_route_set_sha256 } : {}),
       ...(choice.pending_feedback_run_id ? { pending_feedback_run_id: choice.pending_feedback_run_id } : {}),
@@ -452,7 +460,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
     if (busy || importPending) return;
     setBusy('create'); setError(null);
     try {
-      const values = await bindCreativeSelection({ ...input, creative_types: choice.creative_types, genres: choice.genres, audience_channel: choice.audience_channel });
+      const values = await bindCreativeSelection({ ...input, ...routeLengthPreferences(choice), language: input.language.trim() || choice.language || '', creative_types: choice.creative_types, genres: choice.genres, audience_channel: choice.audience_channel });
       await handoffSourceRoute(choice, values);
     } catch (failure) { if (mounted.current) { setError(messageOf(failure)); setBusy(null); } throw failure; }
   }
@@ -460,6 +468,11 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
   function showBasics() {
     if (session) setInput(session.input);
     setEditingBasics(false); setStep("details");
+  }
+
+  function updateLengthPreference(change: Partial<Pick<WorkshopInput, 'chapters' | 'words_per_chapter' | 'language'>>) {
+    setInput(current => ({ ...current, ...change }));
+    if (!session) setSourceRoute(current => current ? { ...current, ...change } : null);
   }
 
   async function saveBasics(event: FormEvent) {
@@ -610,11 +623,11 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
     storyMode === 'select' ? selectedOptions.length === 1 :
     ['custom', 'question'].includes(storyMode) ? Boolean(draft.trim()) : ['delegate', 'reframe'].includes(storyMode));
   const storyCanDeliver = !storyWorkspace || !storyPending || (storyCanSubmit && ['select', 'custom', 'delegate'].includes(storyMode));
-  const validBasics = Boolean(session?.input.premise.trim());
+  const validBasics = Boolean(session?.input.premise.trim() || session?.source_context?.selected_proposal?.route_id);
   const capacityEnabled = session?.creative_design?.policy.capacity_version === 'story-capacity.v1';
   const capacityReady = !capacityEnabled || (session?.capacity?.status === 'confirmed' && Boolean(session.capacity.confirmed) && !draft.trim() && !storyPending);
   const nextStep = session ? workshopNextStep(session) : null;
-  const canDeliver = Boolean(session && validBasics && !disabled && !session.restart_required && storyCanDeliver && capacityReady && (storyPending || (session.next_step?.can_deliver ?? true)));
+  const canDeliver = Boolean(session && validBasics && !disabled && !capacityEditing && !session.restart_required && storyCanDeliver && capacityReady && (storyPending || (session.next_step?.can_deliver ?? true)));
   const canContinueStory = Boolean(storyWorkspace && !storyPending && nextStep?.can_continue);
   const hasTurnInput = Boolean(draft.trim() || selectedOptions.length || storyAction || canContinueStory);
   const showCapacity = () => {
@@ -625,7 +638,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
     if (!session || disabled || session.restart_required || !nextStep?.can_plan_capacity) return;
     void submitTurn(session, draft.trim(), 'discuss', [], undefined, undefined, undefined, 'plan_capacity');
   };
-  const deliveryBlockedReason = draft.trim() && capacityEnabled
+  const deliveryBlockedReason = capacityEditing ? '请先保存篇幅调整，或收起编辑后使用原方案。' : draft.trim() && capacityEnabled
     ? '请先发送补充并更新篇幅方案，避免生成时遗漏你的新想法。'
     : nextStep?.delivery_blocked_reason;
   const deliveryLabel = session?.prompt_md.trim() ? "更新完整骨架" : "生成完整骨架";
@@ -694,22 +707,22 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
 
           {session && step !== "sessions" && (running || paused) && <section aria-label="本轮请求控制" className="mx-4 mb-2 flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-xl border border-violet/20 bg-white/65 px-4 py-3 sm:mx-8">
             <div className="min-w-0 flex-1 basis-full text-[12px] leading-relaxed text-ink-muted sm:basis-auto">
-              {paused ? <><p role="status" className="font-medium text-violet">{session.active_operation === "titles" ? "书名推荐已暂停" : "推导已暂停"}{elapsed !== null && ` · 本轮已运行 ${elapsed} 秒`}</p><p>{resumableDelivery ? savedAssembly ? "全部阶段成果已保存。继续时重新校验并保存正式骨架，无需再次调用模型。" : savedAssemblyParts ? "已完成阶段和交付部分已保存。继续时复用这些成果，保留已有正式骨架。" : "已完成阶段已保存。继续时从未完成阶段发起新请求，保留已有正式骨架。" : "已有内容已保留。继续时会根据保存的完整上下文重新发起本轮请求，也可以先修改内容或基础设定。"}</p></>
+              {paused ? <><p role="status" className="font-medium text-violet">{session.active_operation === "titles" ? "书名推荐已暂停" : "推导已暂停"}{elapsed !== null && ` · 本轮已运行 ${elapsed} 秒`}</p><p>{resumableGeneration ? session.recovery?.detail : resumableDelivery ? savedAssembly ? "全部阶段成果已保存。继续时重新校验并保存正式骨架，无需再次调用模型。" : savedAssemblyParts ? "已完成阶段和交付部分已保存。继续时复用这些成果，保留已有正式骨架。" : "已完成阶段已保存。继续时从未完成阶段发起新请求，保留已有正式骨架。" : "已有内容已保留。继续时会根据保存的完整上下文重新发起本轮请求，也可以先修改内容或基础设定。"}</p></>
                 : <WorkshopRuntimeStatus progress={runtimeProgress} label={progressLabel!} now={clock} startedAt={startedAt} />}
             </div>
-            <button type="button" className="btn-secondary ml-auto !text-violet" disabled={Boolean(busy) || (running && !session.job_id)} onClick={() => void controlRequest(paused ? "resume" : "pause")}>{busy === "pause" ? "正在暂停…" : busy === "resume" ? "正在继续…" : paused ? resumableDelivery ? deliveryResumeLabel : session.active_operation === "titles" ? "继续推荐" : "继续推导" : session.active_operation === "titles" ? "暂停推荐" : "暂停推导"}</button>
+            <button type="button" className="btn-secondary ml-auto !text-violet" disabled={Boolean(busy) || (running && !session.job_id)} onClick={() => void controlRequest(paused ? "resume" : "pause")}>{busy === "pause" ? "正在暂停…" : busy === "resume" ? "正在继续…" : paused ? resumableDelivery || resumableGeneration ? recoveryLabel : session.active_operation === "titles" ? "继续推荐" : "继续推导" : session.active_operation === "titles" ? "暂停推荐" : "暂停推导"}</button>
           </section>}
 
           {deliveryProgress && step !== "sessions" && <div className="mx-4 mb-2 max-h-[35dvh] shrink-0 overflow-y-auto sm:mx-8">
             <WorkshopDeliveryCheckpoints progress={deliveryProgress} running={running} renderContent={(text) => <Markdown text={text} />} />
           </div>}
 
-          {(error || (step !== "sessions" && (session?.last_error || connectionError || (session?.status === "error" && resumableDelivery)))) && (
+          {(error || (step !== "sessions" && (session?.last_error || connectionError || (session?.status === "error" && (resumableDelivery || resumableGeneration))))) && (
             <div role="alert" className="mx-5 mb-3 shrink-0 rounded-2xl border border-violet/20 bg-violet-soft px-4 py-3 text-[13px] leading-relaxed text-ink-text sm:mx-8">
               {error || connectionError || (runtimeProgress?.failure_summary?.kind === 'no_content_timeout' ? '模型请求未完成' : session?.last_error)}
               {session?.status === 'error' && <WorkshopRequestDiagnostic progress={runtimeProgress} />}
-              {session?.last_error && runtimeProgress?.failure_summary?.kind !== 'no_content_timeout' && <p className="mt-1 text-ink-muted">本轮未完成。{session.prompt_md ? "已有骨架仍保留。" : "基础设定和已提交的对话仍保留。"}{resumableDelivery ? savedAssembly ? "全部阶段成果已保存，可重新校验并保存正式骨架，无需再次调用模型。" : savedAssemblyParts ? "可从未完成部分继续，已保存阶段和部分会复用，不会自动重试。" : "可从未完成阶段继续，已保存阶段会复用，不会自动重试。" : "重试会使用已保存的完整上下文。"}</p>}
-              {session?.status === "error" && resumableDelivery && <button type="button" className="btn-secondary mt-2 !text-violet" disabled={Boolean(busy)} onClick={() => void controlRequest("resume")}>{busy === "resume" ? "正在继续…" : deliveryResumeLabel}</button>}
+              {session?.last_error && runtimeProgress?.failure_summary?.kind !== 'no_content_timeout' && <p className="mt-1 text-ink-muted">本轮未完成。{session.prompt_md ? "已有骨架仍保留。" : "基础设定和已提交的对话仍保留。"}{resumableGeneration ? session.recovery?.detail : resumableDelivery ? savedAssembly ? "全部阶段成果已保存，可重新校验并保存正式骨架，无需再次调用模型。" : savedAssemblyParts ? "可从未完成部分继续，已保存阶段和部分会复用，不会自动重试。" : "可从未完成阶段继续，已保存阶段会复用，不会自动重试。" : "重试会使用已保存的完整上下文。"}</p>}
+              {session?.status === "error" && (resumableDelivery || resumableGeneration) && <button type="button" className="btn-secondary mt-2 !text-violet" disabled={Boolean(busy)} onClick={() => void controlRequest("resume")}>{busy === "resume" ? "正在继续…" : recoveryLabel}</button>}
             </div>
           )}
 
@@ -744,23 +757,23 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
                 <fieldset className="min-w-0" disabled={Boolean(busy) || running || launched || Boolean(session && !editingBasics)}>
                 {(session || creationStep===0) && <>
                 <SourceBookPicker persistDraft={!session} key={`${session?.id ?? "new"}:${session?.revision ?? 0}:${editingBasics}`} value={input.source_book} onChange={source_book=>setInput(current=>({...current,source_book}))} onReady={setSourceReady}
-                  routeDesign={!session ? { draftKey: creationDraftId, choice: sourceRoute, authorContext: { ...input, creative_types: input.creative_types?.filter(isCreativeTypeRef) ?? [] }, onContinue: continueSourceRoute, onChoice: choice => { setSourceRoute(choice); if (choice) setInput(current => ({ ...current, creative_types: choice.creative_types, genres: choice.genres, audience_channel: choice.audience_channel })); } } : undefined} />
+                  routeDesign={!session ? { draftKey: creationDraftId, choice: sourceRoute, authorContext: { ...input, creative_types: input.creative_types?.filter(isCreativeTypeRef) ?? [] }, onContinue: continueSourceRoute, onChoice: choice => { setSourceRoute(choice); if (choice) setInput(current => ({ ...current, ...routeLengthPreferences(choice), creative_types: choice.creative_types, genres: choice.genres, audience_channel: choice.audience_channel })); } } : undefined} />
                 <div className="grid gap-x-5 sm:grid-cols-2">
                   <Field label="暂定书名"><input className={fieldClass} value={input.title} onChange={(e) => setInput({ ...input, title: e.target.value })} placeholder="选填，骨架确认后再由你决定正式书名" /></Field>
                   <Field label="作者"><input className={fieldClass} value={input.author} onChange={(e) => setInput({ ...input, author: e.target.value })} placeholder="留空则在创作时生成笔名" /></Field>
                 </div>
-                <StoryBriefInput key={`${session?.id ?? 'new'}:${editingBasics}`} value={input.premise} onChange={premise => setInput(current => ({ ...current, premise }))} onPendingChange={setImportPending} disabled={Boolean(busy) || running || launched || Boolean(session && !editingBasics)} />
+                <StoryBriefInput key={`${session?.id ?? 'new'}:${editingBasics}`} value={input.premise} onChange={premise => setInput(current => ({ ...current, premise }))} onPendingChange={setImportPending} required={!sourceRoute && !session?.source_context?.selected_proposal?.route_id} disabled={Boolean(busy) || running || launched || Boolean(session && !editingBasics)} />
                 </>}
                 {(session || creationStep===1) && <CreativeTypePicker refs={input.creative_types} legacyNames={input.genres} channel={input.audience_channel} legacy={!!session && input.creation_flow !== "genre_tags.v2"} onChange={(genres,creative_types,audience_channel) => { setInput(current => ({ ...current, genres, creative_types, audience_channel, ...(audience_channel ? { creation_flow: "genre_tags.v2" as const } : {}) })); if (!session) setSourceRoute(current => current ? { ...current, genres, creative_types, audience_channel: audience_channel ?? null } : null); }} />}
                 {(session || creationStep===2) && <>
                 {input.length_planning === 'story_first' && <p className="mb-4 rounded-xl bg-violet-soft/60 p-4 text-[15px] leading-7">先把故事设计完整，再按关键场景推荐篇幅。下面的数字是初始偏好，可留空；生成骨架前，你会看到并确认完整的分章方案。</p>}
                 <div className="grid gap-x-5 sm:grid-cols-2">
-                  <Field label={input.length_planning ? '偏好章节数（可选）' : '计划章节数'}><input type="number" min={1} step={1} className={fieldClass} value={input.chapters ?? ""} onChange={(e) => setInput({ ...input, chapters: e.target.value ? Number(e.target.value) : undefined })} placeholder="未确定可留空" /></Field>
-                  <Field label={input.length_planning === 'story_first' ? '每章规划上限（字／词）' : '每章大约多少字／词'}><input type="number" min={1} step={1} className={fieldClass} value={input.words_per_chapter ?? ""} onChange={(e) => setInput({ ...input, words_per_chapter: e.target.value ? Number(e.target.value) : undefined })} placeholder={input.length_planning === 'story_first' ? '扩展故事时优先增加章节' : '允许合理浮动'} /></Field>
+                  <Field label={input.length_planning ? '偏好章节数（可选）' : '计划章节数'}><input type="number" min={1} step={1} className={fieldClass} value={input.chapters ?? ""} onChange={(e) => updateLengthPreference({ chapters: e.target.value ? Number(e.target.value) : undefined })} placeholder="未确定可留空" /></Field>
+                  <Field label={input.length_planning === 'story_first' ? '每章规划上限（字／词）' : '每章大约多少字／词'}><input type="number" min={1} step={1} className={fieldClass} value={input.words_per_chapter ?? ""} onChange={(e) => updateLengthPreference({ words_per_chapter: e.target.value ? Number(e.target.value) : undefined })} placeholder={input.length_planning === 'story_first' ? '扩展故事时优先增加章节' : '允许合理浮动'} /></Field>
                   <Field label="故事组织形式"><select className={fieldClass} value={input.mode ?? ""} onChange={(e) => setInput({ ...input, mode: e.target.value as NarrativeMode | "", length_planning: ['multi_volume', 'series_installment'].includes(e.target.value) ? null : !session || input.length_planning ? 'story_first' : null })}>
                     <option value="">尚未确定，在讨论中选择</option>{MODES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select></Field>
-                  <Field label="正文语言"><input className={fieldClass} value={input.language} onChange={(e) => setInput({ ...input, language: e.target.value })} placeholder="例如：英文、中文" /></Field>
+                  <Field label="正文语言"><input className={fieldClass} value={input.language} onChange={(e) => updateLengthPreference({ language: e.target.value })} placeholder="例如：英文、中文" /></Field>
                 </div>
                 {input.mode === "series_installment" && <p className="mb-4 rounded-xl bg-violet-soft p-3 text-[12px] leading-relaxed text-ink-muted">这里填写当前分册的篇幅。系列总册数、共享人物和跨册伏笔会在讨论中补齐，每册分别启动。</p>}
                 {input.mode === "multi_volume" && <p className="mb-4 text-[12px] text-ink-muted">填写整本书的章节数；卷数、章节范围与卷间承接会在讨论中确定。</p>}
@@ -778,7 +791,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
               <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-paper-line bg-white/65 px-5 py-4 sm:px-8">
                 <button type="button" className="btn-ghost" disabled={Boolean(busy)} onClick={() => session ? setStep(namingStage || launched ? "preview" : "discussion") : creationStep>0 ? setCreationStep(creationStep-1) : onBack()}>{session ? "返回当前讨论" : creationStep>0 ? "上一步" : "返回作品库"}</button>
                 {session ? <div className="flex flex-wrap gap-2">{editingBasics && <button type="button" className="btn-ghost" disabled={Boolean(busy)} onClick={showBasics}>取消修改</button>}
-                  {!launched && (editingBasics ? <button key="save-basics" type="submit" className={PRIMARY} disabled={disabled || importPending || !sourceReady || !input.premise.trim() || Boolean(input.creation_flow && !validCreativeInput(input))}>{busy === "input" ? "正在保存…" : "保存基础设定"}</button>
+                  {!launched && (editingBasics ? <button key="save-basics" type="submit" className={PRIMARY} disabled={disabled || importPending || !sourceReady || (!input.premise.trim() && !session.source_context?.selected_proposal?.route_id) || Boolean(input.creation_flow && !validCreativeInput(input))}>{busy === "input" ? "正在保存…" : "保存基础设定"}</button>
                     : <button key="edit-basics" type="button" className="btn-secondary" disabled={disabled} onClick={(event) => { event.preventDefault(); setEditingBasics(true); }}>修改基础设定</button>)}</div>
                   : <button type="submit" className={PRIMARY} disabled={Boolean(busy) || importPending || !sourceReady || (!input.premise.trim() && !sourceRoute) || (creationStep>0 && !validCreativeInput(input))}>{busy === "create" ? "正在保存设定…" : creationStep<2 ? "下一步" : sourceRoute ? "带入所选路线，开始头脑风暴" : "开始头脑风暴"}<Icon name="chevron-right" /></button>}
               </footer>
@@ -800,7 +813,10 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
               </div>
               <div className="min-h-0 flex-none px-5 sm:flex-1 sm:overflow-y-auto pb-5 sm:px-8" aria-label="头脑风暴对话">
                 <div className="mx-auto w-full max-w-[1200px]">
+                  {!launched && !running && !['paused', 'error'].includes(session.status) && nextStep && <WorkshopReadiness step={nextStep} disabled={disabled || capacityEditing || Boolean(session.restart_required)} canDeliver={canDeliver} onCapacity={showCapacity} onPlan={planCapacity} onDeliver={requestDelivery}/>}
+                  <WorkshopCreativeBasis session={session}/>
                   {!launched && <WorkshopCapacity session={session} disabled={disabled || Boolean(session.restart_required)} draft={draft}
+                    onEditingChange={setCapacityEditing}
                     onRepartition={request => void submitTurn(session, '', 'discuss', [], undefined, undefined, request)}
                     onAdopt={choice => void submitTurn(session, '', 'deliver', [], undefined, choice)}
                     onPlan={planCapacity} />}
@@ -867,7 +883,7 @@ export default function NovelWorkshop({ open, seed, onClose, onBack, initialSess
                   <button type="button" className="btn-secondary" disabled={Boolean(busy) || !session.prompt_md} onClick={() => setStep("preview")}>预览当前骨架</button>
                   <div className="flex flex-wrap gap-2">
                     {guided && !storyWorkspace && selectedOptions.length > 0 && <button type="button" className="btn-ghost" disabled={disabled || Boolean(session.restart_required)} onClick={() => void saveChoices()}>仅保存选择与补充</button>}
-                    {!running && session.status === "error" && !resumableDelivery && <button type="button" disabled={disabled} className="btn-ghost" onClick={() => session.capacity_replan ? void submitTurn(session, '', 'discuss', [], undefined, undefined, session.capacity_replan.request) : void submitTurn(session, session.turn_intent === 'deliver' && session.capacity?.status === 'confirmed' ? DELIVERY_MESSAGE : "请基于已保存的全部对话继续完成上一轮尚未落实的要求，保留已确认的设定。", session.turn_intent ?? "discuss")}>重试本轮</button>}
+                    {!running && session.status === "error" && !resumableDelivery && !resumableGeneration && <button type="button" disabled={disabled} className="btn-ghost" onClick={() => session.capacity_replan ? void submitTurn(session, '', 'discuss', [], undefined, undefined, session.capacity_replan.request) : void submitTurn(session, session.turn_intent === 'deliver' && session.capacity?.status === 'confirmed' ? DELIVERY_MESSAGE : "请基于已保存的全部对话继续完成上一轮尚未落实的要求，保留已确认的设定。", session.turn_intent ?? "discuss")}>重试本轮</button>}
                     <button type="button" aria-describedby={!canDeliver && deliveryBlockedReason ? 'workshop-delivery-blocked' : 'workshop-turn-guidance'} disabled={!canDeliver} className="btn-secondary !text-violet" onClick={requestDelivery}>{busy === "send" && session.turn_intent === "deliver" ? "正在生成骨架…" : deliveryLabel}</button>
                     <button type="submit" disabled={disabled || Boolean(session.restart_required) || !hasTurnInput || !storyCanSubmit} className={PRIMARY}>{busy === "send" ? "提交中…" : running ? "推导中…" : storyWorkspace && storyPending ? (storyMode === 'question' ? '提问，保留本题' : storyMode === 'reframe' ? '提交并换一组' : storyMode === 'delegate' ? '委托本题并继续' : '采用并继续推演') : selectedOptions.length ? '按所选继续' : canContinueStory && !draft.trim() ? '继续完善故事' : guided ? '发送想法' : '发送并继续推导'}<Icon name="chevron-right" /></button>
                   </div>

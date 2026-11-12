@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_serializer, model_validator
 
 VERSION = "guided-choices.v1"
 AREAS = ("premise", "characters", "plot", "ending")
@@ -76,6 +76,19 @@ class Evidence(_Record):
 
 class SourceRouteEvidence(_Record):
     author_action_ref: str = Field(min_length=8, max_length=64)
+    route_path: list[str | int] | None = Field(default=None, min_length=1, max_length=8)
+    quote: str | None = Field(default=None, min_length=1, max_length=1200)
+
+    @model_validator(mode='after')
+    def paired_route_quote(self):
+        if (self.route_path is None) != (self.quote is None):
+            raise ValueError('A route field reference needs its exact quote')
+        return self
+
+    @model_serializer(mode='wrap')
+    def preserve_direction_evidence(self, handler):
+        # Old direction-only evidence retains its exact persisted shape.
+        return {key: value for key, value in handler(self).items() if value is not None}
 
 
 class Coverage(_Record):
@@ -115,13 +128,44 @@ def enable(design: dict) -> dict:
     return updated
 
 
-def _evidence_valid(item: Evidence, session: dict, assistant_index: int) -> bool:
+def source_core_adopted(session: dict) -> bool:
+    """Current explicit selection scope; never mutate the frozen source policy."""
+    from core.creative_baseline import CORE_SCOPE
+    from core.source_route_context import enabled
+    source = session.get('source_context') or {}
+    selection = session.get('source_route_selection') or {}
+    action = source.get('selection', {}).get('action_id')
+    return bool(enabled(source) and isinstance(source.get('selected_proposal'), dict)
+                and selection.get('adoption_scope') == CORE_SCOPE
+                and selection.get('action_id') == action
+                and action in session.get('source_route_operations', {}))
+
+
+def _evidence_valid(item: Evidence | SourceRouteEvidence, session: dict, assistant_index: int) -> bool:
     if isinstance(item, SourceRouteEvidence):
         from core.source_route_context import enabled
         source = session.get('source_context')
-        return (enabled(source) and source.get('selection', {}).get('scope') == 'discussion_direction'
-                and source['selection'].get('action_id') == item.author_action_ref
-                and item.author_action_ref in session.get('source_route_operations', {}))
+        selected = (enabled(source) and source.get('selection', {}).get('scope') == 'discussion_direction'
+                    and source['selection'].get('action_id') == item.author_action_ref
+                    and item.author_action_ref in session.get('source_route_operations', {}))
+        if not selected or item.route_path is None:
+            return bool(selected)
+        if not source_core_adopted(session) or item.route_path[0] not in {
+            'reader_promise', 'causal_arc', 'character_relationship_arcs',
+            'emotional_design', 'highlights', 'long_hooks_and_payoffs',
+        }:
+            return False
+        value = source['selected_proposal']
+        for part in item.route_path:
+            if isinstance(value, dict) and isinstance(part, str) and part in value:
+                value = value[part]
+            elif isinstance(value, list) and type(part) is int and 0 <= part < len(value):
+                value = value[part]
+            else:
+                return False
+        # A selected core quote proves that meaning, not every new detail in the
+        # node. The independent review still checks its actual adoption scope.
+        return isinstance(value, str) and item.quote in value
     if (item.message_index is None) == (item.input_field is None):
         return False
     if item.input_field is not None:

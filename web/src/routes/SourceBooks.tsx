@@ -13,6 +13,7 @@ import { saveSourceDraft } from "../lib/sourceDraft";
 import { sourceBooksApi } from "../api/sourceBooks";
 import SourceRoutes from '../components/SourceRoutes';
 import { sourceRoutesApi, type SourceRouteChoice } from '../api/sourceRoutes';
+import { routeLengthPreferences } from '../lib/routeLengthPreferences';
 import type { SourceSelection } from '../api/sourceBooks';
 import { clearLocal, newOperationId, operationFor, readLocal, writeLocal } from '../lib/sourceRouteDraft';
 import SourceDesignStatus from '../components/SourceDesignStatus';
@@ -59,9 +60,10 @@ export default function SourceBooks() {
     const result = await sourceRoutesApi.handoff(operationFor(key, {
       draft_id: draftId, source_id: choice.source_id, route_set_sha256: choice.route_set_sha256, route_id: choice.route_id,
       author_note: choice.author_note, mode: choice.mode, use_cover: true,
+      ...(choice.adoption_scope ? { adoption_scope: choice.adoption_scope } : {}),
       input: { title: '', author: '', premise: '', source_book: null, length_planning: 'story_first' as const,
         creation_flow: 'genre_tags.v2' as const, creative_types: choice.creative_types, genres: choice.genres,
-        audience_channel: choice.audience_channel, language: '', mode: '' as const, audience: '', market: '', constraints: '' },
+        audience_channel: choice.audience_channel, language: '', mode: '' as const, audience: '', market: '', constraints: '', ...routeLengthPreferences(choice) },
       ...(choice.latest_route_set_sha256 ? { latest_route_set_sha256: choice.latest_route_set_sha256 } : {}),
       ...(choice.pending_feedback_run_id ? { pending_feedback_run_id: choice.pending_feedback_run_id } : {}),
     }));

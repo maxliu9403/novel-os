@@ -20,11 +20,37 @@ from core.publication_taxonomy import bind_classification
 from test_cover_models_v2 import two_character_fixture
 
 
+def install_fake_creative_judge(monkeypatch):
+    """Explicit orchestration double, not a claim of literary correctness.
+
+    Placements use only narrative text in the current request's actual chapter
+    units, so these host-contract tests still exercise the citation validator.
+    Conflict/quality suites replace this double with their own specific judges.
+    """
+    from api import workshop_development
+    from core.creative_development import _narrative_texts
+    class PassingDevelopmentJudge:
+        def complete(self, system, user):
+            payload = json.loads(user)
+            placements = []
+            for unit in payload.get('candidate_units', []):
+                path = unit['path']
+                if path and path[0] in {'chapter_plan', 'chapters', 'chapter_cards'} and any(type(part) is int for part in path):
+                    quote = next((text for text in _narrative_texts(unit['value']) if text.strip()), None)
+                    if quote:
+                        placements = [{'commitment_id': identity, 'candidate_paths': [path], 'quote': quote}
+                                      for identity in payload.get('required_commitments', [])]
+                        break
+            return json.dumps({'status': 'pass', 'issues': [], 'evidence_requests': [], 'placements': placements})
+    monkeypatch.setattr(workshop_development, '_client', lambda *_: PassingDevelopmentJudge())
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(workshop, "runner", JobRunner())
     monkeypatch.setenv("NOVEL_OS_SETTINGS_PATH", str(tmp_path / "studio_settings.json"))
     monkeypatch.delenv("NOVEL_OS_WORKSHOP_TIMEOUT_SECONDS", raising=False)
+    install_fake_creative_judge(monkeypatch)
     root = tmp_path / "projects"
     app = create_app(projects_root=root, db_url=f"sqlite:///{tmp_path / 'test.db'}")
     return TestClient(app)

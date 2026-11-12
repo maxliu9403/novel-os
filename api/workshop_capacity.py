@@ -26,6 +26,14 @@ cross-chapter scene into independently estimated groups; assign each exactly onc
 Offer 1–3 genuinely different length/partition options, no new plot alternatives:
 retain all adopted events, cast and ending in every option. Explain tradeoffs and
 recommend at most one. Never silently cut a subplot to fit an initial preference.
+If initial_brief.target_total_words is present, it is the author's explicit length
+request. Aim for that exact allocation, preserving all story obligations. If it
+cannot support the adopted story, explain the concrete scene/choice/payoff conflict
+and recommend enough space openly; do not silently claim a different total fulfills
+the request. The estimate is editable before author adoption. A selected reference
+route already supplies a whole-story starting point: proactively recommend total
+length and chapter length in its first development turn, refine with the scenes,
+and distinguish this recommendation from an adopted execution allocation.
 Use the story's language and explicit counting unit (English words, Chinese characters).
 capacity_plan = {language:string, count_unit:'words'|'characters', rationale:string,
  scenes:[{id:string,title:string,source_quote:string,presentation:'on_page'|'summary',
@@ -46,6 +54,9 @@ total words, exact chapter count, per-chapter targets and complete scene coverag
 Carry the on-page reader value into the chapter plan: a major encounter, reversal
 or aftermath cannot be replaced by a one-line mention. Do not invent/cut plot to
 meet a numeric quota. The target is planning space; prose may vary reasonably.
+partition_label and estimate_reason describe editorial allocation, not adopted
+plot facts. They cannot add events, remove reader-value obligations or override
+the source scene, current creative baseline, or the author's explicit decisions.
 The server binds STORY_CAPACITY_JSON locally. Do not write this block yourself.
 '''
 
@@ -115,6 +126,7 @@ class _SourceReceipt:
     source_evidence_sha256: str | None
     texts: tuple[str, ...]
     valid: bool
+    derived_from_proposal_sha256: str | None = None
 
 
 def make_source_receipt(snapshot: dict, context: dict, *, evidence_packet=None) -> _SourceReceipt:
@@ -147,12 +159,41 @@ def make_source_receipt(snapshot: dict, context: dict, *, evidence_packet=None) 
         return _SourceReceipt(basis, None, None, (), False)
 
 
+def make_retained_plan_receipt(snapshot: dict) -> _SourceReceipt | None:
+    """A local numeric edit reuses only exact quotes of the saved verified plan.
+
+    This is a host derivation, never model-provided citation scope. It does not
+    claim the model reread source evidence or prove adoption of proposed events.
+    """
+    edit = snapshot.get('capacity_replan') or {}
+    state = snapshot.get('capacity') or {}
+    if not edit.get('local_result'):
+        return None
+    valid = (edit.get('request_basis') == digest(source(snapshot))
+             and edit.get('plan') == state.get('plan')
+             and edit.get('source_sha256') == state.get('source_sha256')
+             and edit.get('request', {}).get('proposal_sha256') == state.get('proposal_sha256')
+             and digest({'plan': state.get('plan'), 'basis_sha256': state.get('basis_sha256')}) == state.get('proposal_sha256')
+             and state.get('validation', {}).get('status') == 'valid')
+    if not valid:
+        return _SourceReceipt(_receipt_basis(snapshot), None, None, (), False)
+    plan = validate_plan(edit['plan'])
+    validation = state['validation']
+    return _SourceReceipt(_receipt_basis(snapshot), validation.get('source_context_sha256'),
+                          validation.get('source_evidence_sha256'),
+                          tuple(scene['source_quote'] for scene in plan['scenes']), True,
+                          state['proposal_sha256'])
+
+
 def context(session: dict) -> dict:
     if not enabled(session):
         return {}
     state = session.get('capacity', {})
     return {'story_capacity': {'schema': VERSION,
             'confirmed': deepcopy(state.get('confirmed')) if state.get('status') == 'confirmed' else None,
+            **({'requested_total_words': session['input']['target_total_words'],
+                'length_request_rule': 'This author-requested total is a preference to satisfy explicitly. Preserve all adopted story, emotional costs and payoffs; explain any mismatch and retain the original rather than silently dropping content.'}
+               if session.get('input', {}).get('target_total_words') else {}),
             **({'chapter_words_limit': chapter_limit(session),
                 'chapter_limit_rule': 'For unconfirmed plans, each chapter target must not exceed this limit. Expand chapter count to retain the complete story; split scenes at meaningful beats. Do not silently increase chapter length.'}
                if state.get('status') != 'confirmed' and chapter_limit(session) else {}),
@@ -172,7 +213,7 @@ def invalidate(session: dict, notice='故事或创作决定已变化，请更新
         state.update(status='stale', confirmed=None, notice=notice)
 
 
-def record(session: dict, result: dict, snapshot: dict, *, source_receipt=None):
+def record(session: dict, result: dict, snapshot: dict, *, source_receipt=None, reviewed_author_texts=()):
     if not enabled(session) or snapshot.get('turn_intent') == 'deliver':
         return
     raw = result.get('capacity_plan')
@@ -185,6 +226,14 @@ def record(session: dict, result: dict, snapshot: dict, *, source_receipt=None):
         pass
     issues = validation['issues']
     texts = tuple(_text_leaves(source(snapshot)))
+    # A retained candidate can be repaired against later author statements.
+    # Preserve the old request receipt binding; independently include only the
+    # exact current author ledger actually supplied to the completed review.
+    if reviewed_author_texts:
+        if not isinstance(reviewed_author_texts, tuple) or any(not isinstance(t, str) for t in reviewed_author_texts):
+            raise ValueError('创作核验的作者依据必须保持完整原话。')
+        texts += reviewed_author_texts
+        validation['reviewed_author_evidence_sha256'] = digest(list(reviewed_author_texts))
     if source_receipt is not None:
         if (not isinstance(source_receipt, _SourceReceipt) or not source_receipt.valid
                 or source_receipt.basis_sha256 != _receipt_basis(snapshot)):
@@ -193,6 +242,8 @@ def record(session: dict, result: dict, snapshot: dict, *, source_receipt=None):
             texts += source_receipt.texts
             validation.update(source_context_sha256=source_receipt.source_context_sha256,
                               source_evidence_sha256=source_receipt.source_evidence_sha256)
+            if source_receipt.derived_from_proposal_sha256:
+                validation['derived_from_proposal_sha256'] = source_receipt.derived_from_proposal_sha256
     try:
         plan = validate_plan(raw)
         issues.extend({'code': 'source_quote_not_found', 'path': ['scenes', index, 'source_quote'],
@@ -228,6 +279,15 @@ def record(session: dict, result: dict, snapshot: dict, *, source_receipt=None):
         'proposal_sha256': digest({'plan': plan, 'basis_sha256': basis}),
         'source_revision': snapshot['revision'], 'reviewed_revision': session['revision'],
         'confirmed': None, 'notice': '这是编辑估算；采用后冻结执行篇幅，不代表已验证正文质量。'}
+    requested = session.get('input', {}).get('target_total_words')
+    if requested:
+        matches = any(option['total_words'] == requested for option in plan['options'])
+        session['capacity']['length_request'] = {'target_total_words': requested,
+                                                'matches_requested_total': matches}
+        if not matches:
+            unit = '字' if plan['count_unit'] == 'characters' else '词'
+            session['capacity']['notice'] = (f'你希望约 {requested:,} {unit}；当前建议与该目标不同。'
+                                             '请查看展开空间的理由，可继续编辑篇幅；不会自动采用或删减故事。')
 
 
 def validate_choice(session: dict, choice: Choice | None, intent: str, message: str,
@@ -267,6 +327,10 @@ def adopt(session: dict, allocation: dict, now: str) -> str:
     # Keep the author's chapter-length setting. Actual allocation lives in the
     # frozen contract, not a rounded average that overwrites their preference.
     session['input'].update(chapters=len(option['chapters']), language=allocation['language'])
+    if session['input'].get('target_total_words'):
+        # Choosing a visible alternate estimate is an explicit new length
+        # decision; do not keep a contradictory older numeric preference.
+        session['input']['target_total_words'] = option['total_words']
     session['design_needs_revision'] = True
     return f"作者已采用篇幅方案《{option['title']}》：{len(option['chapters'])} 章，共约 {option['total_words']} {allocation['count_unit']}。保留全部已确认故事，按确认的场景与分章分配生成完整骨架。"
 

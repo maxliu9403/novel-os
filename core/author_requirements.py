@@ -120,7 +120,7 @@ def author_text(message: Mapping) -> str:
     """
     if message.get('role') != 'user':
         return ''
-    field = 'author_note' if message.get('action') in {'develop_story', 'plan_capacity'} else 'content'
+    field = 'author_note' if message.get('action') in {'develop_story', 'plan_capacity', 'capacity_replan', 'source_route'} else 'content'
     value = message.get(field)
     return value if isinstance(value, str) else ''
 

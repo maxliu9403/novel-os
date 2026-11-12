@@ -372,3 +372,12 @@ A regular Codex discussion deadline can grant one optional, bounded finish windo
 
 - **章节来源定位 `chapter_locator`**：代码从完整、唯一编号的已确认骨架定位原章标题与字符区间，填补全局映射的空来源引用，细纲只继承同章已验证映射。定位是阅读入口，不是剧情符合性或文学质量证明；原文引述、故事核查与后续质量门仍独立执行。无法无歧义定位时不能补写引用。
 - **分卷高潮位置**：硬合同保证高潮章号位于作者确认的卷范围；末尾35%的常用位置只是节奏建议。早高潮后的余波与回报可进入质量提示，不能以格式检查为由搬动原故事事件。
+# Creative development and editable capacity (2026-11-12; implementation, not deployed)
+
+`creative-baseline.v1` derives immutable authority from exact author text, recorded adoption and selected route version. New `core_and_payoffs` selections protect causal choices and emotional functions; legacy selections remain direction-only. Origin and adoption are separate. `creative-author-adjustment.v1` carries exact author evidence and an independent scoped authorization judgment; original baseline/hash stay intact while effective obligations change. A question, quoted option or “continue” is not adoption.
+
+`creative-development-review.v1` binds full saved candidates, source evidence, actual reviewed units/dependencies, scoped repairs and concrete chapter placements. Passed candidates may promote; retained candidates stay outside current adopted design. `state_effect=no_change` is an independent review finding for explanation/unadopted comparison, never a generator's authority flag. Reply-only operations cannot publish map/capacity/skeleton changes; a preserved capacity basis is rebound with its review evidence after conversation changes.
+
+`creative-handoff.v6` adds frozen baseline, actual delivery review, author adjustments and placements. v1–v5 remain unchanged. `creative-runtime-basis.v1` includes effective obligations and exact author constraints, with lossless on-demand access to the frozen historical evidence archive. A catalog is not a claim that its contents were read. Selected large history and original source evidence share the existing complete evidence paging protocol.
+
+Route length recommendation is editorial advice, not adoption. Capacity editing may allocate locally within complete existing scene ranges or request a scoped reestimate; neither authorizes dropping story substance. Total words, chapter targets and chapter-length limits remain separate editable values. Readiness distinguishes exploration, length choice, skeleton generation, retained repair and delivery; absence of questions alone proves none of these.
