@@ -17,4 +17,8 @@
 
 规划、核查、结局、请求恢复等主回归 1,072 项通过；执行、来源请求和流水线集成的另一组 194 项通过。加入两次实际发布的全部 8 种规则组合及模拟后续规则变化后，最终专项 146 项通过（与主回归重叠，不累加）。
 
-本地复现记录在 `output/planner-recovery-policy-20261113/`：`red-result.json`、`green-result.json`、`green-crash-result.json`。未对生产任务执行迁移、重试或部署。
+本地复现记录在 `output/planner-recovery-policy-20261113/`，包括 `red-result.json`、`green-result.json`、`green-crash-result.json`。
+
+## 部署
+
+2026-11-13 21:53（北京时间），5174 环境切换到提交 `9e437e1e4`。经前端入口验证 API 健康，39,567 份既有数据文件与 SQLite 16 表通过备份比对。本次只执行服务部署，`fac096deaf31` 保留为可继续检查的原任务。验收记录见 `output/outline-recovery-release-20261113/deployed.json`。
