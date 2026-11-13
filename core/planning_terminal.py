@@ -49,7 +49,9 @@ def _read_candidate(planner, prefix, baseline, previous_review):
     # proposal. Its original fields are preserved verbatim in each audit row.
     rows = audit['issues']
     plan = {'issues': [{key: row[key] for key in _EXECUTION_KEYS} for row in rows]}
-    contract.validate_plan(baseline, previous_review, planner.source, plan)
+    from core.planning_global_references import verify_terminal
+    verified = verify_terminal(planner, prefix, baseline, candidate, rows, previous_review)
+    contract.validate_plan(baseline, previous_review, planner.source, plan, verified_global_references=verified)
     if any(row['original_issue'] != previous_review['issues'][row['issue_index']] for row in rows):
         raise ValueError(f'{name} does not resolve the preceding review')
     _check_dependencies(record, {'plan': content_hash(plan), 'audit': content_hash(audit)}, name)

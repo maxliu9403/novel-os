@@ -10,17 +10,23 @@ from core.outline_planning import OutlinePlanningError, _json, content_hash
 from core.planning_repair_context import build_plan_context, repair_contexts
 
 
-def _groups(plan: dict, review: dict, chapter_count: int, evidence=None) -> list[dict]:
+def _groups(plan: dict, review: dict, chapter_count: int, evidence=None, *, global_reference_policy=False) -> list[dict]:
     """Merge corrections that write a chapter another correction must read."""
+    from core.planning_global_references import targets
     groups = []
     proposals = {i['issue_index']: i for i in (evidence or {}).get('issues', [])}
     for item in plan['issues']:
-        if not item['requested_chapters']:
+        proposal = proposals.get(item['issue_index'], {})
+        if not item['requested_chapters'] and not (
+            item['classification'] in ('continuity_gap', 'contradiction') and proposal and targets(proposal)
+        ):
             continue
         adjacent = {n for r in item['requested_chapters'] for n in (r - 1, r + 1)
                     if 1 <= n <= chapter_count}
-        proposal = proposals.get(item['issue_index'], {})
         shared = {ref['path'] for ref in proposal.get('candidate_evidence', [])}
+        # A volume climax and the due chapter derived from it share an owner.
+        if global_reference_policy:
+            shared.update('/'.join(p.split('/')[:3]) for p in tuple(shared) if p.startswith('/volume_contracts/'))
         if 'character_registration' in proposal.get('foundation_repairs', []):
             shared.add('/characters')
         groups.append({'fields': shared, 'requested_chapters': set(item['requested_chapters']),
@@ -225,15 +231,35 @@ def _provenance_plan(planner, candidate, review, context, prefix, limit, *, lega
                     'context': content_hash(context), 'policy': content_hash(instruction)}
     if legacy is not None:
         dependencies['legacy_replies'] = content_hash(legacy)
-    validate = lambda value: evidence.validate_plan(candidate, review, planner.source, value)
     name = prefix + '-plan'
+    # Keep issued v2 plan/correction requests byte-identical. Only an unissued
+    # plan enters the typed evidence protocol, before its first dispatch.
+    marker = name + '-evidence-protocol'
+    protocol = {'schema': 'planning.candidate-citations.v1', 'instruction_sha256': content_hash(evidence.SCALAR_INSTRUCTION)}
+    def verify_protocol(saved):
+        if saved != protocol:
+            raise ValueError('Candidate citation protocol differs from its saved record')
+        return saved
+    policy = planner._load(marker, dependencies, verify_protocol, strict_dependencies=True)
+    if policy is None:
+        issued = (any(planner.cache.glob(name + '*.json')) or any((planner.cache / 'raw').glob(name + '.*'))
+                  or any((planner.cache / 'raw').glob(name + '-format-correction.*')))
+        if not issued:
+            planner._save(marker, dependencies, protocol)
+            policy = protocol
+    if policy is not None:
+        instruction += evidence.SCALAR_INSTRUCTION
+        dependencies = {**dependencies, 'policy': content_hash(instruction)}
+    def validate(value):
+        return evidence.validate_plan(candidate, review, planner.source, value, visible_candidate=context['candidate'],
+                                      explicit_global_scope=policy is not None)
     saved = planner._load(name, dependencies, validate, strict_dependencies=True)
     if saved is not None:
         return saved
     if legacy is not None:
         try:
             saved = evidence.migrate_legacy(candidate, review, planner.source, legacy['latest'],
-                                            prior=legacy.get('prior'), historical=True)
+                                            prior=legacy.get('prior'), historical=True, visible_candidate=context['candidate'])
         except ValueError:
             # Only the receipt reader may supply this input. A paid but malformed
             # legacy reply is provenance, not permission to replay that obsolete policy.
@@ -246,7 +272,10 @@ def _provenance_plan(planner, candidate, review, context, prefix, limit, *, lega
     if saved is None:
         with runtime_stage('planning.coordinated_repair_plan'):
             saved = planner._call(name, instruction, context, validate, strict_dependencies=True,
+                                  prefer_completed_correction=True, correction_namespace_only=True,
                                   recover_archived=True, input_limit_bytes=limit)
+    from core import planning_global_references
+    planning_global_references.enable(planner, name, saved)
     planner._save(name, dependencies, saved)
     return saved
 
@@ -290,18 +319,20 @@ def _verified_execution(planner, plan, prefix, limit, choices):
 
 
 
-def independent_groups(plan, evidence_plan, review, count):
+def independent_groups(plan, evidence_plan, review, count, *, global_reference_policy=False):
     """Freeze the closure of a pending choice, including writes made by dependent repairs."""
     proposals = {i['issue_index']: i for i in evidence_plan['issues']}
     conflicts = [i for i in plan['issues'] if i['classification'] in {'source_conflict','pending_evidence'}]
     affected = {n for i in conflicts for n in proposals[i['issue_index']]['affected_chapters']}
     reads = {n for i in conflicts for n in i['dependency_chapters']}
     held_paths = {ref['path'] for i in conflicts for ref in proposals[i['issue_index']]['candidate_evidence']}
+    if global_reference_policy:
+        held_paths.update('/'.join(p.split('/')[:3]) for p in tuple(held_paths) if p.startswith('/volume_contracts/'))
     def shared_field(path):
         return any(path == held or held.startswith(path + '/') or path.startswith(held + '/')
                    for held in held_paths)
 
-    groups = _groups(plan, review, count, evidence_plan)
+    groups = _groups(plan, review, count, evidence_plan, global_reference_policy=global_reference_policy)
     deferred = {i['issue_index'] for i in conflicts}
     pending = list(groups)
     while True:
@@ -425,8 +456,9 @@ def _residual_group(planner, candidate, review, plan, execution, group, decision
 
 
 def _phase(planner, candidate, review, execution, evidence, groups, prefix, extra, limit, authority,
-           decisions, *, legacy=False, residual=False, deferred=frozenset()):
+           decisions, *, legacy=False, residual=False, deferred=frozenset(), reference_protocol=False):
     from core.planning_group_assembly import merge
+    from core import planning_global_references as references
 
     if legacy:
         return (*_apply_groups(planner, candidate, review, execution, groups, prefix, extra, limit,
@@ -435,33 +467,68 @@ def _phase(planner, candidate, review, execution, evidence, groups, prefix, extr
     resolutions, bindings, late, holds, revisions = {}, {}, {}, [], []
     for group in groups:
         indices = group['original_issue_indices']
-        scoped = {'issues': [i for i in evidence['issues'] if i['issue_index'] in indices]}
+        # Once a round has changed its global contract, later writers must see
+        # that result. The policy marker fixes this order before issuing work.
+        baseline = assembled if residual or reference_protocol else candidate
+        local, permitted, reference_log = baseline, execution, []
         try:
+            if reference_protocol:
+                local, permitted, reference_log = references.apply_group(
+                    planner, baseline, review, evidence, execution, group, prefix,
+                    extra.get('binding_author_choices', []), limit)
+            if reference_log:
+                # Retain all original dependencies and remove only those writes
+                # the source-bound editor explicitly discharged.
+                remaining_rows = [r for r in permitted['issues'] if r['issue_index'] in indices and r['requested_chapters']]
+                writes = {n for r in remaining_rows for n in r['requested_chapters']}
+                reads = set(group['dependency_chapters']) | set(group['requested_chapters'])
+                remaining = [r['issue_index'] for r in remaining_rows]
+                group = {**group, 'requested_chapters': sorted(writes), 'dependency_chapters': sorted(reads - writes),
+                         'original_issue_indices': remaining, 'issues': [review['issues'][i] for i in remaining]}
+            scoped = {'issues': [i for i in evidence['issues'] if i['issue_index'] in group['original_issue_indices']]}
+            if not group['requested_chapters']:
+                if not reference_log:
+                    raise ValueError('A global-only repair needs a verified reference decision')
+                references.merge_references(assembled, baseline, local, reference_log)
+                revisions.extend(reference_log)
+                for revision in reference_log:
+                    resolutions[revision['issue_index']] = {
+                        'status': 'recheck', 'reason': revision['decision']['reason'],
+                        'chapter_numbers': [],
+                    }
+                continue
             if residual:
                 # Disjoint chapter groups can still correct different clauses of
                 # one global constraint. Read the latest verified derivative so
                 # subsequent edits preserve the previous group's exact changes.
-                group_baseline = copy.deepcopy(assembled)
-                proposal, local_revisions = _residual_group(planner, group_baseline, review, evidence, execution,
+                group_baseline = copy.deepcopy(local)
+                proposal, local_revisions = _residual_group(planner, group_baseline, review, evidence, permitted,
                                                            group, decisions, deferred,
                                                            extra.get('binding_author_choices', []))
+                references.merge_references(assembled, baseline, local, reference_log)
                 merge(group_baseline, assembled, proposal, group['requested_chapters'], residual=True)
-                revisions.extend(local_revisions)
+                revisions.extend([*reference_log, *local_revisions])
                 for i in indices:
                     resolutions[i] = {'status': 'recheck', 'reason': 'Independently verify the resulting fields and references.'}
                 continue
-            derived, local_revisions = _reconcile_derived(planner, candidate, review, scoped, execution,
+            derived, local_revisions = _reconcile_derived(planner, local, review, scoped, permitted,
                                                           set(), decisions)
         except PlanningInputTooLarge as exc:
             holds.append({'stage': exc.stage_name, 'issue_indices': indices, 'chapters': group['requested_chapters']})
             continue
         proposal, fixed, citations, disputed, withheld = _apply_groups(
-            planner, derived, review, execution, [group], prefix, extra, limit, authority=authority)
+            planner, derived, review, permitted, [group], prefix, extra, limit, authority=authority)
         holds.extend(withheld)
         if withheld:
             continue
-        merge(candidate, assembled, proposal, group['requested_chapters'])
-        revisions.extend(local_revisions)
+        references.merge_references(assembled, baseline, local, reference_log)
+        merge(local, assembled, proposal, group['requested_chapters'])
+        revisions.extend([*reference_log, *local_revisions])
+        for revision in reference_log:
+            if revision['issue_index'] not in fixed:
+                resolutions[revision['issue_index']] = {
+                    'status': 'recheck', 'reason': revision['decision']['reason'], 'chapter_numbers': [],
+                }
         resolutions.update(fixed)
         bindings.update(citations)
         late.update(disputed)
@@ -558,6 +625,7 @@ def _repair_identities(planner, candidate, review, plan, execution, decisions, c
 
 def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=True, late_plan=None, residual=False, previous_review=None):
     from core import planning_evidence_plan as evidence
+    from core import planning_global_references as references
     from core.planning_author_decisions import defer_for_author, pending_decisions
     from core.planning_recovery import legacy_evidence_plan
 
@@ -583,6 +651,7 @@ def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=T
                   'author_quotes': result['source_quotes'], 'reason': result['reason']}
                  for i, result in verdicts.items() if result['verdict'] == 'confirmed_conflict']
     historical_groups = initial and _old_group_work(planner)
+    reference_protocol = not historical_groups and references.enabled(planner, prefix, plan)
     if historical_groups:
         if not legacy or conflicts:
             raise ValueError('Historical group receipts require their original authorized plan')
@@ -595,7 +664,8 @@ def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=T
     if historical_groups:
         independent, deferred = _groups(execution, review, planner.chapter_count), set()
     else:
-        independent, deferred = independent_groups(execution, plan, review, planner.chapter_count)
+        independent, deferred = independent_groups(execution, plan, review, planner.chapter_count,
+                                                  global_reference_policy=reference_protocol)
     authority = {item['issue_index']: {
         'finding': review['issues'][item['issue_index']]['message'],
         'generated_candidate_evidence': item['candidate_evidence'],
@@ -605,7 +675,7 @@ def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=T
     identity_mode = _identity_policy(planner, prefix, baseline, review) if residual else None
     assembled, resolutions, bindings, late, group_holds, revisions = _phase(
         planner, candidate, review, execution, plan, independent, group_prefix, extra, limit, authority,
-        {}, legacy=historical_groups, residual=residual, deferred=deferred)
+        {}, legacy=historical_groups, residual=residual, deferred=deferred, reference_protocol=reference_protocol)
     capacity_holds.extend(group_holds)
     decisions = {}
     if identity_mode == 'per_authority_phase':
@@ -630,14 +700,16 @@ def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=T
             defer_for_author(planner, questions)
         plan, execution = _resolve_choices(planner, assembled, review, extra, prefix, plan, execution,
                                            conflicts, decisions, limit)
-        _, still_held = independent_groups(execution, plan, review, planner.chapter_count)
+        reference_protocol = reference_protocol or references.enabled(planner, prefix + '-decided', plan)
+        _, still_held = independent_groups(execution, plan, review, planner.chapter_count,
+                                          global_reference_policy=reference_protocol)
         can_resume = deferred - still_held
         groups = _groups({'issues': [i for i in execution['issues'] if i['issue_index'] in can_resume]},
-                         review, planner.chapter_count, plan)
+                         review, planner.chapter_count, plan, global_reference_policy=reference_protocol)
         assembled, new_resolutions, new_bindings, new_late, new_holds, followup_revisions = _phase(
             planner, assembled, review, execution, plan, groups, prefix + '-decided',
             {**extra, 'binding_author_choices': [*choices, *decisions.values()]}, limit, authority, decisions,
-            residual=residual, deferred=still_held)
+            residual=residual, deferred=still_held, reference_protocol=reference_protocol)
         revisions.extend(followup_revisions)
         resolutions.update(new_resolutions)
         bindings.update(new_bindings)
@@ -689,21 +761,26 @@ def _repair_round(planner, candidate, review, *, prefix, limit, extra, initial=T
                           {'plan': content_hash(execution), 'audit': content_hash(audit)}, assembled, audit)
         # Reconsider the entire affected group: the proposal was atomic and applied no edits.
         # The writer's explanation supplies a hypothesis, never a confirmed contradiction.
-        reopened_groups = [g for g in _groups(execution, review, planner.chapter_count, plan)
+        reopened_groups = [g for g in _groups(execution, review, planner.chapter_count, plan,
+                           global_reference_policy=reference_protocol)
                            if set(g['original_issue_indices']) & late.keys()]
         indices = sorted({i for g in reopened_groups for i in g['original_issue_indices']})
         data = []
-        strings = evidence._candidate_strings(assembled)
         for new_i, old_i in enumerate(indices):
             item = copy.deepcopy(next(i for i in plan['issues'] if i['issue_index'] == old_i))
             item['issue_index'] = new_i
             # Paths refer to the original candidate. Include only references that are still
             # exact after any completed assumption repair.
             item['candidate_evidence'] = [ref for ref in item['candidate_evidence']
-                                         if evidence.matches_candidate_evidence(ref, strings)]
+                                         if evidence.bind(ref, assembled, assembled) is not None]
+            if 'writable_global_references' in item:
+                still_cited = {ref['path'] for ref in item['candidate_evidence']}
+                item['writable_global_references'] = [p for p in item['writable_global_references'] if p in still_cited]
             if old_i in late:
                 item.update(classification='source_conflict', writable_chapters=[],
                             reason=late[old_i]['reason'], source_quotes=late[old_i]['source_quotes'])
+                if 'writable_global_references' in item:
+                    item['writable_global_references'] = []
             data.append(item)
         scoped = {**review, 'issues': [review['issues'][i] for i in indices]}
         try:

@@ -400,7 +400,7 @@ class StagedOutlinePlanner:
               recover_archived: bool = False,
               recover_completed: Callable[[dict], dict | None] | None = None,
               repair_fields: Callable[[str, dict], dict | None] | None = None,
-              prefer_completed_correction: bool = False) -> dict:
+              prefer_completed_correction: bool = False, correction_namespace_only: bool = False) -> dict:
         prompt = instruction + "\n\n" + _json(context)
         creative_stage = ("chapter_plan" if instruction.startswith("STAGE: chapter_batch") else
                           "review" if instruction.startswith(("STAGE: semantic_review", "STAGE: coordinated_", "STAGE: planning_registry_")) else "story_design")
@@ -412,7 +412,8 @@ class StagedOutlinePlanner:
         if prefer_completed_correction:
             from core.planning_correction_replay import PendingCorrection, completed_correction
             try:
-                latest = completed_correction(self, name, instruction, context, raw, creative_stage)
+                latest = completed_correction(self, name, instruction, context, raw, creative_stage,
+                                              include_predecessors=not correction_namespace_only)
             except PendingCorrection as pending:
                 latest = self._response(name + '-format-correction', pending.prompt, creative_stage,
                                         strict_dependencies=True, recover_archived=True,
@@ -447,15 +448,8 @@ class StagedOutlinePlanner:
                 scoped = repair_fields(raw, context)
                 if scoped is not None:
                     return scoped
-            correction = (
-                "STAGE: format_correction\nCorrect only the reported JSON/schema defect in the completed response. "
-                "Preserve every already valid story choice, source detail, scene, emotion, character, and obligation. "
-                "Do not restart or redesign the book, recalculate immutable contracts, or omit sections to make JSON shorter. "
-                "Return one complete corrected object for this SAME bounded stage. Use the original source context only "
-                "to supply a missing required field; do not invent a contradictory fact. This is the sole automatic format correction.\n\n"
-                + _json({"original_instruction": instruction, "original_context": context,
-                         "completed_response": raw, "local_error": str(exc)})
-            )
+            from core.planning_correction_replay import format_correction_prompt
+            correction = format_correction_prompt(instruction, context, raw, str(exc))
             repaired = self._response(f"{name}-format-correction", correction, creative_stage,
                                       strict_dependencies=strict_dependencies or saved_correction,
                                       recover_archived=recover_archived or repair_fields is not None, input_limit_bytes=input_limit_bytes)

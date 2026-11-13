@@ -248,6 +248,115 @@ def _verified_planning(project: Path, run_id: str, progress: dict, *, allow_coor
         return False
 
 
+def _validated_baseline(saved):
+    """Run the same structural gates as the planner on the exact, saved story design."""
+    validator = _saved_validator(saved)
+    global_design = saved['global']
+    if validator._global(copy.deepcopy(global_design)) != global_design:
+        raise ValueError('Stored global design changed during structural validation')
+    chapters = saved['candidate']['chapters']
+    for start in range(0, validator.chapter_count, saved['identity']['batch_size']):
+        stop = min(start + saved['identity']['batch_size'], validator.chapter_count)
+        original = {'chapters': chapters[start:stop]}
+        if validator._batch(copy.deepcopy(original), list(range(start + 1, stop + 1)), global_design) != original:
+            raise ValueError('Stored chapters changed during structural validation')
+    validator._review(copy.deepcopy(saved['review']))
+    return validator
+
+
+def _completed_response_pair(saved, label: str) -> tuple[str, str]:
+    """A promoted response must also have an exact, unambiguous archived request/reply pair."""
+    root = saved['root']
+    prefix = label + '.'
+    prompts = list((root / 'raw').glob(prefix + '*.prompt.txt'))
+    if not prompts:
+        raise ValueError('Missing completed planning request')
+    match = None
+    for path in prompts:
+        prompt = _artifact(path)
+        value = saved['payload'](label + '-response', {'prompt_hash': _hash(prompt)})
+        raw = value['raw']
+        if not isinstance(raw, str):
+            raise ValueError('Invalid completed planning response')
+        returned = path.with_name(path.name.removesuffix('.prompt.txt') + '.response.txt')
+        if returned.exists():
+            if _artifact(returned) != raw:
+                raise ValueError('Completed planning response disagrees with its archive')
+            match = raw, prompt
+    if match is None:
+        raise ValueError('Missing completed planning reply')
+    return match
+
+
+def candidate_citation_recovery_available(project: Path, run_id: str, progress: dict) -> bool:
+    """Offer to reuse an exhausted classifier only when its actual corrected citations now bind."""
+    from core import planning_evidence_plan as evidence
+    from core.outline_planning import _json, _parse_object
+    from core.planning_correction_replay import format_correction_prompt
+    from core.planning_coordinator import _authority_inputs
+    from core.planning_repair_context import build_plan_context
+
+    prefix = evidence.VERSION
+    label = prefix + '-plan'
+    correction = label + '-format-correction'
+    identity = progress.get('identity_hash')
+    if (progress.get('status') != 'failed' or not isinstance(identity, str)
+            or not re.fullmatch(r'[0-9a-f]{64}', identity) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,128}', run_id)):
+        return False
+    directory = project / 'outputs/runs' / run_id / 'planning/checkpoints' / identity
+    if not (directory / (correction + '-response.json')).is_file():
+        return False
+    saved = _verified_planning(project, run_id, progress, allow_coordinated=True, residual=True)
+    if not saved or saved['review'].get('status') != 'blocked':
+        return False
+    try:
+        # Only the initial failed plan qualifies here. A previously started repair,
+        # verdict or publication belongs to its own, more advanced resume point.
+        allowed = {prefix + '-author-inputs.json', label + '-response.json', correction + '-response.json'}
+        raw_pair = re.compile(re.escape(label) + r'(?:-format-correction)?\.[a-f0-9]{32}\.(?:prompt|response)\.txt')
+        for path in directory.rglob('*'):
+            if path.name.startswith(prefix):
+                if (path.parent == directory and path.name in allowed
+                        or path.parent == directory / 'raw' and raw_pair.fullmatch(path.name)):
+                    continue
+                return False
+            if path.name.startswith(('coordinated-repair-v1', 'global-source-restoration-', 'global-reference-repair-',
+                                     'repair', 'review-global-', 'review-repaired', 'review-coordinated-', 'residual-')):
+                return False
+        validator = _validated_baseline(saved)
+        candidate, review, source = saved['candidate'], saved['review'], saved['source']
+        choices = _authority_inputs(validator, candidate, review, prefix)
+        extra = {'target_words': validator.target_words}
+        if choices:
+            extra['binding_author_choices'] = choices
+        if validator.capacity:
+            extra['confirmed_story_capacity'] = validator.capacity
+        ctx = build_plan_context(candidate, review, source, saved['brief'], saved['locked'], extra)
+        raw, prompt = _completed_response_pair(saved, label)
+        corrected, corrected_prompt = _completed_response_pair(saved, correction)
+        base = corrected_prompt.rsplit('\n\n[CREATIVE_EXECUTION_CONTEXT]\n', 1)[0] if saved['lock'] else corrected_prompt
+        report = _parse_object(base.split('\n\n', 1)[1])
+        if not isinstance(report.get('local_error'), str):
+            return False
+        expected = evidence.PLAN_INSTRUCTION + '\n\n' + _json(ctx)
+        expected_correction = format_correction_prompt(evidence.PLAN_INSTRUCTION, ctx, raw, report['local_error'])
+        if saved['lock']:
+            from core.creative_execution import CreativeExecution
+            execution = CreativeExecution(project, saved['run'] / 'creative-design', saved['lock'])
+            expected = execution.prepare('outline_planner', expected, None, None, stage='review')[0]
+            expected_correction = execution.prepare('outline_planner', expected_correction, None, None,
+                                                     stage='review', format_correction=True)[0]
+        if prompt != expected or corrected_prompt != expected_correction:
+            return False
+        plan = evidence.validate_plan(candidate, review, source, _parse_object(corrected),
+                                      visible_candidate=ctx['candidate'])
+        string_paths = evidence._candidate_strings(ctx['candidate'])
+        return any(ref['path'] not in string_paths for issue in plan['issues']
+                   for ref in issue['candidate_evidence'])
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, IndexError):
+        return False
+
+
 def metadata_recovery_available(project: Path, run_id: str, progress: dict) -> bool:
     """Offer a local citation-only child of an exhausted, complete group reply.
 
@@ -256,7 +365,7 @@ def metadata_recovery_available(project: Path, run_id: str, progress: dict) -> b
     checkpoint. Ordinary resume must repeat every check before publishing a child.
     """
     from core import planning_coordinated as contract
-    from core.outline_planning import SCHEMA_VERSION, _json, _parse_object
+    from core.outline_planning import _json, _parse_object
     from core.planning_coordinator import _groups
     from core.planning_repair_context import build_plan_context, build_repair_context
     from core.planning_reference_recovery import recover
@@ -265,43 +374,13 @@ def metadata_recovery_available(project: Path, run_id: str, progress: dict) -> b
     if not saved:
         return False
     root, source, candidate = saved['root'], saved['source'], saved['candidate']
-    read, payload = saved['read'], saved['payload']
-
-    def text_file(path: Path) -> str:
-        if path.resolve() != path.absolute() or path.stat().st_size > 4_000_000:
-            raise ValueError('Not a bounded real response artifact')
-        return path.read_text(encoding='utf-8')
-
-    def response(name: str) -> tuple[str, str]:
-        record = read(root / f'{name}-response.json')
-        value = record['payload']
-        if (record.get('schema_version') != SCHEMA_VERSION
-                or record.get('identity_hash') != saved['identity_hash']
-                or not isinstance(value, dict) or not isinstance(value.get('raw'), str)
-                or record.get('payload_hash') != _hash(value)):
-            raise ValueError('Invalid completed response binding')
-        for path in (root / 'raw').glob(f'{name}.*.prompt.txt'):
-            prompt = text_file(path)
-            if record.get('dependencies_hash') != _hash({'prompt_hash': _hash(prompt)}):
-                continue
-            returned = path.with_name(path.name[:-len('.prompt.txt')] + '.response.txt')
-            if text_file(returned) == value['raw']:
-                return value['raw'], prompt
-        raise ValueError('Completed response has no exact saved request/response pair')
+    payload = saved['payload']
 
     try:
         if any(path.name.startswith((contract.REVIEW_NAME, contract.VERSION + '-candidate'))
                or '-metadata-v1' in path.name for path in root.rglob('*')):
             return False
-        validator = _saved_validator(saved)
-        if validator._global(copy.deepcopy(saved['global'])) != saved['global']:
-            return False
-        for start in range(1, validator.chapter_count + 1, saved['identity']['batch_size']):
-            numbers = list(range(start, min(start + saved['identity']['batch_size'], validator.chapter_count + 1)))
-            original = {'chapters': candidate['chapters'][start - 1:numbers[-1]]}
-            if validator._batch(copy.deepcopy(original), numbers, saved['global']) != original:
-                return False
-        validator._review(copy.deepcopy(saved['review']))
+        validator = _validated_baseline(saved)
         creative = None
         if saved['lock']:
             from core.creative_execution import CreativeExecution
@@ -352,7 +431,7 @@ def metadata_recovery_available(project: Path, run_id: str, progress: dict) -> b
             for later in range(index + 1, len(groups) + 1):
                 if any(root.rglob(f'{contract.VERSION}-group-{later:03d}*')):
                     return False
-            original_raw, original_prompt = response(name)
+            original_raw, original_prompt = _completed_response_pair(saved, name)
             if original_prompt != wire(contract.INSTRUCTION + '\n\n' + _json(group_context)):
                 return False
             try:
@@ -361,7 +440,7 @@ def metadata_recovery_available(project: Path, run_id: str, progress: dict) -> b
                 original_error = str(exc)
             else:
                 return False
-            final_raw, format_prompt = response(name + '-format-correction')
+            final_raw, format_prompt = _completed_response_pair(saved, name + '-format-correction')
             base = (format_prompt.rsplit('\n\n[CREATIVE_EXECUTION_CONTEXT]\n', 1)[0]
                     if creative else format_prompt)
             if not base.startswith('STAGE: format_correction\n') or format_prompt != wire(base, format_correction=True):

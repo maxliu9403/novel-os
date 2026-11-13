@@ -8,6 +8,8 @@ from __future__ import annotations
 from copy import deepcopy
 
 from core import planning_coordinated as original
+from core.planning_candidate_evidence import bind
+from core.planning_correction import references
 
 VERSION = 'coordinated-evidence-v2'
 PLAN_INSTRUCTION = '''STAGE: coordinated_repair_plan
@@ -72,6 +74,19 @@ _LEGACY = {'issue_index', 'classification', 'reason', 'requested_chapters',
 _CLASSES = ('contradiction', 'continuity_gap', 'interpretation', 'source_conflict')
 _MATERIAL = ('contradiction', 'continuity_gap')
 
+SCALAR_INSTRUCTION = """
+For candidate_evidence cite a visible string field as {path,quote} using its exact
+text. Cite a JSON number, boolean or null as {path,value}, using its actual JSON
+type and full value. Containers, omitted chapter bodies and omitted map entries
+are not evidence. A candidate citation is never an author quotation or permission
+to write. Include writable_global_references (a list of exact candidate JSON
+Pointers, [] if none) in each issue. Only a material global finding can request a
+cited volume's climax_chapter or a cited plot thread's resolution_chapter. Its
+derived obligation is read-only. If only a global reference needs correction, use
+writable_chapters:[]; name affected chapters separately. List chapter writes only
+when their design actually needs to change.
+"""
+
 
 def _text(value):
     return isinstance(value, str) and bool(value.strip())
@@ -126,41 +141,41 @@ def _candidate_strings(candidate):
     return dict(walk('', {k: v for k, v in candidate.items() if k not in ('chapters', 'chapter_map')}))
 
 
-def matches_candidate_evidence(reference, strings):
-    path, quote = reference.get('path'), reference.get('quote')
-    return (_text(path) and path in strings and isinstance(quote, str)
-            and (quote == strings[path] if quote == '' else bool(quote.strip()) and quote in strings[path]))
-
-
-def _check_candidate(value, strings, label, errors):
+def _check_candidate(value, candidate, visible, label, errors):
     if not isinstance(value, list):
         errors.append(f'{label} must be a list of candidate passage references')
-        return
+        return []
+    bound = []
     for n, ref in enumerate(value):
-        ref_label = f'{label}[{n}]'
-        ref = _schema(ref, {'path', 'quote'}, ref_label, errors)
-        if not matches_candidate_evidence(ref, strings):
-            errors.append(f'{ref_label} must quote the declared visible candidate field exactly')
+        citation = bind(ref, candidate, visible)
+        if citation is None:
+            errors.append(f'{label}[{n}] must identify the exact text or JSON value of the declared visible candidate field')
+        else:
+            bound.append(citation)
+    return bound
 
 
-def validate_plan(candidate: dict, review: dict, source: str, value: dict) -> dict:
+def validate_plan(candidate: dict, review: dict, source: str, value: dict, *,
+                  visible_candidate=None, explicit_global_scope=False) -> dict:
     """Report independent defects together, retaining scope even for read-only findings."""
     existing = original._existing(candidate)
     issues = original._issues(review, existing)
     if not _text(source):
         raise ValueError('The complete adopted source is required')
     errors = []
-    root = _schema(value, {'issues'}, 'plan', errors)
+    root = _schema(deepcopy(value), {'issues'}, 'plan', errors)
     items = root.get('issues')
     if not isinstance(items, list):
         raise ValueError('plan.issues must be a list')
     if not errors and items and all(isinstance(item, dict) and set(item) == _LEGACY for item in items):
-        return migrate_legacy(candidate, review, source, value)
-    strings = _candidate_strings(candidate)
+        return migrate_legacy(candidate, review, source, value, visible_candidate=visible_candidate)
+    visible = candidate if visible_candidate is None else visible_candidate
+    global_paths = references(candidate)
     seen = set()
     for pos, item in enumerate(items):
         name = f'issues[{pos}]'
-        fields = _ITEM | {'foundation_repairs'} if isinstance(item, dict) and 'foundation_repairs' in item else _ITEM
+        optional = {'foundation_repairs', 'writable_global_references'}
+        fields = _ITEM | (optional.intersection(item) if isinstance(item, dict) else set())
         item = _schema(item, fields, name, errors)
         tools = item.get('foundation_repairs', [])
         if (not isinstance(tools, list) or any(t not in ('character_registration', 'payoff_binding') for t in tools)
@@ -183,7 +198,21 @@ def validate_plan(candidate: dict, review: dict, source: str, value: dict) -> di
             errors.append(f'{name}.affected_chapters must locate the affected story before acting')
         if writes - affected or writes & reads:
             errors.append(f'{name}.writable_chapters must be affected and disjoint from dependencies')
-        if kind in _MATERIAL and not writes:
+        cited = _check_candidate(item.get('candidate_evidence'), candidate, visible, name+'.candidate_evidence', errors)
+        item['candidate_evidence'] = cited
+        eligible = {ref['path'] for ref in cited if ref['path'] in global_paths
+                    and valid_index and issues[idx]['scope'] == 'global' and kind in _MATERIAL}
+        if explicit_global_scope and eligible:
+            item.setdefault('writable_global_references', [])
+        if 'writable_global_references' in item:
+            targets = item['writable_global_references']
+            if (not isinstance(targets, list) or any(not isinstance(p, str) or p not in eligible for p in targets)
+                    or len(targets) != len(set(targets))):
+                errors.append(f'{name}.writable_global_references must name unique, cited and permitted global references')
+                eligible = set()
+            else:
+                eligible = set(targets)
+        if kind in _MATERIAL and not writes and not eligible:
             errors.append(f'{name}.writable_chapters must identify the actual material correction')
         if kind not in _MATERIAL and writes:
             errors.append(f'{name}.writable_chapters must be empty for {kind}')
@@ -192,14 +221,14 @@ def validate_plan(candidate: dict, review: dict, source: str, value: dict) -> di
             if chapter not in affected or (kind in _MATERIAL and chapter not in writes):
                 errors.append(f'{name} must include its chapter {chapter} in the applicable affected/write scope')
         _source_quotes(source, item.get('source_quotes'), name+'.source_quotes', errors)
-        _check_candidate(item.get('candidate_evidence'), strings, name+'.candidate_evidence', errors)
     if seen != set(range(len(issues))):
         errors.append('plan.issues must account for every saved issue exactly once')
     _check(errors)
-    return deepcopy(value)
+    return root
 
 
-def migrate_legacy(candidate: dict, review: dict, source: str, value: dict, *, prior=None, historical: bool = False) -> dict:
+def migrate_legacy(candidate: dict, review: dict, source: str, value: dict, *, prior=None, historical: bool = False,
+                   visible_candidate=None) -> dict:
     """Adapt a legacy response to typed evidence without asserting its classification.
 
     Only candidate references can be recovered from an earlier proposal. Their exact
@@ -208,7 +237,7 @@ def migrate_legacy(candidate: dict, review: dict, source: str, value: dict, *, p
     if (not isinstance(value, dict) or set(value) != {'issues'}
             or not isinstance(value['issues'], list) or not value['issues']):
         raise ValueError('Legacy plan needs a complete saved issue list')
-    strings = _candidate_strings(candidate)
+    strings = _candidate_strings(candidate if visible_candidate is None else visible_candidate)
     prior_items = prior.get('issues') if isinstance(prior, dict) else None
     existing = original._existing(candidate)
     issues = original._issues(review, existing)
@@ -261,7 +290,7 @@ def migrate_legacy(candidate: dict, review: dict, source: str, value: dict, *, p
                           'dependency_chapters': sorted(reads), 'source_quotes': original_quotes,
                           'candidate_evidence': references, **({} if historical else {'foundation_repairs': []})})
     try:
-        result = validate_plan(candidate, review, source, {'issues': converted})
+        result = validate_plan(candidate, review, source, {'issues': converted}, visible_candidate=visible_candidate)
     except ValueError as exc:
         errors.append(str(exc))
     _check(errors)

@@ -6,6 +6,20 @@ This path never calls the model and never falls back to an older valid proposal.
 import json
 
 
+def format_correction_prompt(instruction, context, raw, error):
+    """Render the same complete protocol on dispatch and on read-only checkpoint verification."""
+    from core.outline_planning import _json
+    return (
+        "STAGE: format_correction\nCorrect only the reported JSON/schema defect in the completed response. "
+        "Preserve every already valid story choice, source detail, scene, emotion, character, and obligation. "
+        "Do not restart or redesign the book, recalculate immutable contracts, or omit sections to make JSON shorter. "
+        "Return one complete corrected object for this SAME bounded stage. Use the original source context only "
+        "to supply a missing required field; do not invent a contradictory fact. This is the sole automatic format correction.\n\n"
+        + _json({"original_instruction": instruction, "original_context": context,
+                 "completed_response": raw, "local_error": error})
+    )
+
+
 class PendingCorrection(Exception):
     """A dispatched correction must resume through its original request session."""
     def __init__(self, prompt):
@@ -13,13 +27,14 @@ class PendingCorrection(Exception):
         self.prompt = prompt
 
 
-def completed_correction(planner, name, instruction, context, original, stage):
+def completed_correction(planner, name, instruction, context, original, stage, *, include_predecessors=True):
     from core.outline_planning import OutlinePlanningError
     correction_name = name + '-format-correction'
     results, pending, completed_prompts = set(), set(), set()
     # These directories are the verified same-run lineage, not a scan of nearby
     # caches. Model switches must not hide an already issued correction.
-    for directory in (planner.cache, *planner.predecessors):
+    directories = (planner.cache, *planner.predecessors) if include_predecessors else (planner.cache,)
+    for directory in directories:
         try:
             raw = _from_directory(planner, directory, correction_name, instruction, context, original, stage)
         except PendingCorrection as exc:
@@ -83,9 +98,9 @@ def _from_directory(planner, directory, correction_name, instruction, context, o
             if directory.is_symlink() or saved_path.is_symlink():
                 raise ValueError('correction record cannot be a filesystem alias')
             record = json.loads(saved_path.read_text(encoding='utf-8'))
-            if (record['schema_version'] != SCHEMA_VERSION or record['identity_hash'] != directory.name
-                    or record['dependencies_hash'] != content_hash(dependencies)
-                    or record['payload_hash'] != content_hash(record['payload'])
+            if record['identity_hash'] != directory.name or record['dependencies_hash'] != content_hash(dependencies):
+                raise ValueError('completed checkpoint belongs to different inputs or policy; its attempt cannot be reset')
+            if (record['schema_version'] != SCHEMA_VERSION or record['payload_hash'] != content_hash(record['payload'])
                     or not isinstance(record['payload']['raw'], str)):
                 raise ValueError('correction identity, request or payload hash differs')
             return record['payload']['raw'], prefix

@@ -152,7 +152,7 @@ def _quotes(values: Any, source: str) -> None:
         _quote(value, source)
 
 
-def validate_plan(candidate: dict, review: dict, source: str, value: dict) -> dict:
+def validate_plan(candidate: dict, review: dict, source: str, value: dict, *, verified_global_references=frozenset()) -> dict:
     """Validate full issue accounting without modifying the saved candidate."""
     _object(value, {'issues'}, 'Coordinated repair plan')
     existing = _existing(candidate)
@@ -175,7 +175,7 @@ def validate_plan(candidate: dict, review: dict, source: str, value: dict) -> di
         if requested & dependencies:
             raise ValueError('Requested and unchanged dependency chapters must be disjoint')
         if classification in {'contradiction', 'continuity_gap'}:
-            if not requested:
+            if not requested and not (issues[index]['scope'] == 'global' and index in verified_global_references):
                 raise ValueError('A material correction must request affected chapters')
             if issues[index]['scope'] == 'chapter' and issues[index]['chapter'] not in requested:
                 raise ValueError('A chapter finding must include its affected chapter')

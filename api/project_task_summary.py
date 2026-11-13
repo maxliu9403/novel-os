@@ -159,7 +159,7 @@ def task_sidecar(project: Path, run_id: str, relative: str) -> dict | None:
                 'action': str(recovery.get('action', ''))[:80], 'reason': str(recovery.get('reason', ''))[:2000]} \
                 if isinstance(recovery, dict) and type(recovery.get('retryable')) is bool else None
             from core.planning_recovery import (
-                coordinated_repair_available, evidence_recovery_available,
+                candidate_citation_recovery_available, coordinated_repair_available, evidence_recovery_available,
                 metadata_recovery_available, residual_recovery_availability, source_restoration_available,
                 specialized_review_availability,
             )
@@ -201,6 +201,11 @@ def task_sidecar(project: Path, run_id: str, relative: str) -> dict | None:
             if old_review or evidence_recovery_available(project, run_id, data):
                 message = '已保存全书细纲。恢复后将核对原文与候选假设，继续修订受影响的章节。'
                 safe['recovery'] = {'retryable': True, 'action': 'recheck_saved_evidence', 'reason': message}
+                safe['next_action'] = message
+                return safe
+            if candidate_citation_recovery_available(project, run_id, data):
+                message = '已核对修订方案引用的字段值。继续后将复用已保存的方案，修订对应问题并重新核查。'
+                safe['recovery'] = {'retryable': True, 'action': 'continue_saved_citation_plan', 'reason': message}
                 safe['next_action'] = message
                 return safe
             if metadata_recovery_available(project, run_id, data):
