@@ -11,7 +11,8 @@ import re
 # replies, reviews and repairs remain bound to their original instructions.
 _MODE = "global-seed-source-v1"
 _DESIGN_UNIT = re.compile(
-    r"global|global-seed-(?:source-)?v1|roadmap-v1-[0-9]+-[0-9]+(?:-split)?"
+    r"global|global-seed-(?:source-)?v1|roadmap-v1-[0-9]+-[0-9]+(?:-split|-reference-protocol)?"
+    r"|design-reference-basis-[0-9a-f]{64}"
     r"|batch-[0-9]+(?:-part-[0-9]+-[0-9]+)?(?:-split)?"
 )
 _VERSION = "planning.continuation.v2"

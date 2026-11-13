@@ -489,13 +489,23 @@ class CreativeExecution:
         if len(current) != 1:
             raise CreativeExecutionError(f"Foundation must contain exactly one plan for chapter {chapter}")
         nearby = [c for c in chapters if c.get("number") in {chapter - 1, chapter, chapter + 1}]
+        from core.chapter_review import DESIGN_REFERENCE_RULES, design_reference_context
+        try:
+            design_references = design_reference_context(foundation, [c['number'] for c in nearby],
+                                                         source_sha256=context['source_sha256'])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise CreativeExecutionError(f'Foundation design references are invalid: {exc}') from exc
         context["planned_design"] = {
-            "authority": "author plan, NOT occurred events or POV knowledge",
+            "authority": ("planned design derived from adopted source and model-generated global decisions, "
+                          "NOT author testimony, occurred events or POV knowledge") if design_references is not None
+                         else "author plan, NOT occurred events or POV knowledge",
             "foundation_sha256": hashlib.sha256(raw).hexdigest(),
             "book": {k: v for k, v in foundation.items() if k != "chapters"}, "chapters": nearby,
             "coverage": {"included_chapters": [c["number"] for c in nearby],
                          "omitted_chapters": [c["number"] for c in chapters if c not in nearby],
                          "reason": "Current and adjacent chapter plans; all global design fields retained"}}
+        if design_references is not None:
+            context['planned_design']['design_reference_rule'] = DESIGN_REFERENCE_RULES
         if foundation.get("identity_constraints"):
             from identity_constraints import RULES, validate_identity_constraints
             validate_identity_constraints(foundation["identity_constraints"], [c["id"] for c in foundation["characters"]])

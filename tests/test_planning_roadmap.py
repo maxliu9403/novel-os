@@ -274,12 +274,15 @@ def test_oversized_range_bisects_before_dispatch_and_keeps_partition_after_cap_g
         first.run()
     assert (first.cache / "roadmap-v1-001-008-split.json").exists()
     attempted = [c["requested_chapters"] for s, c in interrupted.calls if s == "chapter_roadmap"]
-    assert attempted[0] == [1, 2, 3, 4]
-    assert attempted[1][0] == 5 and len(attempted[1]) <= 4
+    # Reference provenance adds a small, non-truncated contract. Partition size
+    # may shrink, while every original chapter still appears exactly once.
+    before_failure = [n for chunk in attempted[:-1] for n in chunk]
+    assert before_failure == [1, 2, 3, 4]
+    assert attempted[-1][0] == 5 and len(attempted[-1]) <= 4
     continued = StoryModel(story)
     continued.planning_input_bytes = 500000
     result = make_planner(tmp_path, continued, count=100, source=source).run()
-    assert continued.calls[0][1]["requested_chapters"] == attempted[1]
+    assert continued.calls[0][1]["requested_chapters"] == attempted[-1]
     assert result["roadmap_source_coverage"]["covered_chapters"] == 100
 
 
@@ -327,7 +330,7 @@ def test_twice_truncated_range_splits_and_never_overwrites_replies_on_resume(tmp
     assert [s for s, _ in broken.calls] == ["global_design_seed", "broken", "correction", "chapter_roadmap", "chapter_roadmap"]
     name = "roadmap-v1-001-008"
     originals = {p: p.read_bytes() for p in initial.cache.glob(f"{name}*.json")}
-    assert {p.name for p in originals} == {f"{name}-response.json", f"{name}-format-correction-response.json", f"{name}-split.json"}
+    assert {p.name for p in originals} == {f"{name}-response.json", f"{name}-format-correction-response.json", f"{name}-split.json", f"{name}-reference-protocol.json"}
     continued = StoryModel(story)
     result = make_planner(tmp_path, continued, count=60, source=initial.source).run()
     assert len(result["chapter_map"]) == 60

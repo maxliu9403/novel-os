@@ -5,7 +5,10 @@ review and the foundation gate. Partial roadmaps stay private candidates.
 """
 from __future__ import annotations
 
-from core.outline_planning import _json, content_hash
+from copy import deepcopy
+import hashlib
+
+from core.outline_planning import _json, _parse_object, content_hash
 from core.planning_capacity import input_limit
 from core.planning_errors import PlanningOutputIncomplete
 from core.skeleton_projection import chapter_locations, global_source_index
@@ -35,6 +38,24 @@ from frozen_global_design and immutable_contracts. Cite exact source text with
 stable IDs, reusing existing IDs or defining new IDs in source_anchors. Put a
 chapter number in each new ID to avoid collisions with other ranges. Never
 redefine existing quotations. Do not invent a citation or drop a qualifier."""
+
+DESIGN_REFERENCE_RULES = """
+REFERENCE PROVENANCE v2
+source_anchors may quote ONLY the supplied adopted original source text, never
+frozen_global_design, a previous generated chapter, or a model interpretation.
+To carry a generated design rule, select its exact typed path into the supplied
+frozen_global_design in a separate design_reference_paths:[] list on the chapter
+row, for example [["opening_investment","protected_long_range_discoveries",0]].
+Only complete string values under design_reference_catalog.eligible_roots may be
+selected. The host resolves those existing paths and assigns stable IDs; do not
+invent IDs, hashes, quotations, or registry definitions. Use [] when none apply.
+Design references preserve planned decisions and hypotheses; they do not prove
+an author statement or an event in the source, or make a model assumption immutable.
+They record provenance; source-grounded corrections still govern the current design.
+Keep actual source_anchor_ids for
+each chapter's original basis. Neither kind of reference approves story quality;
+the complete source and later semantic review still govern author fidelity.
+"""
 
 
 PROVISIONAL_RULES = """
@@ -134,6 +155,10 @@ def build_global_design(planner) -> dict:
             stop = min(start + MAX_RANGE, volume["chapter_end"] + 1)
             roadmap.add(list(range(start, stop)))
     assembled = {**seed, "chapter_map": roadmap.rows, "source_anchors": roadmap.anchors}
+    used_designs = {ref for row in roadmap.rows for ref in row.get('design_reference_ids', [])}
+    if used_designs:
+        from core.planning_design_references import select_catalog
+        assembled['design_references'] = select_catalog(roadmap.design_catalog, used_designs)
     if provisional:
         assembled["roadmap_source_coverage"] = {
             "schema": "roadmap-source-coverage.v1", "source_sha256": scoped["source_sha256"],
@@ -148,14 +173,93 @@ class _Roadmap:
         self.planner = planner
         self.provisional = provisional
         self.locations = chapter_locations(planner.source, planner.chapter_count) if provisional else {}
-        self.instruction = ROADMAP_PROMPT + (CHECK_SEED if provisional else "")
+        self.base_instruction = ROADMAP_PROMPT + (CHECK_SEED if provisional else "")
+        self.instruction = self.base_instruction
         self.seed_hash = content_hash(seed)
+        from core.planning_design_references import build_catalog
+        self.design_catalog = build_catalog(seed, hashlib.sha256(planner.source.encode()).hexdigest())
+        from core.planning_design_references import validate_catalog
+        basis_name = 'design-reference-basis-' + self.design_catalog['seed_sha256']
+        basis_dependencies = {'policy': self.design_catalog['schema'],
+                              'source': self.design_catalog['source_sha256'],
+                              'seed': self.design_catalog['seed_sha256']}
+        basis = {'seed': deepcopy(seed), 'catalog': self.design_catalog}
+
+        def validate_basis(value):
+            if value != basis:
+                raise ValueError('Saved design reference basis differs from the frozen seed')
+            validate_catalog(value['catalog'], source_sha256=self.design_catalog['source_sha256'], seed=value['seed'])
+            return value
+
+        if planner._load(basis_name, basis_dependencies, validate_basis, strict_dependencies=True) is None:
+            planner._save(basis_name, basis_dependencies, basis)
         # Every excluded contract is supplied verbatim by planner._context().
         self.story = {key: value for key, value in seed.items() if key not in planner.locked}
         self.rows: list[dict] = []
         self.anchors = list(seed["source_anchors"])
         self.limit = input_limit(planner.client)
         self.negotiated = False
+
+    def _reference_protocol(self, name: str, dependencies: dict) -> int:
+        """Freeze new wire instructions; existing paid requests keep their bytes."""
+        planner = self.planner
+        catalog_hash = self.design_catalog['sha256']
+
+        def validate(value):
+            if value not in ({'version': 1}, {'version': 2, 'catalog_sha256': catalog_hash}):
+                raise ValueError('Roadmap reference protocol belongs to different design evidence')
+            return value
+
+        marker = name + '-reference-protocol'
+        saved = planner._load(marker, dependencies, validate, strict_dependencies=True)
+        if saved is None:
+            directories = (planner.cache, *planner.predecessors)
+            existing = any((folder / f'{name}.json').exists()
+                           or (folder / f'{name}-response.json').exists()
+                           or any((folder / 'raw').glob(f'{name}.*.prompt.txt'))
+                           for folder in directories)
+            saved = {'version': 1} if existing else {'version': 2, 'catalog_sha256': catalog_hash}
+            planner._save(marker, dependencies, saved)
+        return saved['version']
+
+    def _repair_design_references(self, name, raw, context, numbers):
+        """Derive exact provenance from a retained candidate, without inference."""
+        from core.planning_design_references import reclassify, select_catalog
+        try:
+            original = _parse_object(raw)
+            result = reclassify(original, self.design_catalog, self.planner.source, self.anchors)
+        except (KeyError, TypeError, ValueError):
+            return None
+        if result is None:
+            return None
+        child, mappings = result
+        # All ordinary source, structure and chronology checks still apply.
+        try:
+            accepted = self._validate(deepcopy(child), numbers)
+        except (KeyError, TypeError, ValueError):
+            return None
+        used = {ref for row in accepted['chapter_map'] for ref in row.get('design_reference_ids', [])}
+        expected = {'candidate': accepted, 'mappings': mappings,
+                    'design_references': select_catalog(self.design_catalog, used)}
+        dependencies = {'policy': 'planning-design-reference-recovery.v1',
+                        'raw_response_sha256': hashlib.sha256(raw.encode()).hexdigest(),
+                        'candidate_sha256': content_hash(original), 'seed_sha256': self.seed_hash,
+                        'source_sha256': hashlib.sha256(self.planner.source.encode()).hexdigest(),
+                        'catalog_sha256': self.design_catalog['sha256'],
+                        'prior_anchors_sha256': content_hash(self.anchors),
+                        'instruction_sha256': content_hash(self.instruction), 'context_sha256': content_hash(context)}
+
+        def validate(value):
+            if value != expected:
+                raise ValueError('Saved design-reference recovery differs from the original candidate or evidence')
+            return deepcopy(value['candidate'])
+
+        checkpoint = name + '-design-reference-recovery-v1'
+        saved = self.planner._load(checkpoint, dependencies, validate, strict_dependencies=True)
+        if saved is not None:
+            return saved
+        self.planner._save(checkpoint, dependencies, expected)
+        return deepcopy(accepted)
 
     def _context(self, numbers: list[int]) -> dict:
         # An obligation can depend on an exception in the same row. Carry its
@@ -177,6 +281,7 @@ class _Roadmap:
         return self.planner._prompt_fits(prompt, "story_design", self.limit)
 
     def _validate(self, value: dict, numbers: list[int]) -> dict:
+        value = deepcopy(value)
         if self.provisional:
             conflicts = value.get("seed_conflicts")
             if not isinstance(conflicts, list):
@@ -205,7 +310,25 @@ class _Roadmap:
             known[identifier] = anchor
         merged = list(known.values())
         rows = value["chapter_map"]
+        by_path = {tuple(entry['path']): entry['id'] for entry in self.design_catalog['entries']}
+        if isinstance(rows, list):
+            for row in rows:
+                if not isinstance(row, dict) or 'design_reference_paths' not in row:
+                    continue
+                paths = row['design_reference_paths']
+                if 'design_reference_ids' in row or not isinstance(paths, list):
+                    raise ValueError('Select generated design paths without redefining their IDs')
+                selected = []
+                for path in paths:
+                    if (not isinstance(path, list) or any(type(part) not in (str, int) for part in path)
+                            or tuple(path) not in by_path or by_path[tuple(path)] in selected):
+                        raise ValueError('Design reference path must select a unique existing frozen field')
+                    selected.append(by_path[tuple(path)])
+                row.pop('design_reference_paths')
+                row['design_reference_ids'] = selected
         self.planner._validate_roadmap(rows, merged, numbers)
+        from core.planning_design_references import references
+        references(rows, self.design_catalog)
         for row in rows:
             for key in ("reserved_reveals", "ending_obligations"):
                 if not isinstance(row.get(key), list):
@@ -218,6 +341,11 @@ class _Roadmap:
     def add(self, numbers: list[int]) -> None:
         planner = self.planner
         name = f"roadmap-v1-{numbers[0]:03d}-{numbers[-1]:03d}"
+        protocol_deps = {'seed': self.seed_hash, 'prior_rows': content_hash(self.rows),
+                         'prior_anchors': content_hash(self.anchors), 'range': numbers,
+                         'protocol': VERSION, 'base_instruction': content_hash(self.base_instruction)}
+        reference_version = self._reference_protocol(name, protocol_deps)
+        self.instruction = self.base_instruction + (DESIGN_REFERENCE_RULES if reference_version == 2 else '')
         dependencies = {"seed": self.seed_hash, "prior_rows": content_hash(self.rows),
                         "prior_anchors": content_hash(self.anchors), "range": numbers,
                         "protocol": VERSION, "instruction": content_hash(self.instruction)}
@@ -238,12 +366,22 @@ class _Roadmap:
             saved_split = planner._load(name + "-split", dependencies, validate_split, strict_dependencies=True)
             if saved_split is None:
                 context = self._context(numbers)
+                if reference_version == 2:
+                    context['design_reference_catalog'] = {
+                        'schema': self.design_catalog['schema'],
+                        'eligible_roots': sorted({entry['path'][0] for entry in self.design_catalog['entries']}),
+                        'rule': 'Select exact typed paths into frozen_global_design; all original values remain supplied there.'}
+                    prior_refs = {ref for row in self.rows for ref in row.get('design_reference_ids', [])}
+                    if prior_refs:
+                        from core.planning_design_references import select_catalog
+                        context['prior_design_references'] = select_catalog(self.design_catalog, prior_refs)
                 if middle and not _has_reply(planner, name) and not self._fits(context):
                     saved_split = split
                 else:
                     try:
                         chunk = planner._call(name, self.instruction, context, validate,
-                                              strict_dependencies=True, recover_archived=True)
+                                              strict_dependencies=True, recover_archived=True, prefer_completed_correction=True,
+                                              repair_fields=lambda raw, ctx: self._repair_design_references(name, raw, ctx, numbers))
                     except PlanningOutputIncomplete:
                         # Neither archived reply is a complete JSON candidate.
                         # Reduce output size while retaining the same original

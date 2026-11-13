@@ -381,7 +381,8 @@ class StagedOutlinePlanner:
               *, input_limit_bytes: int | None = None, strict_dependencies: bool = False,
               recover_archived: bool = False,
               recover_completed: Callable[[dict], dict | None] | None = None,
-              repair_fields: Callable[[str, dict], dict | None] | None = None) -> dict:
+              repair_fields: Callable[[str, dict], dict | None] | None = None,
+              prefer_completed_correction: bool = False) -> dict:
         prompt = instruction + "\n\n" + _json(context)
         creative_stage = ("chapter_plan" if instruction.startswith("STAGE: chapter_batch") else
                           "review" if instruction.startswith(("STAGE: semantic_review", "STAGE: coordinated_", "STAGE: planning_registry_")) else "story_design")
@@ -390,6 +391,31 @@ class StagedOutlinePlanner:
         recover_archived = recover_archived or creative_stage == "review"
         raw = self._response(name, prompt, creative_stage, strict_dependencies=strict_dependencies,
                              recover_archived=recover_archived or repair_fields is not None, input_limit_bytes=input_limit_bytes)
+        if prefer_completed_correction:
+            from core.planning_correction_replay import PendingCorrection, completed_correction
+            try:
+                latest = completed_correction(self, name, instruction, context, raw, creative_stage)
+            except PendingCorrection as pending:
+                latest = self._response(name + '-format-correction', pending.prompt, creative_stage,
+                                        strict_dependencies=True, recover_archived=True,
+                                        input_limit_bytes=input_limit_bytes)
+            if latest is not None:
+                try:
+                    return validate(_parse_object(latest))
+                except (KeyError, TypeError, ValueError) as exc:
+                    if repair_fields:
+                        scoped = repair_fields(latest, context)
+                        if scoped is not None:
+                            return scoped
+                    original_incomplete = False
+                    try:
+                        _parse_object(raw)
+                    except InvalidPlanningJSON:
+                        original_incomplete = True
+                    failure = (PlanningOutputIncomplete if original_incomplete and isinstance(exc, InvalidPlanningJSON)
+                               else OutlinePlanningError)
+                    raise failure(f'{name} remains invalid after one bounded format correction; '
+                                  f'both responses and prior stages are preserved: {exc}') from exc
         try:
             return validate(_parse_object(raw))
         except (KeyError, TypeError, ValueError) as exc:
@@ -511,6 +537,7 @@ class StagedOutlinePlanner:
         self._validate_source_anchors(value["source_anchors"])
         if with_map:
             self._validate_roadmap(value["chapter_map"], value["source_anchors"], list(range(1, self.chapter_count + 1)))
+            self._validate_design_references(value)
         self._ending(value)
         confirmed_format = NarrativeFormat.from_dict(self.locked["narrative_format"])
         value["volume_contracts"] = validate_volume_contracts(
@@ -518,6 +545,34 @@ class StagedOutlinePlanner:
             allow_legacy_defaults=not confirmed_format.is_long_form,
         )
         return self._locked(value)
+
+    def _validate_design_references(self, value: dict) -> None:
+        """Verify generated-design provenance against its separately saved seed."""
+        from core.planning_design_references import build_catalog, references, select_catalog, validate_catalog
+        catalog = value.get('design_references')
+        if catalog is not None:
+            source_sha = hashlib.sha256(self.source.encode()).hexdigest()
+            validate_catalog(catalog, source_sha256=source_sha)
+            dependencies = {'policy': catalog['schema'], 'source': source_sha, 'seed': catalog['seed_sha256']}
+
+            def validate_basis(basis):
+                if not isinstance(basis, dict) or set(basis) != {'seed', 'catalog'}:
+                    raise ValueError('Invalid frozen design reference basis')
+                original = validate_catalog(basis['catalog'], source_sha256=source_sha, seed=basis['seed'])
+                if original != build_catalog(basis['seed'], source_sha):
+                    raise ValueError('Design reference basis omitted part of its original catalog')
+                if original['seed_sha256'] != catalog['seed_sha256']:
+                    raise ValueError('Design reference seed identity changed')
+                if select_catalog(original, [entry['id'] for entry in catalog['entries']]) != catalog:
+                    raise ValueError('Design references differ from the frozen generated seed')
+                return original
+
+            if self._load('design-reference-basis-' + catalog['seed_sha256'], dependencies,
+                          validate_basis, strict_dependencies=True) is None:
+                raise OutlinePlanningError('Frozen design reference basis is missing; original source was not reclassified')
+        references(value.get('chapter_map', []), catalog)
+        if 'chapters' in value:
+            references(value['chapters'], catalog, inherited_rows=value.get('chapter_map', []))
 
     def _validate_source_anchors(self, definitions: list) -> None:
         anchors = []
@@ -598,6 +653,8 @@ class StagedOutlinePlanner:
         from core.planning_source_anchors import bind_batch
         try:
             bind_batch(chapters, global_design)
+            from core.planning_design_references import references
+            references(chapters, global_design.get('design_references'), inherited_rows=global_design['chapter_map'])
         except ValueError as exc:
             raise OutlinePlanningError(str(exc)) from exc
         for chapter in chapters:
@@ -1011,11 +1068,16 @@ class StagedOutlinePlanner:
         self._progress("publish", "running", "验证完整元数据、结局和长篇结构合同")
         candidate = self._locked(candidate)
         self._ending(candidate)
+        self._validate_design_references(candidate)
+        design_provenance = copy.deepcopy(candidate.get('design_references'))
         validated = self.final_validator(candidate)
         # Final validation must not silently drop applicable gating metadata.
         for key, value in self.locked.items():
             if validated.get(key) != value:
                 raise OutlinePlanningError(f"Final validation lost immutable {key}")
+        if validated.get('design_references') != design_provenance:
+            raise OutlinePlanningError('Final validation changed generated design provenance')
+        self._validate_design_references(validated)
         self._ending(validated)
         coverage = {
             "source_sha256": self.identity["source_sha256"], "foundation_hash": content_hash(validated),

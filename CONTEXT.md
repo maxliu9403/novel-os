@@ -1,5 +1,11 @@
 # Novel OS domain language
 
+## Planning design reference provenance (implemented 2026-11-13, not deployed)
+
+Source anchors are exact quotations of adopted author material. A design reference identifies a complete string field in a separately saved generated seed, bound to that seed and source, with explicit model provenance. It is historical evidence of the plan's origin, not author testimony, an occurred event, POV knowledge or an immutable obligation. The adopted source and current reviewed design govern execution. References cannot themselves certify story quality.
+
+New roadmap calls select typed field paths; the host resolves IDs and full text. Legacy misclassified anchors can become design references only through exact unique field matching, complete occurrence accounting and unchanged story fields, while affected chapters retain genuine source evidence. Derived recovery records never overwrite originals. Latest issued corrections remain authoritative across verified model lineage; incomplete corrections resume through their exact original request session. Detail, publication and chapter execution preserve the separate provenance. No unverified citation or structural check is relaxed.
+
 ## Host-bound request recovery (deployed 2026-11-13)
 
 A host request binding points to the exact request receipt executed by a novel run/stage or Workshop author operation. Read-only status projection never scans for a recent unknown receipt. A complete response is reusable; an unconfirmed remote outcome requires one explicit retry of the bound receipt version. Stable operation IDs survive duplicate delivery, and the prior receipt remains byte-exact history.

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from copy import deepcopy
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -175,6 +176,47 @@ projects this contract directly; no extra per-chapter planning model is called.
 """
 
 
+DESIGN_REFERENCE_RULES = (
+    "Source anchors quote adopted author text. Design references record model-generated "
+    "decisions from the frozen global design; they are not author statements, independent "
+    "evidence, occurred events, or POV knowledge. Check these plans against the adopted "
+    "source and actual prose; their references alone do not establish fidelity or delivery. "
+    "These are historical provenance, not immutable story obligations. The adopted source "
+    "and current reviewed design govern execution; do not reinstate a superseded interpretation."
+)
+
+
+def design_reference_context(foundation: dict, numbers: list[int], *, source_sha256=None) -> dict | None:
+    """Resolve only the requested plans while keeping model design provenance explicit."""
+    maps = foundation.get('chapter_map', [])
+    chapters = foundation.get('chapters', [])
+    if 'design_references' not in foundation:
+        for rows in (maps, chapters):
+            if isinstance(rows, list) and any(isinstance(row, dict) and 'design_reference_ids' in row
+                                              and row['design_reference_ids'] != [] for row in rows):
+                raise ValueError('Chapter design references require their frozen registry')
+        return None
+    from core.planning_design_references import references, validate_catalog
+    catalog = validate_catalog(foundation['design_references'], source_sha256=source_sha256)
+    if not isinstance(maps, list) or not isinstance(chapters, list):
+        raise ValueError('Design reference coverage requires structured chapter lists')
+    checked_maps, checked_chapters = deepcopy(maps), deepcopy(chapters)
+    references(checked_maps, catalog)
+    references(checked_chapters, catalog, inherited_rows=checked_maps)
+    by_id = {entry['id']: entry for entry in catalog['entries']}
+    selected = []
+    for number in numbers:
+        matches = [row for row in checked_chapters if row.get('number') == number]
+        if len(matches) != 1:
+            raise ValueError('Design references require exactly one plan for each selected chapter')
+        refs = matches[0].get('design_reference_ids', [])
+        selected.append({'number': number, 'design_reference_ids': refs,
+                         'references': [deepcopy(by_id[identifier]) for identifier in refs]})
+    return {'schema': 'chapter-design-references.v1', 'catalog_sha256': catalog['sha256'],
+            'seed_sha256': catalog['seed_sha256'], 'source_sha256': catalog['source_sha256'],
+            'rule': DESIGN_REFERENCE_RULES, 'chapters': selected}
+
+
 def project_outline(foundation: dict, number: int) -> str:
     from contracts import ChapterContract
     if type(number) is not int or number < 1:
@@ -186,6 +228,10 @@ def project_outline(foundation: dict, number: int) -> str:
     contract = ChapterContract.from_dict(chapter["execution_contract"])
     if contract.chapter != number or contract.schema_version != 1:
         raise ValueError("章节执行合同与章节不匹配。")
+    design_references = design_reference_context(foundation, [number])
+    provenance = ("\n\n[PLANNED_DESIGN_REFERENCES]\n"
+                  + json.dumps(design_references, ensure_ascii=False, indent=2)
+                  + "\n[/PLANNED_DESIGN_REFERENCES]\n") if design_references is not None else ""
     serialization = ""
     if "narrative_format" in foundation:
         from core.narrative_format import NarrativeFormat, chapter_binding, validate_volume_contracts
@@ -217,6 +263,7 @@ def project_outline(foundation: dict, number: int) -> str:
     # Preserve every planned scene and obligation verbatim; no narrative guessing.
     return (f"# Chapter {number} · {chapter['title']}\n\n"
             + json.dumps({k: v for k, v in chapter.items() if k != "execution_contract"}, ensure_ascii=False, indent=2)
+            + provenance
             + serialization
             + "\n\n[CHAPTER_CONTRACT]\n" + json.dumps(contract.to_dict(), ensure_ascii=False)
             + "\n[/CHAPTER_CONTRACT]\n")
