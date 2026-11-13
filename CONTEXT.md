@@ -1,6 +1,6 @@
 # Novel OS domain language
 
-## Planning design reference provenance (implemented 2026-11-13, not deployed)
+## Planning design reference provenance (deployed 2026-11-13)
 
 Source anchors are exact quotations of adopted author material. A design reference identifies a complete string field in a separately saved generated seed, bound to that seed and source, with explicit model provenance. It is historical evidence of the plan's origin, not author testimony, an occurred event, POV knowledge or an immutable obligation. The adopted source and current reviewed design govern execution. References cannot themselves certify story quality.
 

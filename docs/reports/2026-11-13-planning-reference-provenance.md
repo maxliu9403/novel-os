@@ -1,6 +1,6 @@
 # 规划引用来源分离与旧任务恢复
 
-本轮针对 `fac096deaf31` 的 `Source anchor anchor_ch04_reveal_guard is not an exact quotation` 完成公共规划流程修复。开发位于 `codex/creative-baseline-capacity`；尚未部署、重启服务或恢复真实任务。没有修改生产小说的语言、连接、骨架或检查点。
+本轮针对 `fac096deaf31` 的 `Source anchor anchor_ch04_reveal_guard is not an exact quotation` 完成公共规划流程修复。开发位于 `codex/creative-baseline-capacity`。下文实现与离线验收完成后，已按作者“重启吧”部署；真实小说任务未恢复，见发布记录。没有修改生产小说的语言、连接、骨架或检查点。
 
 ## 已证实的原因
 
@@ -54,3 +54,16 @@
 证据：`output/anchor-diagnosis-20261113/` 保存最初复现与原始依据；`output/anchor-fix-20261113/native-replay.json`、`native_replay.py` 和测试日志保存修复验收。临时回放项目位于该明确标记的诊断目录，未接入运行服务。
 
 这证明当前错误能够保留故事后恢复，以及新旧路线使用共同来源合同；不证明尚未生成的后续小说已经通过文学审稿。原文冲突、无法验证的引文、未知远端结果和损坏检查点仍由各自的校验与恢复流程处理。本轮不更改生产任务状态。
+
+
+## 部署重启验收（2026-11-13 13:23，北京时间）
+
+作者明确授权“重启吧”后发布固定本地提交 `bcc35104d706a9ec48d35cf8ec64a6ab2320e7cf`。后端镜像 `novel-os-backend:planning-reference-bcc35104d`，前端保留 `novel-os-frontend:request-recovery-cd4530998`，刷新 nginx 上游解析。未推送远端。
+
+- 发布前实时核实21项目、2资料与Workshop无活动worker。
+- 备份38,627文件与16表一致性SQLite；镜像沿用原有依赖，无网络构建。
+- 新镜像在无网络、无凭据、无生产挂载环境，对备份副本重放原生恢复流程，结果与本地验收一致，0真实模型调用。
+- 重启后535运行源码、46个HTTP页面/资源匹配；所有数据文件和SQLite逻辑内容保持，服务健康，环境、端口、挂载和模型连接不变。
+- 本次只部署重启。fac096deaf31仍为failed/outline，未新增真实生成请求或改动任务manifest；之后可由正常恢复入口使用新逻辑。
+
+发布目录 `output/planning-reference-release-20261113/` 保存固定快照、备份、测试绑定、镜像验收、`deployed.json`与`rollback.yaml`。回滚时仅切换旧后端镜像并reload nginx，不得用旧数据覆盖发布后的新增任务进度。

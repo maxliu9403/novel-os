@@ -1,5 +1,13 @@
 # Novel OS 项目记忆
 
+## 2026-11-13 13:23：引用来源修复已部署重启，小说任务未恢复
+
+作者最新“重启吧”已执行。5174后端固定代码 `bcc35104d706a9ec48d35cf8ec64a6ab2320e7cf`，镜像 `novel-os-backend:planning-reference-bcc35104d`；前端保持 `request-recovery-cd4530998`，仅reload nginx更新上游。21项目/2资料/Workshop均无活动worker后切换；38,627文件和16表一致性SQLite已备份，全部数据与逻辑表内容切换前后不变；535运行源码、46 HTTP页面/资源校验匹配，健康ok，环境/端口/挂载/模型连接不变。
+
+新镜像在无网络、无凭据、无生产挂载容器，用备份项目副本经过原生恢复验证：复用最新纠正、保存1–8章、两条引用正确归类、故事字段不变，进入9–16章后在替身边界停止，真实模型0调用。本次授权为部署重启，**没有恢复真实小说任务**；fac096deaf31仍failed/outline，manifest和原文SHA均保持。作者后续恢复时可走正常resume，不删除检查点，也不改原简体中文或当前连接。
+
+发布与备份在 `output/planning-reference-release-20261113/`，`deployed.json`记录验收、`rollback.yaml`固定旧镜像。回滚只换后端镜像并reload nginx，不能覆盖此后的新任务数据。本地修复已提交，未推送远端；下方“未部署”为发布前历史。详见[修复与发布报告](docs/reports/2026-11-13-planning-reference-provenance.md)。
+
 ## 2026-11-13：规划引用来源合同修复完成，未部署
 
 作者“请继续高质量开发”针对 fac096deaf31 的 `anchor_ch04_reveal_guard is not an exact quotation`。精确回放证明完整回复误把模型全书设计中的约束当原文引文，原纠正仅修复三处中的第一处；不是上下文截断。已实现公共 `planning-design-references.v1`：新路线选择冻结设计字段路径，由代码绑定完整文本/种子/原文；旧任务只有唯一逐字匹配、所有引用用途可迁移且保留真实原文依据时，才产生独立恢复子记录。原文逐字校验不放宽，故事内容不改写；模型引用是来源历史，不是不可修正的作者约束。
