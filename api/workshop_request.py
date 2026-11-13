@@ -22,6 +22,11 @@ Full conversation, current_complete_skeleton and initial_brief are supplied; pre
 confirmed facts and scoped author decisions. Latest explicit changes supersede earlier
 ones. Previous unanswered questions are context, not a checklist to repeat. Historical
 response formats do not override this current request contract.
+initial_brief.language specifies the NOVEL PROSE language, independently of Chinese
+discussion advice or the source material's language. Preserve the author's audience,
+market and constraints in the story design and use the prose language's counting
+unit for capacity advice. A source route's earlier language/length recommendation
+cannot override the current creation settings; adapt its pacing without losing story.
 '''
 
 PROPOSALS = '''

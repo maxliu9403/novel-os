@@ -1,5 +1,6 @@
 import { API_BASE as BASE } from "./base";
 import type { SourceProvenance } from './sourceBooks';
+import type { RequestRecovery, RequestRecoveryRetry } from './requestRecovery';
 const coverBase = (id: string) => id.startsWith("workshop:")
   ? `/api/workshop/sessions/${encodeURIComponent(id.slice(9))}/covers`
   : `/api/projects/${encodeURIComponent(id)}/covers`;
@@ -179,6 +180,7 @@ export interface ProjectTaskPlanning {
 }
 
 export interface ProjectTaskDetail {
+  request_recovery?: RequestRecovery | null;
   run_id: string;
   status: string;
   started_at: string | null;
@@ -1192,7 +1194,7 @@ export const api = {
   project: (id: string) => get<ProjectDetail>(`/api/projects/${id}`),
   projectTask: (id: string, runId: string) =>
     get<ProjectTaskDetail>(`/api/projects/${encodeURIComponent(id)}/tasks/${encodeURIComponent(runId)}`),
-  resumeProjectTask: (id: string, runId: string, options?: { outline_planning_mode?: "staged"; author_decisions?: AuthorDecisionResponse }) =>
+  resumeProjectTask: (id: string, runId: string, options?: { outline_planning_mode?: "staged"; author_decisions?: AuthorDecisionResponse; request_recovery?: RequestRecoveryRetry }) =>
     send<ProjectTaskResumeResult>(`/api/projects/${encodeURIComponent(id)}/tasks/${encodeURIComponent(runId)}/resume`, "POST", options),
   pauseProjectTask: (id: string, runId: string, jobId: string) =>
     send<ProjectTaskDetail>(`/api/projects/${encodeURIComponent(id)}/tasks/${encodeURIComponent(runId)}/pause`, "POST", { job_id: jobId }),

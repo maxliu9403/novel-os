@@ -42,6 +42,7 @@ from . import workshop_repartition
 from . import workshop_guidance
 from . import workshop_next_step
 from . import workshop_development
+from . import workshop_request_recovery
 from core.publication_taxonomy import bind_classification
 
 LOG = logging.getLogger("uvicorn.error.workshop")
@@ -120,13 +121,25 @@ class SessionInput(BaseModel):
             raise ValueError('故事容量规划当前用于单本连续章节；分卷/系列请使用原篇幅设置。')
         if self.creation_flow and not self.creative_types:
             raise ValueError('请选择一个 Genre 和至少一个 Tag。')
-        if self.creation_flow == 'genre_tags.v2' and self.audience_channel is None:
+        if (self.creation_flow == 'genre_tags.v2' and self.audience_channel is None
+                and 'audience_channel' in self.model_fields_set):
             raise ValueError('请选择男频或女频。')
         return self
 
 
 class RevisionInput(BaseModel):
     revision: int = Field(ge=0)
+
+
+class RequestRecoveryInput(BaseModel):
+    action: Literal['retry_unknown']
+    operation_id: str = Field(min_length=8, max_length=100, pattern=r'^[a-zA-Z0-9_-]+$')
+    request_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    receipt_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
+class ResumeInput(RevisionInput):
+    request_recovery: RequestRecoveryInput | None = None
 
 
 class TurnInput(RevisionInput):
@@ -1171,9 +1184,12 @@ def _failure(exc: Exception, *, timeout_seconds: float, has_prompt: bool) -> str
     from core.author_requirements import AuthorRequirementConflict
     from core.creative_development import DevelopmentCapacityError, DevelopmentProtocolError
     from core.source_request_session import RequestOutcomeUnknown, RequestReceiptError
+    from core.request_recovery import RequestRecoveryCaptured, RequestRecoveryError
     from core.source_request_recovery import classify_failure, failure_message
     from .workshop_development_delivery import DeliveryProjectionError
     retained = _preserved_context(has_prompt)
+    if isinstance(exc, (RequestRecoveryCaptured, RequestRecoveryError)):
+        return str(exc) + retained
     if isinstance(exc, (DevelopmentCapacityError, DevelopmentProtocolError, DeliveryProjectionError, RequestReceiptError)):
         return str(exc) + '完整候选与核验进度已保存，可继续尚未完成的步骤。'
     if isinstance(exc, RequestOutcomeUnknown):
@@ -1418,12 +1434,13 @@ class WorkshopService:
 
     def create(self, body: SessionInput, *, _session_id=None, _source_context=None, _source_packet=None,
                _frozen_type_snapshot=None) -> dict:
-        if body.audience_channel is None:
+        from .workshop_creation import initial_input as creation_input
+        initial_input = creation_input(body)
+        if initial_input['audience_channel'] is None:
             raise HTTPException(422, '请选择男频或女频，再创建讨论。')
         if not body.creative_types:
             raise HTTPException(422, '请选择一个 Genre 和 1–2 个 Tag。')
         _, version = _skill_bundle()
-        initial_input = body.model_dump()
         initial_input['creation_flow'] = 'genre_tags.v2'
         snapshot = (self._bind_frozen_types(initial_input, _frozen_type_snapshot)
                     if _frozen_type_snapshot is not None else self._type_snapshot(initial_input))
@@ -1750,6 +1767,7 @@ class WorkshopService:
                 data.setdefault('turn_requests', {})[body.operation_id] = {'request_hash': request_hash, 'job_id': None}
             data['active_turn_request'] = body.operation_id
             data.update(status="running", last_error=None, prepared=None, skill_version=version,
+                        request_recovery_probe=False, active_request_recovery=None,
                         turn_intent=body.intent,
                         turn_timeout_seconds=timeout, active_operation="brainstorm", ready_for_confirmation=False,
                         paused_at=None, resumed_from_revision=None, delivery_run_id=uuid.uuid4().hex,
@@ -1890,6 +1908,7 @@ class WorkshopService:
             data.pop('capacity_replan', None)
             data.pop('development', None)
             data.update(messages=[{"role": "user", "content": "请只依据当前基础设定，从头开始头脑风暴；提出有因果差异的故事方向并完善人物、冲突与结局。"}],
+                        request_recovery_probe=False, active_request_recovery=None,
                         turn_intent="discuss", turn_scope="development", active_turn_request=None,
                         creative_design=new_design(data["input"], data.get('pending_type_snapshot')),
                         design_needs_revision=False,
@@ -1933,6 +1952,9 @@ class WorkshopService:
         request = data.get('turn_requests', {}).get(data.get('active_turn_request'))
         if request is not None and request['job_id'] is None:
             request['job_id'] = job_id
+        recovery_request = data.get('request_recovery_operations', {}).get(data.get('active_request_recovery'))
+        if recovery_request is not None and recovery_request['job_id'] is None:
+            recovery_request['job_id'] = job_id
         if data.get("context_start_revision") == revision and data.get("restarted_from_revision") == revision - 1:
             data["restart_job_id"] = job_id
         self._save(data)
@@ -1962,11 +1984,21 @@ class WorkshopService:
             runner.cancel(body.job_id)
             return data
 
-    def resume(self, session_id: str, body: RevisionInput) -> dict:
+    def resume(self, session_id: str, body: ResumeInput) -> dict:
         from .workshop_checkpoints import CheckpointError
 
         with self._locked(session_id) as data:
-            if data["status"] == "running" and data.get("resumed_from_revision") == body.revision:
+            retry = getattr(body, 'request_recovery', None)
+            retry_hash = type_digest({'revision': body.revision, 'request_recovery': retry.model_dump()}) if retry else None
+            prior_retry = data.get('request_recovery_operations', {}).get(retry.operation_id) if retry else None
+            if prior_retry is not None:
+                if prior_retry['request_hash'] != retry_hash:
+                    raise HTTPException(409, '同一恢复操作不能用于不同的请求或讨论版本。')
+                job = runner.get(prior_retry.get('job_id') or '')
+                if job is not None:
+                    return job
+                raise HTTPException(409, '这次恢复已提交，请刷新查看保存的讨论状态。')
+            if not retry and data["status"] == "running" and data.get("resumed_from_revision") == body.revision:
                 return runner.get(data["job_id"])
             self._available(data, body.revision)
             if data.get("restart_required"):
@@ -1974,12 +2006,24 @@ class WorkshopService:
             if data["status"] not in {"paused", "error"}:
                 raise HTTPException(409, "仅暂停或已有保存阶段的失败推导可以继续，请刷新当前会话。")
             skill, version = _skill_bundle("revision" if data["prompt_md"] else "design")
+            request_recovery = workshop_request_recovery.current(data, self._path(session_id))
+            # A failed legacy probe remains fenced even if it replayed a
+            # completed earlier request. Only a captured unfinished request or
+            # an explicit retry can finish the migration boundary.
+            captured = (data.get('logs') or [{}])[-1].get('error_type') == 'RequestRecoveryCaptured'
+            probe = bool(not retry and workshop_request_recovery.needs_probe(data)
+                         and (request_recovery is None or not captured))
+            if retry and (request_recovery is None or data.get('skill_version') != version):
+                raise HTTPException(409, '当前请求或创作依据已变化，请刷新后核对恢复操作。')
+            if request_recovery and not retry and not request_recovery.get('can_resume'):
+                raise HTTPException(409, request_recovery['message'])
             try:
                 checkpoint = (None if data.get("active_operation") == "titles" else
                               self._load_delivery_checkpoint(data, skill_version=version))
             except CheckpointError:
                 raise HTTPException(409, "已保存阶段与当前设定或 Skill 不匹配，或完整性检查失败；请重新推导，旧记录已保留。") from None
             stage_repair = None
+            stage_repair_to_save = None
             if (data.get('turn_intent') == 'deliver' and data.get('delivery_run_id')
                     and (not checkpoint or not checkpoint['completed'])):
                 from .workshop_stage_repair import (StageRepairStorageError, load_repair,
@@ -1993,16 +2037,33 @@ class WorkshopService:
                             # This explicit resume is the migration boundary.
                             # Preserve the raw reply, then bind its candidate to
                             # the current lineage before revision/job changes.
-                            save_repair(self._path(session_id), stage_repair.record(
-                                {**data, 'skill_version': version}))
+                            stage_repair_to_save = stage_repair.record({**data, 'skill_version': version})
                 except StageRepairStorageError as exc:
                     raise HTTPException(409, str(exc)) from None
             from core.source_route_context import enabled as route_source_enabled
             if (data["status"] == "error" and (not checkpoint or not checkpoint["completed"])
                     and stage_repair is None
                     and not route_source_enabled(data.get('source_context'))
-                    and not workshop_development.recovery_view(data, self._path(session_id))):
+                    and not workshop_development.recovery_view(data, self._path(session_id))
+                    and request_recovery is None and not probe):
                 raise HTTPException(409, "本轮尚未保存可恢复的阶段，请重新提交讨论要求。")
+            if retry:
+                from core.request_recovery import authorize_request_retry
+                try:
+                    authorize_request_retry(self._path(session_id), workshop_request_recovery.pointer(self._path(session_id)),
+                        workshop_request_recovery.authority(data), request_sha256=retry.request_sha256,
+                        receipt_sha256=retry.receipt_sha256, operation_id=retry.operation_id)
+                except (ValueError, OSError) as exc:
+                    raise HTTPException(409, str(exc)) from None
+                data.setdefault('request_recovery_operations', {})[retry.operation_id] = {
+                    'request_hash': retry_hash, 'job_id': None}
+            if stage_repair_to_save is not None:
+                try:
+                    save_repair(self._path(session_id), stage_repair_to_save)
+                except StageRepairStorageError as exc:
+                    raise HTTPException(409, str(exc)) from None
+            data['active_request_recovery'] = retry.operation_id if retry else None
+            data['request_recovery_probe'] = probe
             data["revision"] += 1
             data["turn_intent"] = "deliver" if checkpoint else data.get("turn_intent", "discuss")
             data.update(status="running", last_error=None, paused_at=None, prepared=None,
@@ -2017,6 +2078,7 @@ class WorkshopService:
             return self._submit_inference(data, skill=skill)
 
     @scoped_usage("brainstorming", lambda a: a["self"]._path(a["session_id"]))
+    @workshop_request_recovery.bound_worker
     def _run_turn(self, session_id: str, skill: str, revision: int, cancel_event: threading.Event):
         started = time.monotonic()
         with self._locked(session_id) as data:
@@ -2567,9 +2629,11 @@ def _session_response(data: dict, root: Path | None = None) -> dict:
     from .workshop_request_recovery import failure_message as request_failure_message
     recovery = workshop_development.recovery_view(data, root)
     request_failure = request_failure_message(data, root)
+    request_recovery = workshop_request_recovery.current(data, root)
     return {**data, 'next_step': workshop_next_step.project(data),
             **({'last_error': request_failure} if request_failure else {}),
             **({'recovery': recovery} if recovery else {}),
+            **({'request_recovery': request_recovery} if request_recovery else {}),
             **({'development_view': workshop_development.view(data)} if workshop_development.enabled(data) else {})}
 
 
@@ -2639,7 +2703,7 @@ def pause_session(session_id: str, body: PauseInput, service: WorkshopService = 
 
 
 @router.post("/sessions/{session_id}/resume", status_code=202)
-def resume_session(session_id: str, body: RevisionInput, service: WorkshopService = Depends(get_workshop_service)):
+def resume_session(session_id: str, body: ResumeInput, service: WorkshopService = Depends(get_workshop_service)):
     return service.resume(session_id, body)
 
 

@@ -34,6 +34,54 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
+const unknownRecovery = { can_resume: false, can_retry_unknown: true, reason: 'request_cancelled', message: '本次模型请求已停止，未保存完整回复。', request_sha256: 'd'.repeat(64), receipt_sha256: 'e'.repeat(64) };
+
+test.each(['paused', 'error'] as const)('unknown %s Workshop requires explicit bound recovery and preserves local input on retry', async (status) => {
+  const current = session({ status, last_error: 'RequestOutcomeUnknown', request_recovery: unknownRecovery });
+  vi.spyOn(workshopApi, 'get').mockResolvedValue(current);
+  const resume = vi.spyOn(workshopApi, 'resume').mockRejectedValue(new Error('连接中断'));
+  const turn = vi.spyOn(workshopApi, 'turn');
+  render(<MemoryRouter><NovelWorkshop open seed={seed} initialSessionId={current.id} onClose={vi.fn()} onBack={vi.fn()} /></MemoryRouter>);
+  const retry = await screen.findByRole('button', { name: '重新执行未完成请求' });
+  expect(resume).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: '重试本轮' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '继续推导' })).not.toBeInTheDocument();
+  expect(screen.getByText(/重新执行可能产生额外模型费用/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText(/补充、回答或修改设定/), { target: { value: '保留这段尚未发送的修改' } });
+  expect(screen.getByRole('button', { name: '发送并继续推导' })).toBeDisabled();
+  fireEvent.click(retry); fireEvent.click(retry);
+  await screen.findByText('连接中断');
+  expect(resume).toHaveBeenCalledTimes(1);
+  const body = resume.mock.calls[0][2];
+  expect(body).toEqual({ action: 'retry_unknown', operation_id: expect.any(String), request_sha256: unknownRecovery.request_sha256, receipt_sha256: unknownRecovery.receipt_sha256 });
+  expect(screen.getByLabelText(/补充、回答或修改设定/)).toHaveValue('保留这段尚未发送的修改');
+  fireEvent.click(screen.getByRole('button', { name: '重新执行未完成请求' }));
+  await waitFor(() => expect(resume).toHaveBeenCalledTimes(2));
+  expect(resume.mock.calls[1]).toEqual(resume.mock.calls[0]);
+  expect(turn).not.toHaveBeenCalled();
+});
+
+test('unknown title recommendation recovers through resume and keeps title edits', async () => {
+  let current = session({ status: 'error', active_operation: 'titles', request_recovery: unknownRecovery,
+    naming: { source_sha256: 'saved-skeleton', confirmed_title: null, candidates: [], requests: [] } });
+  vi.spyOn(workshopApi, 'get').mockImplementation(async () => current);
+  const titles = vi.spyOn(workshopApi, 'titles');
+  const resume = vi.spyOn(workshopApi, 'resume').mockImplementation(async () => {
+    current = { ...current, status: 'running', revision: 3, job_id: 'retry-titles' };
+    return { job_id: 'retry-titles', kind: 'workshop.titles', status: 'running', error: null };
+  });
+  vi.spyOn(api, 'getJob').mockResolvedValue({ job_id: 'retry-titles', kind: 'workshop.titles', status: 'running', error: null });
+  render(<MemoryRouter><NovelWorkshop open seed={seed} initialSessionId={current.id} onClose={vi.fn()} onBack={vi.fn()} /></MemoryRouter>);
+  await screen.findByRole('button', { name: '重新执行未完成请求' });
+  fireEvent.change(screen.getByLabelText('最终书名'), { target: { value: 'My saved title' } });
+  fireEvent.click(screen.getByRole('button', { name: '重新执行未完成请求' }));
+  await screen.findByRole('button', { name: '暂停推荐' });
+  expect(resume).toHaveBeenCalledTimes(1);
+  expect(titles).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('最终书名')).toHaveValue('My saved title');
+  expect(screen.queryByRole('button', { name: '重新执行未完成请求' })).not.toBeInTheDocument();
+});
+
 test("file import fills the existing premise without starting discussion and blocks advancement until confirmed", async () => {
   vi.spyOn(documentImportApi, 'importDocument').mockResolvedValue({ filename: 'outline.md', text: '文件中的人物、故事和结局', characters: 13, pages: null, warnings: [] });
   const create = vi.spyOn(workshopApi, 'create');
@@ -89,10 +137,12 @@ test("creates an asynchronous workshop with the explicit continuous mode and ori
   await user.selectOptions(screen.getByLabelText("故事组织形式"), "standalone_long");
   await user.type(screen.getByLabelText("偏好章节数（可选）"), "80");
   await user.type(screen.getByLabelText("每章规划上限（字／词）"), "1000");
-  await user.type(screen.getByLabelText("正文语言"), "English");
+  expect(screen.getByLabelText("正文语言")).toHaveValue("English");
+  expect(screen.getByLabelText("目标读者")).toHaveValue("欧美女性读者");
+  expect(screen.getByLabelText("发行地域")).toHaveValue("欧美");
   await user.click(screen.getByRole("button", { name: "开始头脑风暴" }));
   await screen.findByText("可以把记忆的代价作为人物的内心冲突。");
-  expect(create).toHaveBeenCalledWith(expect.objectContaining({ creation_flow: "genre_tags.v2", audience_channel: "female", length_planning: "story_first", mode: "standalone_long", chapters: 80, words_per_chapter: 1000, method_mode: "off", premise: seed.premise }));
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ creation_flow: "genre_tags.v2", audience_channel: "female", length_planning: "story_first", mode: "standalone_long", chapters: 80, words_per_chapter: 1000, language: "English", audience: "欧美女性读者", market: "欧美", method_mode: "off", premise: seed.premise }));
   expect(create.mock.calls[0][0].creative_types?.map(r=>r.id)).toEqual(['genre.romance','tag.betrayal']);
   expect(turn).toHaveBeenCalledWith("session-1", expect.any(String), 0, "discuss");
   expect(screen.getByText(/不限讨论次数/)).toBeInTheDocument();

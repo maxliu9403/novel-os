@@ -82,10 +82,13 @@ def task_runtime(project: Path, manifest: dict, *, is_latest: bool, planning: di
     planning = (planning or task_sidecar(project, manifest['run_id'], 'planning/progress.json')) if manifest.get('current_phase') == 'outline' else None
     needs_design = bool(planning and planning.get('status') == 'failed'
                         and (planning.get('recovery') or {}).get('retryable') is False)
+    from core.pipeline_request_recovery import projection as request_projection
+    recovery = request_projection(project, manifest)
+    request_blocked = bool(recovery and not recovery['can_resume'])
     can_resume = bool(
         is_latest and manifest["status"] in RESUMABLE_STATUSES
         and not manifest["spec"].get("dry_run") and not active
-        and _valid_resume_contract(manifest) and not needs_design
+        and _valid_resume_contract(manifest) and not needs_design and not request_blocked
     )
     blocked_reason = None
     if not can_resume:
@@ -93,6 +96,8 @@ def task_runtime(project: Path, manifest: dict, *, is_latest: bool, planning: di
             blocked_reason = '该作品已有任务运行中，请等待当前任务结束后重试。'
         elif not is_latest or manifest['status'] not in RESUMABLE_STATUSES or manifest['spec'].get('dry_run'):
             blocked_reason = '仅可恢复当前作品最新的失败或暂停创作任务。'
+        elif request_blocked:
+            blocked_reason = recovery['message']
         elif needs_design:
             blocked_reason = ((planning.get('recovery') or {}).get('reason') or planning.get('next_action')
                               or '已保存的大纲需要检查；当前修订额度不可继续，普通恢复不会追加模型调用。')
@@ -108,6 +113,7 @@ def task_runtime(project: Path, manifest: dict, *, is_latest: bool, planning: di
         "active_job_id": matching['job_id'] if matching else None,
         "can_pause": bool(matching and matching.get('cancel_supported') and not matching.get('cancel_requested')),
         "cancel_requested": bool(matching and matching.get('cancel_requested')),
+        "request_recovery": recovery,
     }
 
 

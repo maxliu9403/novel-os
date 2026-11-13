@@ -43,6 +43,7 @@ class ProjectTaskDetail(BaseModel):
     progress: dict | None = None
     planning: dict | None = None
     stages: list[FailedTaskStage] = []
+    request_recovery: dict | None = None
 
 
 class ProjectTaskPause(BaseModel):
@@ -65,9 +66,17 @@ class AuthorDecisions(BaseModel):
     choices: list[AuthorChoice] = Field(min_length=1)
 
 
+class RequestRetry(BaseModel):
+    action: Literal['retry_unknown']
+    operation_id: str = Field(min_length=1, max_length=200)
+    request_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    receipt_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
 class ProjectTaskResumeOptions(BaseModel):
     author_decisions: AuthorDecisions | None = None
     outline_planning_mode: Literal["staged"] | None = None
+    request_recovery: RequestRetry | None = None
 
 
 def _task(svc: ProjectService, project_id: str, run_id: str):
@@ -97,6 +106,12 @@ def _result_meta(manifest) -> dict:
     if manifest.status != "completed":
         raise RuntimeError(manifest.error or f"任务停止，当前状态：{manifest.status}")
     return {"run_id": manifest.run_id, "run_status": manifest.status}
+
+
+def _request_blocks_changes(project, manifest, recovery):
+    from core.pipeline_request_recovery import needs_probe
+    return bool((recovery and not recovery.get('response_available'))
+                or (recovery is None and needs_probe(project, manifest)))
 
 
 def register_project_task_routes(router, get_service):
@@ -143,7 +158,9 @@ def register_project_task_routes(router, get_service):
             updated_at=updated.isoformat() if updated else None,
             current_phase=manifest.get("current_phase") or "", current_chapter=manifest.get("current_chapter"),
             error=manifest.get("error"), failed_stages=failures,
-            can_upgrade_planning=bool(runtime["can_resume"] and can_upgrade_planning(project, manifest)),
+            can_upgrade_planning=bool(runtime["can_resume"]
+                and not _request_blocks_changes(project, manifest, runtime.get('request_recovery'))
+                and can_upgrade_planning(project, manifest)),
             stages=[FailedTaskStage.model_validate(stage) for stage in stages.values()],
             progress=progress,
             planning=planning, **runtime,
@@ -170,6 +187,20 @@ def register_project_task_routes(router, get_service):
         active = runner.running_for_project(project_id, project_path=str(project))
         requested_mode = body.outline_planning_mode if body else None
         author_decisions = body.author_decisions if body else None
+        retry = body.request_recovery.model_dump() if body and body.request_recovery else None
+        from core import pipeline_request_recovery as recovery_host
+        from core.request_recovery import RequestRecoveryError
+        if retry and (author_decisions or requested_mode):
+            raise HTTPException(409, '重新执行原请求时不能同时改变规划或作者选择。')
+        if retry:
+            try:
+                previous_operation = recovery_host.read_operation(project, run_id, retry)
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                raise HTTPException(409, '恢复操作记录不匹配，请刷新后重试。') from exc
+            if previous_operation and previous_operation.get('job_id'):
+                job = runner.get(previous_operation['job_id'])
+                return ProjectTaskResume(job_id=previous_operation['job_id'], run_id=run_id,
+                                         status=job['status'] if job else 'recorded')
         answer_digest = None
         if author_decisions:
             from core.outline_planning import content_hash
@@ -180,6 +211,8 @@ def register_project_task_routes(router, get_service):
                 raise HTTPException(409, '已有分阶段规划的作者选择不能与切换规划方式一起提交。')
         for job in active:
             if job["kind"] == "novel.resume" and job.get("run_id") == run_id:
+                if retry and job.get('request_recovery_operation') != retry['operation_id']:
+                    raise HTTPException(409, '当前任务已在执行，请刷新查看结果。')
                 if author_decisions and job.get("author_choices_sha256") != answer_digest:
                     raise HTTPException(409, "任务已在运行，不能在运行中更改采用的原文。")
                 if requested_mode and job.get("outline_planning_mode") != requested_mode:
@@ -189,6 +222,23 @@ def register_project_task_routes(router, get_service):
             raise HTTPException(409, "该作品已有任务运行中，请等待当前任务结束后重试。")
         latest = latest_task_manifest(project)
         is_latest = bool(latest and latest["run_id"] == run_id)
+        if retry:
+            if not is_latest or manifest['status'] not in {'failed', 'paused'} or manifest['spec'].get('dry_run'):
+                raise HTTPException(409, '仅可恢复当前作品最新的未完成任务。')
+            from pipeline_runner import project_execution_lock, PipelineError
+            try:
+                with project_execution_lock(project, run_id):
+                    _, fresh = _task(svc, project_id, run_id)
+                    latest_now = latest_task_manifest(project)
+                    if not latest_now or latest_now['run_id'] != run_id or fresh['status'] not in {'failed', 'paused'}:
+                        raise RequestRecoveryError('任务状态已变化，请刷新。')
+                    status = recovery_host.authorize(project, fresh, retry)
+                    if status != 'pending':
+                        raise RequestRecoveryError('本次重新执行已经启动，原操作不会重复调用模型；请刷新任务状态。')
+                    recovery_host.save_operation(project, run_id, retry)
+                    manifest = fresh
+            except (OSError, ValueError, KeyError, TypeError, PipelineError) as exc:
+                raise HTTPException(409, str(exc)) from exc
         if author_decisions:
             from core.planning_author_decisions import save_choices
             if (not is_latest or manifest["status"] not in {"failed", "paused"}
@@ -202,6 +252,8 @@ def register_project_task_routes(router, get_service):
                             or latest_now['status'] not in {'failed', 'paused'}
                             or latest_now.get('current_phase') != 'outline'):
                         raise ValueError('任务状态已变化。')
+                    if _request_blocks_changes(project, latest_now, recovery_host.projection(project, latest_now)):
+                        raise RequestRecoveryError('请先完成当前模型请求恢复，再调整规划或作者选择。')
                     save_choices(project, run_id, author_decisions.request_id,
                                  [item.model_dump() for item in author_decisions.choices])
             except (OSError, KeyError, ValueError, TypeError, PipelineError) as exc:
@@ -210,7 +262,8 @@ def register_project_task_routes(router, get_service):
         if not runtime["can_resume"]:
             raise HTTPException(409, runtime['resume_blocked_reason'])
         from planning_upgrade import can_upgrade_planning
-        eligible = can_upgrade_planning(project, manifest)
+        eligible = (not retry and not _request_blocks_changes(project, manifest, runtime.get('request_recovery'))
+                    and can_upgrade_planning(project, manifest))
         if requested_mode and not eligible:
             raise HTTPException(409, "仅可将尚未提交故事基础或章节的旧大纲任务切换为分阶段规划。")
         mode = "staged" if eligible else None
@@ -227,10 +280,13 @@ def register_project_task_routes(router, get_service):
                 "novel.resume", native_resume,
                 meta={"project_id": project_id, "project_path": str(project), "run_id": run_id,
                       "outline_planning_mode": mode or manifest["spec"].get("outline_planning_mode", "legacy"),
+                      **({'request_recovery_operation': retry['operation_id']} if retry else {}),
                       **({"author_choices_sha256": answer_digest} if answer_digest else {})},
                 unique_key=f"novel.resume:{project}:{run_id}", result_mapper=_result_meta,
                 cancel_event=cancellation, defer_cancel_completion=True,
             )
         except ProjectJobBlocked as exc:
             raise HTTPException(409, "该作品正在删除或已经删除，无法恢复任务。") from exc
+        if retry:
+            recovery_host.save_operation(project, run_id, retry, job_id)
         return ProjectTaskResume(job_id=job_id, run_id=run_id)

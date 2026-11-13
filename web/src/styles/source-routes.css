@@ -67,3 +67,7 @@
 @media (max-width: 600px) { .source-route-dialog { width: calc(100vw - 1rem); padding: 1rem; border-radius: .8rem; max-height: 95dvh; } .source-route-grid { grid-template-columns: 1fr; } .source-route-card { padding: 1rem; } .source-route-actions > button { flex: 1 1 100%; } .source-route-version select { display: block; margin-left: 0; width: 100%; } }
 .source-route-length { margin: 1.5rem 0; border: 1px solid var(--color-paper-line, #e1e4f0); border-radius: 1rem; padding: 1.25rem; background: rgba(255, 255, 255, .85); }
 .source-route-length input { display: block; width: 100%; min-height: 44px; margin-top: .5rem; padding: .65rem .8rem; border: 1px solid var(--color-paper-line, #e1e4f0); border-radius: .65rem; background: white; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+  .source-route-selection { padding: 1rem .5rem; }
+  .source-route-length { padding: .5rem 0; border: 0; border-radius: 0; background: transparent; }
+}

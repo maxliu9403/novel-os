@@ -22,7 +22,7 @@ function view(props: Partial<Parameters<typeof SourceRoutes>[0]> = {}) {
 }
 test('route length recommendation is editable and carried as preference without losing the selected route', async () => {
   const data = routeSet();
-  data.routes[0].length_recommendation = { total_words: 80000, words_per_chapter: 4000, chapters: 20, language: '简体中文', count_unit: 'characters', reason: '让关键对峙和关系重建都有完整场面。' };
+  data.routes[0].length_recommendation = { total_words: 80000, words_per_chapter: 4000, chapters: 20, language: 'English', count_unit: 'words', reason: '让关键对峙和关系重建都有完整场面。' };
   vi.mocked(sourceRoutesApi.list).mockResolvedValue({ items: [data], runs: [] });
   vi.mocked(sourceRoutesApi.get).mockResolvedValue(data);
   const proceed = vi.fn(), user = userEvent.setup();
@@ -79,7 +79,7 @@ test('scopes revision separately from adopted direction and retains edits entere
   await user.selectOptions(screen.getByLabelText('本次修改范围'), 'route-b');
   await user.type(screen.getByLabelText('我想调整 / 补充的方向'), '加强 B 的事业看点，再给两个方向');
   await user.click(screen.getByRole('button', { name: '按补充完善方案' }));
-  expect(sourceRoutesApi.start).toHaveBeenCalledWith('source-1', expect.objectContaining({ operation: 'revise_routes', feedback: '加强 B 的事业看点，再给两个方向', target_route_ids: ['route-b'], author_context: { premise: '作者完整构想', constraints: '不使用误会拖延' } }));
+  expect(sourceRoutesApi.start).toHaveBeenCalledWith('source-1', expect.objectContaining({ operation: 'revise_routes', feedback: '加强 B 的事业看点，再给两个方向', target_route_ids: ['route-b'], author_context: expect.objectContaining({ premise: '作者完整构想', constraints: '不使用误会拖延', language: 'English', audience: '欧美女性读者' }) }));
   await user.clear(screen.getByLabelText('我想调整 / 补充的方向'));
   await user.type(screen.getByLabelText('我想调整 / 补充的方向'), '下一轮还想保留母亲线');
   await act(async () => resolve(routeRun()));

@@ -58,6 +58,48 @@ test("shows the durable failure, stage history, and copyable native resume comma
   await waitFor(() => expect(writeText).toHaveBeenCalledWith("./deploy.sh novel-resume b1bd6c12ef6b"));
 });
 
+const unknownRecovery = { can_resume: false, can_retry_unknown: true, reason: 'request_cancelled', message: '本次模型请求已停止，未保存完整回复。', request_sha256: 'a'.repeat(64), receipt_sha256: 'b'.repeat(64) };
+
+test('unknown task recovery requires a bound explicit click and retains identity after response loss and reload', async () => {
+  const current = { ...task, can_resume: true, request_recovery: unknownRecovery };
+  vi.spyOn(api, 'projectTask').mockResolvedValue(current);
+  const resume = vi.spyOn(api, 'resumeProjectTask').mockRejectedValue(new Error('连接中断'));
+  const first = render(<TaskStatusPanel projectId="unknown-project" runId={task.run_id} />);
+  const button = await screen.findByRole('button', { name: '重新执行未完成请求' });
+  expect(screen.queryByRole('button', { name: '恢复重试' })).not.toBeInTheDocument();
+  expect(screen.queryByText('在终端恢复此任务')).not.toBeInTheDocument();
+  expect(screen.getByText(/重新执行可能产生额外模型费用/)).toBeInTheDocument();
+  expect(screen.queryByText(unknownRecovery.request_sha256)).not.toBeInTheDocument();
+  expect(resume).not.toHaveBeenCalled();
+  fireEvent.click(button); fireEvent.click(button);
+  await screen.findByText('恢复提交失败：连接中断');
+  expect(resume).toHaveBeenCalledTimes(1);
+  const submitted = resume.mock.calls[0][2];
+  expect(submitted).toEqual({ request_recovery: { action: 'retry_unknown', operation_id: expect.any(String), request_sha256: unknownRecovery.request_sha256, receipt_sha256: unknownRecovery.receipt_sha256 } });
+  first.unmount();
+  render(<TaskStatusPanel projectId="unknown-project" runId={task.run_id} />);
+  fireEvent.click(await screen.findByRole('button', { name: '重新执行未完成请求' }));
+  await waitFor(() => expect(resume).toHaveBeenCalledTimes(2));
+  expect(resume.mock.calls[1][2]).toEqual(submitted);
+});
+
+test('a task without an exact receipt cannot offer either recovery action', async () => {
+  vi.spyOn(api, 'projectTask').mockResolvedValue({ ...task, request_recovery: { ...unknownRecovery, receipt_sha256: undefined } });
+  const resume = vi.spyOn(api, 'resumeProjectTask');
+  render(<TaskStatusPanel projectId="p" runId={task.run_id} />);
+  await screen.findByText(unknownRecovery.message);
+  expect(screen.queryByRole('button', { name: '重新执行未完成请求' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '恢复重试' })).not.toBeInTheDocument();
+  expect(resume).not.toHaveBeenCalled();
+});
+
+test('running tasks do not offer unknown retry from stale recovery metadata', async () => {
+  vi.spyOn(api, 'projectTask').mockResolvedValue({ ...task, status: 'running', can_resume: false, request_recovery: unknownRecovery });
+  render(<TaskStatusPanel projectId="p" runId={task.run_id} />);
+  await screen.findByText('运行中');
+  expect(screen.queryByRole('button', { name: '重新执行未完成请求' })).not.toBeInTheDocument();
+});
+
 test("submits once, keeps polling a running manifest after job done, and slows polling at task failure", async () => {
   const read = vi.spyOn(api, "projectTask")
     .mockResolvedValueOnce(task)

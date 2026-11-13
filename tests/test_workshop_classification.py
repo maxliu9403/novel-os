@@ -17,12 +17,15 @@ def selection(client):
             for r in items if r['id'] in ('genre.romance','tag.betrayal')]
 
 
-def test_selection_allocates_only_with_channel_one_genre_and_tags(client,tmp_path):
+def test_selection_defaults_omitted_channel_but_requires_valid_channel_genre_and_tags(client,tmp_path):
     refs=selection(client)
     for invalid in (None,[],refs[:1],refs+refs[:1]):
         response=client.post('/api/workshop/sessions',json={'creation_flow':'genre_tags.v2','audience_channel':'female','creative_types':invalid})
         assert response.status_code==422,response.text
-    assert client.post('/api/workshop/sessions',json={'creative_types':refs}).status_code == 422
+    assert client.post('/api/workshop/sessions',json={'creative_types':refs,'audience_channel':None}).status_code == 422
+    omitted=client.post('/api/workshop/sessions',json={'creative_types':refs})
+    assert omitted.status_code == 201,omitted.text
+    assert omitted.json()['input']['audience_channel'] == 'female'
     data=client.post('/api/workshop/sessions',json={'creation_flow':'genre_tags.v2','audience_channel':'female','creative_types':refs}).json()
     assert data['input']['publication_taxonomy']['genre']['id']=='genre.romance'
     assert 'source_reference' not in author_context(data)

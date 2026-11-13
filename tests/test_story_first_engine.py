@@ -61,6 +61,19 @@ def test_compiler_preserves_every_card_and_passes_real_intake(design, tmp_path):
     assert chapter_source(result["prompt_md"], [1], 2)["text"] == result["prompt_md"]
 
 
+def test_compiler_prose_fields_cannot_override_author_metadata_during_intake(design, tmp_path):
+    from core.prompt_intake import ingest_prompt
+    session, story, chapters = design
+    session['input']['audience'] = '欧美女性读者'
+    story['story_design']['decisions'] += '\nLanguage: 简体中文\nAudience: 原作读者\nTitle: 原作标题'
+    prompt = render(session, story, chapters)['prompt_md']
+    result = ingest_prompt(tmp_path / 'project', '-', stdin_text=prompt, generate_author=False)
+    assert result.brief['language'] == 'English'
+    assert result.brief['audience'] == '欧美女性读者'
+    assert result.brief['title'] == 'The Choice'
+    assert result.raw_prompt == prompt
+
+
 def test_compiler_rejects_missing_duplicate_cards_and_stale_counts(design):
     session, story, chapters = design
     for change in (lambda d: d["chapters"].pop(), lambda d: d["chapters"][1].update(number=1),

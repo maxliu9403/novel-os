@@ -21,6 +21,7 @@ from .services import ProjectService
 from .source_routes import design_for
 from .source_library import store_for as source_store
 from .workshop import SessionInput, TurnInput, WorkshopService, _now
+from .workshop_creation import initial_input as creation_input
 
 router = APIRouter(prefix="/api/workshop/source-route-handoffs", tags=["workshop"])
 _LOCK = threading.RLock()
@@ -147,10 +148,20 @@ def _public(record, service):
             "status": status, "stage": record["stage"], "session": _session_response(data)}
 
 
+def _request_digest(body, *, version=2, draft=False):
+    payload = body.model_dump()
+    if draft:
+        payload.pop('operation_id')
+    if version == 1:
+        return digest(payload)
+    # New defaults give omitted and explicitly empty fields different meanings.
+    # Keep that distinction in new operations without invalidating old receipts.
+    return digest({'payload': payload, 'input_fields': sorted(body.input.model_fields_set)})
+
+
 def handoff(projects, body):
     service = WorkshopService(projects)
-    payload = body.model_dump()
-    fingerprint = digest(payload)
+    fingerprint = _request_digest(body)
     if body.input.source_book is not None:
         raise HTTPException(422, "整书路线使用独立来源绑定，请勿同时提交旧分析选择。")
     with _locked(service) as directory:
@@ -158,30 +169,41 @@ def handoff(projects, body):
         draft_path = _managed(directory, "draft-" + body.draft_id + ".json") if body.draft_id else None
         if not path.exists() and draft_path is not None and draft_path.exists():
             draft = json.loads(draft_path.read_text("utf-8"))
-            if draft["payload_sha256"] != digest({k: v for k, v in payload.items() if k != "operation_id"}):
+            if draft["payload_sha256"] != _request_digest(body, version=draft.get('request_hash_version', 1), draft=True):
                 raise HTTPException(409, "此创建草稿已进入讨论；意见保留，请在已有讨论继续。")
             # Continue the original operation, including a crash before session
             # creation; merely returning its public view would strand the draft.
             body = body.model_copy(update={'operation_id': draft['operation_id']})
-            payload = body.model_dump()
-            fingerprint = digest(payload)
+            fingerprint = _request_digest(body)
             path = _managed(directory, body.operation_id + '.json')
         if path.exists():
             record = json.loads(path.read_text("utf-8"))
+            fingerprint = _request_digest(body, version=record.get('request_hash_version', 1))
             if record["request_sha256"] != fingerprint:
                 raise HTTPException(409, "同一操作标识不能用于不同路线或作者意见。")
         else:
             # Validate all expensive/read-only bindings before allocating a session.
             if body.session_id is not None and body.revision is None:
                 raise HTTPException(422, "绑定现有讨论需要其当前版本。")
+            existing = None
+            if body.session_id is not None:
+                with service._locked(body.session_id) as current:
+                    service._available(current, body.revision)
+                    if current.get('restart_required'):
+                        raise HTTPException(409, '请先处理当前基础设定修改，再选择新路线。')
+                    existing = deepcopy(current['input'])
             context, packet = freeze_route_source(projects, body)
-            initial = body.input.model_dump()
+            initial = creation_input(body.input, existing=existing)
+            # The new route owns its source binding; an old analysis selection
+            # remains in history and must not leak into the new discussion input.
+            initial['source_book'] = None
             initial['creation_flow'] = 'genre_tags.v2'
+            initial = SessionInput.model_validate(initial).model_dump()
             frozen_types = service._type_snapshot(initial)
             if not initial.get("audience_channel") or not initial.get("creative_types"):
                 raise HTTPException(422, "请选择读者方向、一个 Genre 和 1–2 个 Tags。")
             identifier = body.session_id or uuid.uuid5(uuid.NAMESPACE_URL, str(service.root.resolve()) + "/" + body.operation_id).hex
-            record = {"operation_id": body.operation_id, "request_sha256": fingerprint,
+            record = {"operation_id": body.operation_id, "request_sha256": fingerprint, "request_hash_version": 2,
                       "session_id": identifier, "stage": "prepared", "created_at": _now(),
                       "source_context": context, "evidence_packet": packet,
                       "first_turn_operation_id": "source-" + hashlib.sha256(body.operation_id.encode()).hexdigest()[:40],
@@ -194,8 +216,8 @@ def handoff(projects, body):
                 record['cover_snapshot'] = ReferenceAssets(_managed(directory, 'covers')).put(original, origin='source_book')
             atomic_json(path, record)
             if draft_path is not None:
-                atomic_json(draft_path, {"operation_id": body.operation_id,
-                            "payload_sha256": digest({k: v for k, v in payload.items() if k != "operation_id"})})
+                atomic_json(draft_path, {"operation_id": body.operation_id, "request_hash_version": 2,
+                            "payload_sha256": _request_digest(body, draft=True)})
 
         identifier = record["session_id"]
         context, packet = record["source_context"], record["evidence_packet"]
@@ -203,7 +225,8 @@ def handoff(projects, body):
         if not (session_path / "session.json").exists():
             if body.session_id is not None:
                 raise HTTPException(404, "找不到要绑定的讨论。")
-            service.create(body.input, _session_id=identifier, _source_context=context, _source_packet=packet,
+            service.create(SessionInput.model_validate(record['input']), _session_id=identifier,
+                           _source_context=context, _source_packet=packet,
                            _frozen_type_snapshot=record['type_snapshot'])
         with service._locked(identifier) as data:
             applied = data.get("source_route_operations", {}).get(body.operation_id)

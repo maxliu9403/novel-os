@@ -400,7 +400,7 @@ def test_complete_brief_in_premise_can_produce_skeleton_on_first_turn(client, mo
         assert "--- references/novel-classification.md ---" in skill
         return model_result(prompt)
     monkeypatch.setattr(workshop, "_complete", complete)
-    data = create(client, premise="21章，每章约550英文词，单本短篇，面向美国成年女性，"
+    data = create(client, audience="", premise="21章，每章约550英文词，单本短篇，面向美国成年女性，"
                   "家庭悬疑与成长，六章前不能对质，强化开篇钩子。母亲保存视频并追查账单。")
     assert data["input"]["chapters"] is None and not data["input"]["audience"]
     response = client.post(f'/api/workshop/sessions/{data["id"]}/turns',

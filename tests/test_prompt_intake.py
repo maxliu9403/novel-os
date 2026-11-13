@@ -1,11 +1,35 @@
 from pathlib import Path
 
+import pytest
+
 from commercial_fixtures import commercial_story_fixture
 from commercial_story import commercial_story_block
 from narrative_format import infer_narrative_format
 from novel_classification import infer_classification
 from prompt_intake import ingest_prompt
 from state_manager import StoryState
+from story_design import MARKER as STORY_FIRST_MARKER
+
+
+@pytest.mark.parametrize('marker_position,expected_language,expected_audience', [
+    ('header', 'English', '欧美女性读者'),
+    ('absent', '简体中文', '原作读者'),
+    ('body', '简体中文', '原作读者'),
+])
+def test_compiled_story_metadata_is_scoped_to_header_without_changing_legacy_intake(
+    tmp_path, marker_position, expected_language, expected_audience,
+):
+    prefix = STORY_FIRST_MARKER + '\n' if marker_position == 'header' else ''
+    quote = STORY_FIRST_MARKER + '\n' if marker_position == 'body' else ''
+    prompt = (prefix + 'Title: The Choice\nAuthor: A. Writer\nLanguage: English\n'
+              'Audience: 欧美女性读者\nChapters: 2\nWords: 1600\n\n'
+              '## 1. 故事背景与原作描述\n\n' + quote +
+              'Language: 简体中文\nAudience: 原作读者\n')
+    result = ingest_prompt(tmp_path / 'project', '-', stdin_text=prompt, generate_author=False)
+    assert result.brief['language'] == expected_language
+    assert result.brief['audience'] == expected_audience
+    assert StoryState(str(tmp_path / 'project')).metadata['language'] == expected_language
+    assert Path(result.prompt_path).read_text(encoding='utf-8') == prompt
 
 
 def test_ingest_prompt_preserves_source_and_applies_overrides(tmp_path: Path):

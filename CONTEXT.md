@@ -1,5 +1,17 @@
 # Novel OS domain language
 
+## Host-bound request recovery (implemented 2026-11-13)
+
+A host request binding points to the exact request receipt executed by a novel run/stage or Workshop author operation. Read-only status projection never scans for a recent unknown receipt. A complete response is reusable; an unconfirmed remote outcome requires one explicit retry of the bound receipt version. Stable operation IDs survive duplicate delivery, and the prior receipt remains byte-exact history.
+
+Legacy binding probes replay the original workflow without sending a model request. Their frozen authority and captured request identity/path/kind must match before the probe retires. Earlier cached replies cannot discharge the unresolved target; input drift, corrupt records and failed persistence remain non-dispatching. Recovery is distinct from creative approval, language migration and literary validation.
+
+## Shared creation preferences (implemented 2026-11-13; not deployed)
+
+Ordinary and reference-route creations share the same editable input. New-creation defaults (English prose, Western female readership, Western market, female channel) apply only to omitted fields at creation; explicit values and historical sessions retain their semantics. Route choice does not authorize replacing author settings with a model recommendation. Chinese discussion language, prose language, source language and capacity counting unit are distinct.
+
+A route handoff freezes the complete accepted creation input. Existing-discussion handoffs merge explicitly submitted fields; recovery reuses the frozen input. New operation fingerprints distinguish omission from clearing, while legacy records retain their original fingerprint semantics. A compiled story-first skeleton reads metadata only from its host-authored header; quotations in the story cannot override it. This does not translate an existing novel or change its frozen execution inputs.
+
 ## Stage envelope correction (implemented 2026-11-12)
 
 `workshop-stage-envelope.v1` defines the shared `narrative_mode` enum and positive integer `total_chapters` for all delivery profiles and chapter windows. Confirmed capacity constrains the first stage, before a saved story exists. A complete candidate with invalid metadata remains an unvalidated artifact; `workshop.stage-envelope-repair.v1` permits changes only to the exact invalid fields, preserving all story content. It does not infer literary form from chapter count or globally map ambiguous mode aliases.

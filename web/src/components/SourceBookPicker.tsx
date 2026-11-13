@@ -19,7 +19,7 @@ export default function SourceBookPicker({
   onChange: (v: SourceSelection | null) => void;
   onReady: (v: boolean) => void;
   persistDraft?: boolean;
-  routeDesign?: { authorContext: SourceAuthorContext; draftKey: string; choice?: SourceRouteChoice | null; onChoice: (choice: SourceRouteChoice | null) => void; onContinue?: (choice: SourceRouteChoice) => Promise<void> };
+  routeDesign?: { onPendingChange?: (pending: boolean) => void; authorContext: SourceAuthorContext; draftKey: string; choice?: SourceRouteChoice | null; onChoice: (choice: SourceRouteChoice | null) => void; onContinue?: (choice: SourceRouteChoice) => Promise<void> };
 }) {
   const [draft] = useState(
     () => value ?? (persistDraft ? readSourceDraft() : undefined),
@@ -240,7 +240,7 @@ export default function SourceBookPicker({
                   listing.refresh();
                 }}
               />
-              {routeDesign && <SourceRoutes key={`${book.id}:${mode}`} sourceId={book.id} mode={mode} authorContext={routeDesign.authorContext} draftKey={routeDesign.draftKey} choiceOverride={routeDesign.choice} onStatusChange={refreshStatus} onContinue={routeDesign.onContinue ? choice => routeDesign.onContinue!({ ...choice, use_cover: useCover }) : undefined} onChoice={choice => { routeChoiceRef.current = choice; setRouteReady(!!choice); routeDesign.onChoice(choice ? { ...choice, use_cover: useCover } : null); }} />}
+              {routeDesign && <SourceRoutes key={`${book.id}:${mode}`} sourceId={book.id} mode={mode} authorContext={routeDesign.authorContext} onPendingChange={routeDesign.onPendingChange} draftKey={routeDesign.draftKey} choiceOverride={routeDesign.choice} onStatusChange={refreshStatus} onContinue={routeDesign.onContinue ? choice => routeDesign.onContinue!({ ...choice, use_cover: useCover }) : undefined} onChoice={choice => { routeChoiceRef.current = choice; setRouteReady(!!choice); routeDesign.onChoice(choice ? { ...choice, use_cover: useCover } : null); }} />}
               {book.cover_url && (
                 <label>
                   <input

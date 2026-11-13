@@ -20,6 +20,7 @@ from narrative_format import (
     parse_narrative_format_block,
 )
 from state_manager import StoryState, initialize_project
+from story_design import MARKER as STORY_FIRST_MARKER
 
 
 _FIELD_RE = re.compile(
@@ -67,7 +68,13 @@ def _read_source(source: str | Path, stdin_text: Optional[str], stdin: Optional[
 
 def _prompt_fields(prompt: str) -> Dict[str, str]:
     fields: Dict[str, str] = {}
+    compiled_header = prompt.lstrip().startswith(STORY_FIRST_MARKER)
     for line in prompt.splitlines():
+        # The compiler owns the metadata above its first story section. Source
+        # quotes or model prose below it cannot replace the author's settings.
+        # Unmarked legacy prompts retain their existing whole-document parsing.
+        if compiled_header and re.match(r'^\s*##(?:\s|$)', line):
+            break
         match = _FIELD_RE.match(line)
         if match:
             key = match.group(1).lower().replace(" ", "_")

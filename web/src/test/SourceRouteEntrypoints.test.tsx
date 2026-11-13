@@ -10,6 +10,7 @@ import { sourceBooksApi } from '../api/sourceBooks';
 import { sourceRoutesApi } from '../api/sourceRoutes';
 import { workshopApi } from '../api/workshop';
 import { api } from '../api/client';
+import * as documentImportApi from '../api/documentImport';
 import { creativeTypesApi } from '../api/creativeTypes';
 import { typeLibrary } from './creativeTypesFixture';
 import { handedSession, routeRun, routeSet, sourceBook } from './sourceRoutesFixture';
@@ -35,7 +36,7 @@ function Location() { return <output data-testid="url">{useLocation().pathname}{
 
 test.each(['library', 'new-workshop'])('%s carries editable route length preferences and core adoption into the same handoff', async entry => {
   const data = routeSet();
-  data.routes[0].length_recommendation = { total_words: 80000, words_per_chapter: 4000, chapters: 20, language: '简体中文', count_unit: 'characters', reason: '为关键选择与高潮余波留出空间。' };
+  data.routes[0].length_recommendation = { total_words: 80000, words_per_chapter: 4000, chapters: 20, language: 'English', count_unit: 'words', reason: '为关键选择与高潮余波留出空间。' };
   vi.mocked(sourceRoutesApi.list).mockResolvedValue({ items: [data], runs: [] });
   vi.mocked(sourceRoutesApi.get).mockResolvedValue(data);
   const user = userEvent.setup();
@@ -53,7 +54,7 @@ test.each(['library', 'new-workshop'])('%s carries editable route length prefere
   await user.click(screen.getByRole('button', { name: '采用此路线并展开' }));
   await waitFor(() => expect(sourceRoutesApi.handoff).toHaveBeenCalledTimes(1));
   expect(sourceRoutesApi.handoff).toHaveBeenCalledWith(expect.objectContaining({ adoption_scope: 'core_and_payoffs', route_id: 'route-a',
-    input: expect.objectContaining({ target_total_words: 100000, words_per_chapter: 2500, chapters: 20, language: '简体中文', premise: entry === 'library' ? '' : seed.premise }) }));
+    input: expect.objectContaining({ target_total_words: 100000, words_per_chapter: 2500, chapters: 20, language: 'English', audience: '欧美女性读者', market: '欧美', premise: entry === 'library' ? '' : seed.premise }) }));
   expect(sourceRoutesApi.start).not.toHaveBeenCalled();
 });
 
@@ -83,7 +84,7 @@ test('later basic-setting edits override route length suggestions at handoff', a
   const user = userEvent.setup();
   const data = routeSet();
   data.routes[0].length_recommendation = { total_words: 80000, words_per_chapter: 4000, chapters: 20,
-    language: '简体中文', count_unit: 'characters', reason: '为关键选择与高潮余波留出空间。' };
+    language: 'English', count_unit: 'words', reason: '为关键选择与高潮余波留出空间。' };
   vi.mocked(sourceRoutesApi.list).mockResolvedValue({ items: [data], runs: [] });
   vi.mocked(sourceRoutesApi.get).mockResolvedValue(data);
   render(<MemoryRouter><ConfirmProvider><NovelWorkshop open seed={seed} onClose={vi.fn()} onBack={vi.fn()} /></ConfirmProvider></MemoryRouter>);
@@ -96,6 +97,8 @@ test('later basic-setting edits override route length suggestions at handoff', a
   const length = screen.getByLabelText('每章规划上限（字／词）');
   await user.clear(count); await user.type(count, '30');
   await user.clear(length); await user.type(length, '3000');
+  await user.clear(screen.getByLabelText('目标读者')); await user.type(screen.getByLabelText('目标读者'), '成年女性');
+  await user.type(screen.getByLabelText('硬性限制'), '必须保留原始结局');
   await user.clear(screen.getByLabelText('正文语言')); await user.type(screen.getByLabelText('正文语言'), 'English');
   await user.click(screen.getByRole('button', { name: '1 故事与素材' }));
   await screen.findByRole('button', { name: '采用此路线并展开' });
@@ -108,7 +111,7 @@ test('later basic-setting edits override route length suggestions at handoff', a
   await user.click(screen.getByRole('button', { name: '带入所选路线，开始头脑风暴' }));
   await waitFor(() => expect(sourceRoutesApi.handoff).toHaveBeenCalledTimes(1));
   expect(sourceRoutesApi.handoff).toHaveBeenCalledWith(expect.objectContaining({
-    input: expect.objectContaining({ chapters: 30, words_per_chapter: 3000, target_total_words: 80000, language: 'English' }),
+    input: expect.objectContaining({ chapters: 30, words_per_chapter: 3000, target_total_words: 80000, language: 'English', audience: '成年女性', constraints: '必须保留原始结局' }),
   }));
 });
 
@@ -214,4 +217,133 @@ test.each(['library', 'workshop'])('%s recovers an unknown design on the same ru
   expect(sourceRoutesApi.start).not.toHaveBeenCalled();
   expect(sourceBooksApi.analyze).not.toHaveBeenCalled();
   if (entrance === 'workshop') expect(screen.getByLabelText('故事构想或已有框架')).toHaveValue(seed.premise);
+});
+
+test.each(['library', 'new-workshop'])('%s hands off the complete editable creative input without resetting it when adopting genres', async entry => {
+  const user = userEvent.setup();
+  if (entry === 'library') render(<MemoryRouter initialEntries={['/source-books?source=source-1']}><ConfirmProvider><SourceBooks/></ConfirmProvider></MemoryRouter>);
+  else {
+    render(<MemoryRouter><ConfirmProvider><NovelWorkshop open seed={seed} onClose={vi.fn()} onBack={vi.fn()}/></ConfirmProvider></MemoryRouter>);
+    await user.click(screen.getByRole('radio', { name: '原故事推演' }));
+    await user.selectOptions(await screen.findByLabelText('选择参考小说'), 'source-1');
+  }
+  await user.click(await screen.findByRole('button', { name: '选这条路线 · 不再等待道歉' }));
+  expect(screen.getByLabelText('正文语言')).toHaveValue('English');
+  expect(screen.getByLabelText('目标读者')).toHaveValue('欧美女性读者');
+  expect(screen.getByLabelText('发行地域')).toHaveValue('欧美');
+  const edits = { '暂定书名': 'The Last Letter', '作者': 'N. Author', '故事构想或已有框架': '保留完整的路线。\n  补充：她依靠专业破局。',
+    '正文语言': 'English (US)', '目标读者': '成年英语女性读者', '发行地域': '美国、英国', '硬性限制': '保留母女线，不复合；避免露骨描写。',
+    '希望的总篇幅': '90000', '希望的每章字数': '3000', '初步章节数': '30' };
+  for (const [label, value] of Object.entries(edits)) {
+    await user.clear(screen.getByLabelText(label)); await user.type(screen.getByLabelText(label), value);
+  }
+  await user.selectOptions(screen.getByLabelText('故事组织形式'), 'series_installment');
+  await user.click(screen.getByRole('button', { name: '采用这组推荐' }));
+  for (const [label, value] of Object.entries(edits)) expect(screen.getByLabelText(label)).toHaveValue(/篇幅|字数|章节数/.test(label) ? Number(value) : value);
+  await user.click(screen.getByRole('button', { name: '采用此路线并展开' }));
+  await waitFor(() => expect(sourceRoutesApi.handoff).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(sourceRoutesApi.handoff).mock.calls[0][0].input).toMatchObject({
+    title: 'The Last Letter', author: 'N. Author', premise: edits['故事构想或已有框架'], language: 'English (US)',
+    audience: '成年英语女性读者', market: '美国、英国', constraints: edits['硬性限制'], mode: 'series_installment',
+    length_planning: null, target_total_words: 90000, words_per_chapter: 3000, chapters: 30,
+    audience_channel: 'female', source_book: null,
+  });
+  expect(vi.mocked(sourceRoutesApi.handoff).mock.calls[0][0].input).not.toHaveProperty('author_note');
+  expect(workshopApi.create).not.toHaveBeenCalled();
+  expect(sourceRoutesApi.start).not.toHaveBeenCalled();
+});
+
+test('library restores explicit legacy route language and current edited creation settings after remount', async () => {
+  const saved = routeSet(), user = userEvent.setup();
+  localStorage.setItem('novelos-route-draft-v1:library:source-1:source_development', JSON.stringify({ feedback: '', scope: '',
+    selected: { sha: saved.sha256, route_id: 'route-a' }, routeDrafts: { [`${saved.sha256}:route-a`]: {
+      author_note: '保留这句原话', language: '简体中文', audience_channel: 'female', genres: ['Romance', '背叛'],
+      creative_types: typeLibrary().items.slice(0, 2).map(item => ({ id: item.id, version: item.active_version, source_sha256: item.source_sha256 })),
+      target_total_words: 80000, words_per_chapter: 4000, chapters: 20,
+    } } }));
+  const view = () => <MemoryRouter initialEntries={['/source-books?source=source-1']}><ConfirmProvider><SourceBooks/></ConfirmProvider></MemoryRouter>;
+  const first = render(view());
+  expect(await screen.findByLabelText('正文语言')).toHaveValue('简体中文');
+  expect(screen.getByLabelText('希望的总篇幅')).toHaveValue(80000);
+  await user.clear(screen.getByLabelText('目标读者'));
+  await user.clear(screen.getByLabelText('发行地域')); await user.type(screen.getByLabelText('发行地域'), '中国大陆');
+  await user.type(screen.getByLabelText('硬性限制'), '必须保留母亲的信');
+  first.unmount();
+  render(view());
+  expect(await screen.findByLabelText('正文语言')).toHaveValue('简体中文');
+  expect(screen.getByLabelText('目标读者')).toHaveValue('');
+  expect(screen.getByLabelText('发行地域')).toHaveValue('中国大陆');
+  expect(screen.getByLabelText('硬性限制')).toHaveValue('必须保留母亲的信');
+  expect(screen.getByLabelText('我想保留或改变的地方')).toHaveValue('保留这句原话');
+  await user.click(screen.getByRole('button', { name: '采用此路线并展开' }));
+  await waitFor(() => expect(sourceRoutesApi.handoff).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(sourceRoutesApi.handoff).mock.calls[0][0].input).toMatchObject({ language: '简体中文', audience: '', market: '中国大陆', constraints: '必须保留母亲的信', target_total_words: 80000 });
+});
+
+test('Chinese route estimates do not silently become English words or override the English default', async () => {
+  const data = routeSet(), user = userEvent.setup();
+  data.routes[0].length_recommendation = { total_words: 80000, words_per_chapter: 4000, chapters: 20, language: '简体中文', count_unit: 'characters', reason: '保留故事完整性。' };
+  vi.mocked(sourceRoutesApi.list).mockResolvedValue({ items: [data], runs: [] });
+  vi.mocked(sourceRoutesApi.get).mockResolvedValue(data);
+  render(<MemoryRouter initialEntries={['/source-books?source=source-1']}><ConfirmProvider><SourceBooks/></ConfirmProvider></MemoryRouter>);
+  await user.click(await screen.findByRole('button', { name: '选这条路线 · 不再等待道歉' }));
+  expect(screen.getByLabelText('正文语言')).toHaveValue('English');
+  expect(screen.getByLabelText('希望的总篇幅')).toHaveValue(null);
+  expect(screen.getByLabelText('希望的每章字数')).toHaveValue(null);
+  expect(screen.getByLabelText('初步章节数')).toHaveValue(20);
+  expect(screen.getByText(/总篇幅与每章数字未自动套用/)).toBeVisible();
+  expect(screen.queryByRole('button', { name: '使用本路线的篇幅建议' })).not.toBeInTheDocument();
+  await user.clear(screen.getByLabelText('正文语言')); await user.type(screen.getByLabelText('正文语言'), '简体中文');
+  await user.click(screen.getByRole('button', { name: '使用本路线的篇幅建议' }));
+  expect(screen.getByLabelText('希望的总篇幅')).toHaveValue(80000);
+  expect(screen.getByLabelText('希望的每章字数')).toHaveValue(4000);
+});
+
+test('inline route document import must be accepted before either direct handoff or the next step', async () => {
+  const user = userEvent.setup();
+  vi.spyOn(documentImportApi, 'importDocument').mockResolvedValue({ filename: 'notes.md', text: '保留母女和事业的双线，不删减结局。', characters: 18, pages: null, warnings: [] });
+  render(<MemoryRouter><ConfirmProvider><NovelWorkshop open seed={seed} onClose={vi.fn()} onBack={vi.fn()}/></ConfirmProvider></MemoryRouter>);
+  await user.click(screen.getByRole('radio', { name: '原故事推演' }));
+  await user.selectOptions(await screen.findByLabelText('选择参考小说'), 'source-1');
+  await user.click(await screen.findByRole('button', { name: '选这条路线 · 不再等待道歉' }));
+  await user.upload(screen.getByLabelText('选择故事构想文件'), new File(['notes'], 'notes.md', { type: 'text/markdown' }));
+  await screen.findByLabelText('导入文字预览');
+  expect(screen.getByRole('button', { name: '采用此路线并展开' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: '下一步' })).toBeDisabled();
+  await user.click(screen.getByRole('button', { name: '确认导入' }));
+  expect(screen.getByLabelText('故事构想或已有框架')).toHaveValue(`${seed.premise}\n\n保留母女和事业的双线，不删减结局。`);
+  expect(screen.getByRole('button', { name: '下一步' })).toBeEnabled();
+  await user.click(screen.getByRole('button', { name: '采用此路线并展开' }));
+  await waitFor(() => expect(sourceRoutesApi.handoff).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(sourceRoutesApi.handoff).mock.calls[0][0].input.premise).toContain('保留母女和事业的双线，不删减结局。');
+});
+
+test('saved route author settings take precedence over defaults for a new library draft', async () => {
+  const data = routeSet({ author_context: { language: '简体中文', audience: '中国成年女性读者', market: '中国', constraints: '保留事业线', title: '作者已给出的名字', target_total_words: 80000 } });
+  vi.mocked(sourceRoutesApi.list).mockResolvedValue({ items: [data], runs: [] });
+  vi.mocked(sourceRoutesApi.get).mockResolvedValue(data);
+  render(<MemoryRouter initialEntries={['/source-books?source=source-1']}><ConfirmProvider><SourceBooks/></ConfirmProvider></MemoryRouter>);
+  await userEvent.click(await screen.findByRole('button', { name: '选这条路线 · 不再等待道歉' }));
+  expect(screen.getByLabelText('正文语言')).toHaveValue('简体中文');
+  expect(screen.getByLabelText('目标读者')).toHaveValue('中国成年女性读者');
+  expect(screen.getByLabelText('发行地域')).toHaveValue('中国');
+  expect(screen.getByLabelText('硬性限制')).toHaveValue('保留事业线');
+  expect(screen.getByLabelText('暂定书名')).toHaveValue('作者已给出的名字');
+});
+
+test('clearing route length preferences persists instead of restoring historical author-context numbers', async () => {
+  const data = routeSet({ author_context: { target_total_words: 80000, chapters: 20, words_per_chapter: 4000 } });
+  vi.mocked(sourceRoutesApi.list).mockResolvedValue({ items: [data], runs: [] });
+  vi.mocked(sourceRoutesApi.get).mockResolvedValue(data);
+  const view = () => <MemoryRouter initialEntries={['/source-books?source=source-1']}><ConfirmProvider><SourceBooks/></ConfirmProvider></MemoryRouter>;
+  const first = render(view());
+  await userEvent.click(await screen.findByRole('button', { name: '选这条路线 · 不再等待道歉' }));
+  expect(screen.getByLabelText('希望的总篇幅')).toHaveValue(80000);
+  await userEvent.clear(screen.getByLabelText('希望的总篇幅'));
+  await userEvent.clear(screen.getByLabelText('初步章节数'));
+  await userEvent.clear(screen.getByLabelText('希望的每章字数'));
+  first.unmount(); render(view());
+  expect(await screen.findByLabelText('希望的总篇幅')).toHaveValue(null);
+  expect(screen.getByLabelText('初步章节数')).toHaveValue(null);
+  expect(screen.getByLabelText('希望的每章字数')).toHaveValue(null);
 });

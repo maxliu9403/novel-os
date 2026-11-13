@@ -23,9 +23,12 @@ def refs(client, *ids):
             for r in records if r['id'] in ids]
 
 
-def test_create_requires_author_channel_and_validates_channel_selection(client):
+def test_create_defaults_channel_and_validates_explicit_channel_selection(client):
     selected = refs(client, 'genre.romance', 'tag.action')
-    for body in ({'creative_types': selected}, {'creative_types': selected, 'audience_channel': 'general'},
+    defaulted = client.post('/api/workshop/sessions', json={'creative_types': selected})
+    assert defaulted.status_code == 201, defaulted.text
+    assert defaulted.json()['input']['audience_channel'] == 'female'
+    for body in ({'creative_types': selected, 'audience_channel': None}, {'creative_types': selected, 'audience_channel': 'general'},
                  {'creative_types': refs(client, 'genre.romance', 'tag.girl_power'), 'audience_channel': 'male'},
                  {'creative_types': refs(client, 'genre.romance', 'tag.action', 'tag.mystery', 'tag.intelligent'), 'audience_channel': 'male'}):
         assert client.post('/api/workshop/sessions', json=body).status_code in (409, 422)

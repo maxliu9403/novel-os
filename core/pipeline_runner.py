@@ -245,6 +245,7 @@ class PipelineRunner:
 
     @scoped_usage("manuscript", lambda a: a["spec"].project_path)
     def run(self, spec: RunSpec) -> RunManifest:
+        self._request_recovery_probe = False
         from h5_contract import PROFILE, bound
         if spec.num_chapters is not None:
             bound(spec.num_chapters, PROFILE.spine_items, 'h5_chapter_limit')
@@ -307,6 +308,12 @@ class PipelineRunner:
         store = self._store(project, run_id)
         manifest = store.load()
         manifest.spec.project_path = str(project)
+        from core.pipeline_request_recovery import prepare_resume, projection as request_projection
+        pending_request = request_projection(project, manifest)
+        unresolved_request = bool(pending_request and not pending_request.get('response_available'))
+        self._request_recovery_probe = prepare_resume(project, manifest)
+        if (unresolved_request or self._request_recovery_probe) and (outline_planning_mode or author_decisions):
+            raise PipelineError('请先完成当前模型请求恢复，再调整规划或作者选择。')
         if author_decisions is not None:
             from core.planning_author_decisions import save_choices
             if (not isinstance(author_decisions, dict) or set(author_decisions) != {"request_id", "choices"}
@@ -315,7 +322,7 @@ class PipelineRunner:
                 raise PipelineError("This run is not awaiting a planning decision")
             save_choices(project, run_id, author_decisions["request_id"], author_decisions["choices"])
         from planning_upgrade import can_upgrade_planning, preserve_outline_candidates
-        upgrade = manifest.spec.outline_planning_mode == "legacy" and can_upgrade_planning(project, manifest.to_dict())
+        upgrade = not unresolved_request and not self._request_recovery_probe and manifest.spec.outline_planning_mode == "legacy" and can_upgrade_planning(project, manifest.to_dict())
         if outline_planning_mode is not None and (outline_planning_mode != "staged" or not upgrade):
             raise PipelineError("Cannot upgrade planning after story foundation or chapter work has started")
         if upgrade:
@@ -1686,7 +1693,9 @@ class PipelineRunner:
                     chapter=chapter,
                     attempt=attempt,
                 )
-                value = operation()
+                from core.pipeline_request_recovery import stage_scope
+                with stage_scope(project, manifest, capture_only=getattr(self, '_request_recovery_probe', False)):
+                    value = operation()
                 check_cancelled()
                 validator(value)
                 check_cancelled()

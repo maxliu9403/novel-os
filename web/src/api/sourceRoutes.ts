@@ -5,7 +5,7 @@ import type { SourceSelection } from './sourceBooks';
 import type { WorkshopInput, WorkshopSession } from './workshop';
 
 export type SourceRouteOperation = 'initial_routes' | 'revise_routes' | 'expand_routes' | 'revisit_source';
-export interface SourceAuthorContext {
+export interface SourceAuthorContext extends Partial<Omit<WorkshopInput, 'creative_types'>> {
   premise?: string;
   title?: string;
   constraints?: string;
@@ -111,6 +111,8 @@ export interface SourceRouteListing {
   runs?: SourceRouteRun[];
 }
 export interface SourceRouteChoice {
+  /** Browser draft only; the handoff still sends the canonical input contract. */
+  creation_input?: WorkshopInput;
   adoption_scope?: 'core_and_payoffs';
   target_total_words?: number;
   words_per_chapter?: number;

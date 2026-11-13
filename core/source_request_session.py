@@ -52,6 +52,21 @@ class SourceRequestSession:
             raise RequestReceiptError("保存的模型请求无法读取，未重新发送。") from exc
         if not isinstance(record, dict):
             raise RequestReceiptError("保存的模型请求格式无效，未重新发送。")
+        statuses = ({'prepared', 'dispatched', 'pending_unknown', 'failed', 'not_sent', 'response_received', 'parsed'}
+                    if self.kind == 'design' else {'prepared', 'dispatched', 'failed', 'not_sent', 'received'})
+        if not isinstance(record.get(self.status_key), str) or record[self.status_key] not in statuses:
+            raise RequestReceiptError('保存的请求状态无效，未重新发送。')
+        for key in ('attempts', 'retry_authorizations'):
+            rows = record.get(key, [])
+            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                raise RequestReceiptError('保存的请求执行记录无效，未重新发送。')
+        for authorization in record.get('retry_authorizations', []):
+            if (not isinstance(authorization.get('status'), str)
+                    or authorization['status'] not in {'pending', 'consumed'}
+                    or not isinstance(authorization.get('operation_id'), str)
+                    or not isinstance(authorization.get('receipt_sha256'), str)
+                    or not re.fullmatch(r'[a-f0-9]{64}', authorization['receipt_sha256'])):
+                raise RequestReceiptError('保存的重新执行授权无效，未重新发送。')
         actual = (digest([VERSION, record.get("system"), record.get("payload")])
                   if self.kind == "design" else digest({"system": record.get("system"), "user": record.get("user")}))
         if actual != self.identity or (self.kind == "design" and record.get("request_sha256") != self.identity):
@@ -141,6 +156,7 @@ class SourceRequestSession:
         if observed:
             execution["observed_at"] = observed
         return {"can_resume": not unknown or authorized, "can_retry_unknown": unknown and not authorized,
+                "response_available": local is not None,
                 "request_sha256": self.identity, "receipt_sha256": hashlib.sha256(snapshot).hexdigest(),
                 "reason": reason, "message": message, "execution": execution}
 
@@ -181,6 +197,8 @@ class SourceRequestSession:
 
     def execute(self, client, *, before_send=None, observer=None):
         with lease(self._safe(self.path.with_suffix(".execution.lock")), blocking=False):
+            from .request_recovery import bind_request_recovery
+            bind_request_recovery(self)
             record, snapshot = self._read_snapshot()
             if record.get(self.response_key) is not None:
                 return record[self.response_key]

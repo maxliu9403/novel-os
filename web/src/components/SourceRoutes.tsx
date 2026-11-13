@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { creativeRef, creativeTypesApi, validSelection, type AudienceChannel, type CreativeSummary, type CreativeTypeRef } from '../api/creativeTypes';
+import { creativeRef, creativeTypesApi, validSelection, isCreativeTypeRef, type AudienceChannel, type CreativeSummary, type CreativeTypeRef } from '../api/creativeTypes';
 import { sourceRoutesApi, type SourceAuthorContext, type SourceRouteChoice, type SourceRouteListing, type SourceRouteOperation, type SourceRouteRun, type StoryRoute, type StoryRouteSet } from '../api/sourceRoutes';
 import type { SourceSelection } from '../api/sourceBooks';
 import { clearLocal, operationFor, readLocal, writeLocal } from '../lib/sourceRouteDraft';
 import CreativeTypePicker from './CreativeTypePicker';
 import { supportsAudience } from '../lib/audience';
 import { validRouteLengthPreferences } from '../lib/routeLengthPreferences';
+import { newWorkshopInput, routeCreationInput, languageCountUnit } from '../lib/workshopCreation';
+import type { WorkshopInput } from '../api/workshop';
+import WorkshopCreationFields from './WorkshopCreationFields';
 import '../styles/source-routes.css';
 
-interface RouteDraft { author_note: string; creative_types: CreativeTypeRef[]; genres: string[]; audience_channel: AudienceChannel | null;
-  target_total_words?: number; words_per_chapter?: number; chapters?: number; language?: string }
+// Old browser drafts may have preferences at the top level. New drafts have one canonical input.
+interface RouteDraft { author_note: string; creative_types?: CreativeTypeRef[]; genres?: string[]; audience_channel?: AudienceChannel | null;
+  target_total_words?: number; words_per_chapter?: number; chapters?: number; language?: string; creation_input?: WorkshopInput }
 interface SavedDraft { feedback: string; scope: string; selected?: { sha: string; route_id: string }; routeDrafts: Record<string, RouteDraft> }
 const emptyDraft: SavedDraft = { feedback: '', scope: '', routeDrafts: {} };
 const active = (run?: SourceRouteRun | null) => !!run && ['prepared', 'queued', 'running'].includes(run.status) && !run.interrupted && run.worker_active !== false;
@@ -25,7 +29,7 @@ const displayValue = (value: unknown): string => {
   return '';
 };
 
-export default function SourceRoutes({ sourceId, mode, authorContext = {}, draftKey = 'library', onChoice, onContinue, onStatusChange, choiceOverride, continueLabel = '采用此路线并展开', disabled = false }: {
+export default function SourceRoutes({ sourceId, mode, authorContext = {}, draftKey = 'library', onChoice, onContinue, onStatusChange, onPendingChange, choiceOverride, continueLabel = '采用此路线并展开', disabled = false }: {
   sourceId: string;
   mode: SourceSelection['mode'];
   authorContext?: SourceAuthorContext;
@@ -33,6 +37,7 @@ export default function SourceRoutes({ sourceId, mode, authorContext = {}, draft
   onChoice?: (choice: SourceRouteChoice | null) => void;
   onContinue?: (choice: SourceRouteChoice) => Promise<void> | void;
   onStatusChange?: () => void;
+  onPendingChange?: (pending: boolean) => void;
   choiceOverride?: SourceRouteChoice | null;
   continueLabel?: string;
   disabled?: boolean;
@@ -42,8 +47,9 @@ export default function SourceRoutes({ sourceId, mode, authorContext = {}, draft
     const saved = readLocal<SavedDraft>(storageKey) ?? emptyDraft;
     if (!choiceOverride || choiceOverride.source_id !== sourceId || choiceOverride.mode !== mode) return saved;
     const key = `${choiceOverride.route_set_sha256}:${choiceOverride.route_id}`;
-    return { ...saved, selected: { sha: choiceOverride.route_set_sha256, route_id: choiceOverride.route_id }, routeDrafts: { ...saved.routeDrafts, [key]: { author_note: choiceOverride.author_note, creative_types: choiceOverride.creative_types, genres: choiceOverride.genres, audience_channel: choiceOverride.audience_channel,
-      target_total_words: choiceOverride.target_total_words, words_per_chapter: choiceOverride.words_per_chapter, chapters: choiceOverride.chapters, language: choiceOverride.language } } };
+    return { ...saved, selected: { sha: choiceOverride.route_set_sha256, route_id: choiceOverride.route_id },
+      routeDrafts: { ...saved.routeDrafts, [key]: { author_note: choiceOverride.author_note,
+        creation_input: routeCreationInput(choiceOverride, authorContext) } } };
   });
   const [listing, setListing] = useState<SourceRouteListing>();
   const [version, setVersion] = useState(draft.selected?.sha ?? '');
@@ -51,6 +57,8 @@ export default function SourceRoutes({ sourceId, mode, authorContext = {}, draft
   const [run, setRun] = useState<SourceRouteRun | null>();
   const [catalog, setCatalog] = useState<CreativeSummary[]>([]);
   const [busy, setBusy] = useState(false);
+  const [importPending, setImportPending] = useState(false);
+  useEffect(() => { onPendingChange?.(importPending); return () => onPendingChange?.(false); }, [importPending, onPendingChange]);
   const [error, setError] = useState('');
   const [syncError, setSyncError] = useState('');
   const [additionalCount, setAdditionalCount] = useState(2);
@@ -107,10 +115,15 @@ export default function SourceRoutes({ sourceId, mode, authorContext = {}, draft
   const selected = currentSet?.routes.find(route => draft.selected?.sha === currentSet.sha256 && draft.selected.route_id === route.route_id);
   const selectedKey = selected && currentSet ? `${currentSet.sha256}:${selected.route_id}` : '';
   const selectedDraft = selectedKey ? draft.routeDrafts[selectedKey] : undefined;
-  const lengthValid = !selectedDraft || validRouteLengthPreferences(selectedDraft);
-  const choice: SourceRouteChoice | null = selected && currentSet && selectedDraft ? {
+  const legacyPreferences = selectedDraft ? Object.fromEntries(Object.entries(selectedDraft).filter(([key, value]) => key !== 'author_note' && key !== 'creation_input' && value !== undefined)) : {};
+  const selectedInput = selectedDraft ? newWorkshopInput({ ...(selectedDraft.creation_input ?? { ...currentSet?.author_context, ...authorContext, ...legacyPreferences }), source_book: null }) : undefined;
+  const lengthValid = !selectedInput || validRouteLengthPreferences(selectedInput);
+  const compatibleLength = !!selected?.length_recommendation && languageCountUnit(selectedInput?.language ?? '') === selected.length_recommendation.count_unit;
+  const choice: SourceRouteChoice | null = selected && currentSet && selectedDraft && selectedInput ? {
     source_id: sourceId, route_set_sha256: currentSet.sha256, route_id: selected.route_id, route_title: selected.title, mode,
-    ...selectedDraft, adoption_scope: 'core_and_payoffs', ...(latestSha && latestSha !== currentSet.sha256 ? { latest_route_set_sha256: latestSha } : {}),
+    author_note: selectedDraft.author_note, creation_input: selectedInput,
+    creative_types: selectedInput.creative_types?.filter(isCreativeTypeRef) ?? [], genres: selectedInput.genres, audience_channel: selectedInput.audience_channel ?? null,
+    language: selectedInput.language, chapters: selectedInput.chapters, target_total_words: selectedInput.target_total_words, words_per_chapter: selectedInput.words_per_chapter, adoption_scope: 'core_and_payoffs', ...(latestSha && latestSha !== currentSet.sha256 ? { latest_route_set_sha256: latestSha } : {}),
     ...(run && !complete(run) && run.request?.feedback ? { pending_feedback_run_id: run.run_id } : {}),
   } : null;
   const choiceJSON = JSON.stringify(choice);
@@ -123,35 +136,46 @@ export default function SourceRoutes({ sourceId, mode, authorContext = {}, draft
     else modal.current.setAttribute('open', '');
     return () => { previous?.focus(); };
   }, [detail]);
-  function recommend(route: StoryRoute): RouteDraft | undefined {
+  function recommend(route: StoryRoute): { creative_types: CreativeTypeRef[]; genres: string[]; audience_channel: AudienceChannel | null } | undefined {
     const ids = [route.type_suggestion.genre_id, ...route.type_suggestion.tag_ids];
     const items = ids.map(id => catalog.find(item => item.id === id && item.status === 'enabled' && item.active_version && item.source_sha256 && supportsAudience(item, route.type_suggestion.audience)));
     if (items.some(item => !item)) return undefined;
-    return { author_note: '', creative_types: items.map(item => creativeRef(item!)), genres: items.map(item => item!.name), audience_channel: route.type_suggestion.audience };
+    return { creative_types: items.map(item => creativeRef(item!)), genres: items.map(item => item!.name), audience_channel: route.type_suggestion.audience };
   }
   function select(route: StoryRoute) {
     if (!currentSet) return;
     const key = `${currentSet.sha256}:${route.route_id}`;
     const existing = draft.routeDrafts[key];
-    const authored = authorContext.creative_types?.length || authorContext.audience_channel;
-    const defaults: RouteDraft = authored ? { author_note: '', creative_types: authorContext.creative_types ?? [], genres: authorContext.genres ?? [], audience_channel: authorContext.audience_channel ?? null }
-      : recommend(route) ?? { author_note: '', creative_types: [], genres: [], audience_channel: null };
-    const recommendation = route.length_recommendation;
-    const numberPreference = (key: string, fallback?: number) => typeof authorContext[key] === 'number' ? authorContext[key] as number : fallback;
-    const lengthDefaults = { target_total_words: numberPreference('target_total_words', recommendation?.total_words), words_per_chapter: numberPreference('words_per_chapter', recommendation?.words_per_chapter),
-      chapters: numberPreference('chapters', recommendation?.chapters), language: authorContext.language?.trim() || recommendation?.language };
-    setDraft(value => ({ ...value, selected: { sha: currentSet.sha256, route_id: route.route_id }, routeDrafts: { ...value.routeDrafts, [key]: existing ?? { ...defaults, ...lengthDefaults } } }));
+    const input = newWorkshopInput({ ...currentSet.author_context, ...authorContext });
+    const recommendation = recommend(route);
+    const types: { creative_types: CreativeTypeRef[]; genres: string[]; audience_channel: AudienceChannel | null } = input.creative_types?.length ? { creative_types: input.creative_types.filter(isCreativeTypeRef), genres: input.genres, audience_channel: input.audience_channel ?? null }
+      : recommendation && recommendation.audience_channel === input.audience_channel ? recommendation : { creative_types: [], genres: [], audience_channel: input.audience_channel ?? null };
+    const length = route.length_recommendation;
+    // A character estimate is not a word estimate. Preserve the historical recommendation,
+    // but only prefill compatible units; do not infer the prose language from source analysis.
+    const compatible = length && languageCountUnit(input.language) === length.count_unit;
+    const creation_input = { ...input, ...types,
+      target_total_words: input.target_total_words ?? (compatible ? length.total_words : undefined),
+      words_per_chapter: input.words_per_chapter ?? (compatible ? length.words_per_chapter : undefined),
+      chapters: input.chapters ?? length?.chapters };
+    const defaults: RouteDraft = { author_note: '', creation_input };
+    setDraft(value => ({ ...value, selected: { sha: currentSet.sha256, route_id: route.route_id }, routeDrafts: { ...value.routeDrafts, [key]: existing ?? defaults } }));
     setDetailId('');
   }
-  function updateSelected(change: Partial<RouteDraft>) {
-    if (!selectedKey || !selectedDraft) return;
-    setDraft(value => ({ ...value, routeDrafts: { ...value.routeDrafts, [selectedKey]: { ...selectedDraft, ...change } } }));
+  function updateSelected(change: { author_note?: string; creation_input?: WorkshopInput }) {
+    if (!selectedKey || !selectedDraft || !selectedInput) return;
+    setDraft(value => ({ ...value, routeDrafts: { ...value.routeDrafts,
+      [selectedKey]: { author_note: selectedDraft.author_note, creation_input: selectedInput, ...change } } }));
+  }
+  function updateCreation(change: Partial<WorkshopInput>) {
+    if (selectedInput) updateSelected({ creation_input: { ...selectedInput, ...change } });
   }
   async function submit(operation: SourceRouteOperation) {
     if (busyRef.current || active(run) || run?.worker_active || run?.status === 'pending_unknown' || disabled) return;
     busyRef.current = true; setBusy(true); setError('');
     const feedback = draft.feedback;
-    const payload = { operation, mode, author_context: authorContext, feedback,
+    const context = selectedInput ?? newWorkshopInput({ ...currentSet?.author_context, ...authorContext });
+    const payload = { operation, mode, author_context: { ...context, creative_types: context.creative_types?.filter(isCreativeTypeRef) ?? [] }, feedback,
       ...(currentSet ? { base_route_set_sha256: currentSet.sha256 } : {}),
       ...(draft.scope ? { target_route_ids: [draft.scope] } : {}),
       ...(operation === 'initial_routes' ? { requested_count: initialCount } : operation === 'expand_routes' ? { requested_count: additionalCount } : {}),
@@ -193,7 +217,7 @@ export default function SourceRoutes({ sourceId, mode, authorContext = {}, draft
     finally { busyRef.current = false; if (mounted.current) setBusy(false); }
   }
   async function proceed() {
-    if (!choice || !onContinue || busyRef.current || !lengthValid) return;
+    if (!choice || !onContinue || busyRef.current || importPending || !lengthValid) return;
     busyRef.current = true; setBusy(true); setError('');
     try { await onContinue(choice); } catch (e) { if (mounted.current) setError(failureText(e)); }
     finally { busyRef.current = false; if (mounted.current) setBusy(false); }
@@ -253,24 +277,22 @@ export default function SourceRoutes({ sourceId, mode, authorContext = {}, draft
         <button type="button" className="btn-primary" disabled={busy || disabled || blockedSubmission} onClick={() => void submit('expand_routes')}>保留已有，再给新方案</button>
       </> : <><label className="source-route-count">首批<input type="number" min="1" step="1" aria-label="首批路线数量" value={initialCount} onChange={e => setInitialCount(Math.max(1, Math.floor(Number(e.target.value) || 1)))} />条</label><button type="button" className="btn-primary" disabled={busy || disabled || blockedSubmission} onClick={() => void submit('initial_routes')}>生成首批整书路线</button></>}</div>
     </section>
-    {selected && selectedDraft && <section className="source-route-selection" aria-label="所选路线与题材"><h4>以「{selected.title}」为讨论方向</h4><p>采用核心走向与情绪回报，进入头脑风暴展开细节。具体实现可以优化；改变核心方向会单独说明。</p>
-      <div className="source-route-type-suggestion"><strong>本路线推荐</strong><p>{selected.type_suggestion.reason}</p><button type="button" className="btn-secondary" disabled={disabled || !recommend(selected)} onClick={() => { const value = recommend(selected); if (value) updateSelected({ ...value, author_note: selectedDraft.author_note }); }}>采用这组推荐</button>{!recommend(selected) && <p>部分推荐条目当前不可用，请在下方选择有效题材。</p>}</div>
-      <CreativeTypePicker refs={selectedDraft.creative_types} channel={selectedDraft.audience_channel} onChange={(genres, creative_types, audience_channel) => updateSelected({ genres, creative_types, audience_channel: audience_channel ?? null })} />
+    {selected && selectedDraft && selectedInput && <fieldset disabled={busy || disabled} className="source-route-selection min-w-0" aria-label="所选路线与题材"><h4>以「{selected.title}」为讨论方向</h4><p>采用核心走向与情绪回报，进入头脑风暴展开细节。具体实现可以优化；改变核心方向会单独说明。</p>
+      <div className="source-route-type-suggestion"><strong>本路线推荐</strong><p>{selected.type_suggestion.reason}</p><button type="button" className="btn-secondary" disabled={disabled || !recommend(selected)} onClick={() => { const value = recommend(selected); if (value) updateCreation(value); }}>采用这组推荐</button>{!recommend(selected) && <p>部分推荐条目当前不可用，请在下方选择有效题材。</p>}</div>
+      <CreativeTypePicker refs={selectedInput.creative_types} channel={selectedInput.audience_channel} onChange={(genres, creative_types, audience_channel) => updateCreation({ genres, creative_types, audience_channel: audience_channel ?? null })} />
       <section className="source-route-length" aria-label="路线篇幅建议">
         <div className="flex flex-wrap items-center justify-between gap-3"><h5 className="text-[17px] font-semibold">为这条故事预留多少篇幅</h5><span className="text-[12px] text-ink-muted">可修改 · 进入讨论后细化分章</span></div>
         {selected.length_recommendation ? <><p className="mt-2 leading-7">路线初步建议：约 {selected.length_recommendation.total_words.toLocaleString()} {selected.length_recommendation.count_unit === 'words' ? '词' : '字'} · {selected.length_recommendation.chapters} 章 · 每章不超过 {selected.length_recommendation.words_per_chapter.toLocaleString()} {selected.length_recommendation.count_unit === 'words' ? '词' : '字'}。</p><p className="mt-1 text-[14px] leading-7 text-ink-muted">{selected.length_recommendation.reason}</p></> : <p className="mt-2 text-[14px] leading-7 text-ink-muted">这份历史路线尚未保存篇幅估算。可以先填写偏好，进入头脑风暴后会按完整故事推荐篇幅与每章字数。</p>}
-        <div className="mt-4 grid gap-4 sm:grid-cols-3">
-          <label>希望的总篇幅<input aria-label="希望的总篇幅" type="number" min={1} step={1} disabled={disabled} value={selectedDraft.target_total_words ?? ''} placeholder="由模型建议" onChange={e => updateSelected({ target_total_words: e.target.value === '' ? undefined : Number(e.target.value) })}/></label>
-          <label>希望的每章字数<input aria-label="希望的每章字数" type="number" min={1} step={1} disabled={disabled} value={selectedDraft.words_per_chapter ?? ''} placeholder="由模型建议" onChange={e => updateSelected({ words_per_chapter: e.target.value === '' ? undefined : Number(e.target.value) })}/></label>
-          <label>初步章节数<input aria-label="初步章节数" type="number" min={1} max={511} step={1} disabled={disabled} value={selectedDraft.chapters ?? ''} placeholder="由模型建议" onChange={e => updateSelected({ chapters: e.target.value === '' ? undefined : Number(e.target.value) })}/></label>
-        </div><p className="mt-2 text-[13px] leading-6 text-ink-muted">中文按字、英文按词；每章设置用于规划上限。调整数字不会删去关键情节，正式篇幅方案将在讨论中由你采用。</p>
+        {selected.length_recommendation && !compatibleLength && <p className="source-route-notice">原路线按{selected.length_recommendation.count_unit === 'words' ? '词' : '字'}估算，与当前正文语言的计数方式不同。总篇幅与每章数字未自动套用；可自行填写，或进入讨论后按完整故事重新估算。</p>}
+        <div className="mt-5"><WorkshopCreationFields section="preferences" value={selectedInput} onChange={updateCreation} onPendingChange={setImportPending} disabled={disabled || busy} route newCreation /></div>
         {!lengthValid && <p role="status" className="mt-2 text-[13px] text-amber-800">篇幅请填写正整数，章节数不超过 511；也可留空交由模型建议。</p>}
-        {selected.length_recommendation && <button type="button" className="btn-ghost mt-2 !px-0 !text-violet" disabled={disabled} onClick={() => updateSelected({ target_total_words: selected.length_recommendation!.total_words, words_per_chapter: selected.length_recommendation!.words_per_chapter, chapters: selected.length_recommendation!.chapters })}>使用本路线的篇幅建议</button>}
+        {selected.length_recommendation && compatibleLength && <button type="button" className="btn-ghost mt-2 !px-0 !text-violet" disabled={disabled || busy} onClick={() => updateCreation({ target_total_words: selected.length_recommendation!.total_words, words_per_chapter: selected.length_recommendation!.words_per_chapter, chapters: selected.length_recommendation!.chapters })}>使用本路线的篇幅建议</button>}
       </section>
+      <details className="mb-5 rounded-2xl border border-paper-line bg-white/45 p-4" open><summary className="cursor-pointer text-[14px] font-medium">书名、作者与故事补充</summary><div className="mt-4"><WorkshopCreationFields section="story" value={selectedInput} onChange={updateCreation} onPendingChange={setImportPending} disabled={disabled || busy} required={false} /></div></details>
       <label>我想保留或改变的地方<textarea value={selectedDraft.author_note} onChange={e => updateSelected({ author_note: e.target.value })} placeholder="选填。这里的文字会作为你的实际意见保存，模型路线不会冒充你的原话。" /></label>
       {draft.feedback.trim() && <p className="knowledge-muted">上方尚未提交的分析意见继续保留为草稿。进入讨论会带上已提交要求和这里的交接意见。</p>}
-      {onContinue && <button type="button" className="btn-primary source-route-continue" disabled={busy || disabled || !lengthValid || !validSelection(selectedDraft.creative_types) || !selectedDraft.audience_channel} onClick={() => void proceed()}>{busy ? '正在保存并交接…' : choice?.latest_route_set_sha256 || unsettled ? '以此方案为基础，带上新要求进入讨论' : continueLabel}</button>}
-    </section>}
+      {onContinue && <button type="button" className="btn-primary source-route-continue" disabled={busy || disabled || importPending || !lengthValid || !validSelection(selectedInput.creative_types ?? []) || !selectedInput.audience_channel} onClick={() => void proceed()}>{busy ? '正在保存并交接…' : choice?.latest_route_set_sha256 || unsettled ? '以此方案为基础，带上新要求进入讨论' : continueLabel}</button>}
+    </fieldset>}
     {detail && <dialog ref={modal} className="source-route-dialog" aria-labelledby="source-route-dialog-title" onCancel={event => { event.preventDefault(); event.stopPropagation(); setDetailId(''); }} onKeyDown={event => { if (event.key === 'Escape') event.stopPropagation(); }}>
       <header><div><span className="source-routes-eyebrow">完整故事路线</span><h3 id="source-route-dialog-title">{detail.title}</h3></div><button type="button" className="btn-ghost" aria-label="关闭路线详情" onClick={() => setDetailId('')}>关闭</button></header>
       <div role="tablist" aria-label="路线设计内容">{tabNames.map((name, index) => <button type="button" role="tab" aria-selected={tab === name} tabIndex={tab === name ? 0 : -1} key={name} onClick={() => setTab(name)} onKeyDown={event => { if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabNames.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabNames.length) % tabNames.length; setTab(tabNames[next]); (event.currentTarget.parentElement?.children[next] as HTMLButtonElement)?.focus(); }}>{name}</button>)}</div>

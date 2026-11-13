@@ -10,6 +10,8 @@ import {
 } from "../lib/projectTasks";
 import StatusPill from "./StatusPill";
 import TaskProgress from "./TaskProgress";
+import RequestRecoveryNotice from "./RequestRecoveryNotice";
+import { blocksOrdinaryResume, canRetryUnknown, requestRecoveryOperation } from "../lib/requestRecovery";
 
 interface TaskStatusPanelProps {
   projectId: string;
@@ -108,20 +110,26 @@ function TaskStatusContent({
     };
   }, [projectId, runId, refreshKey, onTaskChanged]);
 
-  async function resume(decision?: AuthorDecisionResponse) {
-    if (!task || resumeLock.current || pauseLock.current || isProjectTaskRunning(task.status)) return;
-    const pending = latest.current?.planning?.author_decisions;
-    if (decision ? decision.request_id !== pending?.request_id : !task.can_resume || pending) return;
+  async function resume(decision?: AuthorDecisionResponse, retryUnknown = false) {
+    const current = latest.current;
+    if (!current || resumeLock.current || pauseLock.current || isProjectTaskRunning(current.status)) return;
+    const pending = current.planning?.author_decisions;
+    const recovery = current.request_recovery;
+    if (retryUnknown ? pending || !canRetryUnknown(recovery)
+      : blocksOrdinaryResume(recovery) || (decision ? decision.request_id !== pending?.request_id : !current.can_resume || pending)) return;
     resumeLock.current = true;
     setSubmitting(true);
     setResumeError(null);
     try {
-      const result = decision
+      requestVersion.current += 1;
+      const result = retryUnknown && canRetryUnknown(recovery)
+        ? await api.resumeProjectTask(projectId, runId, { request_recovery: requestRecoveryOperation(`project:${projectId}:${runId}`, recovery) })
+        : decision
         ? await api.resumeProjectTask(projectId, runId, { author_decisions: decision })
         : await api.resumeProjectTask(projectId, runId);
       if (!mounted.current) return;
       requestVersion.current += 1;
-      const running = { ...task, status: "running", can_resume: false, can_pause: false, cancel_requested: false, progress: null, active_job_id: result.job_id, resume_job_id: result.job_id };
+      const running = { ...current, status: "running", can_resume: false, can_pause: false, cancel_requested: false, progress: null, active_job_id: result.job_id, resume_job_id: result.job_id };
       latest.current = running;
       setTask(running);
       setRefreshKey((value) => value + 1);
@@ -129,7 +137,7 @@ function TaskStatusContent({
     } catch (e) {
       if (!mounted.current) return;
       setResumeError(e instanceof Error ? e.message : String(e));
-      if (decision) setRefreshKey((value) => value + 1);
+      if (decision || retryUnknown) setRefreshKey((value) => value + 1);
     } finally {
       resumeLock.current = false;
       if (mounted.current) setSubmitting(false);
@@ -184,6 +192,7 @@ function TaskStatusContent({
   const paused = task?.status === "paused";
   const authorRequest = !running && task?.planning?.author_decisions;
   const pausing = running && (pausePending || task?.cancel_requested === true);
+  const requestBlocked = blocksOrdinaryResume(task?.request_recovery);
 
   return (
     <section aria-label="创作任务" className="mb-7 rounded-[24px] border border-[rgba(104,103,234,0.18)] bg-white/55 p-5 sm:p-6">
@@ -224,6 +233,8 @@ function TaskStatusContent({
           )}
           {running && !task.can_pause && !pausing && <p className="mt-3 text-[11px] text-ink-muted">当前执行不支持页面暂停；请通过其原启动方式管理。</p>}
           {pauseError && <p role="alert" className="mt-3 break-words text-[13px] text-[#b84363]">暂停请求未确认：{pauseError} 已重新同步任务状态。</p>}
+          {!running && !authorRequest && task.request_recovery && requestBlocked && <RequestRecoveryNotice
+            recovery={task.request_recovery} busy={submitting} onRetry={() => void resume(undefined, true)} />}
           {authorRequest && typeof task.planning?.completed_issue_count === "number" && <p className="mt-3 text-xs text-ink-muted">
             已保存独立修订：{task.planning.completed_issue_count} 项。
           </p>}
@@ -253,7 +264,7 @@ function TaskStatusContent({
             </details>
           )}
 
-          {!authorRequest && (task.can_resume || submitting) && (
+          {!authorRequest && !requestBlocked && (task.can_resume || submitting) && (
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <button type="button" className="btn-primary disabled:cursor-wait disabled:opacity-50" disabled={submitting} onClick={() => void resume()}>
                 {submitting ? "恢复中…" : task.planning?.recovery?.action === 'restore_source_omissions' ? "按新版补全并恢复" : "恢复重试"}
@@ -262,7 +273,7 @@ function TaskStatusContent({
             </div>
           )}
           {resumeError && <p role="alert" className="mt-3 break-words text-[13px] text-[#b84363]">恢复提交失败：{resumeError}</p>}
-          {!authorRequest && task.can_resume && (
+          {!authorRequest && !requestBlocked && task.can_resume && (
             <details className="mt-4 text-[12px] text-ink-muted">
               <summary className="cursor-pointer">在终端恢复此任务</summary>
               <div className="mt-2 flex flex-wrap items-center gap-2">

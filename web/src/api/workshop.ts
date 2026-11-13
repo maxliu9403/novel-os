@@ -1,6 +1,7 @@
 import { ApiError, type JobStatus } from "./client";
 import { API_BASE as BASE } from "./base";
 import type { CreativeTypeRef, LegacyCreativeTypeRef, TypeSnapshot } from './creativeTypes';
+import type { RequestRecovery, RequestRecoveryRetry } from './requestRecovery';
 
 const ROOT = "/api/workshop/sessions";
 
@@ -203,6 +204,7 @@ export interface WorkshopRuntimeProgress {
 }
 
 export interface WorkshopSession {
+  request_recovery?: RequestRecovery | null;
   recovery?: { kind: 'saved_generation'; can_resume: boolean; label: string; detail: string };
   source_context?: { schema?: string; selected_proposal?: import('./sourceRoutes').StoryRoute; [key: string]: unknown } | null;
   development_view?: {
@@ -342,8 +344,8 @@ export const workshopApi = {
     request<WorkshopSession>(`${sessionPath(id)}/decisions`, { revision, proposal_id, status, note }),
   pause: (id: string, revision: number, job_id: string) =>
     request<WorkshopSession>(`${sessionPath(id)}/pause`, { revision, job_id }),
-  resume: (id: string, revision: number) =>
-    request<JobStatus>(`${sessionPath(id)}/resume`, { revision }),
+  resume: (id: string, revision: number, request_recovery?: RequestRecoveryRetry) =>
+    request<JobStatus>(`${sessionPath(id)}/resume`, { revision, ...(request_recovery ? { request_recovery } : {}) }),
   restart: (id: string, revision: number) =>
     request<JobStatus>(`${sessionPath(id)}/restart`, { revision }),
   history: (id: string, revision: number) =>
