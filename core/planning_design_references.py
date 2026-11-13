@@ -186,7 +186,7 @@ def _rows(rows, known):
     return result
 
 
-def references(rows, catalog, inherited_rows=None):
+def references(rows, catalog, inherited_rows=None, *, require_explicit=False):
     """Validate rows and inherit omitted detailed-chapter references in place.
 
     Explicit detailed-chapter references must preserve that chapter's exact mapped
@@ -208,6 +208,8 @@ def references(rows, catalog, inherited_rows=None):
             if set(actual[number]) != set(expected):
                 raise ValueError('Chapter cannot drop or replace its mapped design references')
         elif expected:
+            if require_explicit:
+                raise ValueError('Chapter cannot drop its mapped design references from saved planning data')
             pending.append((row, list(expected)))
     for row, ids in pending:
         row['design_reference_ids'] = ids

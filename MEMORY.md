@@ -1,5 +1,15 @@
 # Novel OS 项目记忆
 
+## 2026-11-13：细纲引用由宿主绑定，batch-016修复验收与发布准备
+
+fac096deaf31现已保存103章路线与前60章细纲，batch-016（61–64）因模型抄错design_reference_ids阻塞；两份完整回复除引用字段外完全一致。已精确原生副本复现。根因是上轮下游边界混用：宿主已确定的ID又要求模型复制，raw输出和saved checkpoint共用同一严格校验。
+
+新planning_batch_references统一普通细纲、拆分叶子与整章修订的未采用输出绑定；模型缺漏/错误ID按章号绑定已验证地图，故事字段不变，最新纠正优先。保存与发布仍严格，删除映射字段也拒绝；派生记录保存原候选/绑定结果，落盘异常不进模型纠错。新提示词分版本、旧请求字节与source-view保留，跨模型继承全basis envelope，修正原validator返回catalog导致外层丢失的问题。按字段修订原有ID限制不变。
+
+新专项28项通过，最终52文件主回归运行中；独立只读审查无剩余阻断。真实完整副本actualSession回放：保存64章，61–64只改引用，旧批次零重购，A/B/A模型循环三次都停在65–68发送前；726原项目文件/158旧输入与检查点字节不变，真实与替身模型调用均0。证据 output/batch-reference-fix-20261113/，报告 docs/reports/2026-11-13-batch-reference-binding.md。
+
+正在按现有修复/部署授权准备发布并恢复当前任务，当前线上仍bcc35104d，fac096 failed/outline；不改原简体中文或连接。发布备份39245文件与16表SQLite已完成，目录 output/batch-reference-release-20261113/。后续必须依据deployed/恢复验收结果更新状态，不能把副本成功当作线上恢复。
+
 ## 2026-11-13 13:23：引用来源修复已部署重启，小说任务未恢复
 
 作者最新“重启吧”已执行。5174后端固定代码 `bcc35104d706a9ec48d35cf8ec64a6ab2320e7cf`，镜像 `novel-os-backend:planning-reference-bcc35104d`；前端保持 `request-recovery-cd4530998`，仅reload nginx更新上游。21项目/2资料/Workshop均无活动worker后切换；38,627文件和16表一致性SQLite已备份，全部数据与逻辑表内容切换前后不变；535运行源码、46 HTTP页面/资源校验匹配，健康ok，环境/端口/挂载/模型连接不变。

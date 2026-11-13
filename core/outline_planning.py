@@ -565,14 +565,16 @@ class StagedOutlinePlanner:
                     raise ValueError('Design reference seed identity changed')
                 if select_catalog(original, [entry['id'] for entry in catalog['entries']]) != catalog:
                     raise ValueError('Design references differ from the frozen generated seed')
-                return original
+                # Continuation persists the validated payload. Retain the full
+                # basis envelope, not just the catalog nested inside it.
+                return copy.deepcopy(basis)
 
             if self._load('design-reference-basis-' + catalog['seed_sha256'], dependencies,
                           validate_basis, strict_dependencies=True) is None:
                 raise OutlinePlanningError('Frozen design reference basis is missing; original source was not reclassified')
         references(value.get('chapter_map', []), catalog)
         if 'chapters' in value:
-            references(value['chapters'], catalog, inherited_rows=value.get('chapter_map', []))
+            references(value['chapters'], catalog, inherited_rows=value.get('chapter_map', []), require_explicit=True)
 
     def _validate_source_anchors(self, definitions: list) -> None:
         anchors = []
@@ -654,7 +656,8 @@ class StagedOutlinePlanner:
         try:
             bind_batch(chapters, global_design)
             from core.planning_design_references import references
-            references(chapters, global_design.get('design_references'), inherited_rows=global_design['chapter_map'])
+            references(chapters, global_design.get('design_references'), inherited_rows=global_design['chapter_map'],
+                       require_explicit=True)
         except ValueError as exc:
             raise OutlinePlanningError(str(exc)) from exc
         for chapter in chapters:

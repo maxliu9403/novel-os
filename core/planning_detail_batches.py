@@ -10,7 +10,8 @@ def _oversized_new_request(planner, name, instruction, context):
     prompt = instruction + "\n\n" + _json(context)
     if planner._prompt_fits(prompt, "chapter_plan", input_limit(planner.client)):
         return False
-    if (planner.cache / f"{name}-response.json").is_file() or any((planner.cache / "raw").glob(f"{name}.*.response.txt")):
+    from core.planning_batch_references import has_dispatched
+    if has_dispatched(planner, name):
         return False
     return not planner._prompt_fits(prompt, "chapter_plan", input_limit(planner.client, negotiate=True))
 
@@ -30,7 +31,8 @@ def build_batch(planner, name, numbers, global_design, prior, dependencies):
     manifest_name = name + "-split"
     split = planner._load(manifest_name, split_deps, check_split, strict_dependencies=True)
     if split is None:
-        instruction = planner.batch_prompt
+        from core import planning_batch_references as binding
+        instruction = binding.instruction(planner, name, dependencies, numbers, planner.batch_prompt, global_design)
         context = {**planner._context(numbers), "frozen_global_design": global_design, "requested_chapters": numbers,
                    "previous_completed_chapters": prior[-2:]}
         # A previously dispatched legacy batch keeps its original request. Only
@@ -52,9 +54,8 @@ def build_batch(planner, name, numbers, global_design, prior, dependencies):
                     planner._save(scope, split_deps, check_view({"scope": "requested_and_adjacent"}))
             elif scoped:
                 raise ValueError("Saved detail batch source view no longer resolves to the author's source")
-        validate = lambda value: planner._batch(value, numbers, global_design)
         try:
-            return planner._call(name, instruction, context, validate, recover_archived=True)
+            return binding.call(planner, name, instruction, context, numbers, global_design, dependencies)
         except PlanningInputTooLarge as exc:
             if exc.stage_name != name or not middle:
                 raise

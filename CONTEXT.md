@@ -4,6 +4,8 @@
 
 Source anchors are exact quotations of adopted author material. A design reference identifies a complete string field in a separately saved generated seed, bound to that seed and source, with explicit model provenance. It is historical evidence of the plan's origin, not author testimony, an occurred event, POV knowledge or an immutable obligation. The adopted source and current reviewed design govern execution. References cannot themselves certify story quality.
 
+Chapter design-reference IDs are host-owned metadata, bound by chapter number when accepting uncommitted detail or whole-chapter repair replies. Model echoes cannot change that binding. Accepted checkpoints, field edits and publication remain strict, including missing mapped references. Binding receipts preserve the original candidate and exact mapping separately; storage failures are not model-format failures. New prompt versions omit ID copying, while already dispatched requests retain their original bytes and latest correction lineage.
+
 New roadmap calls select typed field paths; the host resolves IDs and full text. Legacy misclassified anchors can become design references only through exact unique field matching, complete occurrence accounting and unchanged story fields, while affected chapters retain genuine source evidence. Derived recovery records never overwrite originals. Latest issued corrections remain authoritative across verified model lineage; incomplete corrections resume through their exact original request session. Detail, publication and chapter execution preserve the separate provenance. No unverified citation or structural check is relaxed.
 
 ## Host-bound request recovery (deployed 2026-11-13)

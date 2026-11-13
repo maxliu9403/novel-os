@@ -230,20 +230,21 @@ def repair_chapters(planner, candidate, global_design, review, numbers):
     # only for outstanding requests; replaying receipts works offline.
     limit = None
     if plan is None:
-        legacy = planner.batch_prompt + LEGACY_RULES
+        from core import planning_batch_references as binding
+        legacy = binding.instruction(planner, 'repair', dependencies, numbers,
+                                     planner.batch_prompt + LEGACY_RULES, global_design)
         complete = {**planner._context(), 'frozen_global_design': global_design, 'candidate': candidate,
                     'requested_chapters': numbers, 'review': review}
-        previous_response = ((planner.cache / 'repair-response.json').exists()
-                             or any((planner.cache / 'raw').glob('repair.*.response.txt')))
+        previous_response = binding.has_dispatched(planner, 'repair')
         if not previous_response:
             limit = input_limit(planner.client)
             if not _fits(planner, complete, legacy, limit):
                 limit = input_limit(planner.client, negotiate=True)
         if previous_response or (len(numbers) <= planner.batch_size and _fits(planner, complete, legacy, limit)):
-            # Honor completed former responses. A refused dispatch with only a
-            # prompt may start the new protocol without resetting any answer.
-            batch = planner._call('repair', legacy, complete, validate, recover_archived=True,
-                                  strict_dependencies=previous_response, input_limit_bytes=limit)
+            # Honor previously dispatched requests, including those still
+            # awaiting their exact shared-session outcome after a model switch.
+            batch = binding.call(planner, 'repair', legacy, complete, numbers, global_design, dependencies,
+                                 strict_dependencies=previous_response, input_limit_bytes=limit)
             planner._save('repair', dependencies, batch)
             return batch
         plan = validate_plan({'groups': _plan(planner, candidate, review, numbers, limit)})
