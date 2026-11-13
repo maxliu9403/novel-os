@@ -1,5 +1,11 @@
 # Novel OS 项目记忆
 
+## 2026-11-13：ac3f15 结束门禁兼容修复已部署重启
+
+作者随后授权“重启吧”。修复提交 `041ba18` 已用当前 Compose 构建并启动，后端与前端健康检查均通过；服务实际挂载历史运行数据目录 `output/origin-dev-trial-a2617c9/data`，没有误用默认 `docker-data`。后端容器内读取 `completed` 会规范化为 `resolution`。
+
+任务 `ac3f15f6efff` 已确认仍存在，状态保持 `paused / ending.review`，原历史错误、`can_resume=true` 和 `active_job_id=null` 均保留；重启没有自动恢复、没有发起模型请求、没有改写正文、大纲、检查点或状态。标准 `deploy.sh restart` 因本机技能目录权限失败，随后使用同一 Compose 配置完成受控重建；服务当前运行在 `http://127.0.0.1:5174`。
+
 ## 2026-11-13：ac3f15 结束门禁术语漂移已修复，暂不重启服务
 
 任务 `ac3f15f6efff` 的 `ending.review` 报四名角色 `resolution` 却期待 `completed`。只读核对确认：`ending_contract.json` 的四个 `required_arc_stage` 都是历史别名 `completed`；`story_state.json` 中 Dahlia、Amias、Sofia、Olivia 都是 `resolution / 100`，有完整 `outcome_state` 和 `outcome_evidence`。不是正文弧线未完成，也不是需要改写正文或 canon。
