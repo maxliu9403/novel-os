@@ -24,9 +24,10 @@ def test_corrupt_handoff_never_forgets_predecessor_on_retry(tmp_path, fault):
     progress = a.directory / "progress.json"
     original = progress.read_bytes()
     for _ in range(2):
-        b, model = book(tmp_path, "B")
+        model = PlanningModel()
+        model.model = "B"
         with pytest.raises(OutlinePlanningError, match="continuation"):
-            b.run()
+            make_planner(tmp_path, model, count=12).run()
         assert not model.calls and progress.read_bytes() == original
         assert path.read_bytes() == b"{}"
 

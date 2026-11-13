@@ -9,6 +9,7 @@ from core.creative_types import digest
 from core.llm_attempt import completion_attempt
 from core.reference_assets import atomic_json
 from core.request_recovery import (
+    active_planning_prompt,
     RequestRecoveryCaptured,
     RequestRecoveryError,
     authorize_request_retry,
@@ -95,6 +96,27 @@ def test_absent_pointer_does_not_scan_or_create_one(host):
     before = snapshot(root)
     assert project_request_recovery(*host) is None
     assert not pointer.exists()
+    assert snapshot(root) == before
+
+
+@pytest.mark.parametrize('transport', ['inline', 'paged', 'unwrapped'])
+def test_legacy_planner_prompt_lookup_is_read_only_and_keeps_embedded_delimiters(host, transport):
+    root, pointer, authority = host
+    original = 'STAGE: semantic_review\nAn author quote: \n\n[SOURCE_EVIDENCE]\n旧资料。'
+    packet = {'content': original}
+    packet['sha256'] = digest(packet)
+    user = {'inline': original + '\n\n[SOURCE_EVIDENCE]\n' + json.dumps(packet) + '\n[/SOURCE_EVIDENCE]',
+            'paged': json.dumps({'original_task': original, 'evidence_units': [{'path': ['content']}]}),
+            'unwrapped': original}[transport]
+    session = SourceRequestSession(root / 'receipt.json', digest({'system': 's', 'user': user}), kind='evidence')
+    atomic_json(session.path, {'state': 'dispatched', 'system': 's', 'user': user})
+    bind_unknown(host, session)
+    before = snapshot(root)
+    assert active_planning_prompt() is None
+    with request_recovery_scope(*host):
+        assert active_planning_prompt() == hashlib.sha256(original.encode()).hexdigest()
+    with request_recovery_scope(root, pointer, {**authority, 'phase': 'chapter.write'}):
+        assert active_planning_prompt() is None
     assert snapshot(root) == before
 
 

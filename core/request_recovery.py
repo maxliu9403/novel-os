@@ -6,6 +6,7 @@ host can establish a pointer; readers never search for a 'latest' unknown reques
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
+import hashlib
 import json
 from pathlib import Path
 
@@ -57,6 +58,29 @@ def request_recovery_scope(root, pointer, authority, *, capture_only=False):
         yield
     finally:
         _scope.reset(token)
+
+
+def active_planning_prompt():
+    """Fingerprint of the logical input of the fenced outline request, if known.
+
+    Used only to locate pre-policy checkpoints. The transport fence still
+    compares the complete physical request, its kind and its private path.
+    No receipt search, dispatch, or change to the public projection.
+    """
+    scope = _scope.get()
+    if scope is None:
+        return None
+    root, pointer, authority, capture_only, session = scope
+    if authority.get('phase') != 'outline' or capture_only:
+        return None
+    # A late, verified local completion also identifies its namespace. It
+    # needs no retry authorization and does not establish a new send fence.
+    session = session or _bound_session(root, pointer, authority)
+    if session is None or session.kind != 'evidence':
+        return None
+    from .source_route_context import logical_request_prompt
+    logical = logical_request_prompt(session._read()['user'])
+    return hashlib.sha256(logical.encode('utf-8')).hexdigest() if logical is not None else None
 
 
 def bind_request_recovery(session):

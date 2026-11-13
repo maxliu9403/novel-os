@@ -191,3 +191,31 @@ def test_mixed_recovery_verifies_frozen_creative_lock(tmp_path):
     value['handoff']['source_sha256'] = '0' * 64
     lock.write_text(json.dumps(value))
     assert not coordinated_repair_available(project, 'test-run', planner.progress)
+
+
+@pytest.mark.parametrize('damage', ['missing', 'same_basis_replacement'])
+@pytest.mark.parametrize('mode', ['source_restoration', 'coordinated_repair'])
+def test_status_never_offers_recovery_after_instruction_pin_lost_or_replaced(tmp_path, damage, mode):
+    project = tmp_path / 'book'
+    if mode == 'source_restoration':
+        planner = seed_v1(project)
+        available = source_restoration_available
+    else:
+        planner = seed_mixed(project)
+        available = coordinated_repair_available
+    policy = planner.instruction_policy
+    policy.persist(planner._write_json)
+    planner.progress['instruction_policy_sha256'] = policy.record['sha256']
+    assert available(project, 'test-run', planner.progress)
+
+    if damage == 'missing':
+        policy.path.unlink()
+    else:
+        other = json.loads(policy.path.read_bytes())
+        other['rules']['global_seed_prompt'] += '\nA different instruction using the same namespace formula.'
+        other['sha256'] = content_hash({key: value for key, value in other.items() if key != 'sha256'})
+        policy.path.write_text(json.dumps(other))
+
+    before = {p: p.read_bytes() for p in project.rglob('*') if p.is_file()}
+    assert not available(project, 'test-run', planner.progress)
+    assert before == {p: p.read_bytes() for p in project.rglob('*') if p.is_file()}

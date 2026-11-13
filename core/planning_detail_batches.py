@@ -1,7 +1,7 @@
 """Finish an existing chapter batch in smaller checked units when needed."""
 from core.planning_capacity import input_limit
 from core.planning_errors import PlanningInputTooLarge, PlanningOutputIncomplete
-from core.outline_planning import _json, _PROJECTION_RULES, content_hash
+from core.outline_planning import _json, content_hash
 
 
 def _oversized_new_request(planner, name, instruction, context):
@@ -48,8 +48,9 @@ def build_batch(planner, name, numbers, global_design, prior, dependencies):
             if "adopted_source_projection" in source_view:
                 context.pop("complete_adopted_source", None)
                 context.update(source_view)
-                if _PROJECTION_RULES not in instruction:
-                    instruction = instruction.replace("full original skeleton", "supplied original skeleton") + _PROJECTION_RULES
+                projection = planner.instruction_policy.rules.projection_rules
+                if projection not in instruction:
+                    instruction = instruction.replace("full original skeleton", "supplied original skeleton") + projection
                 if not scoped:
                     planner._save(scope, split_deps, check_view({"scope": "requested_and_adjacent"}))
             elif scoped:

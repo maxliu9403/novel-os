@@ -16,6 +16,24 @@ def _hash(value: object) -> str:
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
+def _saved_rules(directory, identity, progress, *, lock=None):
+    """Older identities did not record story-first mode outside the frozen lock."""
+    from core.planning_instruction_policy import rules_for_identity
+    scoped = identity.get('source_projection') is not None
+    if lock is None and identity.get('creative_lock_sha256'):
+        lock_path = directory.parent / 'creative-design/lock.json'
+        if lock_path.resolve() != lock_path.absolute() or lock_path.stat().st_size > 8 * 1024 * 1024:
+            raise ValueError('Invalid frozen planning lock')
+        lock = json.loads(lock_path.read_bytes())
+        if not isinstance(lock, dict) or _hash(lock) != identity['creative_lock_sha256']:
+            raise ValueError('Invalid frozen planning lock')
+    if lock is not None and not isinstance(lock.get('handoff'), dict):
+        raise ValueError('Invalid frozen planning handoff')
+    story_first = lock is not None and lock['handoff'].get('story_engine') == 'story-first.v1'
+    return rules_for_identity(directory, identity, scoped=scoped, story_first=story_first,
+                              expected_pin=progress.get('instruction_policy_sha256'))
+
+
 def source_restoration_available(project: Path, run_id: str, progress: dict) -> bool:
     """Offer recovery for v1's unsupported-scope result, never a failed review.
 
@@ -61,6 +79,7 @@ def source_restoration_available(project: Path, run_id: str, progress: dict) -> 
             return False
         if _hash(identity) != identity_hash or hashlib.sha256(source.read_bytes()).hexdigest() != identity.get('source_sha256'):
             return False
+        _saved_rules(root.parent.parent, identity, progress)
         old = payload('global-reference-repair-v1')
         review = payload('review-initial')
         return (old.get('status') == 'requires_author' and old.get('edits') == []
@@ -219,7 +238,9 @@ def _verified_planning(project: Path, run_id: str, progress: dict, *, allow_coor
                     return False
         if not (evidence_upgrade or specialized_review or residual) and {issue['scope'] for issue in issues} != {'global', 'chapter'}:
             return False
+        rules = _saved_rules(run / 'planning', identity, progress, lock=lock)
         return {'root': root, 'run': run, 'identity': identity, 'identity_hash': identity_hash,
+                'legacy_arc_vocabulary': rules.arc_vocabulary == 'historical',
                 'source': source.read_bytes().decode('utf-8'), 'brief': brief, 'lock': lock,
                 'locked': locked, 'global': global_design, 'candidate': candidate,
                 'review': review, 'read': read, 'payload': payload}
@@ -235,11 +256,10 @@ def metadata_recovery_available(project: Path, run_id: str, progress: dict) -> b
     checkpoint. Ordinary resume must repeat every check before publishing a child.
     """
     from core import planning_coordinated as contract
-    from core.outline_planning import SCHEMA_VERSION, StagedOutlinePlanner, _json, _parse_object
+    from core.outline_planning import SCHEMA_VERSION, _json, _parse_object
     from core.planning_coordinator import _groups
     from core.planning_repair_context import build_plan_context, build_repair_context
     from core.planning_reference_recovery import recover
-    from core.story_capacity import read_contract
 
     saved = _verified_planning(project, run_id, progress, allow_coordinated=True)
     if not saved:
@@ -273,12 +293,7 @@ def metadata_recovery_available(project: Path, run_id: str, progress: dict) -> b
         if any(path.name.startswith((contract.REVIEW_NAME, contract.VERSION + '-candidate'))
                or '-metadata-v1' in path.name for path in root.rglob('*')):
             return False
-        validator = StagedOutlinePlanner.__new__(StagedOutlinePlanner)
-        validator.source, validator.locked = source, saved['locked']
-        validator.chapter_count = saved['identity']['chapter_count']
-        validator.capacity = read_contract(source)
-        validator.story_first = bool(saved['lock'] and
-                                     saved['lock'].get('handoff', {}).get('story_engine') == 'story-first.v1')
+        validator = _saved_validator(saved)
         if validator._global(copy.deepcopy(saved['global'])) != saved['global']:
             return False
         for start in range(1, validator.chapter_count + 1, saved['identity']['batch_size']):
@@ -657,6 +672,12 @@ def _saved_validator(saved):
         saved['lock'].get('handoff', {}).get('story_engine') == 'story-first.v1')
     validator.cache, validator.directory = saved['root'], saved['run'] / 'planning'
     validator.identity_hash = saved['identity_hash']
+    validator.legacy_arc_vocabulary = saved['legacy_arc_vocabulary']
+    # Read only the named, checksum-verified dependencies under the same
+    # snapshot as the global/batch projections, including the seed basis.
+    def read_dependency(name, dependencies, validate, **_options):
+        return validate(saved['payload'](name, dependencies))
+    validator._load = read_dependency
     return validator
 
 

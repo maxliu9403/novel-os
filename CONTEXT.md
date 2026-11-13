@@ -14,6 +14,10 @@ A host request binding points to the exact request receipt executed by a novel r
 
 Legacy binding probes replay the original workflow without sending a model request. Their frozen authority and captured request identity/path/kind must match before the probe retires. Earlier cached replies cannot discharge the unresolved target; input drift, corrupt records and failed persistence remain non-dispatching. Recovery is distinct from creative approval, language migration and literary validation.
 
+A staged planner's instruction policy determines how its saved source and design become model requests. An in-progress outline keeps the policy used for that input. A software update alone is not a new author decision or a reason to discard a passed review. For pre-policy runs, the bound transport receipt can identify a historical logical prompt even when the transport wrapped it in a full evidence packet or evidence page. This identifies where to resume; only the exact physical receipt can consume a retry.
+
+Historical free-text ending arc descriptions remain part of the reviewed plan. A derived publication contract carries the reviewed wording alongside the canonical stage when they differ. Classifying that stage cannot certify that the outcome occurred in prose; the ordinary manuscript ending and evidence gates still apply.
+
 ## Shared creation preferences (deployed 2026-11-13)
 
 Ordinary and reference-route creations share the same editable input. New-creation defaults (English prose, Western female readership, Western market, female channel) apply only to omitted fields at creation; explicit values and historical sessions retain their semantics. Route choice does not authorize replacing author settings with a model recommendation. Chinese discussion language, prose language, source language and capacity counting unit are distinct.

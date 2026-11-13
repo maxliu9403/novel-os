@@ -2181,7 +2181,7 @@ certifies delivery after the candidate is reviewed.
                 key: value for key, value in raw.items()
                 if key in {
                     "character_id", "required_arc_stage", "required_end_state",
-                    "required_outcome", "required_outcome_aliases", "required_choice",
+                    "required_outcome", "required_outcome_aliases", "required_choice", "reviewed_stage_description",
                     "outcome_match_mode", "match_mode",
                 }
             })

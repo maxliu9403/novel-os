@@ -63,11 +63,10 @@ def validate_ending_arc_stages(contract) -> None:
             canonical_arc_stage(arc["required_arc_stage"], allow_legacy_alias=True)
 
 
-def validate_ending_statuses(contract):
-    """Validate newly generated contracts; never rewrite saved author obligations."""
+def validate_plot_statuses(contract):
+    """Plot lifecycle checks shared by both generations of the arc contract."""
     if not isinstance(contract, dict) or not contract.get("enforce"):
         return
-    validate_ending_arc_stages(contract)
     for key in ("main_conflict", "antagonist_outcome"):
         item = contract.get(key)
         if key == "antagonist_outcome" and (
@@ -83,3 +82,9 @@ def validate_ending_statuses(contract):
                 f"{sorted(PLOT_THREAD_STATUSES)}; got {status!r}. "
                 "Keep the story-specific outcome in protagonist_choice/consequence, not in a lifecycle status."
             )
+
+
+def validate_ending_statuses(contract):
+    """The current publication contract requires both lifecycle vocabularies."""
+    validate_plot_statuses(contract)
+    validate_ending_arc_stages(contract)

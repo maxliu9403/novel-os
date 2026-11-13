@@ -121,6 +121,39 @@ def _encoded(value):
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+_EVIDENCE_START = "\n\n[SOURCE_EVIDENCE]\n"
+_EVIDENCE_END = "\n[/SOURCE_EVIDENCE]"
+
+
+def logical_request_prompt(user):
+    """Read the original planner input from our historical transport formats."""
+    if not isinstance(user, str):
+        return None
+    if user.endswith(_EVIDENCE_END):
+        # The packet is compact JSON: a newline inside its content is
+        # escaped. The original author text may itself contain a delimiter.
+        original, marker, packet = user[:-len(_EVIDENCE_END)].rpartition(_EVIDENCE_START)
+        if marker:
+            try:
+                body = json.loads(packet)
+            except ValueError:
+                return None
+            if isinstance(body, dict) and body.get("sha256") == digest(
+                    {k: v for k, v in body.items() if k != "sha256"}):
+                return original
+            return None
+    if user.startswith("{"):
+        try:
+            page = json.loads(user)
+        except ValueError:
+            return None
+        if (isinstance(page, dict) and isinstance(page.get("evidence_units"), list)
+                and isinstance(page.get("original_task"), str)):
+            return page["original_task"]
+        return None
+    return user
+
+
 def _units(value, path=()):
     """Lossless structural leaves, including empty collections; not a summary."""
     if isinstance(value, dict) and value:
@@ -217,7 +250,7 @@ class SourceEvidenceCoordinator:
             if type(declared) is int and declared > 0:
                 limits.append(declared)
         bound = min(limits) if limits else None
-        full = user + "\n\n[SOURCE_EVIDENCE]\n" + _encoded(self.packet) + "\n[/SOURCE_EVIDENCE]"
+        full = user + _EVIDENCE_START + _encoded(self.packet) + _EVIDENCE_END
         key = digest({"system": system, "user": user, "evidence": self.packet["sha256"]})
         directory = _managed(self.root, "source-evidence", "requests", key)
         state_path = _managed(directory, "coverage.json")
