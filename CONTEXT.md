@@ -1,12 +1,12 @@
 # Novel OS domain language
 
-## Host-bound request recovery (implemented 2026-11-13)
+## Host-bound request recovery (deployed 2026-11-13)
 
 A host request binding points to the exact request receipt executed by a novel run/stage or Workshop author operation. Read-only status projection never scans for a recent unknown receipt. A complete response is reusable; an unconfirmed remote outcome requires one explicit retry of the bound receipt version. Stable operation IDs survive duplicate delivery, and the prior receipt remains byte-exact history.
 
 Legacy binding probes replay the original workflow without sending a model request. Their frozen authority and captured request identity/path/kind must match before the probe retires. Earlier cached replies cannot discharge the unresolved target; input drift, corrupt records and failed persistence remain non-dispatching. Recovery is distinct from creative approval, language migration and literary validation.
 
-## Shared creation preferences (implemented 2026-11-13; not deployed)
+## Shared creation preferences (deployed 2026-11-13)
 
 Ordinary and reference-route creations share the same editable input. New-creation defaults (English prose, Western female readership, Western market, female channel) apply only to omitted fields at creation; explicit values and historical sessions retain their semantics. Route choice does not authorize replacing author settings with a model recommendation. Chinese discussion language, prose language, source language and capacity counting unit are distinct.
 
