@@ -9,7 +9,11 @@ from outline_planning import OutlinePlanningError
 from state_manager import PlotThread, StoryState
 from test_ending_evidence import evidence_book
 from test_outline_planning import PlanningModel, make_planner
-from plot_thread_contract import validate_ending_statuses
+from plot_thread_contract import (
+    canonical_arc_stage,
+    normalize_ending_arc_stages,
+    validate_ending_statuses,
+)
 
 
 def test_planning_rejects_semantic_outcome_in_status_before_writing(tmp_path):
@@ -18,6 +22,38 @@ def test_planning_rejects_semantic_outcome_in_status_before_writing(tmp_path):
     with pytest.raises(OutlinePlanningError, match='required_status'):
         make_planner(tmp_path, model, count=2).run()
     assert not any(stage == 'batch' for stage, _ in model.calls)
+
+
+def test_completed_is_a_legacy_contract_alias_only():
+    contract = {
+        'enforce': True,
+        'character_arcs': [
+            {'character_id': 'char_001', 'required_arc_stage': 'completed'}
+        ],
+        'main_conflict': {'thread_id': 'main', 'required_status': 'resolved'},
+        'antagonist_outcome': {'required': False},
+    }
+
+    validate_ending_statuses(contract)
+    assert canonical_arc_stage('completed') == 'resolution'
+    normalized = normalize_ending_arc_stages(contract)
+
+    assert normalized['character_arcs'][0]['required_arc_stage'] == 'resolution'
+    assert contract['character_arcs'][0]['required_arc_stage'] == 'completed'
+
+
+def test_unknown_arc_stage_is_rejected_at_contract_boundary():
+    contract = {
+        'enforce': True,
+        'character_arcs': [
+            {'character_id': 'char_001', 'required_arc_stage': 'finished'}
+        ],
+        'main_conflict': {'thread_id': 'main', 'required_status': 'resolved'},
+        'antagonist_outcome': {'required': False},
+    }
+
+    with pytest.raises(ValueError, match='required_arc_stage'):
+        validate_ending_statuses(contract)
 
 
 def _legacy_main(evidence_book):

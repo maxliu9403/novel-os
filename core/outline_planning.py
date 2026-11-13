@@ -24,12 +24,12 @@ try:
     from .narrative_craft import BLUEPRINT_CRAFT
     from .narrative_format import NarrativeFormat, validate_volume_contracts
     from .pipeline_runtime import check_cancelled, runtime_stage
-    from .plot_thread_contract import validate_ending_statuses
+    from .plot_thread_contract import normalize_ending_arc_stages, validate_ending_statuses
 except ImportError:  # CLI imports core modules by their top-level names.
     from narrative_craft import BLUEPRINT_CRAFT
     from narrative_format import NarrativeFormat, validate_volume_contracts
     from pipeline_runtime import check_cancelled, runtime_stage
-    from plot_thread_contract import validate_ending_statuses
+    from plot_thread_contract import normalize_ending_arc_stages, validate_ending_statuses
 
 
 SCHEMA_VERSION = "outline-planning.v1"
@@ -619,6 +619,14 @@ class StagedOutlinePlanner:
         if not isinstance(ending, dict) or ending.get("enforce") is not True:
             raise OutlinePlanningError("Staged planning requires an enforced ending contract")
         _require(ending, ("finale_window", "main_conflict", "character_arcs", "antagonist_outcome", "emotional_contract"), "Ending contract")
+        # Older model prompts used ``completed`` as a terminal synonym for
+        # the canonical lifecycle stage. Normalize only this new candidate;
+        # persisted historical contracts remain byte-exact.
+        try:
+            ending = normalize_ending_arc_stages(ending)
+        except ValueError as exc:
+            raise OutlinePlanningError(str(exc)) from exc
+        value["ending_contract"] = ending
         if not isinstance(ending.get("plot_payoffs"), list):
             raise OutlinePlanningError("Ending plot_payoffs must be an explicit list")
         window = ending["finale_window"]
@@ -1133,6 +1141,8 @@ emotional_contract:{reader_emotion,afterglow_state}}. Final chapter ends the fin
 window. Use stable source setup IDs and observable outcomes. Empty payoffs only if
 there are no tracked long-range promises. Do not mandate an unsupported closure or
 change a deliberately unresolved source outcome; document deliberate open threads.
+For required_arc_stage use only beginning, middle, climax, or resolution. Never
+use completed as a lifecycle stage; put the semantic result in required_outcome.
 """
 
 _GLOBAL_PROMPT = "STAGE: global_design\n" + _GLOBAL_INTRO + _GLOBAL_MAP + _GLOBAL_CONTRACTS

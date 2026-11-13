@@ -760,6 +760,9 @@ formatting and appended detail. Use `exact` to enforce a complete value,
 `normalized` for formatting-only differences, and `contains` when an explicitly
 richer state is intended. For legitimate paraphrases, list approved
 alternatives in `required_outcome_aliases`; do not rely on fuzzy similarity.
+For `required_arc_stage`, use only `beginning`, `middle`, `climax`, or
+`resolution`; never use `completed` as a lifecycle value. Put semantic
+completion in `required_outcome` and its observable evidence.
 
 Use exactly {num_chapters} chapter objects with unique numbers 1 through
 {num_chapters}. After the closing tag, provide the human-readable blueprint.
@@ -999,8 +1002,9 @@ genre-appropriate assumptions rather than asking questions.
                     raise ValueError(
                         "enforced ending_contract is missing: " + ", ".join(missing)
                     )
-                from plot_thread_contract import validate_ending_statuses
+                from plot_thread_contract import normalize_ending_arc_stages, validate_ending_statuses
                 validate_ending_statuses(ending)
+                data["ending_contract"] = normalize_ending_arc_stages(ending)
         return data
 
     def _apply_story_foundation(

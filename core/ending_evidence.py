@@ -22,14 +22,14 @@ from project_identity import load_project_instance_id_unlocked
 from project_lock import ProjectLock
 from promotion import PromotionService
 from state_manager import StoryState
-from plot_thread_contract import PLOT_THREAD_STATUSES
+from plot_thread_contract import ARC_STAGES, PLOT_THREAD_STATUSES, canonical_arc_stage
 
 
 REVIEWS_RELATIVE = "outputs/state/ending_evidence_reviews"
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _ID = re.compile(r"^ending-review-[0-9a-f]{64}$")
 _PROMOTION_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-_STAGES = {"beginning", "middle", "climax", "resolution"}
+_STAGES = set(ARC_STAGES)
 _FIELDS = {"schema_version", "project_instance_id", "contract_sha256", "reviewer",
            "reviewed_at", "supersedes", "claims"}
 _SOURCE_FIELDS = {"chapter", "revision_id", "sha256", "promotion_key",
@@ -124,7 +124,9 @@ def _validate_schema(payload):
         elif claim.get("kind") == "arc":
             _fields(claim, {"kind", "character_id", "arc_stage", "outcome_state", "evidence", "sources"}, "arc claim")
             _text(claim["character_id"], "character ID")
-            if claim["arc_stage"] not in (*_STAGES, ""):
+            try:
+                canonical_arc_stage(claim["arc_stage"], allow_legacy_alias=True)
+            except ValueError:
                 raise EndingEvidenceError("invalid arc stage")
             if not isinstance(claim["outcome_state"], str):
                 raise EndingEvidenceError("outcome state must be text")
@@ -334,7 +336,11 @@ class EndingEvidenceStore:
                     if identifier not in arcs or identifier not in state.characters:
                         raise EndingEvidenceError("ending review claims an unknown character obligation")
                     obligation = arcs[identifier]
-                    stage = str(obligation.get("required_arc_stage") or "").strip().lower()
+                    raw_stage = str(obligation.get("required_arc_stage") or "").strip().lower()
+                    stage = (
+                        canonical_arc_stage(raw_stage, allow_legacy_alias=True)
+                        if raw_stage else ""
+                    )
                     outcome = str(obligation.get("required_outcome") or "").strip().lower()
                     if not stage and not outcome:
                         legacy = str(obligation.get("required_end_state") or "resolution").strip().lower()
@@ -342,7 +348,11 @@ class EndingEvidenceStore:
                             stage = legacy
                         else:
                             outcome = legacy
-                    if claim["arc_stage"] != stage or claim["outcome_state"].strip().lower() != outcome:
+                    claim_stage = (
+                        canonical_arc_stage(claim["arc_stage"], allow_legacy_alias=True)
+                        if claim["arc_stage"] else ""
+                    )
+                    if claim_stage != stage or claim["outcome_state"].strip().lower() != outcome:
                         raise EndingEvidenceError("reviewed arc completion does not match contract obligation")
                     current = state.characters[identifier].outcome_state.strip().lower()
                     if current and current != claim["outcome_state"].strip().lower():

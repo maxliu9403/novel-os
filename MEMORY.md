@@ -1,5 +1,13 @@
 # Novel OS 项目记忆
 
+## 2026-11-13：ac3f15 结束门禁术语漂移已修复，暂不重启服务
+
+任务 `ac3f15f6efff` 的 `ending.review` 报四名角色 `resolution` 却期待 `completed`。只读核对确认：`ending_contract.json` 的四个 `required_arc_stage` 都是历史别名 `completed`；`story_state.json` 中 Dahlia、Amias、Sofia、Olivia 都是 `resolution / 100`，有完整 `outcome_state` 和 `outcome_evidence`。不是正文弧线未完成，也不是需要改写正文或 canon。
+
+本地系统修复已完成但**未部署、未重启、未恢复任务**。`core/plot_thread_contract.py` 现在统一弧光阶段词汇，旧合同别名 `completed` 读取为规范 `resolution`；新模型候选在保存前规范化，提示词禁止再生成 `completed`；结束门禁和 ending evidence 共用该映射。未知值仍明确阻塞。旧合同原值、哈希、正文和状态保持，不做单本任务补丁。
+
+临时副本复现从四个 `character_arc_unclosed` 变为 `pass`，记录四条兼容性说明；结束、证据、规划、编排、流水线和状态解析回归通过。当前服务仍旧部署版本，API 仍显示 `paused / ending.review` 的历史错误，这是按作者要求暂不重启的预期状态。详见 `docs/reports/2026-11-13-ending-contract-stage-alias.md`。
+
 ## 2026-11-13 17:30：细纲引用修复已部署，fac096 已越过 batch-016
 
 5174 后端已切换至固定提交 `46dba5f1c497e7ad7093ae80c43d11d0110fd17e`，镜像 `novel-os-backend:batch-reference-46dba5f1c`；前端保持 `request-recovery-cd4530998`，仅 reload nginx。52 文件回归 **947 通过、0 失败/跳过**，其中新增专项 28 项；独立审查无剩余阻断。无网络、无凭据、无生产挂载的镜像副本原生回放也通过，旧批次真实模型调用 0 次。

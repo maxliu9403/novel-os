@@ -19,13 +19,18 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from state_manager import StoryState
 from ending_evidence import EndingEvidenceError, EndingEvidenceStore
-from plot_thread_contract import PLOT_THREAD_STATUSES
+from plot_thread_contract import (
+    ARC_STAGES,
+    PLOT_THREAD_STATUSES,
+    canonical_arc_stage,
+    validate_ending_arc_stages,
+)
 
 
 ENDING_CONTRACT_RELATIVE = "outputs/input/ending_contract.json"
 PAYOFF_LEDGER_RELATIVE = "outputs/state/payoff_ledger.json"
 ENDING_REPORT_RELATIVE = "outputs/feedback/book_completion_report.json"
-ARC_LIFECYCLE_STAGES = {"beginning", "middle", "climax", "resolution"}
+ARC_LIFECYCLE_STAGES = set(ARC_STAGES)
 _ARC_STAGE_RANK = {"beginning": 0, "middle": 1, "climax": 2, "resolution": 3}
 OUTCOME_MATCH_MODES = {"auto", "exact", "normalized", "contains"}
 _CONTAINS_IGNORED_TERMS = ("以及", "并且", "同时", "此外", "的")
@@ -387,6 +392,14 @@ def evaluate_ending(project: Path | str, as_of_chapter: Optional[int] = None) ->
     if not contract.get("enforce", False):
         info.append({"category": "ending_contract_disabled", "message": "No enforced ending contract was supplied."})
     else:
+        # Existing contracts are immutable history. Read the legacy terminal
+        # alias through the shared contract vocabulary instead of making a
+        # completed arc look open; invalid new values get a clear contract
+        # diagnostic rather than a misleading character error.
+        try:
+            validate_ending_arc_stages(contract)
+        except ValueError as exc:
+            critical.append({"category": "ending_contract_invalid", "message": str(exc)})
         # Adjudicated omissions are a separate, source-bound review layer.
         # Never rewrite canon or historical proposals to satisfy the gate.
         reviewed_arcs: Dict[str, Dict[str, Any]] = {}
@@ -407,6 +420,10 @@ def evaluate_ending(project: Path | str, as_of_chapter: Optional[int] = None) ->
             for claim in review["claims"]:
                 evidence = {**claim, "review_id": review["review_id"]}
                 if claim["kind"] == "arc":
+                    evidence["arc_stage"] = (
+                        canonical_arc_stage(claim["arc_stage"], allow_legacy_alias=True)
+                        if claim.get("arc_stage") else ""
+                    )
                     reviewed_arcs[claim["character_id"]] = evidence
                 elif claim["kind"] == "main_conflict":
                     reviewed_main[claim["thread_id"]] = evidence
@@ -444,7 +461,27 @@ def evaluate_ending(project: Path | str, as_of_chapter: Optional[int] = None) ->
             if reviewed_arc:
                 arc_evidence.append(f"review {reviewed_arc['review_id']}: {reviewed_arc['evidence']}")
 
-            required_stage = str(raw.get("required_arc_stage") or "").strip().lower()
+            raw_required_stage = str(raw.get("required_arc_stage") or "").strip().lower()
+            try:
+                required_stage = (
+                    canonical_arc_stage(raw_required_stage, allow_legacy_alias=True)
+                    if raw_required_stage else ""
+                )
+            except ValueError as exc:
+                critical.append({
+                    "category": "ending_contract_invalid",
+                    "entity_id": character_id,
+                    "message": str(exc),
+                })
+                required_stage = ""
+            if raw_required_stage and required_stage and raw_required_stage != required_stage:
+                info.append({
+                    "category": "ending_contract_compatibility",
+                    "entity_id": character_id,
+                    "original_stage": raw_required_stage,
+                    "canonical_stage": required_stage,
+                    "message": "Legacy ending-contract stage alias was read as canonical resolution; persisted contract bytes were preserved.",
+                })
             required_outcome = str(raw.get("required_outcome") or "").strip().lower()
             if not required_stage and not required_outcome:
                 legacy_state = str(

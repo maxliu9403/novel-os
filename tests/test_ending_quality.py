@@ -264,6 +264,31 @@ def test_explicit_arc_stage_and_semantic_outcome_are_both_enforced(tmp_path: Pat
     )
 
 
+def test_legacy_completed_arc_stage_alias_passes_without_rewriting_contract(tmp_path: Path):
+    contract = _contract()
+    arc_contract = contract["character_arcs"][0]
+    arc_contract.pop("required_end_state")
+    arc_contract.update(required_arc_stage="completed", required_outcome="independence")
+    project = _project(tmp_path, contract=contract)
+    state = StoryState(str(project))
+    state.characters["char_001"].outcome_state = "independence"
+    state.characters["char_001"].outcome_evidence = "Mara signs a lease in her own name."
+    state.save_state()
+    original_contract = json.loads(
+        (project / "outputs/input/ending_contract.json").read_text()
+    )
+
+    report = evaluate_ending(project, as_of_chapter=4)
+
+    assert report.status == "pass"
+    assert any(item["category"] == "ending_contract_compatibility" for item in report.info)
+    persisted_contract = json.loads(
+        (project / "outputs/input/ending_contract.json").read_text()
+    )
+    assert persisted_contract["character_arcs"][0]["required_arc_stage"] == "completed"
+    assert persisted_contract == original_contract
+
+
 def _outcome_contract(mode: str = "exact") -> dict:
     contract = _contract()
     arc_contract = contract["character_arcs"][0]
