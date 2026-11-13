@@ -51,7 +51,9 @@ def enable(planner, name, plan):
 
 
 def enabled(planner, prefix, plan):
-    if any('writable_global_references' in item for item in plan['issues']):
+    if not any(targets(item) for item in plan['issues']):
+        return False
+    if any(item.get('writable_global_references') for item in plan['issues']):
         return True
     # The initial plan marker authenticates interpretation of old string citations.
     # A decided phase can contain a newly validated choice plan with explicit scope.
@@ -105,7 +107,8 @@ def apply_group(planner, candidate, review, evidence, execution, group, prefix, 
         if finding['scope'] != 'global' or row['classification'] not in ('continuity_gap', 'contradiction'):
             continue
         current = planning_correction.references(derived)
-        allowed = {path: value for path, value in current.items() if path in targets(item)}
+        selected = targets(item)
+        allowed = {path: value for path, value in current.items() if path in selected}
         if not allowed:
             continue
         original = planning_correction.references(candidate)
