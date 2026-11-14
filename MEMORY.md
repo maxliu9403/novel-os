@@ -1,5 +1,11 @@
 # Novel OS 项目记忆
 
+## 2026-11-14：动态 Genre/Tags 交付回执读取修复，待安全上线
+
+任务 `ac3f15f6efff` 已 completed/delivery.package，选中封面后的 ZIP 独立验收通过，148 项来源哈希均一致。`delivery_validation_version` 来自生成端使用 dynamic-taxonomy 目标、读取端只接受旧静态 PROFILE。已复用共享 `export_target()`，按已绑定 manifest/classification 解析目标与能力，下载再比对独立 ZIP 检查报告。保留静态/无分类兼容、来源/包哈希校验、只读缓存，畸形分类安全返回交付冲突。169 项影响集回归通过，1 项外部固定 H5 源码验收跳过。实际包通过修复后只读验证，SHA `75940a9d4079e75e96219fde766c056ebec4524ba62c2fc61ed34b7a45d9993d` 未变。未重生成正文、封面、ZIP或调用模型。
+
+准备上线时发现 `fac096deaf31` 正在运行并复用已保存章节，须再次核对实时作业；不可按后文历史 paused 状态重启。发布准备位于 `output/delivery-profile-release-20261114/`；详见 [报告](docs/reports/2026-11-14-delivery-profile-validation.md)。本条此时尚未部署。
+
 ## 2026-11-14 14:42：出版语言策略历史兼容补强已部署
 
 继续验收发现 c546628 的语言别名规范化也作用于已批准文案，可能让旧版 `英文` 的连字符计数等历史记录被新规则拒绝。现已将新生成计数/提示词升级 v4，解析 v1-v3 时保持旧计数及严格计数校验；未知策略拒绝。旧 publication.copy 检查点仅在其他输入完全不变时保留原 policy hash，artifact 必须匹配该策略；输入变化用 v4。暂停/失败任务的已批准文案缺失或损坏同样阻塞，不擅自重购或替换。新增34例通过；最终21文件影响集586通过、1项依赖外部固定Go源码的H5验收跳过。
