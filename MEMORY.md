@@ -1,8 +1,10 @@
 # Novel OS 项目记忆
 
-## 2026-11-14：出版语言策略历史兼容补强，验收通过待发布
+## 2026-11-14 14:42：出版语言策略历史兼容补强已部署
 
-继续验收发现 c546628 的语言别名规范化也作用于已批准文案，可能让旧版 `英文` 的连字符计数等历史记录被新规则拒绝。现已将新生成计数/提示词升级 v4，解析 v1-v3 时保持旧计数及严格计数校验；未知策略拒绝。旧 publication.copy 检查点仅在其他输入完全不变时保留原 policy hash，artifact 必须匹配该策略；输入变化用 v4。暂停/失败任务的已批准文案缺失或损坏同样阻塞，不擅自重购或替换。没有模型请求、没有修改生产数据。新增34例通过；最终21文件影响集586通过、1项依赖外部固定Go源码的H5验收跳过。线上17份现存文案只读解析均通过。当前正在准备 `output/publication-policy-release-20261114/` 的备份与固定镜像验收，未切换；线上仍 c546628、目标 fac096 暂停在 publication.copy。细节见 [修复报告](docs/reports/2026-11-14-project-loading-publication-policy.md)。
+继续验收发现 c546628 的语言别名规范化也作用于已批准文案，可能让旧版 `英文` 的连字符计数等历史记录被新规则拒绝。现已将新生成计数/提示词升级 v4，解析 v1-v3 时保持旧计数及严格计数校验；未知策略拒绝。旧 publication.copy 检查点仅在其他输入完全不变时保留原 policy hash，artifact 必须匹配该策略；输入变化用 v4。暂停/失败任务的已批准文案缺失或损坏同样阻塞，不擅自重购或替换。新增34例通过；最终21文件影响集586通过、1项依赖外部固定Go源码的H5验收跳过。
+
+固定提交 `32e1d173b54664c06b45aaebee6f8e56f06bbd0b` 已部署为 `novel-os-backend:publication-policy-32e1d173b`（镜像 `sha256:3b51c5b08527...`）；前端未换，已reload nginx。隔离镜像验证通过；上线后容器内只读解析17份现存出版成果全部通过。47732个数据文件、16张SQLite表与本次备份完全一致，环境/端口/挂载不变。真实浏览器页面正常、无错误提示，project/task/chapters/story均200约0.14–0.24秒。fac096仍paused/publication.copy、103章正文已保存、无活动作业、request_recovery为空，原hook_lead_length错误保留；未恢复或调用模型。发布证据及回滚配置在 `output/publication-policy-release-20261114/`，回滚只能换镜像，不覆盖用户之后的数据。细节见 [修复报告](docs/reports/2026-11-14-project-loading-publication-policy.md)。
 
 ## 2026-11-14：项目详情加载与中文出版长度修复已部署
 

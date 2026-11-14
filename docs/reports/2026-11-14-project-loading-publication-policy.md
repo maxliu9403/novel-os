@@ -70,3 +70,14 @@ optional external H5 Go importer check was skipped because its pinned source
 checkout is not configured. The run covers publication, pipeline recovery,
 project/task APIs, compilation, packaging and local H5 contracts. The 34 new
 policy/checkpoint cases pass, and independent review found no remaining issues.
+
+The compatibility release is deployed from commit
+`32e1d173b54664c06b45aaebee6f8e56f06bbd0b`, image
+`novel-os-backend:publication-policy-32e1d173b`. It preserved 47,732 files and 16
+SQLite tables against its fresh backup, including changes the author made
+between the two releases. The running container accepts all 17 historical
+publication artifacts. Fresh browser navigation shows the project without
+alerts; project, task, chapters and story APIs return HTTP 200 in 0.14–0.24
+seconds. The target remains paused, with 103 chapters and no active job. Release
+evidence and image-only rollback configuration are in
+`output/publication-policy-release-20261114/`.
