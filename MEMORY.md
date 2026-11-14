@@ -1,10 +1,14 @@
 # Novel OS 项目记忆
 
-## 2026-11-14：动态 Genre/Tags 交付回执读取修复，待安全上线
+## 2026-11-14 15:20：动态 Genre/Tags 交付回执修复已上线，原任务已恢复
 
 任务 `ac3f15f6efff` 已 completed/delivery.package，选中封面后的 ZIP 独立验收通过，148 项来源哈希均一致。`delivery_validation_version` 来自生成端使用 dynamic-taxonomy 目标、读取端只接受旧静态 PROFILE。已复用共享 `export_target()`，按已绑定 manifest/classification 解析目标与能力，下载再比对独立 ZIP 检查报告。保留静态/无分类兼容、来源/包哈希校验、只读缓存，畸形分类安全返回交付冲突。169 项影响集回归通过，1 项外部固定 H5 源码验收跳过。实际包通过修复后只读验证，SHA `75940a9d4079e75e96219fde766c056ebec4524ba62c2fc61ed34b7a45d9993d` 未变。未重生成正文、封面、ZIP或调用模型。
 
-准备上线时发现 `fac096deaf31` 正在运行并复用已保存章节，须再次核对实时作业；不可按后文历史 paused 状态重启。发布准备位于 `output/delivery-profile-release-20261114/`；详见 [报告](docs/reports/2026-11-14-delivery-profile-validation.md)。本条此时尚未部署。
+作者已明确同意“安全暂停后部署，再继续原任务”。通过原暂停 API 发出请求后，等待 `fac096deaf31` 的旧作业完全退出（07:17:21 UTC）；确认原任务 paused/book.check、无未知模型请求、21 个项目及讨论/封面作业空闲，才进行备份和切换。47,732 个文件和 SQLite 16 表部署前后一致。固定提交 `e93c1e41cafb76ca41dbca5a93c551570266dd70` 已部署为 `novel-os-backend:delivery-profile-e93c1e41c`，镜像 SHA `c2a138eff7c6fbde1e146cc2878f995ff542a69d25394bff59c6d4a81758e279`；前端未替换，代理已重载，环境/端口/挂载不变。
+
+线上 ac3f15f6efff 交付为 ready，实际 ZIP GET 200（12,905,880 字节），SHA 和 148 项来源完全未变，不需要重建。随后通过原 resume API 单次恢复 fac096deaf31，新作业 `a1265c8fb6fd4d6ebe3bb53cdac569d4` 为 running、job.error=null；103 章 promotion 记录及 104 项正文/输入哈希保持。验收时恢复正执行本地完整性核验，原 run.json 尚为 paused/book.check 并保留先前取消消息，API 根据活动作业显示 running；这不是新作业报错，也不能说出版已完成。后续先读实时状态，切勿重复提交恢复。
+
+另发现既有暂停响应偏慢：book.check 的来源核验按章重复读取全部 promotion 记录，循环内缺少取消检查，暂停要等该段本地工作结束；本轮未扩大代码修复范围、未强杀工作线程。发布证据、备份及回滚配置位于 `output/delivery-profile-release-20261114/`；回滚只切换镜像，不覆盖后续创作数据。详见 [报告](docs/reports/2026-11-14-delivery-profile-validation.md)。
 
 ## 2026-11-14 14:42：出版语言策略历史兼容补强已部署
 
