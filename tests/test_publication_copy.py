@@ -8,6 +8,8 @@ from core.publication_copy import (
     PublicationCopy,
     canonical_json_bytes,
     count_publication_units,
+    canonicalize_publication_language,
+    publication_length_policy,
     parse_publication_copy,
     validate_publication_candidate,
 )
@@ -243,6 +245,40 @@ def test_english_other_space_delimited_and_cjk_counters_use_contract_units():
     assert count_publication_units("one two three four five six seven eight", "en-US") == (
         "words",
         8,
+    )
+
+
+@pytest.mark.parametrize(
+    ("language", "canonical"),
+    [
+        ("简体中文", "zh-CN"),
+        ("中文", "zh-CN"),
+        ("Chinese", "zh-CN"),
+        ("zh_CN", "zh-CN"),
+        ("繁體中文", "zh-TW"),
+        ("日本語", "ja-JP"),
+        ("한국어", "ko-KR"),
+        ("英文", "en-US"),
+        ("English", "en-US"),
+    ],
+)
+def test_publication_language_display_aliases_use_canonical_policy(language, canonical):
+    assert canonicalize_publication_language(language) == canonical
+    assert count_publication_units("她必须保护女儿，离开谎言。", language) == (
+        "content_characters",
+        11,
+    ) if canonical.startswith(("zh", "ja", "ko")) else True
+
+
+def test_chinese_display_language_uses_content_character_bounds():
+    assert count_publication_units("她必须保护女儿，离开谎言。", "简体中文") == (
+        "content_characters",
+        11,
+    )
+    assert publication_length_policy("简体中文") == (
+        "content_characters",
+        (16, 60),
+        (200, 650),
     )
 
 

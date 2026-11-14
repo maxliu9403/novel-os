@@ -752,12 +752,38 @@ def parse_publication_copy(raw: bytes | str) -> PublicationCopy:
     return PublicationCopy.from_dict(_object(value, "publication copy"))
 
 
+_PUBLICATION_LANGUAGE_ALIASES = {
+    # Author-facing metadata historically used display labels while newer
+    # records use BCP-47 locale identifiers. Keep the stored value unchanged;
+    # this mapping is only for deterministic publication policies.
+    "zh": "zh-CN", "zh-cn": "zh-CN", "zh-hans": "zh-CN",
+    "zh-sg": "zh-CN", "zh-my": "zh-CN", "chinese": "zh-CN",
+    "simplified chinese": "zh-CN", "简体中文": "zh-CN", "中文": "zh-CN", "普通话": "zh-CN",
+    "zh-tw": "zh-TW", "zh-hk": "zh-TW", "zh-hant": "zh-TW",
+    "traditional chinese": "zh-TW", "繁体中文": "zh-TW", "繁體中文": "zh-TW",
+    "ja": "ja-JP", "ja-jp": "ja-JP", "japanese": "ja-JP", "日文": "ja-JP", "日本語": "ja-JP",
+    "ko": "ko-KR", "ko-kr": "ko-KR", "korean": "ko-KR", "韩文": "ko-KR", "韓文": "ko-KR", "한국어": "ko-KR",
+    "en": "en-US", "en-us": "en-US", "en-gb": "en-GB", "english": "en-US",
+    "english (us)": "en-US", "英文": "en-US", "英语": "en-US",
+}
+
+
+def canonicalize_publication_language(language: str) -> str:
+    """Resolve display-language aliases without changing persisted metadata."""
+
+    if not isinstance(language, str) or not language.strip():
+        raise ValueError("publication language must be a nonblank string")
+    value = language.strip()
+    key = value.casefold().replace("_", "-")
+    return _PUBLICATION_LANGUAGE_ALIASES.get(key, value)
+
+
 def count_publication_units(text: str, language: str) -> tuple[str, int]:
     """Count publication copy using the locale's LanguageLengthPolicy v1 unit."""
 
     if not isinstance(text, str):
         raise ValueError("publication text must be a string")
-    locale = (language or "").casefold()
+    locale = canonicalize_publication_language(language).casefold()
     if locale.startswith(("zh", "ja", "ko")):
         return "content_characters", sum(
             1
@@ -769,7 +795,7 @@ def count_publication_units(text: str, language: str) -> tuple[str, int]:
 
 
 def _length_bounds(language: str) -> tuple[tuple[int, int], tuple[int, int]]:
-    if (language or "").casefold().startswith(("zh", "ja", "ko")):
+    if canonicalize_publication_language(language).casefold().startswith(("zh", "ja", "ko")):
         return (16, 60), (200, 650)
     return (8, 30), (100, 320)
 
@@ -789,7 +815,7 @@ def _word_tokens(text: str) -> list[str]:
 
 
 def _repetition_units(text: str, language: str) -> list[str]:
-    locale = (language or "").casefold()
+    locale = canonicalize_publication_language(language).casefold()
     if not locale.startswith(("zh", "ja", "ko")):
         return _word_tokens(text)
     normalized = unicodedata.normalize("NFKC", text).casefold()
@@ -1012,6 +1038,7 @@ __all__ = [
     "PublicationValidation",
     "PublicationCopy",
     "parse_publication_copy",
+    "canonicalize_publication_language",
     "count_publication_units",
     "canonical_json_bytes",
     "validate_publication_candidate",

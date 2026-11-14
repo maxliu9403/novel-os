@@ -577,6 +577,17 @@ def test_reader_guide_prompt_requires_conflict_cathartic_rewards_and_open_hook()
     assert "not vague genre mood" in guardian
 
 
+def test_writer_prompt_selects_budget_for_display_language_without_cross_locale_rules():
+    chinese = " ".join(_writer_system_prompt("简体中文").split())
+    english = " ".join(_writer_system_prompt("English").split())
+    assert "CJK content-character policy" in chinese
+    assert "hook_lead: 16-60 content characters" in chinese
+    assert "English hook_lead: 8-30 words" not in chinese
+    assert "word policy" in english
+    assert "hook_lead: 8-30 words" in english
+    assert "content-character policy" not in english
+
+
 def test_unsupported_claim_repair_prompt_requires_candidate_removal():
     prompt = _repair_prompt(
         _writer_candidate(

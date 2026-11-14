@@ -1,5 +1,15 @@
 # Novel OS 项目记忆
 
+## 2026-11-14：项目详情加载与中文出版长度修复已实现，待部署
+
+作者询问 5174 的 fac096 项目页面为何打不开。本轮只读复现：宿主网络下 HTML、全部 JS、health、chapters、story 均 200；浏览器持续“正在加载作品详情”，项目详情及任务 GET 各 20 秒超时，后端约 97% CPU。沙箱 curl 的连接失败不能当成服务故障。当前镜像仍 `candidate-evidence-822822a97`，容器健康，未重启或修改运行数据。
+
+根因采样为 `task_runtime → pipeline_request_recovery.projection → _state → authority → _stage_input_hashes(publication.copy) → build_publication_source_set → 每章 PromotionService.load_receipt → 全部 journal/receipt 重核验`。只读状态页面误触发全书执行级核验，并随章节数重复扫描。当前恢复指针属于已完成的 `chapter.validate/103`，probe 已 resolved；独立验证该历史请求完整回执仅 0.032 秒。应先识别已完成且阶段/章节不同的历史请求，避免在纯展示路径重建当前全书 authority；真实恢复、同阶段、未知请求、损坏回执仍须完整验证。尚未改业务代码或部署。
+
+实时落盘状态已推进：`fac096deaf31` 的 103 个 `chapter.promote` 均 done，`ending.review` 与 `book.check` done。北京时间 11 月 14 日 08:51 暂停在 `publication.copy`，错误 `publication copy remained invalid after two repair attempts: hook_lead_length`。这与页面性能故障分开；未恢复任务、未调用模型，不能继续沿用上节“outline running”的旧状态。
+
+本地修复已完成，尚未部署或重启：只读状态投影会先验证已绑定回执，若回执已有完整结果且明确属于更早阶段，则不重建当前阶段的全书出版来源和提交记录；真正恢复、同阶段、未知结果、未完成探针及损坏记录仍走完整校验。`简体中文`、`中文`、`Chinese` 等历史显示语言通过共享规范化映射到 CJK 字符计数，出版长度、重复检测和模型写作提示使用同一策略，原始语言字段与历史请求字节不变。专项相关回归通过，相关模块共 100% 通过；全量运行仍有与本次无关的环境基线失败（受众样例、Telemetry 和 Gemini SDK 依赖），不能据此宣称全量绿色。待完成固定快照发布后，再用真实页面和任务接口复核加载时间及数据不变。
+
 ## 2026-11-13 22:28 候选数值证据修复已上线，fac096 已恢复
 
 5174 后端正在使用提交 `822822a97`。第 2 组全书核查已完成并提出 3 项问题。混合修订分类器随后两次引用了候选中值为整数 102 的卷高潮章号和派生到期章号。旧校验器只接受文本，导致原计划卡住。新协议对照实际可见的 JSON 字段核验类型和值，将全局章号的可写路径与章节的可写范围分开；已发旧请求复用其已绑定的最新纠正。系统按主章号重建派生到期章号，后续复审继续检验故事。1,012 项相关回归及最终 57 项专项通过。

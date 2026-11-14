@@ -372,6 +372,66 @@ def test_completed_capture_retires_fence_for_later_stage(native):
     assert len(n['calls']) == 2
 
 
+def _mark_saved_response(native):
+    """Turn the fixture's bound request into a completed historical pointer."""
+    receipt = native['receipts'][0]
+    record = json.loads(receipt.read_text())
+    response = 'A complete saved response for the earlier stage'
+    record.update(state='received', response=response,
+                  response_sha256=hashlib.sha256(response.encode()).hexdigest())
+    receipt.write_text(json.dumps(record))
+    root = recovery_host.directory(native['project'], native['manifest']['run_id'])
+    probe = root / 'probe.json'
+    if probe.exists():
+        probe.unlink()
+
+
+def test_read_only_projection_skips_current_full_book_authority_for_stale_completed_pointer(
+    native, monkeypatch
+):
+    """A project card must not scan publication receipts for an old completed request."""
+    n = native
+    _mark_saved_response(n)
+    manifest = json.loads(n['path'].read_text())
+    manifest.update(current_phase='chapter.write', current_chapter=1)
+    n['path'].write_text(json.dumps(manifest))
+    import core.pipeline_runner as core_runner
+    original = core_runner.PipelineRunner._stage_input_hashes
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('read-only recovery projection rebuilt current stage authority')
+
+    monkeypatch.setattr(core_runner.PipelineRunner, '_stage_input_hashes', staticmethod(forbidden))
+    response = n['client'].get(n['url'])
+    assert response.status_code == 200, response.text
+    assert response.json()['request_recovery'] is None
+    # Restore the method explicitly for callers that inspect this fixture after
+    # the assertion; the monkeypatch fixture still restores it at test exit.
+    monkeypatch.setattr(core_runner.PipelineRunner, '_stage_input_hashes', original)
+
+
+def test_read_only_projection_keeps_full_authority_for_same_stage_pointer(native, monkeypatch):
+    n = native
+    _mark_saved_response(n)
+    bound = json.loads((recovery_host.directory(n['project'], n['manifest']['run_id']) /
+                        'current.json').read_text())['authority']
+    manifest = json.loads(n['path'].read_text())
+    manifest.update(current_phase=bound['phase'], current_chapter=bound.get('chapter'))
+    n['path'].write_text(json.dumps(manifest))
+    import core.pipeline_runner as core_runner
+    original = core_runner.PipelineRunner._stage_input_hashes
+    calls = []
+
+    def observed(*args, **kwargs):
+        calls.append((args, kwargs))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(core_runner.PipelineRunner, '_stage_input_hashes', staticmethod(observed))
+    response = n['client'].get(n['url'])
+    assert response.status_code == 200, response.text
+    assert calls, 'same-stage pointer must retain full authority verification'
+
+
 def test_capture_marker_storage_failure_cannot_offer_paid_retry(native, monkeypatch):
     n = native
     root, _ = start_probe(n)

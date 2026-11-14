@@ -90,8 +90,21 @@ def _captured(record):
     return {'pointer_sha256': record['sha256'], 'request': record['request']}
 
 
-def _state(project, manifest):
+def _state(project, manifest, *, projection_only=False):
+    """Read the request binding, optionally without rebuilding current stage inputs.
+
+    Project cards are read frequently while a run is in a later stage.  A
+    completed request bound to an earlier stage cannot affect that projection;
+    rebuilding the current stage authority in that case used to walk every
+    publication receipt in the book.  The execution paths keep the default
+    full validation and authority construction.
+    """
     value = manifest.to_dict() if hasattr(manifest, 'to_dict') else manifest
+    # Keep the manifest contract validation on the lightweight branch.  The
+    # optimization skips only stage-input construction, never run identity or
+    # schema checks.
+    from .pipeline_models import RunManifest
+    RunManifest.from_dict(value)
     root = directory(project, value['run_id'])
     probe = _read_probe(root)  # Always validate before considering any pointer.
     pointer = root / 'current.json'
@@ -100,15 +113,28 @@ def _state(project, manifest):
         raise RequestRecoveryError('恢复记录不能是别名。')
     if probe is None and not pointer.exists():
         return root, None, None, None, None
-    current = authority(project, manifest)
+    current = None
     if pointer.exists():
         if not pointer.is_file() or pointer.stat().st_size > 128_000:
             raise RequestRecoveryError('恢复记录无效。')
         record = json.loads(pointer.read_text())
-        bound = record['authority']
-        recovery = project_request_recovery(project, pointer, bound)
-        if not isinstance(bound, dict) or bound.get('host') != 'novel' or bound.get('run_id') != current['run_id']:
+        bound = record.get('authority') if isinstance(record, dict) else None
+        if (not isinstance(bound, dict) or bound.get('host') != 'novel'
+                or bound.get('run_id') != value.get('run_id')
+                or not isinstance(bound.get('phase'), str)
+                or ('chapter' in bound and bound.get('chapter') is not None
+                    and type(bound.get('chapter')) is not int)):
             raise RequestRecoveryError('恢复请求不属于当前任务。')
+        recovery = project_request_recovery(project, pointer, bound)
+        # A completed pointer from a different stage is historical evidence for
+        # the UI only.  It is safe to skip the expensive current authority
+        # construction because _project will discard the stale completion.
+        if (projection_only and recovery and recovery.get('response_available')
+                and (probe is None or probe.get('resolved') is True)
+                and (bound.get('phase'), bound.get('chapter')) !=
+                    (value.get('current_phase'), value.get('current_chapter'))):
+            return root, None, probe, record, recovery
+    current = authority(project, manifest)
     if probe and not probe['resolved']:
         captured = probe.get('captured')
         if captured is not None and (record is None or captured != _captured(record)
@@ -137,7 +163,7 @@ def _project(current, probe, record, recovery):
 
 def projection(project, manifest):
     try:
-        _, current, probe, record, recovery = _state(project, manifest)
+        _, current, probe, record, recovery = _state(project, manifest, projection_only=True)
         return _project(current, probe, record, recovery)
     except (OSError, ValueError, KeyError, TypeError, RuntimeError, AttributeError):
         return {'can_resume': False, 'can_retry_unknown': False, 'reason': 'invalid_binding',
@@ -146,7 +172,10 @@ def projection(project, manifest):
 
 def needs_probe(project, manifest):
     value = manifest.to_dict() if hasattr(manifest, 'to_dict') else manifest
-    _, _, probe, _, _ = _state(project, manifest)
+    # This helper is used by read-only task-card projection.  It must retain
+    # the binding checks, while avoiding a second current-stage authority walk
+    # after projection() has already established a completed stale pointer.
+    _, _, probe, _, _ = _state(project, manifest, projection_only=True)
     return not probe['resolved'] if probe else 'RequestOutcomeUnknown:' in (value.get('error') or '')
 
 
