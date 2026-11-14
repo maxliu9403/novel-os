@@ -15,6 +15,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
+try:
+    from core.projection_events import observes
+except ImportError:
+    from projection_events import observes
 
 try:  # Package import in API/tests; top-level import in the legacy CLI path.
     from .cover_models import CoverCandidate, CoverSet
@@ -99,6 +103,7 @@ class PackageResult:
     file_count: int
 
 
+@observes(lambda project_path, **kwargs: project_path, "delivery")
 def build_delivery_package(
     project_path: str | Path,
     *,

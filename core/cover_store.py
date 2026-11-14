@@ -14,6 +14,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
+try:
+    from core.projection_events import observes
+except ImportError:
+    from projection_events import observes
 
 try:
     from .cover_models import CoverCandidate, CoverSet
@@ -332,8 +336,8 @@ class CoverStore:
                 ):
                     raise CoverConflict("Ready candidate retry provenance is incomplete")
 
-    @staticmethod
-    def _write_json(path: Path, payload: dict) -> None:
+    @observes(lambda self, *args, **kwargs: self.project_path, "cover", "delivery")
+    def _write_json(self, path: Path, payload: dict) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         body = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
         fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)

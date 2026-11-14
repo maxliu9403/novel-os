@@ -4,7 +4,7 @@ import { api, type ProjectSummary, type ProjectCoverSummary } from "../api/clien
 import StatusPill from "./StatusPill";
 import Icon from "./Icon";
 import DeliveryPackageButton from "./DeliveryPackageButton";
-import { formatProjectTaskTime, projectTaskStatusLabel } from "../lib/projectTasks";
+import { formatProjectTaskTime, projectTaskPhaseLabel, projectTaskStatusLabel } from "../lib/projectTasks";
 import { COVER_STATUS_LABELS } from "../lib/projectCovers";
 import "../styles/library.css";
 const COVER_ACTIONS: Record<ProjectCoverSummary["status"], string> = {
@@ -29,7 +29,15 @@ export default function ProjectCard({ p, onDelete, onResume, onDeliveryChanged }
   const [failedImage, setFailedImage] = useState<string | null>(null);
   const started = formatProjectTaskTime(p.task_started_at);
   const coverStatus = p.cover?.status ?? "not_started";
-  const imageUrl = api.assetUrl(p.cover?.image_url);
+  // Cards only use background-built derivatives. The original remains available
+  // in the cover studio and delivery; a missing derivative is a normal placeholder.
+  const imageUrl = api.assetUrl(p.cover?.thumbnail_url ?? p.cover?.thumbnail_urls?.["256"]);
+  const imageSrcSet = p.cover?.thumbnail_urls
+    ? Object.entries(p.cover.thumbnail_urls).map(([width, url]) => `${api.assetUrl(url)} ${width}w`).join(", ")
+    : p.cover?.thumbnail_srcset?.split(",").map((source) => {
+      const [url, width] = source.trim().split(/\s+/);
+      return `${api.assetUrl(url)} ${width}`;
+    }).join(", ");
   const showImage = imageUrl && imageUrl !== failedImage;
 
   async function resume() {
@@ -46,7 +54,8 @@ export default function ProjectCard({ p, onDelete, onResume, onDeliveryChanged }
     <article className="glass-card library-book" aria-label={p.title}>
       <div className={`library-book__jacket library-book__jacket--${jacketFor(p.id)}`}>
         {showImage ? <img src={imageUrl} alt={`${p.title}的${p.cover?.image_kind === "selected" ? "选定封面" : "候选封面"}`}
-          loading="lazy" onError={() => setFailedImage(imageUrl)} /> : (
+          srcSet={imageSrcSet} sizes="(max-width: 639px) 74px, 124px" width="124" height="186"
+          decoding="async" loading="lazy" onError={() => setFailedImage(imageUrl)} /> : (
           <div className="library-book__typeset" aria-hidden="true">
             <span>NOVEL OS<br />MANUSCRIPT</span>
             <b><span>{p.title.charAt(0)}</span><span>{p.title.slice(1)}</span></b>
@@ -62,7 +71,7 @@ export default function ProjectCard({ p, onDelete, onResume, onDeliveryChanged }
         <div className="library-book__byline">{p.genre || "未设置类型"}{p.author ? ` / ${p.author}` : ""}</div>
         <h2 className="library-book__title" title={p.title}>{p.title}</h2>
         {p.source && <Link className="library-book__source" to={`/source-books?source=${encodeURIComponent(p.source.source_id)}${p.source.analysis_sha256 ? `&version=${encodeURIComponent(p.source.analysis_sha256)}` : ''}`}>参考资料 · {p.source.title}</Link>}
-        <p className="library-book__words">{(p.word_count ?? 0).toLocaleString("zh-CN")} 字 <span>·</span> 已写 {p.drafted_count ?? 0}/{p.chapter_count} 章
+        <p className="library-book__words">{(p.word_count ?? 0).toLocaleString("zh-CN")} {p.count_unit === "words" ? "词" : "字"} <span>·</span> 已写 {p.drafted_count ?? 0}/{p.chapter_count} 章
           {p.content_rating === "mature" && <span className="library-book__rating">成人内容</span>}
         </p>
         <dl className="library-book__statuses">
@@ -70,6 +79,9 @@ export default function ProjectCard({ p, onDelete, onResume, onDeliveryChanged }
           <div><dt>封面</dt><dd><span className="library-cover-status" data-status={coverStatus} title={p.cover?.detail}>
             {COVER_STATUS_LABELS[coverStatus]}</span></dd></div>
         </dl>
+        {p.freshness && p.freshness !== "fresh" && <p className="library-book__freshness" title={p.observed_at ? `最近同步：${p.observed_at}` : undefined}>
+          {p.freshness === "unavailable" ? "摘要暂不可用，已保存资料仍保留" : p.freshness === "rebuilding" ? "正在整理作品摘要" : "摘要更新中"}
+        </p>}
         {p.cover?.detail && <p className="library-book__cover-note">{p.cover.detail}</p>}
         <div className="library-book__actions">
           {/* This native link covers the card in CSS; sibling controls stay above it. */}
@@ -88,6 +100,7 @@ export default function ProjectCard({ p, onDelete, onResume, onDeliveryChanged }
           <summary>任务信息</summary>
           <p><span>任务 ID：</span><span className="break-all font-mono" title={p.task_id ?? undefined}>{p.task_id || "—"}</span></p>
           <p>{started ? <>启动 <time dateTime={p.task_started_at ?? undefined}>{started}</time></> : "启动时间未知"}</p>
+          {p.task_phase && <p>阶段：{projectTaskPhaseLabel(p.task_phase)}</p>}
         </details>
       </div>
       {onDelete && <details ref={menuRef} className="library-book__menu">

@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Command } from "cmdk";
 import { AnimatePresence, motion } from "motion/react";
-import { api, type ProjectSummary, type ChapterSummary, type SearchHit } from "../api/client";
+import { api, type LibraryNavigation, type ChapterSummary, type SearchHit } from "../api/client";
 import { displayLabel } from "../lib/displayLabels";
+import { libraryResource } from "../lib/libraryResource";
 
 function currentProjectId(pathname: string): string | null {
   const m = pathname.match(/^\/projects\/([^/]+)/);
@@ -13,7 +14,7 @@ function currentProjectId(pathname: string): string | null {
 export default function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [projects, setProjects] = useState<LibraryNavigation["items"]>([]);
   const [chapters, setChapters] = useState<ChapterSummary[]>([]);
   const [hits, setHits] = useState<SearchHit[]>([]);
   const navigate = useNavigate();
@@ -40,12 +41,27 @@ export default function CommandPalette() {
 
   useEffect(() => {
     if (!open) return;
-    api.projects().then(setProjects).catch(() => setProjects([]));
     const pid = currentProjectId(location.pathname);
     // No project in scope means the Chapters group is hidden by `pid &&` below,
     // so there is nothing to clear here.
     if (pid) api.chapters(pid).then(setChapters).catch(() => setChapters([]));
   }, [open, location.pathname]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void libraryResource.context().then(() => {
+        if (cancelled) return;
+        setProjects(libraryResource.cachedNavigation(query));
+        return api.libraryNavigation(query.trim(), { signal: controller.signal }).then((result) => {
+          if (!cancelled) setProjects(result.items);
+        });
+      }).catch(() => { /* Keep already cached navigation on transient errors. */ });
+    }, query ? 180 : 0);
+    return () => { cancelled = true; window.clearTimeout(timer); controller.abort(); };
+  }, [open, query]);
 
   const pid = currentProjectId(location.pathname);
   const searchable = open && !!pid && query.trim().length >= 2;
@@ -149,6 +165,7 @@ export default function CommandPalette() {
                   <Group heading="作品">
                     {projects.map((p) => (
                       <Item key={p.id} value={`project ${p.title} ${p.genre}`}
+                            keywords={[query]}
                             onSelect={() => go(`/projects/${p.id}`)}>
                         {p.title}
                         <span className="ml-2 text-[12px] text-ink-muted">{p.genre}</span>
@@ -179,10 +196,11 @@ function Group({ heading, children }: { heading: string; children: React.ReactNo
   );
 }
 
-function Item({ children, onSelect, value }: { children: React.ReactNode; onSelect: () => void; value?: string }) {
+function Item({ children, onSelect, value, keywords }: { children: React.ReactNode; onSelect: () => void; value?: string; keywords?: string[] }) {
   return (
     <Command.Item
       value={value}
+      keywords={keywords}
       onSelect={onSelect}
       className="flex cursor-pointer items-center rounded-xl px-3 py-2.5 text-[14px] text-ink-text data-[selected=true]:bg-[rgba(104,103,234,0.1)] data-[selected=true]:text-[var(--color-violet)]"
     >

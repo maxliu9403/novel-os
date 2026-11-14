@@ -19,6 +19,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+try:
+    from core.projection_events import observes
+except ImportError:
+    from projection_events import observes
 
 try:
     import fcntl
@@ -336,6 +340,7 @@ class ArtifactStore:
         self._write_heads(heads, revision_id=revision_id)
         return head
 
+    @observes(lambda self, *args, **kwargs: self.project_root, "chapters")
     def _put_bytes(
         self,
         *,
@@ -638,6 +643,7 @@ class ArtifactStore:
             heads[key] = head
         return heads
 
+    @observes(lambda self, *args, **kwargs: self.project_root, "chapters", "delivery")
     def _write_heads(
         self,
         heads: Mapping[Tuple[int, str], ArtifactHead],

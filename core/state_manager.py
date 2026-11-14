@@ -12,6 +12,10 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Optional, Any
 from pathlib import Path
 from identity_constraints import render_identity_constraints, state_identity_constraints
+try:
+    from core.projection_events import observes, notify as notify_projection
+except ImportError:  # direct core script entry points
+    from projection_events import observes, notify as notify_projection
 
 # core/ is on sys.path rather than being a package, so siblings import by
 # top-level name (see the header of api/services.py).
@@ -443,6 +447,7 @@ class StoryState:
             node.status = migrate_status(ch.status)
 
 
+    @observes(lambda self: self.project_path, "metadata", "chapters")
     def save_state(self):
         """Save current state to disk."""
         # Keep the tree in step with the flat chapters on every write, so the
@@ -1036,6 +1041,7 @@ def initialize_project(
     project_path: str, title: str, genre: str, *, author: str = "", language: str = "",
 ) -> StoryState:
     """Initialize a new novel project with default state."""
+    is_new = not (Path(project_path) / "outputs/state/story_state.json").exists()
     state = StoryState(project_path)
     
     # Set metadata
@@ -1061,6 +1067,8 @@ def initialize_project(
     
     # Save initial state
     state.save_state()
+    if is_new:
+        notify_projection(project_path, kind="created")
     
     return state
 

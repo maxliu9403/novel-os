@@ -458,7 +458,21 @@ just want to look around.
 | `NOVEL_OS_PROJECTS_DIR` | Where projects live (default `./projects`) |
 | `NOVEL_OS_MEDIA_DIR` | Uploaded images (default `./media`) |
 | `NOVEL_OS_DB` | SQLite by default; Postgres by changing the URL |
+| `NOVEL_OS_LIBRARY_DB` | Optional SQLite URL for the rebuildable library catalog. Defaults to the API's SQLite file; with Postgres, defaults to `sqlite:///./novel_os.library.sqlite`. Put it on a persistent volume in deployed environments. |
 | `NOVEL_OS_CORS_ORIGINS` | Comma-separated browser origins (default: Vite's 5173 and 5174) |
+
+The library uses paginated persisted summaries (`/api/library`) and bounded
+incremental updates, rather than loading manuscript text for every visit.
+Existing books appear through background discovery and read-only backfill;
+cards show synchronization state while summaries are being built. Count and
+thumbnail caches live beside the query database. They never replace original
+manuscripts, covers, outlines, or checkpoints. Downloads and task recovery
+continue to run their authoritative checks. The legacy `/api/projects` endpoint
+remains available for existing clients.
+
+See the [library query design](docs/design/2026-11-14-library-performance.md)
+and [implementation/validation report](docs/reports/2026-11-14-library-query-model.md)
+for consistency semantics, isolated benchmarks, and rollout limitations.
 
 ### Docker deployment
 

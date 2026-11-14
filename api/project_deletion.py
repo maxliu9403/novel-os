@@ -17,6 +17,7 @@ from .jobs import JobRunner, ProjectJobsRunning
 from .media import MediaStore
 from .project_operations import project_operations
 from .services import ProjectNotFound, ProjectService
+from core.projection_events import notify as notify_projection
 
 
 class ProjectDeletionError(RuntimeError):
@@ -176,7 +177,15 @@ class ProjectDeletionService:
             # jobs carrying this resolved path are refused.  Commit before the
             # first destructive side effect so cleanup failures stay retryable
             # without reopening the project to ordinary mutations.
-            self.jobs.prepare_project_deletion(project_id, str(path))
+            new_fence = self.jobs.prepare_project_deletion(project_id, str(path))
+            # Persist the query tombstone before the first destructive effect.
+            # Required delivery prevents an in-flight indexer from resurrecting
+            # a partly deleted project after a process restart.
+            try:
+                notify_projection(path, kind="deleted", required=True)
+            except Exception as exc:
+                self.jobs.rollback_project_deletion_preparation(str(path), new_fence=new_fence)
+                raise ProjectDeletionError("无法保存作品库删除记录，作品尚未删除，请稍后重试。") from exc
             lease.commit(expected_title)
 
             project_deleted = False
@@ -189,6 +198,11 @@ class ProjectDeletionService:
                 media_deleted = self.media_store.delete_project(project_id)
                 db.project_data_delete(project_id)
                 cleared_previews = ProjectService.clear_consequence_previews(project_id)
+                # Derived images live beside the catalog, not in project/media
+                # storage. Purge after the deletion commit so a cleanup failure
+                # remains a fenced, retryable deletion rather than reopening
+                # an intact project after its catalog tombstone was committed.
+                notify_projection(path, kind="purged", required=True)
             except Exception as exc:  # noqa: BLE001 - retain both safety fences
                 raise ProjectDeletionError(
                     f"Project {project_id!r} was not completely deleted: {exc}"

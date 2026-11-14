@@ -180,7 +180,7 @@ test.each([
 });
 
 test("identifies candidate preview and keeps its review status after image failure", () => {
-  renderCard({ cover: { status: "needs_attention", detail: "需要修复", image_kind: "candidate", image_url: "/api/image.jpg", candidate_count: 4 } });
+  renderCard({ cover: { status: "needs_attention", detail: "需要修复", image_kind: "candidate", image_url: "/api/image.jpg", thumbnail_url: "/api/image-256.webp", candidate_count: 4 } });
   const image = screen.getByRole("img", { name: "最后的信号的候选封面" });
   expect(screen.getByText("候选预览")).toBeInTheDocument();
   fireEvent.error(image);
@@ -196,4 +196,21 @@ test("keeps task identity behind an optional disclosure", () => {
   fireEvent.click(screen.getByText("任务信息"));
   expect(details).toHaveAttribute("open");
   expect(screen.getByText(project.task_id!)).toBeVisible();
+});
+
+test("uses only generated thumbnails with responsive dimensions, never the full cover as fallback", () => {
+  const view = renderCard({ count_unit: "words", word_count: 3200,
+    cover: { status: "selected", image_kind: "selected", image_url: "/original-multimegabyte.png", detail: "", candidate_count: 1 } });
+  expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  expect(screen.getByText(/3,200 词/)).toBeInTheDocument();
+  view.rerender(<MemoryRouter><ProjectCard p={{ ...project, cover: {
+    status: "selected", image_kind: "selected", detail: "", candidate_count: 1,
+    image_url: "/original.png", thumbnail_url: "/thumb-256.webp", thumbnail_urls: { "160": "/thumb-160.webp", "256": "/thumb-256.webp", "384": "/thumb-384.webp" },
+  } }} /></MemoryRouter>);
+  const image = screen.getByRole("img");
+  expect(image).toHaveAttribute("decoding", "async");
+  expect(image).toHaveAttribute("loading", "lazy");
+  expect(image.getAttribute("srcset")).toContain("256w");
+  expect(image.getAttribute("src")).not.toContain("original");
+  expect(image).toHaveAttribute("height", "186");
 });

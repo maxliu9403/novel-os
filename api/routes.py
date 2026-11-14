@@ -46,6 +46,7 @@ from .project_deletion import (
     ProjectDeletionService,
 )
 from .project_operations import ProjectMutationBlocked, project_operations
+from core.projection_events import change as projection_change
 
 
 def get_service() -> ProjectService:
@@ -95,7 +96,7 @@ def _guard_project_mutation(
         return
 
     try:
-        with project_operations.mutation(project_path):
+        with project_operations.mutation(project_path), projection_change(project_path):
             yield
     except ProjectMutationBlocked as exc:
         raise _project_job_blocked_http() from exc

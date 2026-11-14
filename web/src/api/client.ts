@@ -60,6 +60,9 @@ export interface ProjectCoverSummary {
   cover_set_id: string | null;
   candidate_id: string | null;
   candidate_count: number;
+  thumbnail_url?: string | null;
+  thumbnail_srcset?: string;
+  thumbnail_urls?: Record<string, string>;
 }
 
 export interface ProjectDeliverySummary {
@@ -80,7 +83,50 @@ export interface ProjectSummary {
   target_word_count?: number; session_word_target?: number;
   cover?: ProjectCoverSummary;
   delivery?: ProjectDeliverySummary;
+  language?: string;
+  count_unit?: "words" | "characters";
+  library_revision?: number;
+  live_revision?: number;
+  live_boot_epoch?: string;
+  epoch?: number;
+  freshness?: "fresh" | "stale" | "rebuilding" | "unavailable";
+  observed_at?: string | null;
 }
+
+export interface LibraryQuery {
+  q?: string; status?: string; cover?: string; sort?: string;
+  cursor?: string | null; limit?: number;
+}
+export interface LibraryPage {
+  items: ProjectSummary[];
+  next_cursor: string | null;
+  total: number;
+  filtered_total: number;
+  collection_revision: string;
+  changes_cursor: string;
+  observed_at: string | null;
+  catalog_status: string;
+  scope: string;
+  etag?: string;
+}
+export interface LibraryChanges {
+  items: ProjectSummary[];
+  deleted: Array<{ id: string; epoch: number; revision: number }>;
+  reset_required: boolean;
+  membership_changed: boolean;
+  has_more: boolean;
+  changes_cursor: string;
+  collection_revision: string;
+  scope: string;
+  observed_at: string | null;
+  catalog_status: string;
+}
+export interface LibraryNavigation {
+  items: Array<Pick<ProjectSummary, "id" | "title" | "genre">>;
+  scope: string;
+  collection_revision: string;
+}
+export interface LibraryRequestOptions { signal?: AbortSignal; etag?: string }
 
 export interface ChapterSummary {
   number: number; title: string; status: string; word_count: number; pov: string;
@@ -1077,6 +1123,37 @@ async function get<T>(path: string): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
+// Catalog requests have their own deadline and cancellation boundary. Aborting
+// one query never cancels a novel worker or a mutation on the server.
+async function libraryGet<T>(path: string, options: LibraryRequestOptions = {}): Promise<T | null> {
+  const controller = new AbortController();
+  const cancel = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) cancel();
+  else options.signal?.addEventListener("abort", cancel, { once: true });
+  const timer = window.setTimeout(() => controller.abort(new Error("作品库响应超时，请重试。")), 15_000);
+  try {
+    const response = await fetch(`${BASE}${path}`, {
+      signal: controller.signal,
+      headers: options.etag ? { "If-None-Match": options.etag } : undefined,
+      cache: "no-cache",
+    });
+    if (response.status === 304) return null;
+    if (!response.ok) throw await responseError(response);
+    return await response.json() as T;
+  } finally {
+    window.clearTimeout(timer);
+    options.signal?.removeEventListener("abort", cancel);
+  }
+}
+
+function libraryQueryString(query: LibraryQuery): string {
+  const params = new URLSearchParams();
+  Object.entries(query).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return params.toString();
+}
+
 async function send<T>(path: string, method: "POST" | "PUT" | "PATCH", body?: unknown): Promise<T> {
   const resp = await fetch(`${BASE}${path}`, {
     method,
@@ -1191,6 +1268,23 @@ export const api = {
     send<MethodReviewData["decisions"][number]>(`/api/projects/${id}/method-reviews/${report_id}/keep`, "POST", { revision_id, finding_index }),
 
   projects: () => get<ProjectSummary[]>("/api/projects"),
+  libraryContext: (options: LibraryRequestOptions = {}) =>
+    libraryGet<{ scope: string }>("/api/library/context", options).then((value) => {
+      if (!value) throw new Error("作品库作用域响应为空。");
+      return value;
+    }),
+  library: (query: LibraryQuery = {}, options: LibraryRequestOptions = {}) =>
+    libraryGet<LibraryPage>(`/api/library?${libraryQueryString(query)}`, options),
+  libraryChanges: (after: string, options: LibraryRequestOptions = {}) =>
+    libraryGet<LibraryChanges>(`/api/library/changes?after=${encodeURIComponent(after)}&limit=100`, options).then((value) => {
+      if (!value) throw new Error("作品库增量响应为空。");
+      return value;
+    }),
+  libraryNavigation: (q = "", options: LibraryRequestOptions = {}) =>
+    libraryGet<LibraryNavigation>(`/api/library/navigation?q=${encodeURIComponent(q)}&limit=20`, options).then((value) => {
+      if (!value) throw new Error("作品库导航响应为空。");
+      return value;
+    }),
   project: (id: string) => get<ProjectDetail>(`/api/projects/${id}`),
   projectTask: (id: string, runId: string) =>
     get<ProjectTaskDetail>(`/api/projects/${encodeURIComponent(id)}/tasks/${encodeURIComponent(runId)}`),

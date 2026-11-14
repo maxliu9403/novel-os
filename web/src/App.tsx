@@ -23,6 +23,13 @@ const CreativeTypes = lazy(() => import("./routes/CreativeTypes"));
 
 function AnimatedRoutes() {
   const location = useLocation();
+  // A cached library is a navigation surface: show it immediately instead of
+  // waiting for the previous editor's exit animation and replaying 20 cards.
+  if (location.pathname === "/") return (
+    <Suspense fallback={<div className="px-10 py-12 text-ink-muted">正在加载作品库…</div>}>
+      <ProjectsList />
+    </Suspense>
+  );
   return (
     <AnimatePresence mode="wait">
       <motion.div

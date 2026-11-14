@@ -1,4 +1,6 @@
 import os
+import inspect
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -69,7 +71,8 @@ def _cors_origins() -> list[str]:
 
 def create_app(projects_root: Optional[Path] = None, db_url: Optional[str] = None,
                media_root: Optional[Path] = None) -> FastAPI:
-    db.configure(db_url or os.environ.get("NOVEL_OS_DB") or "sqlite:///./novel_os.db")
+    database_url = db_url or os.environ.get("NOVEL_OS_DB") or "sqlite:///./novel_os.db"
+    db.configure(database_url)
 
     # Apply Studio LLM settings (if any) before first agent job.
     try:
@@ -79,7 +82,26 @@ def create_app(projects_root: Optional[Path] = None, db_url: Optional[str] = Non
     except Exception:
         pass
 
-    app = FastAPI(title="Novel OS API", version=__version__)
+    from .library_runtime import LibraryRuntime
+    library_runtime = LibraryRuntime(database_url)
+
+    @asynccontextmanager
+    async def lifespan(application):
+        # Discovery/backfill is a bounded background job, never a startup
+        # barrier or fallback in GET /library. Resolve overrides for tests and
+        # tenant-specific app factories just like the project routes do.
+        provider = application.dependency_overrides.get(get_service, get_service)
+        service = provider()
+        if inspect.isawaitable(service):
+            service = await service
+        library_runtime.start(service)
+        try:
+            yield
+        finally:
+            library_runtime.stop()
+
+    app = FastAPI(title="Novel OS API", version=__version__, lifespan=lifespan)
+    app.state.library_runtime = library_runtime
     from core.creative_types import CreativeTypeError
     from .creative_types import router as creative_types_router
     async def creative_type_error(_request, error: CreativeTypeError):
@@ -120,6 +142,8 @@ def create_app(projects_root: Optional[Path] = None, db_url: Optional[str] = Non
     app.include_router(project_reader_router)
     app.include_router(project_story_router)
     app.include_router(router)
+    from .library_routes import router as library_router
+    app.include_router(library_router)
     app.include_router(workshop_router)
     from .costs import router as costs_router
     app.include_router(costs_router)

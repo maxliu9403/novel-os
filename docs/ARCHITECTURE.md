@@ -60,6 +60,19 @@ Novel OS deliberately keeps **two** stores and an ingest bridge between them:
    Postgres is supported by URL (`postgresql+psycopg://…`); SQLite-only
    `connect_args` are applied only for `sqlite:` URLs. Story truth stays on disk.
 
+   The library has a separate scoped read model (`api/library_catalog.py`):
+   `library_*` tables store card summaries, change cursors, durable rebuild work,
+   component counts, and deletion epochs. `api/library_indexer.py` performs
+   bounded read-only reconciliation; HTTP queries never read manuscripts or ZIPs.
+   Commit observers invalidate summaries, and periodic discovery compensates for
+   external edits or lost notifications. Final/revised/draft counts bind to their
+   actual source versions. Card certificates are observations, never authority
+   for download or resume. `NOVEL_OS_LIBRARY_DB` can place this SQLite projection
+   separately, including for a Postgres-backed API. Derivative images are stored
+   beside it and are purged with project deletion. The existing process-local
+   job registry supplies one scoped snapshot shared by filters, counts and ETags;
+   this does not enable multi-process API workers.
+
 3. **Ingest bridge** (`db.ingest_project`). After agents produce files, reading a
    chapter's stages mirrors non-Final files into `Artifact` rows. For Final,
    ingest reads the content-addressed artifact head; a stale legacy file cannot
@@ -72,7 +85,8 @@ Novel OS deliberately keeps **two** stores and an ingest bridge between them:
    truncate. No vector database — embeddings deferred to P4 semantic search.
 
 5. **Keyword search** (`GET /api/projects/{id}/search?q=`). Ranked substring/token
-   hits over characters, Codex, chapter titles, and relationships. Powers ⌘K.
+   hits over characters, Codex, chapter titles, and relationships. Project-level
+   ⌘K navigation uses `/api/library/navigation` and can search unloaded pages.
    Postgres FTS can replace the scorer later behind the same route.
 
 ### Why two stores?

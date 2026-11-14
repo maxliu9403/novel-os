@@ -8,6 +8,10 @@ import os
 from pathlib import Path
 import tempfile
 from zipfile import BadZipFile, ZipFile
+try:
+    from core.projection_events import observes
+except ImportError:
+    from projection_events import observes
 
 try:
     from .cover_store import CoverStore
@@ -45,6 +49,7 @@ def tracks_delivery(cover_set):
     return bool(cover_set and cover_set.selected_candidate_id)
 
 
+@observes(lambda project_path, *args, **kwargs: project_path, "delivery")
 def record_delivery(project_path, cover_set, status, *, error="", archive_sha256=""):
     """Caller holds delivery_lock so selection, projection and status are ordered."""
     value = {"schema_version": 1, **_binding(cover_set), "status": status,

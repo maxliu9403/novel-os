@@ -13,8 +13,12 @@ from core.usage_tracking import usage_scope
 
 import threading
 import uuid
+from collections import defaultdict, deque
+from copy import deepcopy
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable, Optional
+from core.projection_events import notify as notify_projection
 
 
 def _now() -> str:
@@ -54,6 +58,11 @@ class JobRunner:
         self._blocked_project_paths: set[str] = set()
         # Workshop ids are server-generated UUIDs, also used by cover jobs.
         self._blocked_session_ids: set[str] = set()
+        self._boot_epoch = uuid.uuid4().hex
+        self._scope_revisions: dict[str, int] = defaultdict(int)
+        self._scope_changes: dict[str, deque] = defaultdict(lambda: deque(maxlen=512))
+        self._visible_jobs: dict[str, dict[tuple[str, str], str]] = defaultdict(dict)
+        self._active_jobs: dict[str, set[str]] = defaultdict(set)
 
     def submit(
         self,
@@ -96,6 +105,9 @@ class JobRunner:
                 "_defer_cancel_completion": defer_cancel_completion,
                 "cancel_requested": False,
             }
+            self._record_change_locked(self._jobs[job_id])
+
+        notify_projection(project_path, "task", "cover")
 
         def run() -> None:
             try:
@@ -127,10 +139,12 @@ class JobRunner:
                 return False
             job["_cancel_event"].set()
             job["cancel_requested"] = True
-            if job.get("_defer_cancel_completion"):
-                return True
-            job.update(status="error", error="任务已暂停。", finished_at=_now(), _cancelled=True)
-            return True
+            if not job.get("_defer_cancel_completion"):
+                job.update(status="error", error="任务已暂停。", finished_at=_now(), _cancelled=True)
+            self._record_change_locked(job)
+            project_path = job.get("project_path", "")
+        notify_projection(project_path, "task", "cover")
+        return True
 
     def running_for_project(
         self, project_id: str, *, project_path: str = ""
@@ -168,13 +182,13 @@ class JobRunner:
                     return self._copy_job(job)
         return None
 
-    def prepare_project_deletion(self, project_id: str, project_path: str) -> None:
+    def prepare_project_deletion(self, project_id: str, project_path: str) -> bool:
         """Atomically reject active work and fence the path from new work.
 
         The fence intentionally remains after deletion.  This prevents a
         request that prepared a callable just before deletion from submitting
-        it afterward and recreating files.  Deleted ids are never reused, so
-        project creation must not clear this fence.
+        it afterward and recreating files. Deleted paths are never reused in
+        this process; a later process can explicitly create a new catalog epoch.
         """
         with self._lock:
             running = [
@@ -185,7 +199,19 @@ class JobRunner:
             ]
             if running:
                 raise ProjectJobsRunning(project_id, running)
+            new_fence = project_path not in self._blocked_project_paths
             self._blocked_project_paths.add(project_path)
+            return new_fence
+
+    def rollback_project_deletion_preparation(self, project_path: str, *, new_fence: bool) -> None:
+        """Undo only this attempt's fence before any destructive commit.
+
+        Caller must still hold the project deletion lease. A retry of an
+        already-committed deletion must never remove its older fence.
+        """
+        if new_fence:
+            with self._lock:
+                self._blocked_project_paths.discard(project_path)
 
     @staticmethod
     def _matches_project(job: dict, project_id: str, project_path: str) -> bool:
@@ -196,6 +222,7 @@ class JobRunner:
         return job.get("project_id") == project_id
 
     def _update(self, job_id: str, **fields) -> None:
+        project_path = ""
         with self._lock:
             job = self._jobs.get(job_id)
             if job and not job.get("_cancelled"):
@@ -209,6 +236,52 @@ class JobRunner:
                     fields["meta"] = merged
                 job.update(fields)
                 job["finished_at"] = _now()
+                self._record_change_locked(job)
+                project_path = job.get("project_path", "")
+        notify_projection(project_path, "task", "cover", "delivery")
+
+    def _record_change_locked(self, job: dict) -> None:
+        """Version one root's visible operation state under the registry lock."""
+        raw_path = job.get("project_path")
+        if not raw_path:
+            # Legacy id-only jobs cannot be safely assigned to a tenant/root.
+            return
+        path = Path(raw_path).resolve()
+        scope = str(path.parent)
+        project_id = path.name
+        job_id = job["job_id"]
+        self._scope_revisions[scope] += 1
+        self._visible_jobs[scope][(project_id, str(job.get("kind", "")))] = job_id
+        if job.get("status") == "running":
+            self._active_jobs[scope].add(job_id)
+        else:
+            self._active_jobs[scope].discard(job_id)
+        self._scope_changes[scope].append({
+            "revision": self._scope_revisions[scope],
+            "project_id": project_id,
+            "job": deepcopy(self._copy_job(job)),
+        })
+
+    def library_snapshot(self, root: str | Path) -> dict:
+        """One detached, immutable-in-use snapshot for rows, filters and ETags.
+
+        Only latest per-kind operations plus still-active operations are read;
+        historical jobs are never rescanned once per library card. Revisions
+        are root-local, so activity in another library cannot reveal itself.
+        """
+        scope = str(Path(root).resolve())
+        with self._lock:
+            revision = self._scope_revisions.get(scope, 0)
+            changes = list(self._scope_changes.get(scope, ()))
+            ids = set(self._visible_jobs.get(scope, {}).values())
+            ids.update(self._active_jobs.get(scope, ()))
+            return {
+                "boot_epoch": self._boot_epoch,
+                "revision": revision,
+                "jobs": [deepcopy(self._copy_job(self._jobs[key])) for key in sorted(ids)],
+                "changes": deepcopy(changes),
+                "oldest_revision": changes[0]["revision"] - 1 if changes else revision,
+            }
 
     @staticmethod
     def _safe_result_meta(result: object) -> dict:

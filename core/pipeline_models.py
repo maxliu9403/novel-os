@@ -17,6 +17,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 try:
+    from core.projection_events import observes
+except ImportError:
+    from projection_events import observes
+try:
     from .reader_investment import snapshot as reader_snapshot, validate as validate_reader_policy
 except ImportError:  # Standalone CLI imports before the repository is on sys.path.
     from reader_investment import snapshot as reader_snapshot, validate as validate_reader_policy
@@ -237,6 +241,7 @@ class ManifestStore:
     def __init__(self, path: Path | str):
         self.path = Path(path)
 
+    @observes(lambda self, manifest: manifest.spec.project_path, "task")
     def save(self, manifest: RunManifest) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd, temp_name = tempfile.mkstemp(

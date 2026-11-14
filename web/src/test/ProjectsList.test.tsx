@@ -1,18 +1,26 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { afterEach, vi } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 import ProjectsList from "../routes/ProjectsList";
 import * as client from "../api/client";
-import { TASK_POLL_INTERVAL_MS } from "../lib/projectTasks";
+import { LIBRARY_ACTIVE_INTERVAL as TASK_POLL_INTERVAL_MS, libraryResource } from "../lib/libraryResource";
+import { libraryDelta, mockLibrary } from "./libraryFixtures";
+
+beforeEach(() => {
+  libraryResource.reset();
+  vi.spyOn(client.api, "libraryContext").mockResolvedValue({ scope: "test-library" });
+  vi.spyOn(client.api, "libraryChanges").mockResolvedValue(libraryDelta());
+});
 
 afterEach(() => {
+  libraryResource.reset();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
 test("combines keyword and separate writing/cover filters with an empty-state reset", async () => {
-  vi.spyOn(client.api, "projects").mockResolvedValue([
+  mockLibrary([
     { id: "book-a", title: "Moonlit Garden", author: "Alice", genre: "Mystery", chapter_count: 3, status: "completed",
       cover: { status: "needs_attention", detail: "需修复", candidate_count: 4 } },
     { id: "book-b", title: "The Other Shore", author: "Bob", genre: "Drama", chapter_count: 2, status: "running",
@@ -22,21 +30,21 @@ test("combines keyword and separate writing/cover filters with an empty-state re
   render(<MemoryRouter><ProjectsList /></MemoryRouter>);
   await screen.findByRole("heading", { name: "Moonlit Garden" });
   fireEvent.change(screen.getByRole("searchbox", { name: "搜索作品" }), { target: { value: "ALICE" } });
-  expect(screen.getAllByRole("article")).toHaveLength(1);
+  await waitFor(() => expect(screen.getAllByRole("article")).toHaveLength(1));
   fireEvent.change(screen.getByRole("combobox", { name: "正文状态" }), { target: { value: "completed" } });
   fireEvent.change(screen.getByRole("combobox", { name: "封面状态" }), { target: { value: "needs_attention" } });
-  expect(screen.getAllByRole("article")).toHaveLength(1);
-  expect(screen.getByText("1 / 2 部作品")).toBeInTheDocument();
+  await waitFor(() => expect(screen.getAllByRole("article")).toHaveLength(1));
+  expect(await screen.findByText("1 / 2 部作品")).toBeInTheDocument();
   fireEvent.change(screen.getByRole("combobox", { name: "封面状态" }), { target: { value: "selected" } });
-  expect(screen.queryByRole("article")).not.toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByRole("article")).not.toBeInTheDocument());
   expect(screen.getByRole("heading", { name: "没有符合条件的作品" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "清除筛选" }));
-  expect(screen.getAllByRole("article")).toHaveLength(2);
+  await waitFor(() => expect(screen.getAllByRole("article")).toHaveLength(2));
   expect(screen.getByRole("searchbox")).toHaveValue("");
 });
 
 test("restores filters from the address", async () => {
-  vi.spyOn(client.api, "projects").mockResolvedValue([
+  mockLibrary([
     { id: "book-a", title: "Garden", genre: "Mystery", chapter_count: 3, status: "completed",
       cover: { status: "needs_attention", detail: "需修复", candidate_count: 4 } },
     { id: "book-b", title: "Shore", genre: "Drama", chapter_count: 2, status: "completed" },
@@ -44,7 +52,7 @@ test("restores filters from the address", async () => {
   vi.spyOn(client.api, "studioLlm").mockRejectedValue(new Error("not configured"));
   render(<MemoryRouter initialEntries={["/?q=Garden&cover=needs_attention&manuscript=completed"]}><ProjectsList /></MemoryRouter>);
   await screen.findByRole("heading", { name: "Garden" });
-  expect(screen.getAllByRole("article")).toHaveLength(1);
+  await waitFor(() => expect(screen.getAllByRole("article")).toHaveLength(1));
   expect(screen.getByRole("searchbox")).toHaveValue("Garden");
   expect(screen.getByRole("combobox", { name: "封面状态" })).toHaveValue("needs_attention");
 });
@@ -52,8 +60,8 @@ test("restores filters from the address", async () => {
 test("polls active cover work after writing has completed", async () => {
   const project: client.ProjectSummary = { id: "cover-book", title: "封面正在处理", genre: "Drama", chapter_count: 2, status: "completed",
     cover: { status: "processing", detail: "后台处理中", candidate_count: 4 } };
-  const list = vi.spyOn(client.api, "projects").mockResolvedValueOnce([project])
-    .mockResolvedValue([{ ...project, cover: { status: "awaiting_review", detail: "等待确认", candidate_count: 4 } }]);
+  const list = mockLibrary([project]);
+  vi.mocked(client.api.libraryChanges).mockResolvedValue(libraryDelta([{ ...project, cover: { status: "awaiting_review", detail: "等待确认", candidate_count: 4 } }]));
   vi.spyOn(client.api, "studioLlm").mockRejectedValue(new Error("not configured"));
   vi.useFakeTimers();
   await act(async () => { render(<MemoryRouter><ProjectsList /></MemoryRouter>); });
@@ -61,11 +69,11 @@ test("polls active cover work after writing has completed", async () => {
   await act(async () => { await vi.advanceTimersByTimeAsync(TASK_POLL_INTERVAL_MS); });
   expect(screen.getByText("待确认")).toBeInTheDocument();
   await act(async () => { await vi.advanceTimersByTimeAsync(TASK_POLL_INTERVAL_MS * 3); });
-  expect(list).toHaveBeenCalledTimes(2);
+  expect(list).toHaveBeenCalledTimes(1);
 });
 
 test("new novel opens the workshop directly without the old creation form", async () => {
-  vi.spyOn(client.api, "projects").mockResolvedValue([]);
+  mockLibrary([]);
   vi.spyOn(client.api, "studioLlm").mockRejectedValue(new Error("not configured"));
   const create = vi.spyOn(client.api, "createProject");
   render(<MemoryRouter><Routes><Route path="/" element={<ProjectsList />} /><Route path="/workshop" element={<h1>一起把故事想完整</h1>} /></Routes></MemoryRouter>);
@@ -76,7 +84,7 @@ test("new novel opens the workshop directly without the old creation form", asyn
 });
 
 test("renders project cards in the task-start order returned by the API", async () => {
-  vi.spyOn(client.api, "projects").mockResolvedValue([
+  mockLibrary([
     {
       id: "the-last-signal", title: "The Last Signal", genre: "Sci-Fi", chapter_count: 3,
       status: "completed", task_id: "latest-run", task_started_at: "2026-10-08T10:00:00Z",
@@ -105,10 +113,10 @@ test("resumes the existing run and refreshes cards until the durable task become
     id: "retry-book", title: "可以恢复的作品", genre: "科幻", chapter_count: 3,
     status: "failed", task_id: "original-run", task_can_resume: true,
   };
-  const list = vi.spyOn(client.api, "projects")
-    .mockResolvedValueOnce([project])
-    .mockResolvedValueOnce([{ ...project, status: "running", task_can_resume: false }])
-    .mockResolvedValue([{ ...project, status: "completed", task_can_resume: false }]);
+  const list = mockLibrary([project]);
+  vi.mocked(client.api.libraryChanges)
+    .mockResolvedValueOnce(libraryDelta([{ ...project, status: "running", task_can_resume: false }]))
+    .mockResolvedValue(libraryDelta([{ ...project, status: "completed", task_can_resume: false }]));
   vi.spyOn(client.api, "studioLlm").mockRejectedValue(new Error("not configured"));
   const resume = vi.spyOn(client.api, "resumeProjectTask").mockResolvedValue({ job_id: "job-resume", status: "running", run_id: "original-run" });
   render(<MemoryRouter><ProjectsList /></MemoryRouter>);
@@ -123,7 +131,7 @@ test("resumes the existing run and refreshes cards until the durable task become
   expect(screen.getByText("已完成")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "恢复重试" })).not.toBeInTheDocument();
   await act(async () => { await vi.advanceTimersByTimeAsync(TASK_POLL_INTERVAL_MS * 3); });
-  expect(list).toHaveBeenCalledTimes(3);
+  expect(list).toHaveBeenCalledTimes(1);
 });
 
 test("previews and permanently deletes every resource owned by a project", async () => {
@@ -134,7 +142,7 @@ test("previews and permanently deletes every resource owned by a project", async
     chapter_count: 3,
     status: "in_progress",
   };
-  vi.spyOn(client.api, "projects").mockResolvedValue([project]);
+  mockLibrary([project]);
   vi.spyOn(client.api, "studioLlm").mockRejectedValue(new Error("not configured"));
   const preview = vi.spyOn(client.api, "projectDeletionPreview").mockResolvedValue({
     project_id: project.id,
@@ -193,7 +201,7 @@ test("blocks deletion while a project task is running", async () => {
     chapter_count: 2,
     status: "in_progress",
   };
-  vi.spyOn(client.api, "projects").mockResolvedValue([project]);
+  mockLibrary([project]);
   vi.spyOn(client.api, "studioLlm").mockRejectedValue(new Error("not configured"));
   vi.spyOn(client.api, "projectDeletionPreview").mockResolvedValue({
     project_id: project.id,
@@ -227,7 +235,7 @@ test("keeps the project visible when permanent deletion fails", async () => {
     chapter_count: 1,
     status: "in_progress",
   };
-  vi.spyOn(client.api, "projects").mockResolvedValue([project]);
+  mockLibrary([project]);
   vi.spyOn(client.api, "studioLlm").mockRejectedValue(new Error("not configured"));
   vi.spyOn(client.api, "projectDeletionPreview").mockResolvedValue({
     project_id: project.id,

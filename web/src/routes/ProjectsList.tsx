@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "motion/react";
 import {
@@ -13,18 +13,11 @@ import Modal, { Field, fieldClass } from "../components/Modal";
 import Scene from "../components/Scene";
 import Icon from "../components/Icon";
 import { useToast } from "../components/toastContext";
-import { isProjectTaskRunning, TASK_POLL_INTERVAL_MS } from "../lib/projectTasks";
-
-const grid = { hidden: {}, show: { transition: { staggerChildren: 0.045 } } };
-const card = {
-  hidden: { opacity: 0, y: 10 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: [0.2, 0.8, 0.2, 1] as const } },
-};
+import { libraryResource } from "../lib/libraryResource";
+import { useLibrary } from "../lib/useLibrary";
 
 export default function ProjectsList() {
-  const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [llm, setLlm] = useState<StudioLlmStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
   const [sampleBusy, setSampleBusy] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
@@ -32,8 +25,6 @@ export default function ProjectsList() {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
-  const [refreshError, setRefreshError] = useState<string | null>(null);
-  const requestVersion = useRef(0);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
@@ -54,63 +45,34 @@ export default function ProjectsList() {
       return next;
     }, { replace: true });
   }
-  const filteredProjects = projects?.filter((project) => {
-    const searchMatch = [project.title, project.author, project.genre, project.task_id]
-      .filter(Boolean).join(" ").toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
-    const manuscriptMatch = manuscriptFilter === "all"
-      || (manuscriptFilter === "completed" && project.status === "completed")
-      || (manuscriptFilter === "writing" && ["running", "pending", "queued", "in_progress"].includes(project.status))
-      || (manuscriptFilter === "draft" && project.status === "draft")
-      || (manuscriptFilter === "attention" && ["failed", "paused", "interrupted", "cancelled"].includes(project.status));
-    return searchMatch && manuscriptMatch && (coverFilter === "all" || (project.cover?.status ?? "not_started") === coverFilter);
-  }) ?? [];
-
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(query), 250);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+  const libraryQuery = useMemo(() => ({ q: debouncedQuery, status: manuscriptFilter, cover: coverFilter, limit: 20 }), [debouncedQuery, manuscriptFilter, coverFilter]);
+  const library = useLibrary(libraryQuery);
+  const projects = library.items;
+  const error = library.error;
+  const refreshError = library.refreshError;
+  const scrollKey = JSON.stringify(libraryQuery);
+  useLayoutEffect(() => {
+    const saved = libraryResource.scrollPosition(JSON.parse(scrollKey));
+    const container = document.querySelector<HTMLElement>("#main");
+    if (container) container.scrollTop = saved;
+    else if (saved) window.scrollTo(0, saved);
+    return () => libraryResource.saveScroll(JSON.parse(scrollKey), container?.scrollTop ?? window.scrollY);
+  }, [scrollKey]);
   useEffect(() => {
     let cancelled = false;
-    const version = ++requestVersion.current;
-    api.projects().then((next) => {
-      if (!cancelled && version === requestVersion.current) setProjects(next);
-    }).catch((e) => {
-      if (!cancelled) setError(String(e));
-    });
-    api.studioLlm().then(setLlm).catch(() => setLlm(null));
+    api.studioLlm().then((value) => { if (!cancelled) setLlm(value); }).catch(() => undefined);
     return () => { cancelled = true; };
   }, []);
-
-  const hasRunningTasks = projects?.some((project) => isProjectTaskRunning(project.status) || project.cover?.status === "processing" || project.delivery?.status === "pending") ?? false;
-  useEffect(() => {
-    if (!hasRunningTasks) return;
-    let cancelled = false;
-    let timer: number;
-    async function refresh() {
-      const version = ++requestVersion.current;
-      try {
-        const next = await api.projects();
-        if (cancelled || version !== requestVersion.current) return;
-        setProjects(next);
-        setRefreshError(null);
-      } catch (e) {
-        if (!cancelled) setRefreshError(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (!cancelled) timer = window.setTimeout(refresh, TASK_POLL_INTERVAL_MS);
-      }
-    }
-    timer = window.setTimeout(refresh, TASK_POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [hasRunningTasks]);
 
   async function resumeProject(project: ProjectSummary) {
     if (!project.task_id || !project.task_can_resume) return;
     await api.resumeProjectTask(project.id, project.task_id);
-    // Ignore any list response that was already in flight before this submit.
-    requestVersion.current += 1;
-    setProjects((current) => current?.map((item) => item.id === project.id
-      ? { ...item, status: "running", task_can_resume: false }
-      : item) ?? current);
-    setRefreshError(null);
+    libraryResource.patch(project.id, { status: "running", task_can_resume: false, task_error: null });
     toast("已提交恢复，正在校验并复用原任务的有效进度", "info");
   }
 
@@ -172,7 +134,7 @@ export default function ProjectsList() {
     setDeleteError(null);
     try {
       await api.deleteProject(deleteTarget.id, deletePreview.title);
-      setProjects((current) => current?.filter((project) => project.id !== deleteTarget.id) ?? current);
+      libraryResource.remove(deleteTarget.id);
       toast(`《${deletePreview.title}》及其全部资料已永久删除`, "success");
       setDeleteTarget(null);
       setDeletePreview(null);
@@ -190,7 +152,7 @@ export default function ProjectsList() {
     <Scene quiet className="library-scene">
       <div className="workspace-page library-page">
         <motion.div
-          initial={{ opacity: 0, y: 18, scale: 0.97 }}
+          initial={false}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.45, ease: [0.2, 0.8, 0.2, 1] }}
           className="glass-shell library-shell p-3 sm:p-4"
@@ -254,7 +216,7 @@ export default function ProjectsList() {
               </div>
             )}
 
-            {projects && projects.length > 0 && <section className="library-toolbar" aria-label="筛选作品">
+            {(library.total > 0 || query || manuscriptFilter !== "all" || coverFilter !== "all") && <section className="library-toolbar" aria-label="筛选作品">
               <label className="library-search">
                 <Icon name="search" className="h-4 w-4" />
                 <span className="sr-only">搜索作品</span>
@@ -273,17 +235,23 @@ export default function ProjectsList() {
             {error && (
               <div className="mb-4 rounded-2xl border border-[rgba(74,91,133,0.16)] bg-white/80 px-4 py-3 text-[13px] text-ink-text">
                 作品加载失败：{error}
+                <button type="button" onClick={() => void libraryResource.refresh(libraryQuery)} className="library-inline-button ml-3">重新加载</button>
               </div>
             )}
 
             {!error && !projects && <SkeletonGrid />}
+            {projects && library.catalogStatus === "rebuilding" && <p role="status" className="library-sync-note">
+              正在同步作品摘要，已保存的作品会逐步显示。正文和创作任务不受影响。
+            </p>}
+            {projects && library.refreshing && <p role="status" className="library-sync-note">正在更新作品状态…</p>}
+
             {refreshError && (
               <p role="status" className="mb-4 text-[12px] text-[#b84363]">
                 任务状态刷新失败，正在重试：{refreshError}
               </p>
             )}
 
-            {!error && projects && projects.length === 0 && (
+            {!error && projects && library.total === 0 && library.catalogStatus !== "rebuilding" && (
               <div className="rounded-[24px] border border-dashed border-[rgba(74,91,133,0.18)] bg-white/50 px-8 py-14 text-center">
                 <p className="font-display text-[18px] tracking-[-0.02em] text-ink-text">还没有作品</p>
                 <p className="mt-2 text-[13px] text-ink-muted">从书名和作品类型开始创作。</p>
@@ -301,30 +269,27 @@ export default function ProjectsList() {
               </div>
             )}
 
-            {projects && projects.length > 0 && (
+            {projects && library.total > 0 && (
               <>
                 <div className="library-results"><span>{query || manuscriptFilter !== "all" || coverFilter !== "all"
-                  ? `${filteredProjects.length} / ${projects.length} 部作品` : `${projects.length} 部作品`}</span><span>按任务启动时间倒序排列</span></div>
-                {filteredProjects.length === 0 && <div className="library-no-results" role="status">
+                  ? `${library.filteredTotal} / ${library.total} 部作品` : `${library.total} 部作品`}</span><span>按任务启动时间倒序排列</span></div>
+                {projects.length === 0 && <div className="library-no-results" role="status">
                   <h2>没有符合条件的作品</h2><p>试试其他关键词，或清除状态筛选。</p>
                   <button type="button" onClick={clearFilters} className="library-inline-button">清除筛选</button>
                 </div>}
-                <motion.div
-                  variants={grid}
-                  initial="hidden"
-                  animate="show"
-                  className="library-grid"
-                >
-                  {filteredProjects.map((p) => (
-                    <motion.div key={p.id} variants={card}>
-                      <ProjectCard p={p} onDelete={openDelete} onResume={resumeProject} onDeliveryChanged={async () => {
-                        const version = ++requestVersion.current;
-                        const next = await api.projects();
-                        if (version === requestVersion.current) setProjects(next);
-                      }} />
-                    </motion.div>
+                <div className="library-grid" aria-busy={library.refreshing}>
+                  {projects.map((p) => (
+                    <ProjectCard key={`${p.id}:${p.epoch ?? 0}`} p={p} onDelete={openDelete} onResume={resumeProject}
+                      onDeliveryChanged={() => libraryResource.synchronize()} />
                   ))}
-                </motion.div>
+                </div>
+                {library.nextCursor && <div className="library-pagination">
+                  <span>已显示 {projects.length} / {library.filteredTotal} 部</span>
+                  <button type="button" className="btn-secondary" disabled={library.loadingMore}
+                    onClick={() => void libraryResource.load(libraryQuery, true)}>
+                    {library.loadingMore ? "正在加载…" : "加载更多作品"}
+                  </button>
+                </div>}
               </>
             )}
           </div>

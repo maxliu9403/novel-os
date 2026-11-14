@@ -2055,8 +2055,9 @@ Foreshadowing_Planted: …
         n = 2
         folder = base / slug
         while True:
-            state_file = folder / "outputs" / "state" / "story_state.json"
-            if state_file.exists() or project_operations.unavailable(folder):
+            # Residue from an interrupted deletion/import belongs to its old
+            # project even if story_state.json is absent. Allocate a new path.
+            if folder.exists() or project_operations.unavailable(folder):
                 folder = base / f"{slug}-{n}"
                 n += 1
                 continue
@@ -2064,7 +2065,7 @@ Foreshadowing_Planted: …
                 with project_operations.mutation(folder):
                     # A concurrent creator may have won between candidate
                     # selection and the operation gate.
-                    if state_file.exists():
+                    if folder.exists():
                         folder = base / f"{slug}-{n}"
                         n += 1
                         continue

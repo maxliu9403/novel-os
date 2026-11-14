@@ -1,5 +1,31 @@
 # Novel OS domain language
 
+## Library query projection (deployed, 2026-11-14)
+
+A **library summary** is a rebuildable, scoped observation of project metadata,
+effective manuscript counts, saved run state, cover selection and delivery
+receipts. Its freshness and observed time describe the projection, not literary
+approval. Downloads, recovery and promotion still consult their own authority.
+Display counting policy does not migrate accepted publication artifacts.
+
+A **saved run result** is distinct from a **currently active operation**. A
+live resume job can be validating a paused run; that earlier pause message is
+history, not a new worker failure. One immutable, root-scoped registry snapshot
+governs query rows, filters, counts and version markers.
+
+A **catalog tombstone** retains minimal identity and epoch to reject delayed
+index writes. Background discovery cannot revive it. Explicit successful new
+project initialization can create a new epoch; same-named residual directories
+are not reused. Projection construction never creates canonical identities,
+story files or locks. Commit notifications and bounded reconciliation update
+the projection without changing a novel's execution or quality contracts.
+
+An **active selected cover** is bound to its candidate digest, not a reusable
+pending filename. The library verifies the independent selected projection or
+the same digest-matching candidate bytes. Its source policy and dependency
+snapshot invalidate only the affected observation; historical candidate-path
+reuse does not authorize changing original images or skipping integrity checks.
+
 ## Publication counting policy and accepted artifacts (2026-11-14)
 
 New publication candidates use `publication-copy-policy.v4`: display language

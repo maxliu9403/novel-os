@@ -12,6 +12,10 @@ import os
 import re
 import sys
 from pathlib import Path
+try:
+    from core.projection_events import observes
+except ImportError:
+    from projection_events import observes
 
 if sys.platform == "win32":
     try:
@@ -2377,6 +2381,7 @@ certifies delivery after the candidate is reviewed.
     
     # ===== Writing Phase =====
     
+    @observes(lambda self, *args, **kwargs: self.project_path, "chapters")
     def write_chapter(self, chapter_number: int, draft_text: str = "", dry_run: bool = False):
         """Call the Scribe agent to draft the chapter, or accept supplied draft text."""
         self.last_canon_proposal_ids = []
@@ -2493,6 +2498,7 @@ certifies delivery after the candidate is reviewed.
     
     # ===== Editing Phase =====
     
+    @observes(lambda self, *args, **kwargs: self.project_path, "chapters")
     def edit_chapter(self, chapter_number: int, mode: str = "line", dry_run: bool = False):
         """Call the Editor agent to revise the chapter."""
         self.last_canon_proposal_ids = []
