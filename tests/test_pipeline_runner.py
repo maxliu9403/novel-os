@@ -198,7 +198,7 @@ class _PublicationCompletionClient:
                     "late": [{"chapter": last, "source_quote": quote(last)}],
                 },
             })
-        if system.startswith("publication-copy-writer.v3"):
+        if system.startswith("publication-copy-writer.v4"):
             if self.owner.publication_writer_response is not None:
                 return self.owner.publication_writer_response
             return json.dumps({
@@ -917,7 +917,7 @@ def test_stage_order_and_publication_inputs_are_source_bound(tmp_path: Path):
         "publication_copy_policy_sha256",
     }
     assert publication.input_hashes["publication_copy_policy_sha256"] == hashlib.sha256(
-        b"publication-copy-policy.v3"
+        b"publication-copy-policy.v4"
     ).hexdigest()
     assert manifest.get("compile").artifact_paths == [
         "outputs/deliverables/book.md",

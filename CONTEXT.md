@@ -1,5 +1,17 @@
 # Novel OS domain language
 
+## Publication counting policy and accepted artifacts (2026-11-14)
+
+New publication candidates use `publication-copy-policy.v4`: display language
+labels and locale codes share the same length budgets, counting and repetition
+rules. Stored v1-v3 publication artifacts retain their original counting
+semantics and recorded counters; reading or recompiling them is not migration.
+Unknown policies and altered counters fail validation. A completed publication
+checkpoint keeps its original policy only while all other input hashes remain
+unchanged, and its artifact must carry the same policy. Changed approved source
+inputs require current-policy generation. Missing or corrupted accepted copy
+blocks recovery without automatically replacing it, including paused runs.
+
 ## Planning design reference provenance (deployed 2026-11-13)
 
 Source anchors are exact quotations of adopted author material. A design reference identifies a complete string field in a separately saved generated seed, bound to that seed and source, with explicit model provenance. It is historical evidence of the plan's origin, not author testimony, an occurred event, POV knowledge or an immutable obligation. The adopted source and current reviewed design govern execution. References cannot themselves certify story quality.

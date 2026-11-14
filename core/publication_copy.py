@@ -12,7 +12,11 @@ from typing import Any
 
 
 SCHEMA_VERSION = 1
-POLICY_VERSION = "publication-copy-policy.v3"
+POLICY_VERSION = "publication-copy-policy.v4"
+LEGACY_POLICY_VERSIONS = frozenset(
+    f"publication-copy-policy.v{version}" for version in (1, 2, 3)
+)
+SUPPORTED_POLICY_VERSIONS = LEGACY_POLICY_VERSIONS | {POLICY_VERSION}
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _RFC3339 = re.compile(
@@ -525,6 +529,8 @@ class PublicationValidation:
 
     def __post_init__(self) -> None:
         _trimmed_text(self.policy_version, "validation.policy_version")
+        if self.policy_version not in SUPPORTED_POLICY_VERSIONS:
+            raise ValueError("unsupported validation.policy_version")
         _pass_status(self.status, "validation.status")
         if self.length_unit not in {"words", "content_characters"}:
             raise ValueError("validation.length.unit is invalid")
@@ -675,9 +681,18 @@ class PublicationCopy:
             "spoiler_free_blurb",
         ):
             _trimmed_text(getattr(self, name), name)
-        expected_unit, hook_length = count_publication_units(self.hook_lead, self.language)
-        _, blurb_length = count_publication_units(self.spoiler_free_blurb, self.language)
-        hook_bounds, blurb_bounds = _length_bounds(self.language)
+        # Stored counts are part of the immutable artifact. Re-read them under
+        # the policy that certified them, not today's new-generation defaults.
+        policy_version = self.validation.policy_version
+        expected_unit, hook_length = count_publication_units(
+            self.hook_lead, self.language, policy_version=policy_version
+        )
+        _, blurb_length = count_publication_units(
+            self.spoiler_free_blurb, self.language, policy_version=policy_version
+        )
+        hook_bounds, blurb_bounds = _length_bounds(
+            self.language, policy_version=policy_version
+        )
         if not hook_bounds[0] <= hook_length <= hook_bounds[1]:
             raise ValueError(
                 f"hook_lead_length: expected {hook_bounds[0]}-{hook_bounds[1]} {expected_unit}"
@@ -778,12 +793,24 @@ def canonicalize_publication_language(language: str) -> str:
     return _PUBLICATION_LANGUAGE_ALIASES.get(key, value)
 
 
-def count_publication_units(text: str, language: str) -> tuple[str, int]:
-    """Count publication copy using the locale's LanguageLengthPolicy v1 unit."""
+def _policy_locale(language: str, policy_version: str) -> str:
+    if policy_version == POLICY_VERSION:
+        return canonicalize_publication_language(language).casefold()
+    if policy_version in LEGACY_POLICY_VERSIONS:
+        # v1-v3 treated display labels literally. This historical behavior is
+        # only for reading existing validation records; new candidates use v4.
+        return (language or "").casefold()
+    raise ValueError("unsupported validation.policy_version")
+
+
+def count_publication_units(
+    text: str, language: str, *, policy_version: str = POLICY_VERSION
+) -> tuple[str, int]:
+    """Count new copy by default, or verify a persisted policy's exact counts."""
 
     if not isinstance(text, str):
         raise ValueError("publication text must be a string")
-    locale = canonicalize_publication_language(language).casefold()
+    locale = _policy_locale(language, policy_version)
     if locale.startswith(("zh", "ja", "ko")):
         return "content_characters", sum(
             1
@@ -794,8 +821,10 @@ def count_publication_units(text: str, language: str) -> tuple[str, int]:
     return "words", len(token_pattern.findall(text))
 
 
-def _length_bounds(language: str) -> tuple[tuple[int, int], tuple[int, int]]:
-    if canonicalize_publication_language(language).casefold().startswith(("zh", "ja", "ko")):
+def _length_bounds(
+    language: str, *, policy_version: str = POLICY_VERSION
+) -> tuple[tuple[int, int], tuple[int, int]]:
+    if _policy_locale(language, policy_version).startswith(("zh", "ja", "ko")):
         return (16, 60), (200, 650)
     return (8, 30), (100, 320)
 

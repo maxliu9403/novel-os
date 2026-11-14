@@ -61,7 +61,7 @@ except ImportError:  # pragma: no cover - exercised by PYTHONPATH=core callers
 
 
 CONFLICT_PROMPT_VERSION = "whole-book-conflict.v3"
-WRITER_PROMPT_VERSION = "publication-copy-writer.v3"
+WRITER_PROMPT_VERSION = "publication-copy-writer.v4"
 VALIDATOR_PROMPT_VERSION = "publication-copy-validator.v3"
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -777,8 +777,8 @@ resolution."""
 
 def _writer_system_prompt(language: str | None = None) -> str:
     if language is None:
-        # Preserve the historical helper output for replay tests and already
-        # issued prompts. New requests pass the actual metadata language.
+        # Callers without a language still receive both budgets. The generation
+        # service always passes the actual metadata language.
         budget = (
             "Apply these hard length budgets: English hook_lead: 8-30 words; "
             "English spoiler_free_blurb: 100-320 words. CJK hook_lead: "

@@ -65,7 +65,7 @@ class PipelineLLM:
                     "late": [{"chapter": last, "source_quote": quote(last)}],
                 },
             })
-        if system.startswith("publication-copy-writer.v3"):
+        if system.startswith("publication-copy-writer.v4"):
             return json.dumps({
                 "reader_heading": "Before the Story",
                 "hook_lead": (
@@ -1534,7 +1534,7 @@ def test_resume_reloads_bound_canon_proposal_by_id(tmp_path: Path):
     assert all(
         call in {
             "whole-book-conflict.v3",
-            "publication-copy-writer.v3",
+            "publication-copy-writer.v4",
             "publication-copy-validator.v3",
         }
         for call in PipelineLLM.calls[len(before_calls) :]

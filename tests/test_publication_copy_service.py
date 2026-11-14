@@ -471,7 +471,7 @@ def test_generate_requires_three_buckets_and_records_all_model_provenance(tmp_pa
         "conflict_response_sha256": hashlib.sha256(conflict_raw.encode()).hexdigest(),
         "writer_provider": "style-provider",
         "writer_model": "style-model",
-        "writer_prompt_version": "publication-copy-writer.v3",
+        "writer_prompt_version": "publication-copy-writer.v4",
         "writer_response_sha256": hashlib.sha256(writer_raw.encode()).hexdigest(),
         "validator_provider": "guardian-provider",
         "validator_model": "guardian-model",
@@ -816,7 +816,7 @@ def test_semantic_failure_repairs_at_most_twice_without_regenerating_conflict(tm
 
     assert publication_copy.validation.status == "pass"
     assert writer.prompt_versions.count("whole-book-conflict.v3") == 1
-    assert writer.prompt_versions.count("publication-copy-writer.v3") == 3
+    assert writer.prompt_versions.count("publication-copy-writer.v4") == 3
     feedback = sorted(
         (tmp_path / "outputs/runs/run-001/feedback").glob(
             "publication-copy-attempt-*.raw"
@@ -1175,7 +1175,7 @@ def test_long_source_consolidates_different_fragments_and_emits_bound_evidence_l
 
     assert publication_copy.whole_book_core_conflict.to_dict() == _long_conflict()
     assert writer.prompt_versions.count("whole-book-conflict.v3") == 3
-    assert writer.prompt_versions[-1] == "publication-copy-writer.v3"
+    assert writer.prompt_versions[-1] == "publication-copy-writer.v4"
     assert len(guardian.calls) == 4
     assert "group_reports" in guardian.calls[-1][1]
     writer_user = writer.calls[-1][1]

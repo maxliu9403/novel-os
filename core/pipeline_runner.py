@@ -75,6 +75,7 @@ from promotion import PromotionRequest, PromotionService
 from proposals import ProposalStore
 from publication_copy import (
     POLICY_VERSION as PUBLICATION_COPY_POLICY_VERSION,
+    SUPPORTED_POLICY_VERSIONS as SUPPORTED_PUBLICATION_COPY_POLICIES,
     PublicationCopy,
     canonical_json_bytes,
     parse_publication_copy,
@@ -1597,7 +1598,8 @@ class PipelineRunner:
                     "with committed chapter history before resuming.",
                     blocked=True,
                 )
-        if previous and previous.status == "done" and not self._rerun_started:
+        if (previous and previous.status == "done"
+                and (not self._rerun_started or phase == "publication.copy")):
             print(f"Checking saved stage: {stage_label}...", flush=True)
             self._require_quality_gate(manifest.spec.quality_policy, previous)
             self._validate_bound_revision(project, previous)
@@ -1645,6 +1647,16 @@ class PipelineRunner:
                 self._reload_active_state(project)
                 print(f"Reusing completed stage: {stage_label}.", flush=True)
                 return previous
+            if (phase == "publication.copy" and previous.input_hashes
+                    == self._stage_input_hashes(project, phase, chapter, manifest)):
+                # An accepted publication artifact is authority, not a cache to
+                # regenerate if lost. Apply the same rule to interrupted runs
+                # as completed-run repair, before restoring state or buying a
+                # replacement with a newer counting policy.
+                raise PipelineError(
+                    "Completed publication.copy authority is missing or divergent",
+                    blocked=True,
+                )
             if not derived_audit:
                 if self._last_valid_state_snapshot:
                     self._restore_state(project, self._last_valid_state_snapshot)
@@ -2062,9 +2074,32 @@ class PipelineRunner:
                 file_hashes["ending_contract_sha256"] = hashlib.sha256(
                     canonical_json_bytes(ending_contract)
                 ).hexdigest()
-            file_hashes["publication_copy_policy_sha256"] = hashlib.sha256(
+            policy_key = "publication_copy_policy_sha256"
+            policy_hash = hashlib.sha256(
                 PUBLICATION_COPY_POLICY_VERSION.encode("utf-8")
             ).hexdigest()
+            previous = manifest.get("publication.copy")
+            if previous is not None and previous.status == "done":
+                saved_policy = previous.input_hashes.get(policy_key)
+                supported_hashes = {
+                    hashlib.sha256(version.encode("utf-8")).hexdigest()
+                    for version in SUPPORTED_PUBLICATION_COPY_POLICIES
+                }
+                if saved_policy not in supported_hashes:
+                    raise PipelineError(
+                        "Completed publication.copy has an unsupported policy binding",
+                        blocked=True,
+                    )
+                # A software update does not invalidate already reviewed copy.
+                # Changed story/source inputs still trigger new v4 generation;
+                # unchanged inputs retain their original immutable checkpoint.
+                previous_inputs = {
+                    key: value for key, value in previous.input_hashes.items()
+                    if key != policy_key
+                }
+                if previous_inputs == file_hashes:
+                    policy_hash = saved_policy
+            file_hashes[policy_key] = policy_hash
 
         publication_path = project / "outputs/publication/publication-copy.json"
         if phase in {"compile", "delivery.package"} and publication_path.is_file():
@@ -4145,6 +4180,15 @@ class PipelineRunner:
             (chapter.number, chapter.revision_id, chapter.sha256)
             for chapter in publication_copy.source.chapters
         ]
+        publication_stage = manifest.get("publication.copy")
+        if publication_stage is not None and (
+            publication_stage.input_hashes.get("publication_copy_policy_sha256")
+            != hashlib.sha256(publication_copy.validation.policy_version.encode("utf-8")).hexdigest()
+        ):
+            raise PipelineError(
+                "structured publication copy policy differs from its checkpoint",
+                blocked=True,
+            )
         if (
             publication_copy.title != metadata["title"]
             or publication_copy.language != metadata["language"]
